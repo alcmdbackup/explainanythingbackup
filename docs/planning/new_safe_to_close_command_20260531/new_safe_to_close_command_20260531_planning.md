@@ -49,14 +49,15 @@ Two related operational gaps:
 - [ ] **Defensive guard** (R2A #7): `git rev-parse --verify origin/production >/dev/null 2>&1 || YELLOW("origin/production not fetched")` before any check using it
 - [ ] Single `gh pr list --author @me --state open --json number,title,headRefName,baseRefName,isDraft,url,updatedAt` call (one query covers all worktrees)
 - [ ] **Defensive guard** (R2A #10): wrap in `|| YELLOW("gh auth/network failed; PR state unknown")` — never crash
-- [ ] For each worktree branch, classify against the open-PR list:
-  - **Current worktree's branch, PR open, CI passing, approved** → YELLOW ("ready to merge — finalize complete")
-  - **Current worktree's branch, PR open, CI failing or unapproved** → RED ("active work in flight on this worktree")
-  - **Other worktree, PR open, `updatedAt` < 30 days** → RED ("active work in another worktree: $WORKTREE_PATH — PR #N")
-  - **Other worktree, PR open, `updatedAt` ≥ 30 days** → YELLOW ("stale PR in $WORKTREE_PATH — PR #N — last activity $DAYS days ago")
+- [ ] **All open PRs are surfaced — no age-based suppression.** User-feedback override of R2A #1: stale PRs are exactly the kind the user wants surfaced, since "old and forgotten" is the failure mode (cf. the 4 dormant PRs R1A found, including one from March 21). Classification rules:
+  - **Current worktree's branch, PR open, CI passing AND approved** → YELLOW ("ready to merge — finalize complete; PR #N")
+  - **Current worktree's branch, PR open, CI failing OR unapproved** → RED ("active work in flight on this worktree; PR #N")
+  - **Other worktree, PR open (ANY age)** → RED with `$WORKTREE_PATH`, `PR #N`, age (`updatedAt`), draft flag if applicable
+    - If `updatedAt > 30 days` → append annotation "STALE — last activity $DAYS days ago" so the user can decide to close abandoned PRs explicitly. Still RED, never YELLOW.
   - **Branch with commits ahead of `origin/main`, no PR** → YELLOW ("unpushed commits on $WORKTREE_PATH/$BRANCH — was /finalize skipped?")
   - **Branch on `main` or `production`, or merged into either** → silently OK
-- [ ] Draft PRs (`isDraft: true`) count under whichever bucket above applies (R1A §3)
+- [ ] Draft PRs (`isDraft: true`) count under whichever bucket above applies (R1A §3); annotate "(draft)" in the output so the user sees the distinction
+- [ ] Output displays the **full list** of open PRs across all worktrees in a single table — none collapsed or omitted — so the user can do a complete walk-through before closing
 
 ### Phase 3: Plan + finalize-artifact scan (for current worktree)
 - [ ] **Locate planning doc** via `_status.json` reverse-index, preferred over the three-path lookup (R1B §3):
@@ -124,7 +125,7 @@ Two related operational gaps:
   ```
   Safe to Close Verdict
   ──────────────────────────────────────
-  Worktree PR state:        ✓ / ⚠ / ✗
+  Worktree PR state:        ✓ / ⚠ / ✗  (N open across worktrees — full list below)
   Current plan checkboxes:  ✓ / ✗  (N unchecked)
   /finalize artifacts:      ✓ / ⚠ / ✗
   Un-promoted migrations:   ✓ / ✗  (N files, oldest $DAYS days)
@@ -240,7 +241,7 @@ The following docs were identified as relevant and may need updates:
 
 Eight Explore agents launched in two rounds of four. Round 1 mapped the surface (PR/worktree state, plan+finalize contract, migration/backport detection, slash-command conventions). Round 2 went adversarial and forensic (edge cases, doc-update mechanism, exact /initialize diff, postmortem mining of the 62-day drift incident). Key load-bearing decisions documented in "Synthesis of R1+R2" sent to the user, summarized here:
 
-- **PR scan must age-stratify**, not flag every open PR as RED. 30-day cutoff for "active vs stale."
+- **All open PRs surfaced — no age suppression.** (User-feedback override of R2A's age-stratification suggestion: stale-and-forgotten is exactly the failure mode the user wants caught.) PRs > 30 days old are still RED but annotated "STALE — N days" so abandoned PRs surface and require explicit user decision to close.
 - **`_status.json` reverse-index** is the preferred way to find the planning doc, with sort-by-recency for reused branch names.
 - **Template-placeholder checkboxes must be filtered** (`^- \[ \] \[.*\]$`) to avoid false-positive unchecked counts.
 - **CI-gate status map** must be explicit (open=GREEN, pending=YELLOW, closed=RED, unknown=YELLOW).
