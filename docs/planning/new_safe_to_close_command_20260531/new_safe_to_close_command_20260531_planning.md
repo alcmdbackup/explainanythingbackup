@@ -37,11 +37,19 @@ Two related operational gaps:
   ---
   description: Verdict + recommendations on whether the current branch / repo state is safe to close (no open PRs across worktrees, plan complete, finalize artifacts valid, no un-promoted migrations or release-health blockers).
   argument-hint: [--update-docs] [--dry-run]
-  allowed-tools: Bash(git:*), Bash(gh:*), Bash(jq:*), Read, Edit, Write, Glob, Grep, AskUserQuestion
+  allowed-tools: Bash(git:*), Bash(gh:*), Bash(jq:*), Read, Edit, Write, AskUserQuestion
   ---
   ```
+  (Note: `Glob` and `Grep` intentionally omitted — all directory traversal uses Bash `git`/`grep` shell invocations.)
 - [ ] No `.claude/settings.json` change required (commands are auto-discovered from `.claude/commands/*.md` per R1D §5)
+- [ ] **Add `.claude/safe-to-close-verdict.json` to `.gitignore`** as part of this phase. Verified via `grep .gitignore`: existing gate files are individually listed (`.claude/push-gate.json`, `.claude/ci-gate.json`, `.claude/test-pass.json`, `.claude/ci-gate.disabled`) — no wildcard. Add a 5th line so the verdict file follows the same convention. Commit with the safe_to_close.md creation.
 - [ ] Argument parsing: `--update-docs` (opt-in mutation), `--dry-run` (print what would change, mutate nothing)
+- [ ] **Pre-flight checks at the top of the command** (Phase 1.5 inside the markdown spec — fail YELLOW with explicit hint, do not crash):
+  - `gh auth status` succeeds (else YELLOW "Run: gh auth login")
+  - `gh label list --search release-health --json name --jq '.[] | select(.name==\"release-health\")' | grep -q .` (else YELLOW "Label `release-health` missing — Phase 5 issue check will report unknown")
+  - `[ -f .github/workflows/e2e-nightly.yml ]` (else YELLOW "Workflow file renamed — update Phase 5 query")
+  - `git rev-parse --verify origin/main` AND `git rev-parse --verify origin/production` (else YELLOW "Run: git fetch origin main production — Phase 4 will skip until refs are present")
+  - Pre-flight failures do NOT abort the command — they produce a single "Pre-flight warnings" block ABOVE the verdict so the user knows which checks degraded
 
 ### Phase 2: Worktree + PR scan
 - [ ] Enumerate worktrees: `git worktree list --porcelain` → parse `worktree`/`branch` pairs (R1A §1)
@@ -73,22 +81,24 @@ Two related operational gaps:
   - Count `- [ ]` (unchecked) and `- [x]`/`- [X]` (checked) lines **outside** fences
   - **Template-placeholder filter** (R2A #9): exclude lines matching `^- \[ \] \[.*\]$` (literal-bracket placeholders left in from the initialize template)
   - If unchecked > 0 → RED with file:line list
-- [ ] **Gate files** (R1B §2, schemas confirmed):
+- [ ] **Gate files** (R1B §2, schemas confirmed) — every JSON read includes `schema_version` validation; mismatch → YELLOW with "gate file schema_version=N (expected 1) — /safe_to_close may misread; consider upgrading":
   - `.claude/push-gate.json` exists AND `.commit` matches `git rev-parse HEAD` → GREEN; otherwise RED
+    - **Expected `schema_version: 1`** (omit-tolerant: gate files written by current finalize.md don't include schema_version yet; treat missing as v1)
     - If push-gate exists but `.commit` differs from HEAD (R2A #11): RED, but **show the intervening commits inline** so the user can decide:
       ```bash
       git log "$(jq -r .commit .claude/push-gate.json)..HEAD" --oneline
       ```
     - If push-gate missing → RED ("`/finalize` not run on this branch")
-  - `.claude/test-pass.json` exists AND `.commit` matches HEAD AND `.tests | length >= 6` → GREEN; otherwise YELLOW (test-pass.json is optional unlock for ci-gate=closed only)
-  - `.claude/ci-gate.json` — explicit status → color map (R2A #5):
+  - `.claude/test-pass.json` exists AND `.commit` matches HEAD AND `.tests | length >= 6` AND `.schema_version == 1` (or missing) → GREEN; otherwise YELLOW (test-pass.json is optional unlock for ci-gate=closed only)
+  - `.claude/ci-gate.json` — validate `.schema_version == 1` (or missing) first; then explicit status → color map (R2A #5):
     - `"open"` → GREEN
     - `"pending"` → YELLOW ("CI still in progress")
     - `"closed"` → RED ("CI observed failing — see `gh pr checks`")
     - `"unknown"` / missing → YELLOW ("CI state not yet observed")
+  - **`jq` parse failure on any gate file** (corrupted JSON) → YELLOW with the offending file path printed; do NOT crash
 
 ### Phase 4: Post-deploy migrations + backports
-- [ ] **Pre-check** (R2A #7): `git fetch origin main production 2>/dev/null` — silent if offline, then verify both refs exist via `git rev-parse --verify`; YELLOW if either missing
+- [ ] **Pre-check** (R2A #7): already gated by Phase 1.5 pre-flight — if either `origin/main` or `origin/production` failed to resolve there, skip the entire Phase 4 with explicit YELLOW (the verdict row prints "⚠ Phase 4 skipped — refs missing"). Inside Phase 4, do NOT re-fetch (avoid network surprise mid-run); rely on the Phase 1.5 fetch result.
 - [ ] **Un-promoted migrations**: `git diff --name-only origin/production..origin/main -- 'supabase/migrations/*.sql'`
   - Non-empty → RED with file list + age of each (via `git log -1 --format=%ai $FILE`)
   - **Known limitation** (R2A #3, documented inline in command): pure file-presence check, not schema-aware. False positive possible if a migration file was added then deleted; acceptable since false positives are safer than false negatives here.
@@ -166,10 +176,16 @@ Two related operational gaps:
 
 ### Phase 7: Doc-update step (opt-in via `--update-docs`)
 - [ ] Only runs if `--update-docs` flag passed AND `--dry-run` NOT passed
+- [ ] **Pre-flight guards** (all produce YELLOW skip rather than crash):
+  - **Detached HEAD**: `git symbolic-ref -q HEAD >/dev/null 2>&1 || YELLOW("Detached HEAD — skipping doc update")`
+  - **No project folder found** (Phase 3 reverse-index returned zero matches): skip Phase 7 entirely with YELLOW ("No planning doc — nothing to update")
+  - **Read-only docs**: for each of `_research.md`, `_planning.md`, `_progress.md`, check `[ -w "$file" ]` before editing; if not writable, YELLOW-skip that file with message ("$file is read-only — skipped"), continue with the rest
+  - **Missing docs**: if any of the three target docs does not exist, YELLOW-skip with "$file missing" — do NOT create it (the user may have intentionally removed it)
 - [ ] **Three sources** for "all discussions" (R2B confirms transcript files are inaccessible to the harness):
   1. `git log origin/main..HEAD --format='%h %s%n%b' --no-merges` — what shipped
   2. Planning doc's existing "Review & Discussion" section — what was already captured
   3. **One** AskUserQuestion: "Any final notes to capture before closing? (deferred work, late decisions, surprises)" — interactive catch-all
+- [ ] **Markdown safety**: before applying each Edit, validate that the new block does NOT contain unbalanced ``` fences (avoid breaking downstream parsers). If unbalanced, YELLOW-skip that doc with a "potential markdown corruption — skipped" message.
 - [ ] **Append targets**:
   - `_progress.md`: append a final phase "## Phase N+1: Closeout" with subsections Work Done / Issues Encountered / User Clarifications, derived from the three sources above
   - `_planning.md` "Review & Discussion": append `### Closeout Notes` block (mirrors the `/plan-review` iteration-append pattern from R2B §5.1)
@@ -178,24 +194,45 @@ Two related operational gaps:
 - [ ] If `--dry-run`, print the diff that would be applied and skip the Edit calls
 
 ### Phase 8: `/initialize` default-doc update
-- [ ] **Edit 1** — `.claude/commands/initialize.md` Step 2.5 (lines 139-147): split "Core Documentation" into two labeled groups (R2C §3):
-  ```markdown
-  **Core Workflow Docs:**
-  1. Read docs/docs_overall/getting_started.md
-  2. Read docs/docs_overall/architecture.md
-  3. Read docs/docs_overall/project_workflow.md
 
-  **Core Operations Docs:**
-  4. Read docs/docs_overall/environments.md
-  5. Read docs/docs_overall/testing_overview.md
-  6. Read docs/feature_deep_dives/testing_setup.md  ← note path is feature_deep_dives, NOT docs_overall
-  7. Read docs/docs_overall/debugging.md
-  ```
-- [ ] **Edit 2** — Step 2.7 exclusion list (line 195): grow "3 core docs" → "7 core docs" with all 7 names listed
-- [ ] **Edit 3** — Step 3.5 add a note clarifying that the 7 pre-read core docs do NOT belong in `_status.json.relevantDocs` (per R2C §A — putting them there would flood `/finalize` Step 6 with phantom "consider updating debugging.md" prompts; the doc-mapping.json file-pattern matching already covers them when actually relevant)
-- [ ] **Edit 4** — Step 4 research-doc template (lines 286-290): split "Core Docs" into the same two groups
-- [ ] **Edit 5** — Step 9 output summary template: add a "Core docs read: 7" line before the "Relevant docs discovered" line
+**Anchor-text-based edits** (not line numbers) so future drift in initialize.md doesn't silently corrupt the file. Each edit must include a pre-flight `grep -F "<anchor>"` check that the exact text exists; if it doesn't, abort the entire Phase 8 with "initialize.md has drifted — manual review required" and surface to the user.
+
+- [ ] **Pre-flight integrity check**: before any edit, verify all 5 anchor strings exist in `.claude/commands/initialize.md`. List of anchors below. If any missing → abort Phase 8 (do not partial-edit).
+
+- [ ] **Edit 1** — Split Step 2.5 into Core Workflow + Core Operations groups (R2C §3).
+  - **Anchor (find)**: the exact 7 lines `### 2.5. Read Core Documentation\n\nBefore creating project files, read these three core documents to understand the codebase context:\n\n1. **Read** \`docs/docs_overall/getting_started.md\`...` (use Edit's `old_string` to match the full block)
+  - **Replace with**: identical heading, then the two labeled groups (Workflow: 3 existing docs; Operations: environments, testing_overview, `docs/feature_deep_dives/testing_setup.md`, debugging). Path-check: testing_setup.md lives under `feature_deep_dives`, not `docs_overall` (verified).
+
+- [ ] **Edit 2** — Update Step 2.7's Explore-agent exclusion clause to list all 7 docs.
+  - **Anchor (find)**: `Exclude the 3 core docs already read: getting_started.md, architecture.md, project_workflow.md`
+  - **Replace with**: `Exclude the 7 core docs already read: getting_started.md, architecture.md, project_workflow.md, environments.md, testing_overview.md, testing_setup.md, debugging.md`
+  - This is the load-bearing edit: it prevents the Explore agent from re-suggesting the new defaults, which keeps them out of AUTO_DOCS → out of `_status.json.relevantDocs` → prevents `/finalize` Step 6 flooding.
+
+- [ ] **Edit 3** — Step 3.5 add a clarifying note under the `relevantDocs` field.
+  - **Anchor (find)**: `- Populate from the user-confirmed list in step 2.7`
+  - **Replace with**: `- Populate from the user-confirmed list in step 2.7\n- **Core docs are pre-read** (Step 2.5) and intentionally excluded from \`relevantDocs\` to avoid flooding \`/finalize\` Step 6 with phantom doc-update prompts; \`.claude/doc-mapping.json\` handles them via file-pattern matching when actually relevant`
+
+- [ ] **Edit 4** — Step 4 research-doc template: split "Core Docs" into the same two groups.
+  - **Anchor (find)**: `### Core Docs\n- docs/docs_overall/getting_started.md\n- docs/docs_overall/architecture.md\n- docs/docs_overall/project_workflow.md`
+  - **Replace with**: two labeled subsections (`### Core Workflow Docs` + `### Core Operations Docs`) listing all 7 paths.
+
+- [ ] **Edit 5** — Step 9 output summary template: add a "Core docs read: 7" line.
+  - **Anchor (find)**: `Documents created:\n   - ${PROJECT_NAME}_research.md\n   - ${PROJECT_NAME}_planning.md\n   - ${PROJECT_NAME}_progress.md\nManually tagged docs:`
+  - **Replace with**: the same block plus a new line `Core docs read: 7` inserted BEFORE the `Manually tagged docs:` line. (Position chosen so output reads chronologically: docs read → docs tagged → docs discovered.)
+
 - [ ] **Conditional skip** — for `docs/*` branches, the Operations docs are usually unnecessary. Out of scope for this phase but document as a future enhancement.
+
+### Phase 8b: Rollback plan
+
+If Phase 8 edits produce a broken `initialize.md` (YAML breakage, accidental delete, wrong heading):
+
+- [ ] **Detection**: after each edit, run `grep -c "^### " .claude/commands/initialize.md` — heading count must equal the pre-edit count + any expected additions. If it differs unexpectedly, abort and rollback.
+- [ ] **Manual rollback** (always available — Phase 8 commits initialize.md in a single commit at the END of Phase 8, not per-edit):
+  ```bash
+  git checkout HEAD -- .claude/commands/initialize.md  # discard all Phase 8 edits
+  ```
+- [ ] **Atomic-commit strategy**: stage and commit all 5 Phase-8 edits in ONE commit (`chore: /initialize defaults add 4 Core Operations Docs`). Never partial-commit. If any edit fails the pre-flight or post-edit check, `git checkout` and abort the whole phase.
+- [ ] **Verification after commit**: dry-run `/initialize chore/test_rollback_check` in a scratch worktree to confirm the modified initialize.md doesn't error before declaring Phase 8 done (this is the Phase 9 sanity check, but call it out here so rollback is wired to it).
 
 ### Phase 9: Self-validation (manual)
 - [ ] Run `/safe_to_close` from this worktree (PR not yet created) — expect: RED on "no `.claude/push-gate.json`" + RED on "$N un-released commits" (all the recent main-vs-production work)
@@ -258,6 +295,31 @@ Eight Explore agents launched in two rounds of four. Round 1 mapped the surface 
 - **/initialize: two groups (Workflow + Operations), 7 docs total**, pre-read core docs stay OUT of `_status.json.relevantDocs` to prevent `/finalize` Step 6 flooding.
 - **Add 4 release-health signals** beyond un-promoted migrations: nightly status, open release-health issues, active PRs in flight (symmetric across `--base main` AND `--base production`, including abandoned-worktree detection), release frequency. Calibrated to observed 2-3 day cadence (RED at 17 days, not the stale-doc 14 days).
 - **No schema-aware migration diff** — file-presence check is sufficient; false positives are safer than false negatives.
-- **Known limitations documented inline**: file-presence (not schema) migration check; transcript inaccessibility; reused-branch-name handling picks most-recent.
+- **Known limitations documented inline**: file-presence (not schema) migration check; transcript inaccessibility; reused-branch-name handling picks most-recent; not re-entrant (no file locking — concurrent invocations may clobber `.claude/safe-to-close-verdict.json`, but state file is read-only-for-audit so harm is bounded to losing one verdict's history).
+
+### Iteration 1 plan-review fixes (2026-05-31)
+
+Three reviewer agents (Security, Architecture, Testing) each scored 3/5. Critical gaps verified empirically before fixing — separated real blockers from false positives:
+
+**Verified real (fixed):**
+- `.claude/safe-to-close-verdict.json` not in `.gitignore` — added to Phase 1
+- Brittle line-number edits in Phase 8 — replaced with anchor-text-based Edit calls + pre-flight integrity check
+- Missing `origin/production` produced silent fallthrough — consolidated into Phase 1.5 pre-flight; Phase 4 skipped with YELLOW if refs missing
+- Phase 7 doc-update had undefined fallbacks — added guards for detached HEAD, missing/read-only docs, unbalanced fences
+- Gate JSON schemas could drift — added `schema_version: 1` (omit-tolerant) check on push-gate/test-pass/ci-gate reads with YELLOW fallback
+- No rollback plan if Phase 8 corrupts initialize.md — added Phase 8b with atomic-commit + `git checkout` rollback
+- No pre-flight check on `gh auth`, `release-health` label, `e2e-nightly.yml` workflow — added unified Phase 1.5 pre-flight block
+
+**Verified false-positive (no change):**
+- `e2e-nightly.yml` is the correct filename (confirmed via `ls .github/workflows/`)
+- `release-health` label exists (confirmed via `gh label list --search release-health`)
+- `git log ... | tail -1` gives the OLDEST commit — correct direction for "oldest-unreleased age" check
+- Phase 8 Edit 2/4 already update exclusion list and research template (one agent missed these were already present)
+
+**Acknowledged but deferred:**
+- Automated tests for slash-command behavior — none exist for any other command; out of scope for this chore. Documented as a future cross-command initiative.
+- Concurrent invocation file-locking — risk bounded (verdict file is audit-only); documented as known limitation.
+
+[Subsequent /plan-review iterations append here.]
 
 [Subsequent /plan-review iterations append here.]
