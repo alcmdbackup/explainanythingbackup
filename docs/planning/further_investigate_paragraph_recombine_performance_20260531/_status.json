@@ -1,0 +1,14 @@
+{
+  "branch": "feat/further_investigate_paragraph_recombine_performance_20260531",
+  "created_at": "2026-05-31T19:39:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "evolution/docs/evolution/paragraph_recombine.md",
+    "evolution/docs/evolution/cost_optimization.md",
+    "evolution/docs/evolution/operations.md",
+    "evolution/docs/evolution/data_model.md",
+    "evolution/docs/evolution/rating.md",
+    "evolution/docs/evolution/arena.md",
+    "docs/feature_deep_dives/evolution_pipeline.md"
+  ]
+}
