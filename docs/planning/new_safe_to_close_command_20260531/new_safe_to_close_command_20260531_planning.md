@@ -388,6 +388,24 @@ Three reviewer agents (Security, Architecture, Testing) each scored 3/5. Critica
 - Automated tests for slash-command behavior — none exist for any other command; out of scope for this chore. Documented as a future cross-command initiative.
 - Concurrent invocation file-locking — risk bounded (verdict file is audit-only); documented as known limitation.
 
-[Subsequent /plan-review iterations append here.]
+### Iteration 2 plan-review fixes (2026-05-31)
+
+Scores: Security 2/5 (regressed — found 7 issues introduced by iter 1 fixes), Architecture 4/5 (only gitignore implementation pending), Testing 3/5 (validation coverage gaps).
+
+**Real critical gaps fixed (8):**
+- Phase 1: atomic commit strategy (gitignore + safe_to_close.md together) made explicit
+- Phase 1.5: pre-flight ordering corrected (local checks first, gh auth gates network calls); precise `jq` match for label; explicit "runs every invocation"
+- Phase 3: schema_version semantics explicit three-state (absent=v1, ==1=ok, ≠1=YELLOW; no silent forward acceptance)
+- Phase 7: "unbalanced fences" defined operationally (odd count of ``` lines); check applied to merged result not just new block
+- Phase 8 Edit 1: anchor expanded to full 9-line block (heading through closing sentence)
+- Phase 8b: strict 5-step execution order (pre-flight integrity → apply → post-edit verify → atomic commit → optional smoke test); scratch-worktree requirement dropped
+- Verdict schema: `skipped` status added to enum; `⊘` symbol in display; excluded from RED/YELLOW/GREEN aggregation
+- Phase 9: expanded from 5 scenarios to 19 (HP-1..5, PF-1..4, GF-1..3, DU-1..3, WT-1..2, IN-1..3) covering every fallback path
+
+**Acknowledged but not fixed (speculative or low-value):**
+- Forward-v2 silent acceptance via omitted schema_version: out of scope (explicit-malice scenario)
+- jq quote-escaping for non-ASCII label names: label name is fixed ASCII (release-health)
+- Concurrent invocation file locking: bounded harm (verdict is audit-only), documented
+- Template-placeholder regex single-line limit: placeholders are single-line by definition
 
 [Subsequent /plan-review iterations append here.]
