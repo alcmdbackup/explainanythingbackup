@@ -41,9 +41,7 @@ export function AttributionCharts({ entityType, entityId, subtitle, judgeModel }
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Refactored from a local `let cancelled = false` to the shared abortable
-    // helper for cross-component consistency. Behavior identical: guards
-    // setState after unmount; the server-action POST itself continues server-side.
+    // Guards setState after unmount; server-action POST continues server-side.
     const ctl = abortableEffectController();
     getEntityMetricsAction(entityType, entityId)
       .then((res) => {
@@ -52,8 +50,8 @@ export function AttributionCharts({ entityType, entityId, subtitle, judgeModel }
         setLoading(false);
       })
       .catch((err) => {
-        // B004-S7: log the error so a fetch failure isn't indistinguishable from
-        // "no data" (the empty-state branch returns null too — silent failure was real).
+        // B004-S7: log so fetch failure isn't indistinguishable from "no data"
+        // (the empty-state branch also returns null — silent failure was real).
         console.warn('[AttributionCharts] getEntityMetricsAction failed', err);
         if (!ctl.cancelled) setLoading(false);
       });

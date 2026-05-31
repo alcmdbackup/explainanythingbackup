@@ -205,8 +205,11 @@ export function EntityMetricsTab({ entityType, entityId }: EntityMetricsTabProps
         if (cat !== 'cost' || list.length <= 6) {
           return <div key={cat}>{heading}{gridFor(list, `metrics-${cat}`)}</div>;
         }
-        const spent = list.filter(m => !isEstimationMetric(m.id ?? ''));
-        const accuracy = list.filter(m => isEstimationMetric(m.id ?? ''));
+        const spent: GroupedMetric[] = [];
+        const accuracy: GroupedMetric[] = [];
+        for (const m of list) {
+          (isEstimationMetric(m.id ?? '') ? accuracy : spent).push(m);
+        }
         return (
           <div key={cat}>
             {heading}
