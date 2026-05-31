@@ -18,12 +18,21 @@ Runs analyzed: `c5d7c977`, `ebf7c9da`, `5ebd4185`, `0943ba13`, `88b5e860`.
 
 **Verified data (each figure re-run 2–3× this session; only values stable across independent queries recorded):**
 
+**IMPORTANT — what `generation` means here.** All 5 runs use the DB strategy **"New paragraph strategy"** (`ce9799fa`). `generation` is an **iteration index on the variant**, NOT "recombine run N times" and NOT intrinsic to the recombine agent. What ACTUALLY ran each generation (verified from `evolution_variants.agent_name`, 25-row clean query):
+- **gen 0**: `paragraph_rewrite` → per-paragraph candidates (`variant_kind='paragraph'`)
+- **gen 1**: `grounding_enhance` + `lexical_simplify` + `structural_transform` → article variants
+- **gen 2**: `paragraph_recombine` → article variants
+
+So `paragraph_recombine` runs **once**, as the final generation, and is just one agent among several in this strategy — a strategy-placement choice, not part of the agent itself.
+
+⚠️ **Unresolved config↔data mismatch (must verify before acting):** the strategy's *current* stored `config` lists only **2** `iterationConfigs` — `generate`(sourceMode `seed`, 40%) then `paragraph_recombine`(sourceMode `pool`, 60%; `rewritesPerParagraph:3`, `maxParagraphsPerInvocation:12`), budget $0.05, judge `qwen-2.5-7b-instruct`, gen model `gemini-2.5-flash-lite`. This does **not** match the 3 generations / the gen-1 trio (`grounding_enhance`/`lexical_simplify`/`structural_transform`) seen in the data. Likely the config was edited after these runs (config drift), or generations are numbered differently from `iterationConfigs` indices, or the gen-1 agents come from a default tactic set rather than the strategy config. Reconciling this is an **open question** — the per-generation agent attribution above is from the variant rows (trustworthy); the strategy-config interpretation is NOT yet pinned down.
+
 Variant taxonomy & ELO (5 runs combined):
-| variant_kind | generation | n | avg_elo | min | max | avg_matches |
+| variant_kind | generation (agent) | n | avg_elo | min | max | avg_matches |
 |---|---|---|---|---|---|---|
-| paragraph | 0 (candidates) | 344 | 1202.2 | 1077.9 | 1324.5 | 1.90 |
-| article | 1 (recombined) | 71 | 1182.5 | 1122.8 | 1324.3 | 2.99 |
-| article | 2 (recombined) | 25 | 1235.0 | 1123.1 | 1321.3 | 3.00 |
+| paragraph | 0 (`paragraph_rewrite`) | 344 | 1202.2 | 1077.9 | 1324.5 | 1.90 |
+| article | 1 (`grounding_enhance`+`lexical_simplify`+`structural_transform`) | 71 | 1182.5 | 1122.8 | 1324.3 | 2.99 |
+| article | 2 (`paragraph_recombine`) | 25 | 1235.0 | 1123.1 | 1321.3 | 3.00 |
 
 Arena comparisons (5 runs combined): decisive `a` = 438 (avg conf 0.99); `draw` = 348 (avg conf 0.50) → **draws = 348/786 = 44.3%**. (Decisive winners are normalized to `entry_a`, so literal `winner='b'` never appears — storage convention, not a bug.)
 
@@ -37,7 +46,7 @@ Per-slot competition: **211 slots, avg 1.63 candidates/slot (min 1, max 3)**, av
 1. **The ELO signal is too thin to trust.** Only **1.63 candidates per slot** (many slots have a *single* candidate → no competition) and **1.90 matches per paragraph variant**. A candidate that loses one of its 1–2 sparse matches drops from the ~1200 default toward ~1078. So "lowered ELO" is largely **measurement noise**, not a quality regression.
 2. **44.3% of matches are draws** (confidence 0.5) — the judge frequently can't separate candidates, so the handful of decisive matches drive all rating movement, amplifying noise.
 3. **It is NOT verbosity/length.** Length correlates **+0.299** with ELO (longer = slightly *higher* score). This directly refutes the earlier (fabricated) "rewrites too verbose" hypothesis.
-4. **Recombination barely improves quality.** gen-1 articles avg 1182.5 — *below* the gen-0 paragraph avg of 1202.2; gen-2 lifts to 1235.0. The iterations move the needle little for their cost.
+4. **`paragraph_recombine` (gen-2) is the *highest*-scoring generation, not a regression.** By generation: gen-0 `paragraph_rewrite` 1202.2 → gen-1 (grounding/lexical/structural) 1182.5 → gen-2 `paragraph_recombine` **1235.0**. So recombine *improved* on its gen-1 input (1235 > 1182). ⚠️ Caveat: these are separate arenas anchored to the same ~1200 baseline, so cross-generation comparison is only suggestive, and each generation's n is small (71, 25). (Correction history: an earlier draft conflated the strategy's iteration index with the recombine agent and called gen-1/gen-2 "recombine iterating" — wrong; gen-1 is three *other* agents.)
 5. **Judge rationale is not content-recoverable from the DB for these runs.** `evolution_arena_comparisons` has no `reasoning`/`dimension` column. `evolution_logs` *does* have rows (7,478 for these 5 runs — correcting an earlier corrupted "0 rows" reading), but the per-comparison `context` jsonb (`rankSingleVariant: comparison complete`) stores only ELO movement (`variantEloBefore/After`, `outcome`, `confidence`, `winnerElo/Id/Uncertainty`) — no judge text. The content-level "why a candidate won" must come from reading the `paragraph_rank` judge prompt in code, not the DB.
 
 **Open item (needs code read, not DB):** the *content-level* reason a judge prefers one candidate is not stored in the DB. To get it, read the `paragraph_rank` judge prompt + whether rationale is logged in LLM invocation records. Deferred.
