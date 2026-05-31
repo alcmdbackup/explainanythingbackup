@@ -13,8 +13,11 @@
 //   - Single MergeRatingsAgent at the end consumes ALL K invocations' match buffers.
 
 import { evolveArticle } from '@evolution/lib/pipeline/loop/runIterationLoop';
-import type { StrategyConfig } from '@evolution/lib/types';
 import type { SupabaseClient } from '@supabase/supabase-js';
+
+// Minimal shape matching what runIterationLoop expects (avoid coupling to the precise
+// internal type which has a long superset of optional knobs).
+type StrategyConfig = Parameters<typeof evolveArticle>[4];
 
 const mockGenerateRun = jest.fn();
 const mockSwissRun = jest.fn();

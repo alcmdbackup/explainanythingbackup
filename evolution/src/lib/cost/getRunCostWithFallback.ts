@@ -96,35 +96,24 @@ export async function getRunCostsWithFallback(
   //   paragraph_recombine spend. Same fix retroactively covers debate_cost.
   const layer2 = new Map<string, number>();
   if (stillMissing1.length > 0) {
-    const [gen, rank, reflection, seed, evaluation, iterEdit, proposerApprover, paragraphRecombine, debate] = await Promise.all([
-      readCostMetrics(db, 'generation_cost', stillMissing1),
-      readCostMetrics(db, 'ranking_cost', stillMissing1),
-      readCostMetrics(db, 'reflection_cost', stillMissing1),
-      readCostMetrics(db, 'seed_cost', stillMissing1),
-      readCostMetrics(db, 'evaluation_cost', stillMissing1),
-      readCostMetrics(db, 'iterative_edit_cost', stillMissing1),
-      readCostMetrics(db, 'proposer_approver_criteria_cost', stillMissing1),
-      readCostMetrics(db, 'paragraph_recombine_cost', stillMissing1),
-      readCostMetrics(db, 'debate_cost', stillMissing1),
-    ]);
+    const perPurposeMetrics = [
+      'generation_cost', 'ranking_cost', 'reflection_cost', 'seed_cost',
+      'evaluation_cost', 'iterative_edit_cost', 'proposer_approver_criteria_cost',
+      'paragraph_recombine_cost', 'debate_cost',
+    ] as const;
+    const maps = await Promise.all(
+      perPurposeMetrics.map((m) => readCostMetrics(db, m, stillMissing1)),
+    );
     for (const id of stillMissing1) {
-      const sum =
-        (gen.get(id) ?? 0) +
-        (rank.get(id) ?? 0) +
-        (reflection.get(id) ?? 0) +
-        (seed.get(id) ?? 0) +
-        (evaluation.get(id) ?? 0) +
-        (iterEdit.get(id) ?? 0) +
-        (proposerApprover.get(id) ?? 0) +
-        (paragraphRecombine.get(id) ?? 0) +
-        (debate.get(id) ?? 0);
-      if (
-        gen.has(id) || rank.has(id) || reflection.has(id) || seed.has(id) ||
-        evaluation.has(id) || iterEdit.has(id) || proposerApprover.has(id) ||
-        paragraphRecombine.has(id) || debate.has(id)
-      ) {
-        layer2.set(id, sum);
+      let sum = 0;
+      let anyHit = false;
+      for (const m of maps) {
+        if (m.has(id)) {
+          anyHit = true;
+          sum += m.get(id) ?? 0;
+        }
       }
+      if (anyHit) layer2.set(id, sum);
     }
   }
   const stillMissing2 = stillMissing1.filter(id => !layer2.has(id));

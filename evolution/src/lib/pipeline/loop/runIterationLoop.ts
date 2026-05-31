@@ -1370,7 +1370,6 @@ export async function evolveArticle(
 
           const surfacedVariants: Variant[] = [];
           const matchBuffersAll: MergeMatchEntry[][] = [];
-          let topupBudgetExceeded = false;
 
           try {
             // J4 step 3: Parallel batch dispatch. Capture iteration-tracker spend
@@ -1481,7 +1480,6 @@ export async function evolveArticle(
                     cache: comparisonCache,
                   }, makePrCtx(execOrder));
                   if (prResult.budgetExceeded) {
-                    topupBudgetExceeded = true;
                     iterStopReason = 'iteration_budget_exceeded';
                     break;
                   }
@@ -1497,7 +1495,6 @@ export async function evolveArticle(
                   }
                 } catch (err) {
                   if (err instanceof IterationBudgetExceededError) {
-                    topupBudgetExceeded = true;
                     iterStopReason = 'iteration_budget_exceeded';
                     break;
                   }
@@ -1533,8 +1530,6 @@ export async function evolveArticle(
               }, mergeCtx);
               if (mergeResult.budgetExceeded) iterStopReason = 'iteration_budget_exceeded';
             }
-            // Avoid unused-var warning when no top-up failure surfaces.
-            void topupBudgetExceeded;
           } catch (err) {
             if (err instanceof IterationBudgetExceededError) {
               iterStopReason = 'iteration_budget_exceeded';

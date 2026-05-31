@@ -26,6 +26,19 @@ function getMetricValueOrNull(metrics: MetricRow[] | undefined, name: string): n
   return row ? row.value : null;
 }
 
+/** Per-purpose cost metrics summed when the rollup `cost` row is missing. */
+const FALLBACK_COST_METRICS = [
+  'generation_cost',
+  'ranking_cost',
+  'reflection_cost',
+  'seed_cost',
+  'evaluation_cost',
+  'iterative_edit_cost',
+  'proposer_approver_criteria_cost',
+  'paragraph_recombine_cost',
+  'debate_cost',
+] as const;
+
 function getProgressBarColor(pct: number): string {
   if (pct >= 0.9) return 'bg-[var(--status-error)]';
   if (pct >= 0.7) return 'bg-[var(--status-warning)]';
@@ -136,39 +149,25 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
       render: (run) => {
         // B2 (use_playwright_find_bugs_ux_issues_20260422): the `cost` rollup
         // metric isn't always populated — older runs have only per-phase
-        // `generation_cost` / `ranking_cost` / `seed_cost` rows. Fall back
-        // to summing those when `cost` is missing so the Spent column
-        // stays consistent with the dashboard (which uses
+        // cost rows. Fall back to summing those when `cost` is missing so the
+        // Spent column stays consistent with the dashboard (which uses
         // getRunCostsWithFallback for the same reason).
-        const direct = getMetricValueOrNull(run.metrics, 'cost');
         // Fix #11 (use_playwright_find_ux_issues_bugs_20260501): include
-        // reflection_cost in the fallback sum so reflect+generate runs reconcile
-        // when the rollup `cost` row is missing. Mirrors getRunCostWithFallback.
+        // reflection_cost in the fallback sum so reflect+generate runs reconcile.
         // Option H (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
-        // widened to include `paragraph_recombine_cost`, `evaluation_cost`,
-        // `iterative_edit_cost`, `proposer_approver_criteria_cost`, `debate_cost`.
-        // Pre-fix any paragraph_recombine-only run with a missing `cost` rollup row
-        // would under-report by the full paragraph_recombine spend.
-        const gen = getMetricValueOrNull(run.metrics, 'generation_cost');
-        const rank = getMetricValueOrNull(run.metrics, 'ranking_cost');
-        const refl = getMetricValueOrNull(run.metrics, 'reflection_cost');
-        const seed = getMetricValueOrNull(run.metrics, 'seed_cost');
-        const evalCost = getMetricValueOrNull(run.metrics, 'evaluation_cost');
-        const iterEdit = getMetricValueOrNull(run.metrics, 'iterative_edit_cost');
-        const proposerApprover = getMetricValueOrNull(run.metrics, 'proposer_approver_criteria_cost');
-        const paragraphRecombine = getMetricValueOrNull(run.metrics, 'paragraph_recombine_cost');
-        const debate = getMetricValueOrNull(run.metrics, 'debate_cost');
-        const hasFallback = gen != null || rank != null || refl != null || seed != null
-          || evalCost != null || iterEdit != null || proposerApprover != null
-          || paragraphRecombine != null || debate != null;
+        // widened to include paragraph_recombine_cost, evaluation_cost,
+        // iterative_edit_cost, proposer_approver_criteria_cost, debate_cost.
+        const direct = getMetricValueOrNull(run.metrics, 'cost');
+        const fallbackParts = FALLBACK_COST_METRICS.map(
+          (name) => getMetricValueOrNull(run.metrics, name),
+        );
+        const hasFallback = fallbackParts.some((v) => v != null);
         // Fix #1: distinguish "no cost data" from "$0.00 spent". When neither
         // the rollup nor any per-purpose row exists, render formatCost(null) → "—".
         const cost = direct != null && direct > 0
           ? direct
           : hasFallback
-            ? (gen ?? 0) + (rank ?? 0) + (refl ?? 0) + (seed ?? 0)
-              + (evalCost ?? 0) + (iterEdit ?? 0) + (proposerApprover ?? 0)
-              + (paragraphRecombine ?? 0) + (debate ?? 0)
+            ? fallbackParts.reduce<number>((acc, v) => acc + (v ?? 0), 0)
             : null;
         const pct = run.budget_cap_usd > 0 && cost != null ? cost / run.budget_cap_usd : 0;
         const isActive = run.status === 'running' || run.status === 'claimed';

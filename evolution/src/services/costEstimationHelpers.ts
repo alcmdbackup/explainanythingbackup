@@ -23,6 +23,18 @@ export type InvRow = {
  * tactic first; fall back to strategy for legacy GFPA rows. Truthy-check on
  * tactic so empty-string early-failure rows fall through to the legacy field.
  */
+/** Read a finite numeric field from the first phase block that has it. */
+function readPhaseNumber(
+  blocks: ReadonlyArray<Record<string, unknown> | undefined>,
+  field: 'estimatedCost' | 'cost',
+): number | null {
+  for (const block of blocks) {
+    const v = block?.[field];
+    if (typeof v === 'number') return v;
+  }
+  return null;
+}
+
 export function buildInvocationRows(invocations: InvRow[]): CostInvocationRow[] {
   return invocations.map((inv) => {
     const d = (inv.execution_detail ?? {}) as Record<string, unknown>;
@@ -37,18 +49,6 @@ export function buildInvocationRows(invocations: InvRow[]): CostInvocationRow[] 
     // "Rank" column.
     const pRewrite = d.paragraph_rewrite as Record<string, unknown> | undefined;
     const pRank = d.paragraph_rank as Record<string, unknown> | undefined;
-    const genEst = typeof gen?.estimatedCost === 'number'
-      ? gen.estimatedCost as number
-      : (typeof pRewrite?.estimatedCost === 'number' ? pRewrite.estimatedCost as number : null);
-    const genAct = typeof gen?.cost === 'number'
-      ? gen.cost as number
-      : (typeof pRewrite?.cost === 'number' ? pRewrite.cost as number : null);
-    const rankEst = typeof rank?.estimatedCost === 'number'
-      ? rank.estimatedCost as number
-      : (typeof pRank?.estimatedCost === 'number' ? pRank.estimatedCost as number : null);
-    const rankAct = typeof rank?.cost === 'number'
-      ? rank.cost as number
-      : (typeof pRank?.cost === 'number' ? pRank.cost as number : null);
     const errPct = typeof d.estimationErrorPct === 'number' && Number.isFinite(d.estimationErrorPct)
       ? d.estimationErrorPct as number : null;
     const tactic = (typeof d.tactic === 'string' && d.tactic ? d.tactic as string : null)
@@ -58,10 +58,10 @@ export function buildInvocationRows(invocations: InvRow[]): CostInvocationRow[] 
       agentName: inv.agent_name ?? 'unknown',
       iteration: inv.iteration,
       tactic,
-      generationEstimate: genEst,
-      generationActual: genAct,
-      rankingEstimate: rankEst,
-      rankingActual: rankAct,
+      generationEstimate: readPhaseNumber([gen, pRewrite], 'estimatedCost'),
+      generationActual: readPhaseNumber([gen, pRewrite], 'cost'),
+      rankingEstimate: readPhaseNumber([rank, pRank], 'estimatedCost'),
+      rankingActual: readPhaseNumber([rank, pRank], 'cost'),
       totalCost: inv.cost_usd,
       estimationErrorPct: errPct,
     };

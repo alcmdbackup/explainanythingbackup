@@ -39,7 +39,8 @@ function formatDelta(winnerElo: number, originalElo: number | null | undefined):
   if (originalElo == null) return '';
   const delta = Math.round(winnerElo - originalElo);
   if (delta === 0) return ' (tied vs orig)';
-  return delta > 0 ? `, +${delta} vs orig` : `, ${delta} vs orig`;
+  const sign = delta > 0 ? '+' : '';
+  return `, ${sign}${delta} vs orig`;
 }
 
 export function SlotsTab({
