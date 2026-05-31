@@ -55,6 +55,37 @@ Per-slot competition: **211 slots, avg 1.63 candidates/slot (min 1, max 3)**, av
 
 ⚠️ Numbers above were obtained this (fresh) session via clean single-table queries and cross-checked; a few late outputs showed echo-duplication noise but no fabricated values. Confidence: high on the structural facts (draws, matches/variant, candidates/slot, length-corr); medium on exact ELO averages.
 
+### RESOLVED: where the gen-1 agents come from (it is NOT a config mismatch)
+
+The per-run `iteration_snapshots` (clean JSON from `evolution_runs`, run `c5d7c977`) shows the strategy has exactly **2 iterations**, which MATCHES the stored `config` — there is no drift/mismatch (my earlier "config↔data mismatch" flag was wrong; retracting it):
+- **iteration 0**: `agentType: generate`, `sourceMode: seed`, budget 40%, **`tacticsUsed: [grounding_enhance, lexical_simplify, structural_transform]`**
+- **iteration 1**: `agentType: paragraph_recombine`, `sourceMode: pool`, budget 60%, `maxDispatches: 10`, `rewritesPerParagraph: 3`, `qualityCutoff: topN/5`
+
+So `grounding_enhance`/`lexical_simplify`/`structural_transform` are **tactics of the generate iteration**, not separate iterations and not separate strategies. They are rows in the **`evolution_tactics`** table (verified: ids `4c7511c2`/`d64c571b`/`f212b2d0`). The `generate` agent fans out into one sub-agent per tactic, which is why `evolution_variants.agent_name` shows them. The `generation` column (0/1/2) counts variant lineage depth, not `iterationConfigs` index — that's why 2 iterations yield 3 generations (seed paragraphs → tactic articles → recombined article).
+
+### Strategy config specificity / dedup behavior (answers "does any variation create a net-new strategy?")
+
+**No — and this is a real gap.** `evolution/src/lib/strategy/strategyHash.ts` (read in full):
+- `hashStrategyConfig()` hashes ONLY `generationModel`, `judgeModel`, and a **whitelist** of per-iteration fields produced by `canonicalizeIterationConfig()`.
+- `upsertStrategy()` does `INSERT ... ON CONFLICT (config_hash)` and there is a **UNIQUE index** `evolution_strategies_config_hash_key` (verified; 0 hash collisions in the table).
+
+Consequence: **two configs that differ only in a non-hashed field get the SAME `config_hash`, collide on the unique index, and the upsert dedupes them into one row — silently overwriting the stored `config` with the latest caller's values.** They are NOT treated as distinct strategies. This is "merged/blocked," exactly the behavior to eliminate.
+
+Fields the hash currently INCLUDES (per iteration): `agentType`, `budgetPercent`, `sourceMode`, `qualityCutoff`, `generationGuidance`, `reflectionTopN` (reflect only), `criteriaIds`+`weakestK` (criteria agents only), `lengthCapRatio`/`redundancyJaccardThreshold`/`includesMirrorApprover` (specific agents only), `perInvocationCapUsd`+`maxDispatches` (paragraph_recombine only, added by the J1.5 fix), and the four budget-floor fractions.
+
+Fields the hash currently EXCLUDES (so they DON'T create a net-new strategy):
+- **`tacticsUsed`** — two strategies with different tactic sets hash identically (directly relevant: the gen-1 behavior above is invisible to the hash).
+- **`rewritesPerParagraph`, `maxComparisonsPerParagraph`, `maxParagraphsPerInvocation`** — the file's own comment (lines 81–89) says these "remain unhashed by deliberate choice."
+- Top-level **`budgetUsd`, `generationTemperature`, `judgeModel` is included but `maxComparisonsPerVariant`, `minBudgetAfterParallelAgentMultiple`** are excluded (only generationModel/judgeModel/iterationConfigs feed the hash).
+
+**Proposed fix (to make any config difference produce a distinct strategy):** replace the whitelist in `canonicalizeIterationConfig` + `hashStrategyConfig` with a **full deep-canonicalization** of the entire `StrategyConfig` (recursively sort object keys, sort order-insensitive arrays like `criteriaIds`, drop only truly-undefined optionals), then hash that. Trade-offs/risks to weigh before implementing:
+1. **Existing rows keep their old `config_hash`** (hash is stored, only computed at creation), so historical strategies are unaffected — but a *re-run* of an old config will now hash differently and create a NEW row (intended, but means old and "same" new configs won't dedupe to each other).
+2. Tests that assert specific hash values (e.g. `strategyHash` unit tests, `staging-strategies-2026-04-13.json` fixture) will need updating.
+3. The original whitelist existed to keep "semantically equivalent" configs merged; full hashing means even cosmetic differences split — which is precisely what's requested, but confirm no caller relies on the merge behavior.
+4. Order-sensitivity: decide whether `iterationConfigs` order matters (it should — order changes execution) but within-iteration arrays like `criteriaIds` should stay sorted.
+
+This is a **code change deferred out of /research** (and out of this degraded session) — captured as the actionable plan item; implement + run lint/tsc/unit in a clean session.
+
 Context from doc review: `paragraph_recombine` is a per-paragraph rewrite-and-rank agent that splits a parent explanation into paragraph "slots", generates N temperature-varied rewrites per slot (`paragraph_rewrite`), ranks them in a per-slot arena (`paragraph_rank`), and stitches winners back together. Recent investigations (20260529–20260530) already addressed a persistence/display bug (migration `20260529000001`), a cost-undershoot (per-rewrite instrumentation G1-G7, tighten-directive I3), and an effectiveness analysis (`analyze_effectiveness_paragraph_recombine_20260530`). This project continues that line by examining the 5 most recent runs.
 
 Key data sources for the investigation:
