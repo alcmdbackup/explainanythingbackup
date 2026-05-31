@@ -18,11 +18,13 @@ on:
       - production
     paths:
       - 'supabase/migrations/**'
+      - '.github/workflows/supabase-migrations.yml'
   # Pull-request trigger exists ONLY so the `lint-migrations-idempotent` job can
   # gate PRs before merge (deploy jobs gate on `github.event_name == 'push'`).
   pull_request:
     paths:
       - 'supabase/migrations/**'
+      - '.github/workflows/supabase-migrations.yml'
   workflow_dispatch:  # Manual trigger
     inputs:
       environment:
@@ -48,7 +50,9 @@ jobs:
   # Emergency bypass: apply the `migration-lint-bypass` label to the PR.
   lint-migrations-idempotent:
     name: Lint migrations (idempotency)
-    if: github.event_name == 'pull_request'
+    # Runs on PRs (real gate) and on workflow_dispatch (registers the check name on
+    # the dispatched ref's HEAD so GitHub's branch protection picker can find it).
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -71,6 +75,10 @@ jobs:
         # GitHub branch protection does not cover PR-label add/remove, so this is a soft
         # control gated on social convention + post-incident follow-up to retrofit guards).
         run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            echo "Non-PR event ($GITHUB_EVENT_NAME) — no base diff. Registering check name on ${GITHUB_REF}."
+            exit 0
+          fi
           if [ "${{ contains(github.event.pull_request.labels.*.name, 'migration-lint-bypass') }}" = "true" ]; then
             echo "::warning::migration-lint-bypass label present — skipping lint. FOLLOW-UP REQUIRED: retrofit idempotency guards in a follow-up PR."
             exit 0
@@ -87,7 +95,9 @@ jobs:
   # production-targeted PRs. Mark REQUIRED in branch protection.
   check-migration-order:
     name: Check migration order
-    if: github.event_name == 'pull_request'
+    # Runs on PRs (real gate) and on workflow_dispatch (registers the check name on
+    # the dispatched ref's HEAD so GitHub's branch protection picker can find it).
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -96,6 +106,10 @@ jobs:
           fetch-depth: 0  # full history so base tip + diff resolve
       - name: Check timestamp order + duplicate versions
         run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            echo "Non-PR event ($GITHUB_EVENT_NAME) — no base diff. Registering check name on ${GITHUB_REF}."
+            exit 0
+          fi
           BASE_REF="${{ github.base_ref }}"
           git fetch origin "$BASE_REF" --depth=50
           bash scripts/check-migration-order.sh --base="origin/$BASE_REF"
@@ -105,7 +119,9 @@ jobs:
   # or the `migration-edit-approved` PR label bypasses. Mark REQUIRED in branch protection.
   check-migration-append-only:
     name: Check migrations append-only
-    if: github.event_name == 'pull_request'
+    # Runs on PRs (real gate) and on workflow_dispatch (registers the check name on
+    # the dispatched ref's HEAD so GitHub's branch protection picker can find it).
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -114,6 +130,10 @@ jobs:
           fetch-depth: 0
       - name: Check for in-place edits to shipped migrations
         run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            echo "Non-PR event ($GITHUB_EVENT_NAME) — no base diff. Registering check name on ${GITHUB_REF}."
+            exit 0
+          fi
           if [ "${{ contains(github.event.pull_request.labels.*.name, 'migration-edit-approved') }}" = "true" ]; then
             echo "::warning::migration-edit-approved label present — skipping append-only check."
             exit 0
