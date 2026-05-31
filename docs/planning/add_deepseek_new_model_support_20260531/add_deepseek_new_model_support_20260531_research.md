@@ -88,4 +88,10 @@ The real work beyond "add two registry entries" depends on whether we want **rea
 3. **Scope of reasoning wiring:** If any model is reasoning, do we want the chain-of-thought trace captured (requires the `reasoning_content` branch + thinking-toggle in `llms.ts`), or is dropdown-selectability + correct cost tracking enough for v1 (trace = `'unavailable'`)?
 4. **Non-thinking enforcement:** If flash is registered non-reasoning, do we add the `thinking:{type:'disabled'}` send so it's genuinely non-thinking (cheaper/faster), or accept default thinking-on?
 5. Should any default-model constant switch to a v4 model, or leave all defaults as-is?
-```
+
+## Decisions (resolved 2026-05-31)
+1. **Models exist** — proceed without a blocking live-API existence check (still sanity-check pricing before merge).
+2. **Both models non-reasoning, thinking OFF by default** — register `deepseek-v4-pro` and `deepseek-v4-flash` with `supportsReasoning:false`, no `defaultReasoningEffort`, no `reasoningPer1M`.
+3. **Do NOT capture reasoning trace** — no `reasoning_content` extraction branch needed.
+4. **Reasoning off / thinking disabled** — since DeepSeek defaults thinking ON, `llms.ts` must explicitly send `thinking:{type:'disabled'}` for non-reasoning DeepSeek models so they behave as plain chat (temperature honored, no CoT tokens). This is the only `llms.ts` change required.
+5. Defaults unchanged — no change to `DEFAULT_MODEL` / `DEFAULT_JUDGE_MODEL` / pipeline default.
