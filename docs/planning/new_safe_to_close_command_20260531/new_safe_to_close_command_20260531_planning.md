@@ -3,7 +3,7 @@
 ## Background
 Two related chores: (1) create a new `/safe_to_close` slash command that aggregates four close-readiness signals (no open GH PRs across worktrees; no unchecked items in active plans; no `/finalize` outstanding items; no un-promoted post-deploy migrations or backports) and writes the closing discussion back into research/planning/progress docs before returning GREEN or RED; and (2) update `/initialize` so it unconditionally reads `environments.md`, `testing_overview.md`, `docs/feature_deep_dives/testing_setup.md`, and `docs/docs_overall/debugging.md` on every run, without auto-discovery or asking.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1148)
 Help me do two things
 
 1. Create a new command called "safe_to_close" which does the following:

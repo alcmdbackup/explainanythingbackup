@@ -5,7 +5,7 @@ Help me do two things:
 1. Create a new command called `/safe_to_close` which verifies that no open PRs exist on GitHub across all worktrees, no outstanding items remain from plan or `/finalize` (especially post-deploy migrations or backports), updates research/planning/progress docs with all discussions, and returns GREEN (good to close) or RED (open items) — flagging items requiring user decision.
 2. Update `/initialize` so that by default it always reads `environments.md`, `testing_overview.md`, `testing_setup.md`, and `docs/docs_overall/debugging.md` — without being asked.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1148)
 Help me do two things
 
 1. Create a new command called "safe_to_close" which does the following:
