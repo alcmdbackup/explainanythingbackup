@@ -434,6 +434,20 @@ Scores: Security 4/5 (↑↑ from 2), Architecture 3/5 (↓ from 4 due to symbol
 - Current-worktree CI-passing/approved isolation tests: HP-2 covers the dominant case; full state-matrix is over-engineering for manual validation
 - Phase 4 release-PR 6h boundary granularity: covered by TB-4
 
-[Subsequent /plan-review iterations append here.]
+### Iteration 4 — Consensus Reached ✅ (2026-05-31)
+
+**Scores: Security 5/5, Architecture 5/5, Testing 5/5 — unanimous consensus, no critical gaps remaining.**
+
+All three reviewers independently verified the iter-3 fixes are concretely in place:
+- Phase 1.5d explicit error wrapper confirmed (Security)
+- Phase 2 dead-code guard removed with explanation (Security)
+- Phase 4 `⊘` symbol consistency confirmed (Architecture)
+- Gitignore recognized as Phase 1 execution deliverable, not a plan defect (Architecture)
+- All 4 new threshold-boundary scenarios (HP-6, TB-1..4, WT-3) present in Phase 9 (Testing)
+- Phase 8b smoke test confirmed MANDATORY (Testing)
+
+Plan-review loop converged after 4 iterations across Security (3→2→4→5), Architecture (3→4→3→5), Testing (3→3→3→5). Total: 19 critical gaps identified, addressed, and verified across all iterations.
+
+**Plan is ready for execution. Proceed to Phase 1: create `.claude/commands/safe_to_close.md` + add `.claude/safe-to-close-verdict.json` to `.gitignore` in a single atomic commit.**
 
 [Subsequent /plan-review iterations append here.]
