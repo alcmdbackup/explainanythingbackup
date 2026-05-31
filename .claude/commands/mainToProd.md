@@ -1,6 +1,6 @@
 ---
 description: Merge main into production, resolve conflicts (preferring main), run checks (including E2E), and create PR
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(npx:*), Read, Glob, mcp__filesystem__write_file
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(npx:*), Bash(jq:*), Read, Glob, mcp__filesystem__write_file
 ---
 
 # Main to Production Release
@@ -17,6 +17,29 @@ Automate the process of merging main into production with conflict resolution an
 
 Execute these steps in order:
 
+### 0. Nightly Health Precheck
+
+Block promotion if the latest nightly E2E run on `main` is not green. Fail-CLOSED on `gh` unavailability (production promotion is higher-risk than the CI-monitor hook). To override, set `PROMOTE_DESPITE_NIGHTLY_RED=true` and provide `NIGHTLY_OVERRIDE_REASON="<why>"`. The override is recorded as a persistent audit file in Step 1.5. See `docs/planning/nightly_e2e_still_failing_20260530/` for the design.
+
+```bash
+# Query nightly status (does NOT write any files yet).
+LATEST=$(gh run list --workflow=e2e-nightly.yml --branch=main --limit=1 \
+  --json conclusion,databaseId,headSha,createdAt \
+  --jq '.[0]')
+if [ -z "${LATEST}" ]; then
+  echo "ERR: could not fetch latest nightly via gh — promotion BLOCKED (fail-CLOSED). Set PROMOTE_DESPITE_NIGHTLY_RED=true with NIGHTLY_OVERRIDE_REASON to override." >&2
+  [ "${PROMOTE_DESPITE_NIGHTLY_RED:-}" != "true" ] && exit 1
+fi
+NIGHTLY_CONCLUSION=$(echo "${LATEST}" | jq -r .conclusion)
+NIGHTLY_RUN_ID=$(echo "${LATEST}" | jq -r .databaseId)
+if [ "${NIGHTLY_CONCLUSION}" != "success" ] && [ "${PROMOTE_DESPITE_NIGHTLY_RED:-}" != "true" ]; then
+  echo "ABORT: latest nightly is ${NIGHTLY_CONCLUSION} (run ${NIGHTLY_RUN_ID}). Set PROMOTE_DESPITE_NIGHTLY_RED=true with NIGHTLY_OVERRIDE_REASON=\"<reason>\" to override." >&2
+  exit 1
+fi
+# Export for Step 1.5 (override file write happens on the deploy branch).
+export NIGHTLY_CONCLUSION NIGHTLY_RUN_ID
+```
+
 ### 1. Setup
 
 ```bash
@@ -28,6 +51,31 @@ git fetch origin
 
 # Create a deploy branch from production
 git checkout -b deploy/main-to-production-$(date +%b%d | tr '[:upper:]' '[:lower:]') origin/production
+```
+
+### 1.5. Record Nightly-Red Override (only if overriding)
+
+When `PROMOTE_DESPITE_NIGHTLY_RED=true`, write a persistent audit file matching the schema of `.claude/ci-gate-override.json` (verified at `.claude/hooks/block-pr-create-without-gate.sh:110-132`) so post-mortems can `git log -- .claude/nightly-red-override.json`. Uses `jq -n --arg` to defend against quote/newline injection in REASON (matches `.claude/commands/approve-pr.md` idiom).
+
+```bash
+if [ "${PROMOTE_DESPITE_NIGHTLY_RED:-}" = "true" ] && [ "${NIGHTLY_CONCLUSION:-success}" != "success" ]; then
+  REASON="${NIGHTLY_OVERRIDE_REASON:-unspecified}"
+  BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  COMMIT=$(git rev-parse HEAD)
+  EMAIL=$(git config user.email)
+  jq -n \
+    --arg branch "$BRANCH" \
+    --arg commit "$COMMIT" \
+    --arg reason "$REASON" \
+    --arg at "$(date -u -Iseconds)" \
+    --arg by "$EMAIL" \
+    --argjson run_id "$NIGHTLY_RUN_ID" \
+    --arg conclusion "$NIGHTLY_CONCLUSION" \
+    '{schema_version: 1, branch: $branch, commit: $commit, reason: $reason, approved_at: $at, approved_by: $by, context: {nightly_run_id: $run_id, nightly_conclusion: $conclusion}}' \
+    > .claude/nightly-red-override.json
+  git add .claude/nightly-red-override.json
+  echo "WARN: nightly-red override recorded at .claude/nightly-red-override.json (reason: ${REASON})" >&2
+fi
 ```
 
 ### 2. Merge Main
