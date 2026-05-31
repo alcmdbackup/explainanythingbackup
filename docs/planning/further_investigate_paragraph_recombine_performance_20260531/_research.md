@@ -27,6 +27,8 @@ Variant taxonomy & ELO (5 runs combined):
 
 Arena comparisons (5 runs combined): decisive `a` = 438 (avg conf 0.99); `draw` = 348 (avg conf 0.50) → **draws = 348/786 = 44.3%**. (Decisive winners are normalized to `entry_a`, so literal `winner='b'` never appears — storage convention, not a bug.)
 
+Per-variant outcome distribution (from `evolution_logs` `rankSingleVariant: comparison complete`, variant's POV): **draw 348, loss 264, win 174**. Among *decisive* outcomes, candidates **lose ~60% (264/438)** of the time — the direct mechanism for "ELO dropped": in the sparse arena most candidates take more losses than wins, on top of the 44% draw wall.
+
 ELO vs length (paragraph candidates): `corr(elo_score, length(variant_content)) = +0.299` (n=344). Tertiles: low-ELO avg 740 chars → high-ELO avg 863 chars.
 
 Per-slot competition: **211 slots, avg 1.63 candidates/slot (min 1, max 3)**, avg per-slot ELO spread ~49 pts.
@@ -99,7 +101,7 @@ Ordered by leverage:
 5. **Question the recombination iterations.** gen-1 (1182.5) is below gen-0 (1202.2); gen-2 (1235.0) gains are modest. Evaluate whether the iterations earn their cost.
 
 ## Key Findings
-1. "Lowered ELO" is mostly **measurement noise** from a sparse arena (1.63 candidates/slot, 1.90 matches/variant), not a genuine quality regression.
+1. "Lowered ELO" is mostly **measurement noise** from a sparse arena (1.63 candidates/slot, 1.90 matches/variant), not a genuine quality regression. Among decisive matches candidates lose ~60% (264 loss / 174 win), so most see net-negative ELO movement on very few games.
 2. **44.3% draw rate** concentrates all rating movement into few decisive matches, amplifying noise.
 3. **Verbosity is NOT the cause** — ELO vs length corr = +0.299 (longer scores slightly higher).
 4. **Recombination yields little net gain** (gen-1 1182.5 < gen-0 1202.2; gen-2 1235.0).
