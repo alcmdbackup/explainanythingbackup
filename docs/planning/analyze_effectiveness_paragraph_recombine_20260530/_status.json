@@ -1,7 +1,9 @@
 {
   "branch": "feat/analyze_effectiveness_paragraph_recombine_20260530",
   "created_at": "2026-05-30T00:00:00Z",
-  "prerequisites": {},
+  "prerequisites": {
+    "getting_started_read": "2026-05-31T19:37:57Z"
+  },
   "relevantDocs": [
     "docs/docs_overall/environments.md",
     "docs/docs_overall/testing_overview.md",
