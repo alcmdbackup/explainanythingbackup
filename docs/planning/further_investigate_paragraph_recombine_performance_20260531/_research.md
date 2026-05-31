@@ -16,12 +16,27 @@ Runs analyzed: `c5d7c977`, `ebf7c9da`, `5ebd4185`, `0943ba13`, `88b5e860`.
 - `evolution_variants`: paragraph candidates = `variant_kind='paragraph'`, `generation=0` (344 across 5 runs); recombined articles = `variant_kind='article'`, `generation=1` (71) and `generation=2` (25). Text column is **`variant_content`** (not `variant_text`). ELO baseline ≈ 1200 (openskill `mu` default 25 → elo ~1200), range 1078–1324.
 - `evolution_arena_comparisons`: `entry_a`, `entry_b`, `winner` ('a' | 'draw'; decisive winner is normalized to `entry_a`, so 0 literal 'b' — a storage convention, **not** a bug), `confidence`, `mu/sigma _before/_after`. **There is NO `reasoning`/`dimension` column** — judge rationale is not persisted here.
 
-**What actually drives the ELO drops (high confidence on structure; see caveat on exact figures):**
-1. **The ELO signal is too thin to trust.** Only **~1.6 candidates per slot** (211 slots; min 1, max 3 — many slots have a *single* candidate, i.e. no competition at all) and **~1.9 arena matches per variant**, with a small per-slot ELO spread (~49 pts). A candidate that loses one of its 1–2 sparse matches falls from the ~1200 default toward ~1078. So "lowered ELO" is mostly **measurement noise**, not a quality regression.
-2. **~44% of matches are draws** (≈348 draw vs ≈438 decisive, confidence 0.5) — the judge frequently can't separate candidates, so the few decisive matches drive all rating movement, amplifying the noise.
-3. **It is NOT verbosity/length.** `corr(elo_score, length(variant_content)) = +0.299` (n=344) — a *modest positive* relationship (ELO tertiles: low avg 740 chars → high avg 863 chars). Longer paragraphs score slightly **higher**, so verbosity is not penalized. This refutes the earlier (fabricated) "rewrites too verbose" claim.
-4. Recombination iterates gen-1 → gen-2 but article winners barely improve (gen-1 winner ~1312 → gen-2 winner ~1319).
-5. **Possible rationale store (unread):** `evolution_logs` / `evolution_run_logs` tables exist and may hold the per-comparison judge rationale (absent from `evolution_arena_comparisons`). Checking them is the next step for content-level "why".
+**Verified data (each figure re-run 2–3× this session; only values stable across independent queries recorded):**
+
+Variant taxonomy & ELO (5 runs combined):
+| variant_kind | generation | n | avg_elo | min | max | avg_matches |
+|---|---|---|---|---|---|---|
+| paragraph | 0 (candidates) | 344 | 1202.2 | 1077.9 | 1324.5 | 1.90 |
+| article | 1 (recombined) | 71 | 1182.5 | 1122.8 | 1324.3 | 2.99 |
+| article | 2 (recombined) | 25 | 1235.0 | 1123.1 | 1321.3 | 3.00 |
+
+Arena comparisons (5 runs combined): decisive `a` = 438 (avg conf 0.99); `draw` = 348 (avg conf 0.50) → **draws = 348/786 = 44.3%**. (Decisive winners are normalized to `entry_a`, so literal `winner='b'` never appears — storage convention, not a bug.)
+
+ELO vs length (paragraph candidates): `corr(elo_score, length(variant_content)) = +0.299` (n=344). Tertiles: low-ELO avg 740 chars → high-ELO avg 863 chars.
+
+Per-slot competition: **211 slots, avg 1.63 candidates/slot (min 1, max 3)**, avg per-slot ELO spread ~49 pts.
+
+**What actually drives the ELO drops (high confidence):**
+1. **The ELO signal is too thin to trust.** Only **1.63 candidates per slot** (many slots have a *single* candidate → no competition) and **1.90 matches per paragraph variant**. A candidate that loses one of its 1–2 sparse matches drops from the ~1200 default toward ~1078. So "lowered ELO" is largely **measurement noise**, not a quality regression.
+2. **44.3% of matches are draws** (confidence 0.5) — the judge frequently can't separate candidates, so the handful of decisive matches drive all rating movement, amplifying noise.
+3. **It is NOT verbosity/length.** Length correlates **+0.299** with ELO (longer = slightly *higher* score). This directly refutes the earlier (fabricated) "rewrites too verbose" hypothesis.
+4. **Recombination barely improves quality.** gen-1 articles avg 1182.5 — *below* the gen-0 paragraph avg of 1202.2; gen-2 lifts to 1235.0. The iterations move the needle little for their cost.
+5. **Judge rationale is not content-recoverable from the DB for these runs.** `evolution_arena_comparisons` has no `reasoning`/`dimension` column. `evolution_logs` *does* have rows (7,478 for these 5 runs — correcting an earlier corrupted "0 rows" reading), but the per-comparison `context` jsonb (`rankSingleVariant: comparison complete`) stores only ELO movement (`variantEloBefore/After`, `outcome`, `confidence`, `winnerElo/Id/Uncertainty`) — no judge text. The content-level "why a candidate won" must come from reading the `paragraph_rank` judge prompt in code, not the DB.
 
 **Open item (needs code read, not DB):** the *content-level* reason a judge prefers one candidate is not stored in the DB. To get it, read the `paragraph_rank` judge prompt + whether rationale is logged in LLM invocation records. Deferred.
 
@@ -74,5 +89,34 @@ Key data sources for the investigation:
 - docs/feature_deep_dives/user_testing.md
 - docs/feature_deep_dives/iterative_planning_agent.md
 
+## Recommendations (suggested improvements)
+
+Ordered by leverage:
+1. **Densify the arena signal (highest leverage).** Guarantee ≥2–3 candidates per slot (eliminate single-candidate slots) and run more matches per candidate. At 1.63 candidates/slot and 1.90 matches/variant, the ranking is statistically meaningless — every "this rewrite is worse" conclusion is unreliable until this is fixed.
+2. **Cut the 44.3% draw rate.** Sharper judge rubric, explicit tie-break, or forced preference so decisive signal isn't drowned out by ties.
+3. **Gate on uncertainty, not raw ELO.** Before treating a drop as a regression, require non-overlapping μ±σ. Most current "drops" are within noise.
+4. **Recover the real selection criteria from code** (read the `paragraph_rank` judge prompt + `paragraph_rewrite` directive) before tuning the rewrite prompt — verbosity is ruled out empirically, so the lever must come from the judge's actual criteria.
+5. **Question the recombination iterations.** gen-1 (1182.5) is below gen-0 (1202.2); gen-2 (1235.0) gains are modest. Evaluate whether the iterations earn their cost.
+
+## Key Findings
+1. "Lowered ELO" is mostly **measurement noise** from a sparse arena (1.63 candidates/slot, 1.90 matches/variant), not a genuine quality regression.
+2. **44.3% draw rate** concentrates all rating movement into few decisive matches, amplifying noise.
+3. **Verbosity is NOT the cause** — ELO vs length corr = +0.299 (longer scores slightly higher).
+4. **Recombination yields little net gain** (gen-1 1182.5 < gen-0 1202.2; gen-2 1235.0).
+5. **Judge rationale text is not persisted** — DB stores only ELO movement; content-level "why" requires a code read.
+6. A prior session produced fabricated schema/numbers (environment tool-output corruption); all figures here were re-derived from scratch and re-confirmed across multiple independent queries.
+
+## Open Questions
+1. What does the `paragraph_rank` judge prompt actually optimize for (criteria, dimensions)? (Code read — `evolution/src`.)
+2. Does the `paragraph_rewrite` directive instruct the model to expand/elaborate (explaining length growth without an ELO penalty)?
+3. Why do single-candidate slots exist — is the rewrite generator dropping candidates (length gates) before they reach the arena?
+4. Is the 44.3% draw rate a judge-capability limit (cheap model) or a rubric/threshold artifact?
+5. Are the gen-1/gen-2 recombination iterations worth the cost? (Needs cost-vs-ELO-delta analysis.)
+
+## Methodology & Reliability Caveat
+- All numbers obtained via read-only `npm run query:staging` (DB-enforced readonly role), using single-table queries with `--silent` (npm header otherwise breaks `jq`).
+- The environment intermittently corrupts/reorders/injects narration into tool output. Mitigation: every load-bearing metric was re-run 2–3× and only values stable across independent queries were recorded. Structural findings = high confidence; exact ELO averages = medium confidence.
+- The planned "5 rounds × 4 agents" workflow was **not** executed — multi-agent outputs would flow through the same unreliable channel. Recommended for a future stable session to do the code-level deep dive (Open Questions 1–2).
+
 ## Code Files Read
-- [list of code files reviewed during /research]
+- None yet — this round was DB-forensics only. Pending (per Open Questions): the `paragraph_rank` judge prompt and `paragraph_rewrite` directive under `evolution/src/`, plus length-gate/temperature config.
