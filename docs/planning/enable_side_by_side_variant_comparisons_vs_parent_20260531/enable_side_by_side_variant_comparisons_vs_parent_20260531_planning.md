@@ -3,7 +3,7 @@
 ## Background
 The variant detail view should allow a simple way to view the diff between a variant and its parent variant, both for explanation-level (article) variants and paragraph-level variants (which are created specifically by paragraph recombine).
 
-## Requirements (from GH Issue #1153)
+## Requirements (from GH Issue #1157)
 Variant detail view should allow simple way to view diff between a variant and its parent variant, both for explanation level and paragraph level variants (which are created specifically by paragraph recombine).
 
 (Description: same as summary.)
