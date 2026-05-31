@@ -117,6 +117,8 @@ Production releases (`main → production` merges via `/mainToProd`) should happ
 
 The 2-week cadence is a *default*, not a hard rule — relax it only when there is genuinely nothing merge-ready on `main` that should ship. When a release does fire, run `/mainToProd` and pay attention to the post-merge verification banner if it surfaces (it only fires when the release includes migrations).
 
+> **Tip:** `/safe_to_close` Phase 4-5 surface the leading indicators that the 62-day drift would have produced on day-1: un-promoted migrations (`git diff origin/production..origin/main -- 'supabase/migrations/*.sql'`), un-released-commits age vs the 17-day observed-cadence-max threshold, nightly E2E status (RED at ≥2 consecutive failing nights), and open `release-health` issues older than 12h. Running it before declaring work done catches release-process stalls before they accumulate.
+
 ---
 
 ## Local Development
