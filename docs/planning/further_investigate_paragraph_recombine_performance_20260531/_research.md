@@ -57,11 +57,13 @@ Per-slot competition: **211 slots, avg 1.63 candidates/slot (min 1, max 3)**, av
 
 ### RESOLVED: where the gen-1 agents come from (it is NOT a config mismatch)
 
-The per-run `iteration_snapshots` (clean JSON from `evolution_runs`, run `c5d7c977`) shows the strategy has exactly **2 iterations**, which MATCHES the stored `config` — there is no drift/mismatch (my earlier "config↔data mismatch" flag was wrong; retracting it):
-- **iteration 0**: `agentType: generate`, `sourceMode: seed`, budget 40%, **`tacticsUsed: [grounding_enhance, lexical_simplify, structural_transform]`**
-- **iteration 1**: `agentType: paragraph_recombine`, `sourceMode: pool`, budget 60%, `maxDispatches: 10`, `rewritesPerParagraph: 3`, `qualityCutoff: topN/5`
+The stored `config` has exactly **2 iterations** (verified — the iter-0 object has ONLY `{agentType: generate, sourceMode: seed, budgetPercent: 40}`; iter-1 is `{agentType: paragraph_recombine, sourceMode: pool, budgetPercent: 60, maxDispatches: 10, rewritesPerParagraph: 3, qualityCutoff: topN/5}`). My earlier "config↔data mismatch" flag was wrong — retracted.
 
-So `grounding_enhance`/`lexical_simplify`/`structural_transform` are **tactics of the generate iteration**, not separate iterations and not separate strategies. They are rows in the **`evolution_tactics`** table (verified: ids `4c7511c2`/`d64c571b`/`f212b2d0`). The `generate` agent fans out into one sub-agent per tactic, which is why `evolution_variants.agent_name` shows them. The `generation` column (0/1/2) counts variant lineage depth, not `iterationConfigs` index — that's why 2 iterations yield 3 generations (seed paragraphs → tactic articles → recombined article).
+The gen-1 agents (`grounding_enhance`/`lexical_simplify`/`structural_transform`) are **NOT in the strategy config and NOT in `iteration_snapshots`** (both verified empty of any `tacticsUsed`/tactic-name string). They are **hardcoded system defaults in code**: `SYSTEM_GENERATE_TACTICS` in `evolution/src/lib/core/tactics/generateTactics.ts:7` (the three names at lines 10/17/24). Every `agentType: generate` iteration fans out into one sub-agent per default tactic, which is why `evolution_variants.agent_name` shows the three tactic names at generation 1. (They also exist as rows in the `evolution_tactics` table — ids `4c7511c2`/`d64c571b`/`f212b2d0` — but for these runs the set is supplied by the code constant, not the config.)
+
+The `generation` column (0/1/2) counts **variant lineage depth**, not `iterationConfigs` index — that's why 2 iterations yield 3 generations: seed paragraph rewrites (gen 0) → tactic-generated articles (gen 1) → recombined article (gen 2).
+
+**This is itself a config-specificity gap relevant to your second ask:** the tactic set is implicit (code default), so two runs of the "same" strategy config would silently use whatever `SYSTEM_GENERATE_TACTICS` happens to be at run time, and the config hash can never distinguish a different tactic set — because the tactics aren't in the config at all.
 
 ### Strategy config specificity / dedup behavior (answers "does any variation create a net-new strategy?")
 
