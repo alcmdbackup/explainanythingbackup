@@ -13,13 +13,18 @@
 //
 // Layers (in order, per run):
 //   1. `evolution_metrics` row with metric_name='cost' — primary.
-//   2. `evolution_metrics` sum of `generation_cost + ranking_cost + seed_cost`
-//      — catches runs that have per-phase cost writes but no rollup `cost` row
-//      (the common case for older runs before `cost` was added to the
-//      live-write path).
-//   3. `evolution_run_costs` view — SUM of `evolution_agent_invocations.cost_usd`
-//      per run. The authoritative last-resort source.
-//   4. 0 with a logger.warn so operators can see completeness gaps.
+//   2. `evolution_metrics` sum of all 9 per-purpose cost metrics (gen, rank,
+//      reflection, seed, evaluation, iterative_edit, proposer_approver_criteria,
+//      paragraph_recombine, debate) — catches runs that have per-phase writes
+//      but no rollup `cost` row (common for older runs pre-live-write-path).
+//      paragraph_recombine_cost + debate_cost added by
+//      investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 (Option H).
+//   3. 0 with a logger.warn so operators can see completeness gaps.
+//
+// Layer 3 (`evolution_run_costs` view) was REMOVED by
+// investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 (Option G9): the
+// view was dropped in `20260323000004_drop_legacy_metrics.sql` and queries against
+// it have been erroring silently since. Layers 1+2 now cover all cases.
 //
 // Used by:
 //   - evolution/src/components/evolution/tables/RunsTable.tsx (runs list "Spent" column)
@@ -37,7 +42,8 @@ const CHUNK_SIZE = 100;
 async function readCostMetrics(
   db: SupabaseClient,
   metricName: 'cost' | 'generation_cost' | 'ranking_cost' | 'reflection_cost' | 'seed_cost'
-    | 'evaluation_cost' | 'iterative_edit_cost' | 'proposer_approver_criteria_cost',
+    | 'evaluation_cost' | 'iterative_edit_cost' | 'proposer_approver_criteria_cost'
+    | 'paragraph_recombine_cost' | 'debate_cost',
   runIds: string[],
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>();
@@ -63,28 +69,6 @@ async function readCostMetrics(
   return out;
 }
 
-async function readInvocationSums(db: SupabaseClient, runIds: string[]): Promise<Map<string, number>> {
-  const out = new Map<string, number>();
-  for (let i = 0; i < runIds.length; i += CHUNK_SIZE) {
-    const chunk = runIds.slice(i, i + CHUNK_SIZE);
-    const { data, error } = await db
-      .from('evolution_run_costs')
-      .select('run_id, total_cost_usd')
-      .in('run_id', chunk);
-    if (error) {
-      logger.warn('getRunCostsWithFallback: invocation view query failed', {
-        chunkSize: chunk.length, error: error.message,
-      });
-      continue;
-    }
-    for (const row of data ?? []) {
-      const v = Number((row as { total_cost_usd: unknown }).total_cost_usd);
-      if (Number.isFinite(v)) out.set(row.run_id as string, v);
-    }
-  }
-  return out;
-}
-
 /**
  * Return a Map<runId, costUsd> covering every requested runId. Each missing
  * layer falls through to the next; runs not found at any layer get 0 with
@@ -103,56 +87,52 @@ export async function getRunCostsWithFallback(
   // Layer 2: sum of all per-purpose cost metrics for runs that have per-phase
   // metric rows but no rollup `cost` row.
   //
-  // rename_agents_subagents_evolution_20260508 Phase 6: widened to all 8
-  // per-purpose metrics (was 4 of 9). The previous version silently undercounted
-  // iterative_edit / proposer_approver / evaluation costs when the rollup row was
-  // missing. Now sums: generation + ranking + reflection + seed + evaluation +
-  // iterative_edit + proposer_approver_criteria. (iterative_edit_rank_cost is
-  // soft-deprecated; superseded by subagent:ranking.cost via Phase 3.)
+  // History:
+  // - rename_agents_subagents_evolution_20260508 Phase 6: widened from 4 to 7 metrics.
+  // - investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 (Option H):
+  //   added paragraph_recombine_cost + debate_cost. Pre-fix, any run whose ONLY cost
+  //   came from paragraph_recombine (no top-level `cost` rollup row) under-reported
+  //   on the dashboard "Total Cost" tile + runs-list "Spent" column by the full
+  //   paragraph_recombine spend. Same fix retroactively covers debate_cost.
   const layer2 = new Map<string, number>();
   if (stillMissing1.length > 0) {
-    const [gen, rank, reflection, seed, evaluation, iterEdit, proposerApprover] = await Promise.all([
-      readCostMetrics(db, 'generation_cost', stillMissing1),
-      readCostMetrics(db, 'ranking_cost', stillMissing1),
-      readCostMetrics(db, 'reflection_cost', stillMissing1),
-      readCostMetrics(db, 'seed_cost', stillMissing1),
-      readCostMetrics(db, 'evaluation_cost', stillMissing1),
-      readCostMetrics(db, 'iterative_edit_cost', stillMissing1),
-      readCostMetrics(db, 'proposer_approver_criteria_cost', stillMissing1),
-    ]);
+    const perPurposeMetrics = [
+      'generation_cost', 'ranking_cost', 'reflection_cost', 'seed_cost',
+      'evaluation_cost', 'iterative_edit_cost', 'proposer_approver_criteria_cost',
+      'paragraph_recombine_cost', 'debate_cost',
+    ] as const;
+    const maps = await Promise.all(
+      perPurposeMetrics.map((m) => readCostMetrics(db, m, stillMissing1)),
+    );
     for (const id of stillMissing1) {
-      const sum =
-        (gen.get(id) ?? 0) +
-        (rank.get(id) ?? 0) +
-        (reflection.get(id) ?? 0) +
-        (seed.get(id) ?? 0) +
-        (evaluation.get(id) ?? 0) +
-        (iterEdit.get(id) ?? 0) +
-        (proposerApprover.get(id) ?? 0);
-      if (
-        gen.has(id) || rank.has(id) || reflection.has(id) || seed.has(id) ||
-        evaluation.has(id) || iterEdit.has(id) || proposerApprover.has(id)
-      ) {
-        layer2.set(id, sum);
+      let sum = 0;
+      let anyHit = false;
+      for (const m of maps) {
+        if (m.has(id)) {
+          anyHit = true;
+          sum += m.get(id) ?? 0;
+        }
       }
+      if (anyHit) layer2.set(id, sum);
     }
   }
   const stillMissing2 = stillMissing1.filter(id => !layer2.has(id));
 
-  // Layer 3: evolution_run_costs view (SUM from evolution_agent_invocations).
-  const layer3 = stillMissing2.length > 0 ? await readInvocationSums(db, stillMissing2) : new Map<string, number>();
-  const stillMissing3 = stillMissing2.filter(id => !layer3.has(id));
+  // Layer 3 (`evolution_run_costs` view) was removed (Option G9) — the view was
+  // dropped in 20260323000004_drop_legacy_metrics.sql and queries against it have
+  // been erroring silently since. Layers 1+2 now cover all cases. Runs that
+  // miss both fall through to 0 with a warn log.
 
-  if (stillMissing3.length > 0) {
+  if (stillMissing2.length > 0) {
     logger.warn('getRunCostsWithFallback: runs with no cost data at any layer', {
-      count: stillMissing3.length,
-      sample: stillMissing3.slice(0, 5),
+      count: stillMissing2.length,
+      sample: stillMissing2.slice(0, 5),
     });
   }
 
   const out = new Map<string, number>();
   for (const id of runIds) {
-    out.set(id, layer1.get(id) ?? layer2.get(id) ?? layer3.get(id) ?? 0);
+    out.set(id, layer1.get(id) ?? layer2.get(id) ?? 0);
   }
   return out;
 }

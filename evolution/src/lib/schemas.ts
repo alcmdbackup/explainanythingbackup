@@ -660,11 +660,42 @@ export const iterationConfigSchema = z.object({
    *  bring_back_debate_agent_20260506 Decision §18 + Phase 1.14. */
   debateJudgeReasoningEffort: z.enum(['none', 'low', 'medium', 'high']).optional(),
   /** rank_individual_paragraphs_evolution_20260525 — paragraph_recombine knobs.
-   *  All four fields are only valid when agentType === 'paragraph_recombine'. */
+   *  All paragraph_recombine fields below are only valid when agentType === 'paragraph_recombine'. */
   rewritesPerParagraph: z.number().int().min(1).max(6).optional(),
   maxComparisonsPerParagraph: z.number().int().min(1).max(20).optional(),
   maxParagraphsPerInvocation: z.number().int().min(1).max(50).optional(),
   paragraphRewriteModel: z.string().optional(),
+  /** Per-invocation safety cap (USD). Default in `ParagraphRecombineAgent` is $0.05;
+   *  raise here when the iteration genuinely needs a larger envelope (e.g. high
+   *  `rewritesPerParagraph × maxComparisonsPerParagraph`). Upper bound 0.5 catches
+   *  order-of-magnitude config errors. Added by
+   *  investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 (Option F).
+   *  MUST be emitted by `canonicalizeIterationConfig` to participate in config_hash. */
+  perInvocationCapUsd: z.number().min(0.001).max(0.5).optional(),
+  /** Hard upper bound on the number of parent variants paragraph_recombine will
+   *  process per iteration. Default behavior when unset: `1` (the existing
+   *  single-dispatch behavior pre-J). Set to `>1` to opt into multi-dispatch:
+   *  the dispatch loop selects up to `maxDispatches` distinct parents from the
+   *  `qualityCutoff`-filtered eligible set and runs `ParagraphRecombineAgent`
+   *  in parallel against each, mirroring the `generate` iteration's parallel+top-up
+   *  pattern. Cap of 10 matches the practical eligible-parent pool size. Added by
+   *  investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 (Option J).
+   *  MUST be emitted by `canonicalizeIterationConfig` to participate in config_hash. */
+  maxDispatches: z.number().int().min(1).max(10).optional(),
+  /** J3 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+   *  per-iteration budget-floor overrides. When set, these take precedence over
+   *  the strategy-level `minBudgetAfter*Fraction` / `minBudgetAfter*AgentMultiple`
+   *  fields for THIS iteration only. Useful when paragraph_recombine and generate
+   *  iterations within the same strategy want different floor profiles (e.g.
+   *  generate uses a conservative parallel floor, paragraph_recombine wants
+   *  aggressive multi-dispatch with no parallel floor). Fraction takes precedence
+   *  over AgentMultiple per `budgetFloorResolvers.ts` selection rules. Honored only
+   *  for paragraph_recombine in the current J refactor; the generate runtime path
+   *  ignores these (it consults strategy-level fields only). */
+  parallelFloorFraction: z.number().min(0).max(1).optional(),
+  parallelFloorAgentMultiple: z.number().min(0).optional(),
+  sequentialFloorFraction: z.number().min(0).max(1).optional(),
+  sequentialFloorAgentMultiple: z.number().min(0).optional(),
 }).refine(
   // sourceMode is for parent-article selection in variant-producing iterations.
   // Debate selects parents internally (top-2 from pool snapshot per Decision §16) so
@@ -759,6 +790,12 @@ export const iterationConfigSchema = z.object({
 ).refine(
   (c) => c.agentType === 'paragraph_recombine' || c.paragraphRewriteModel === undefined,
   { message: 'paragraphRewriteModel only valid when agentType is paragraph_recombine' },
+).refine(
+  (c) => c.agentType === 'paragraph_recombine' || c.perInvocationCapUsd === undefined,
+  { message: 'perInvocationCapUsd only valid when agentType is paragraph_recombine' },
+).refine(
+  (c) => c.agentType === 'paragraph_recombine' || c.maxDispatches === undefined,
+  { message: 'maxDispatches only valid when agentType is paragraph_recombine' },
 );
 
 export type IterationConfig = z.infer<typeof iterationConfigSchema>;
@@ -2135,10 +2172,33 @@ export const slotRecombineExecutionDetailSchema = executionDetailBaseSchema.exte
         'no_bullets', 'no_lists', 'no_tables', 'no_h1',
         'length_under', 'length_over', 'zero_sentences',
       ]).optional(),
+      /** G1 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+       *  Temperature used for this rewrite (from the ladder index). Undefined when
+       *  the model rejects temperature options. Pre-G1 rows lack this field. */
+      temperature: z.number().min(0).max(2).optional(),
+      /** G1: lifecycle status of this rewrite. `succeeded` = LLM call returned and
+       *  passed `validateParagraphRewrite`; `dropped` = LLM call returned but failed
+       *  the validator (see `dropReason`); `skipped_slot_abort` = the slot's
+       *  self-abort fired before this rewrite's call; `llm_error` = the LLM call
+       *  threw (reservation was released, so `costUsd` is 0). Pre-G1 rows lack this. */
+      status: z.enum(['succeeded', 'dropped', 'skipped_slot_abort', 'llm_error']).optional(),
     })),
     /** Per-slot ranking results. Undefined when slot was self-aborted before ranking. */
     ranking: z.object({
       matchCount: z.number().int().min(0),
+      /** G2 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+       *  paragraph_rank phase cost delta over THIS slot's ranking loop only. Pre-G2
+       *  ranking spend was only visible at the invocation level (paragraph_recombine_cost
+       *  rollup) which mixed rewrite + rank. Optional for back-compat with older rows. */
+      cost: z.number().min(0).optional(),
+      /** G2: comparison count for THIS slot's ranking loop. Same as matchCount in
+       *  practice; declared separately so future agents can disambiguate (e.g. if
+       *  comparisons-per-match becomes >1 via bias mitigation). Optional. */
+      comparisonCount: z.number().int().min(0).optional(),
+      /** G2: lifecycle status of the ranking loop. `completed` = all candidates ranked;
+       *  `self_aborted` = slot self-abort fired mid-loop; `skipped_insufficient_pool` =
+       *  zero or one surviving rewrite, so no comparisons happened. Optional. */
+      status: z.enum(['completed', 'self_aborted', 'skipped_insufficient_pool']).optional(),
       ratings: z.array(z.object({
         variantId: z.string().uuid(),
         elo: z.number(),
@@ -2171,6 +2231,33 @@ export const slotRecombineExecutionDetailSchema = executionDetailBaseSchema.exte
     elo: z.number(),
     uncertainty: z.number().min(0),
     costUsd: z.number().min(0),
+  }).optional(),
+  /** G4 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): projector
+   *  output captured at dispatch time + per-phase breakdown. Persisted so that
+   *  paragraph_recombine joins the existing `cost_estimation_error_pct` / `estimated_cost`
+   *  run-level metric family AUTOMATICALLY (the finalization compute functions iterate
+   *  all invocation details agnostic to agent_name and look for `estimationErrorPct`
+   *  + `estimatedTotalCost` at the top level).
+   *
+   *  - `estimatedTotalCost`: projector's `expected` (per-invocation, USD).
+   *  - `estimatedTotalCostUpperBound`: projector's `upperBound` (1.3× expected).
+   *  - `estimationErrorPct`: `(actualCost - estimatedCost) / estimatedCost × 100`.
+   *  - `paragraph_rewrite.{estimatedCost,cost,estimationErrorPct}`: per-phase split.
+   *  - `paragraph_rank.{estimatedCost,cost,estimationErrorPct}`: per-phase split.
+   *
+   *  All `.optional()` for back-compat with existing rows. */
+  estimatedTotalCost: z.number().min(0).optional(),
+  estimatedTotalCostUpperBound: z.number().min(0).optional(),
+  estimationErrorPct: z.number().optional(),
+  paragraph_rewrite: z.object({
+    estimatedCost: z.number().min(0),
+    cost: z.number().min(0),
+    estimationErrorPct: z.number().optional(),
+  }).optional(),
+  paragraph_rank: z.object({
+    estimatedCost: z.number().min(0),
+    cost: z.number().min(0),
+    estimationErrorPct: z.number().optional(),
   }).optional(),
 });
 

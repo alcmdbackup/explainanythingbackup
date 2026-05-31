@@ -5,6 +5,8 @@ import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { randomUUID } from 'crypto';
+import { safeGoto } from '@/lib/testing/safe-goto';
+import { EvolutionListPage } from '../../helpers/pages/admin/EvolutionListPage';
 
 function getServiceClient() {
   return createClient<Database>(
@@ -82,6 +84,8 @@ adminTest.describe('Evolution Filter Consistency', { tag: '@evolution' }, () => 
   });
 
   adminTest('hide-test-content filter works on runs and experiments pages', async ({ adminPage }) => {
+    const listPage = new EvolutionListPage(adminPage);
+
     // --- Runs page: checked hides test items ---
     await adminPage.goto('/admin/evolution/runs', { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
@@ -89,33 +93,26 @@ adminTest.describe('Evolution Filter Consistency', { tag: '@evolution' }, () => 
     const table = adminPage.locator('[data-testid="runs-list-table"]');
     await expect(table).toBeVisible({ timeout: 30000 });
 
-    // First uncheck filter to see all rows (seeded data uses test prefixes)
-    const hideTestLabel = adminPage.locator('[data-testid="filter-filterTestContent"]');
-    const hideTestCheckbox = hideTestLabel.locator('input[type="checkbox"]');
-    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
-    if (await hideTestCheckbox.isChecked()) {
-      await hideTestCheckbox.uncheck();
-    }
+    // Uncheck filter so seeded [TEST]-prefixed rows are visible. Idempotent —
+    // mirrors AdminContentPage.resetFilters single-call pattern.
+    await listPage.resetFilters();
 
     // Both rows should be visible with filter off
     const testRunRow = adminPage.locator(`[data-testid="run-row-${runIds[0]}"]`);
     await expect(testRunRow).toBeVisible({ timeout: 15000 });
 
     // Re-check filter — test run should be hidden (strategy name contains [TEST])
-    await hideTestCheckbox.check();
+    await listPage.enableHideTestFilter();
     await expect(testRunRow).not.toBeVisible({ timeout: 10000 });
 
-    // Uncheck to show all content — both run rows should be visible
-    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
-    if (await hideTestCheckbox.isChecked()) {
-      await hideTestCheckbox.uncheck();
-    }
+    // Uncheck again — both run rows should be visible
+    await listPage.resetFilters();
     await expect(testRunRow).toBeVisible({ timeout: 15000 });
     const normalRunRow = adminPage.locator(`[data-testid="run-row-${runIds[1]}"]`);
     await expect(normalRunRow).toBeVisible();
 
-    // --- Experiments page: filter is functional ---
-    await adminPage.goto('/admin/evolution/experiments');
+    // --- Experiments page: filter is functional (chained nav — use safeGoto) ---
+    await safeGoto(adminPage, '/admin/evolution/experiments');
     await adminPage.waitForLoadState('domcontentloaded');
 
     // Verify page loads without error

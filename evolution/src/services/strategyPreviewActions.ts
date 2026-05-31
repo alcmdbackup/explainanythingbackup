@@ -221,8 +221,9 @@ export interface IterationPlanEntryClient {
     // `evaluation` was added by evaluateCriteriaThenGenerateFromPreviousArticle_20260501.
     // Mirror keys for EstPerAgentValue (server) — keep in sync with projectDispatchPlan.ts.
     // Includes `debate` (bring_back_debate_agent_20260506 Phase 1.10 + 3.3).
-    expected: { gen: number; rank: number; reflection: number; editing: number; editingRank: number; evaluation: number; debate: number; total: number };
-    upperBound: { gen: number; rank: number; reflection: number; editing: number; editingRank: number; evaluation: number; debate: number; total: number };
+    // paragraphRecombine field added by rank_individual_paragraphs_evolution_20260525.
+    expected: { gen: number; rank: number; reflection: number; editing: number; editingRank: number; evaluation: number; debate: number; paragraphRecombine: number; total: number };
+    upperBound: { gen: number; rank: number; reflection: number; editing: number; editingRank: number; evaluation: number; debate: number; paragraphRecombine: number; total: number };
   };
   maxAffordable: { atExpected: number; atUpperBound: number };
   dispatchCount: number;
@@ -239,6 +240,12 @@ export interface IterationPlanEntryClient {
   criteriaCount?: number;
   /** Number of weakest criteria the wrapper targets with suggestions. Only set when agentType === 'criteria_and_generate'. */
   weakestK?: number;
+  /** F4 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): per-invocation
+   *  safety cap for paragraph_recombine iterations. Used to render "cap $X" annotation
+   *  alongside the projector envelope in DispatchPlanView. Undefined for non-paragraph. */
+  perInvocationCapUsd?: number;
+  /** Effective `maxDispatches` for paragraph_recombine iterations (defaults to 1). */
+  maxDispatches?: number;
 }
 
 /**

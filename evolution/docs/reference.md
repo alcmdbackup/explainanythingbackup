@@ -191,6 +191,20 @@ Validation throws plain `Error` with a descriptive message on constraint violati
 | `EVOLUTION_DEBATE_ENABLED` | `true` | Kill-switch for `debate_and_generate` iterations (bring_back_debate_agent_20260506). When `'false'`, the dispatch loop short-circuits to `dispatchCount=0`. Mirrored at the wizard preview boundary. |
 | `EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED` | `true` | Kill-switch for `paragraph_recombine` iterations (rank_individual_paragraphs_evolution_20260525). When `'false'`, the dispatch loop short-circuits to `dispatchCount=0`. Mirrored at the wizard preview boundary via `paragraphRecombineEnabled` opts flag. |
 
+#### `IterationConfig` paragraph_recombine knobs (added by `investigate_paragraph_rewrite_cost_undershoot_evolution_20260529`)
+
+All paragraph_recombine-only — Zod refinement-gated. Schema location: `evolution/src/lib/schemas.ts` `iterationConfigSchema`.
+
+| Field | Default | Description |
+|---|---|---|
+| `perInvocationCapUsd` | `0.05` (was `0.40` pre-F1) | Per-invocation safety cap. Lowered so it actually serves as a meaningful rail (pre-F1 the $0.40 default was 33× the projector envelope, creating a misleading "1% spent" UI). Strategies override when they need a larger envelope. Schema bound: 0.001–0.5. |
+| `maxDispatches` | `1` | Opt into multi-dispatch by setting `> 1` (paired with `sourceMode: 'pool'`). Schema bound: 1–10. Default 1 = back-compat exact. |
+| `parallelFloorFraction` / `parallelFloorAgentMultiple` / `sequentialFloorFraction` / `sequentialFloorAgentMultiple` | unset → strategy-level fallback | J3 per-iteration overrides for the budget floors used by the multi-dispatch loop. Iter-level wins over strategy-level when set. Currently honored only for paragraph_recombine; the generate runtime continues to use strategy-level fields. |
+
+All six fields participate in `config_hash` via `canonicalizeIterationConfig` so strategies differing only in these knobs dedupe distinctly.
+
+Layer 3 of `getRunCostWithFallback` was REMOVED by Option G9 — the `evolution_run_costs` view was dropped in `20260323000004_drop_legacy_metrics.sql` and queries against it have been erroring silently. Layers 1 + 2 (where Layer 2 now sums 9 per-purpose cost metrics including `paragraph_recombine_cost` + `debate_cost`) cover all cases.
+
 ### EntityLogger
 
 **File:** `evolution/src/lib/pipeline/infra/createEntityLogger.ts`

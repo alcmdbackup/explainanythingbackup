@@ -30,15 +30,18 @@ describe('RunEntity', () => {
     expect(entity.children.every(c => c.cascade === 'delete')).toBe(true);
   });
 
-  it('has 17 execution + 21 finalization + 0 propagation metrics', () => {
+  it('has 17 execution + 23 finalization + 0 propagation metrics', () => {
     // 15 (16 prior - 1 iterative_edit_rank_cost removed in Phase 6 of
     // rename_agents_subagents_evolution_20260508; superseded by subagent:ranking.cost
     // dynamic prefix) + 2 paragraph_recombine (paragraph_recombine_cost +
     // paragraph_slot_match_persist_failures from rank_individual_paragraphs_evolution_20260525) = 17.
     expect(entity.metrics.duringExecution).toHaveLength(17);
     // 18 prior + 3 sentence-overlap percentile metrics (median, p25, min)
-    // (updated_criteria_agent_20260505).
-    expect(entity.metrics.atFinalization).toHaveLength(21);
+    // (updated_criteria_agent_20260505) + 2 paragraph_recombine per-phase
+    // estimation-error rollups (paragraph_rewrite_estimation_error_pct +
+    // paragraph_rank_estimation_error_pct, G7 of
+    // investigate_paragraph_rewrite_cost_undershoot_evolution_20260529) = 23.
+    expect(entity.metrics.atFinalization).toHaveLength(23);
     expect(entity.metrics.atPropagation).toHaveLength(0);
   });
 
@@ -76,12 +79,15 @@ describe('StrategyEntity', () => {
     expect(entity.children[0]!.cascade).toBe('delete');
   });
 
-  it('has 44 propagation metrics', () => {
+  it('has 46 propagation metrics', () => {
     // 42 (44 prior - 2 iterative_edit_rank_cost rollups removed in Phase 6 of
     // rename_agents_subagents_evolution_20260508; superseded by subagent:ranking.cost
     // dynamic prefix) + 2 paragraph_recombine (total_paragraph_recombine_cost +
-    // avg_paragraph_recombine_cost_per_run from rank_individual_paragraphs_evolution_20260525) = 44.
-    expect(entity.metrics.atPropagation).toHaveLength(44);
+    // avg_paragraph_recombine_cost_per_run from rank_individual_paragraphs_evolution_20260525)
+    // + 2 paragraph_recombine per-phase estimation-error rollups
+    // (avg_paragraph_rewrite_estimation_error_pct + avg_paragraph_rank_estimation_error_pct,
+    // G7 of investigate_paragraph_rewrite_cost_undershoot_evolution_20260529) = 46.
+    expect(entity.metrics.atPropagation).toHaveLength(46);
     const names = entity.metrics.atPropagation.map(d => d.name);
     expect(names).toContain('run_count');
     expect(names).toContain('total_cost');

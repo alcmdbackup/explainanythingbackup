@@ -34,7 +34,7 @@ import { selectTacticWeighted, ALL_SYSTEM_TACTICS, ALL_TACTIC_NAMES, getTacticSu
 import { getTacticEloBoostsForReflection } from '../../../services/tacticReflectionActions';
 import { createSeededRng } from '../../metrics/experimentMetrics';
 import type { AgentContext } from '../../core/types';
-import { estimateAgentCost } from '../infra/estimateCosts';
+import { estimateAgentCost, estimateParagraphRecombineCost } from '../infra/estimateCosts';
 import { DISPATCH_SAFETY_CAP } from './projectDispatchPlan';
 import { resolveReflectionEnabled } from './reflectionDispatch';
 import { resolveSequentialFloor } from './budgetFloorResolvers';
@@ -1268,11 +1268,18 @@ export async function evolveArticle(
           phaseName: 'ranking',
         });
       } else if (iterType === 'paragraph_recombine') {
-        // ─── Paragraph-recombine iteration (Task 3) ───────────────
-        // Dedicated single-dispatch branch (NOT the generate-family gate): resolve ONE
-        // parent (honoring sourceMode/qualityCutoff), run ONE ParagraphRecombineAgent
-        // (which ranks the recombined variant internally via rankNewVariant and returns
-        // matches), then feed matches + the variant to MergeRatingsAgent — mirroring debate.
+        // ─── Paragraph-recombine iteration ───────────────
+        // J4 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+        // multi-dispatch refactor. Pre-J the branch ran EXACTLY 1 invocation per
+        // iteration (single resolveParent → single agent.run), leaving most of the
+        // iteration budget unspent. Post-J, when `iterCfg.maxDispatches > 1` AND
+        // `sourceMode === 'pool'`, the loop picks up to K distinct parents from the
+        // qualityCutoff-filtered eligible set and runs them in parallel + sequential
+        // top-up, mirroring the `generate`-iteration RUNTIME pattern (no
+        // `resolveParallelFloor` at runtime — only `resolveSequentialFloor` per the
+        // generate convention at line ~718). The single MergeRatingsAgent at the
+        // end consumes ALL K invocations' match histories via the multi-buffer shape.
+        // `maxDispatches` defaults to 1 → exact backward-compat with single-dispatch.
         const paragraphEnabled = process.env.EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED !== 'false';
         if (!paragraphEnabled) {
           logger.info('Paragraph-recombine iteration skipped — EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED=false', {
@@ -1283,56 +1290,227 @@ export async function evolveArticle(
           const iterSourceMode = iterCfg.sourceMode ?? 'seed';
           const inRunPool = pool.filter((v) => !v.fromArena);
           const poolForParentResolve = iterSourceMode === 'pool' ? inRunPool : pool;
-          const prExecOrder = ++executionOrder;
-          const pickRng = createSeededRng(hashSeed(runId, iteration, prExecOrder));
-          const resolved = resolveParent({
-            sourceMode: iterSourceMode,
-            qualityCutoff: iterCfg.qualityCutoff,
-            seedVariant: { id: options?.seedVariantId ?? '', text: originalText },
-            pool: poolForParentResolve,
-            ratings,
-            rng: pickRng,
-            warn: (msg, c) => logger.warn(msg, { ...c, phaseName: 'paragraph_recombine', iteration, execOrder: prExecOrder }),
-          });
+          const maxDispatchesK = iterCfg.maxDispatches ?? 1;
 
-          const prCtx: AgentContext = {
+          // Build the eligible-parent set ONCE (J4 step 1). For sourceMode='seed' or
+          // when maxDispatchesK===1, we keep the existing single-resolveParent path
+          // (back-compat — same RNG, same pick semantics). For maxDispatchesK>1 +
+          // sourceMode='pool', we shuffle the eligible set and dispatch K distinct
+          // parents indexed into the shuffle.
+          type ResolvedParentRef = { variantId: string; text: string };
+          const resolvedParents: ResolvedParentRef[] = [];
+
+          if (maxDispatchesK > 1 && iterSourceMode === 'pool' && iterCfg.qualityCutoff) {
+            // J4 step 1+2: filter by qualityCutoff then seeded pre-shuffle.
+            const cutoff = iterCfg.qualityCutoff;
+            const eloOf = (v: Variant): number => (ratings.get(v.id)?.elo ?? 0);
+            const sorted = [...inRunPool].sort((a, b) => eloOf(b) - eloOf(a));
+            let eligible: Variant[];
+            if (cutoff.mode === 'topN') {
+              eligible = sorted.slice(0, Math.max(1, cutoff.value));
+            } else {
+              const keepN = Math.max(1, Math.ceil(sorted.length * (cutoff.value / 100)));
+              eligible = sorted.slice(0, keepN);
+            }
+            const shuffleSeed = deriveSeed(randomSeed, `iter${iteration}`, 'paragraph_recombine_shuffle');
+            const shuffleRng = new SeededRandom(shuffleSeed);
+            shuffleRng.shuffle(eligible); // in-place
+            for (const v of eligible) resolvedParents.push({ variantId: v.id, text: v.text });
+          } else {
+            // Back-compat single-dispatch path.
+            const singleExecOrder = ++executionOrder;
+            const pickRng = createSeededRng(hashSeed(runId, iteration, singleExecOrder));
+            const resolved = resolveParent({
+              sourceMode: iterSourceMode,
+              qualityCutoff: iterCfg.qualityCutoff,
+              seedVariant: { id: options?.seedVariantId ?? '', text: originalText },
+              pool: poolForParentResolve,
+              ratings,
+              rng: pickRng,
+              warn: (msg, c) => logger.warn(msg, { ...c, phaseName: 'paragraph_recombine', iteration, execOrder: singleExecOrder }),
+            });
+            executionOrder--; // give it back; we'll re-allocate in the dispatch loop below
+            resolvedParents.push({ variantId: resolved.variantId, text: resolved.text });
+          }
+
+          // J4 step 3: parallel batch sizing using projector.expected as the per-agent
+          // cost estimate. Mirror the generate-runtime pattern (no `resolveParallelFloor`
+          // at runtime — only `resolveSequentialFloor` later for top-up gating).
+          // For K=1 (back-compat), this collapses to the same single-dispatch behavior.
+          const projector = estimateParagraphRecombineCost(
+            originalText.length, // best estimate when each parent has comparable length
+            iterCfg.maxParagraphsPerInvocation ?? 12,
+            iterCfg.rewritesPerParagraph ?? 3,
+            iterCfg.maxComparisonsPerParagraph ?? 8,
+            iterCfg.paragraphRewriteModel ?? resolvedConfig.generationModel,
+            resolvedConfig.judgeModel,
+          );
+          const expectedPerAgent = Math.max(0.001, projector.expected);
+          const availForParallel = iterTracker.getAvailableBudget();
+          const maxAffordable = Math.max(1, Math.floor(availForParallel / expectedPerAgent));
+          const parallelDispatchCount = Math.min(
+            DISPATCH_SAFETY_CAP,
+            maxAffordable,
+            maxDispatchesK,
+            resolvedParents.length,
+          );
+
+          const makePrCtx = (execOrder: number): AgentContext => ({
             db, runId, iteration,
-            executionOrder: prExecOrder,
+            executionOrder: execOrder,
             invocationId: '',
-            randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `paragraph_recombine${prExecOrder}`),
+            randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `paragraph_recombine${execOrder}`),
             logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
             experimentId: options?.experimentId,
             strategyId: options?.strategyId,
             rawProvider: llmProvider,
             defaultModel: resolvedConfig.generationModel,
             generationTemperature: resolvedConfig.generationTemperature,
-          };
-          const paragraphAgent = new ParagraphRecombineAgent();
+          });
+
+          const surfacedVariants: Variant[] = [];
+          const matchBuffersAll: MergeMatchEntry[][] = [];
+
           try {
-            const prResult = await paragraphAgent.run({
-              parentText: resolved.text,
-              parentVariantId: resolved.variantId,
-              rewritesPerParagraph: iterCfg.rewritesPerParagraph,
-              maxComparisonsPerParagraph: iterCfg.maxComparisonsPerParagraph,
-              maxParagraphsPerInvocation: iterCfg.maxParagraphsPerInvocation,
-              initialPool: pool,
-              initialRatings: ratings,
-              initialMatchCounts: matchCounts,
-              cache: comparisonCache,
-            }, prCtx);
+            // J4 step 3: Parallel batch dispatch. Capture iteration-tracker spend
+            // before/after to compute `actualAvgCostPerAgent` for the sequential top-up
+            // floor calc (mirrors the generate-runtime convention).
+            const spendBeforeParallel = iterTracker.getTotalSpent();
+            const parallelParents = resolvedParents.slice(0, parallelDispatchCount);
+            const parallelResults = await Promise.allSettled(
+              parallelParents.map((parent) => {
+                const execOrder = ++executionOrder;
+                const paragraphAgent = new ParagraphRecombineAgent();
+                return paragraphAgent.run({
+                  parentText: parent.text,
+                  parentVariantId: parent.variantId,
+                  rewritesPerParagraph: iterCfg.rewritesPerParagraph,
+                  maxComparisonsPerParagraph: iterCfg.maxComparisonsPerParagraph,
+                  maxParagraphsPerInvocation: iterCfg.maxParagraphsPerInvocation,
+                  perInvocationCapUsd: iterCfg.perInvocationCapUsd,
+                  initialPool: pool,
+                  initialRatings: ratings,
+                  initialMatchCounts: matchCounts,
+                  cache: comparisonCache,
+                }, makePrCtx(execOrder));
+              }),
+            );
 
-            const prOutput = prResult.result;
-            if (prOutput && prOutput.variant && prOutput.surfaced) {
-              const newVariants: Variant[] = [prOutput.variant];
-              iterVariantsCreated++;
-
-              const prMatchBuffers: MergeMatchEntry[][] = [];
-              if (prOutput.matches && prOutput.matches.length > 0) {
-                prMatchBuffers.push(
-                  prOutput.matches.map((m) => ({ match: m, idA: m.winnerId, idB: m.loserId })),
-                );
+            let successCount = 0;
+            for (const settled of parallelResults) {
+              if (settled.status !== 'fulfilled') continue;
+              const prResult = settled.value;
+              if (prResult.budgetExceeded) iterStopReason = 'iteration_budget_exceeded';
+              const prOutput = prResult.result;
+              if (!prOutput) continue;
+              successCount++;
+              if (prOutput.variant && prOutput.surfaced) {
+                surfacedVariants.push(prOutput.variant);
+                iterVariantsCreated++;
+                if (prOutput.matches && prOutput.matches.length > 0) {
+                  matchBuffersAll.push(
+                    prOutput.matches.map((m) => ({ match: m, idA: m.winnerId, idB: m.loserId })),
+                  );
+                }
               }
+            }
 
+            const spendAfterParallel = iterTracker.getTotalSpent();
+            const actualAvgCostPerAgent = successCount > 0
+              ? (spendAfterParallel - spendBeforeParallel) / successCount
+              : null;
+
+            // J4 step 5: Sequential top-up. Only fires when there are remaining
+            // parents to dispatch + EVOLUTION_TOPUP_ENABLED isn't disabled + we
+            // haven't already hit the iteration budget. Gate via resolveSequentialFloor
+            // (matches runIterationLoop.ts:718 generate convention).
+            const topUpEnabled = process.env.EVOLUTION_TOPUP_ENABLED !== 'false';
+            if (
+              topUpEnabled &&
+              iterStopReason !== 'iteration_budget_exceeded' &&
+              parallelDispatchCount < maxDispatchesK &&
+              parallelDispatchCount < resolvedParents.length
+            ) {
+              // J3 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+              // per-iteration floor overrides take precedence over strategy-level
+              // fields. Build a synthetic `BudgetFloorConfig` that prefers iter-level
+              // values when set; falls back to strategy-level otherwise. Fraction
+              // wins over AgentMultiple within a single config (resolver convention).
+              const iterFloorConfig = {
+                minBudgetAfterSequentialFraction: iterCfg.sequentialFloorFraction
+                  ?? resolvedConfig.minBudgetAfterSequentialFraction,
+                minBudgetAfterSequentialAgentMultiple: iterCfg.sequentialFloorAgentMultiple
+                  ?? resolvedConfig.minBudgetAfterSequentialAgentMultiple,
+                // Parallel floor fields are unused at runtime here (only resolveSequentialFloor
+                // is consulted at runtime per generate convention), but pass them through
+                // for completeness in case the resolver ever consults them.
+                minBudgetAfterParallelFraction: iterCfg.parallelFloorFraction
+                  ?? resolvedConfig.minBudgetAfterParallelFraction,
+                minBudgetAfterParallelAgentMultiple: iterCfg.parallelFloorAgentMultiple
+                  ?? resolvedConfig.minBudgetAfterParallelAgentMultiple,
+              };
+              const sequentialFloor = resolveSequentialFloor(
+                iterFloorConfig,
+                iterBudgetUsd,
+                expectedPerAgent,
+                actualAvgCostPerAgent,
+              );
+              let topUpIndex = parallelDispatchCount;
+              while (
+                topUpIndex < resolvedParents.length &&
+                topUpIndex < maxDispatchesK &&
+                topUpIndex < DISPATCH_SAFETY_CAP
+              ) {
+                const avgCostForFloor = actualAvgCostPerAgent ?? expectedPerAgent;
+                if (iterTracker.getAvailableBudget() - avgCostForFloor < sequentialFloor) break;
+                const parent = resolvedParents[topUpIndex]!;
+                const execOrder = ++executionOrder;
+                const paragraphAgent = new ParagraphRecombineAgent();
+                try {
+                  const prResult = await paragraphAgent.run({
+                    parentText: parent.text,
+                    parentVariantId: parent.variantId,
+                    rewritesPerParagraph: iterCfg.rewritesPerParagraph,
+                    maxComparisonsPerParagraph: iterCfg.maxComparisonsPerParagraph,
+                    maxParagraphsPerInvocation: iterCfg.maxParagraphsPerInvocation,
+                    perInvocationCapUsd: iterCfg.perInvocationCapUsd,
+                    initialPool: pool,
+                    initialRatings: ratings,
+                    initialMatchCounts: matchCounts,
+                    cache: comparisonCache,
+                  }, makePrCtx(execOrder));
+                  if (prResult.budgetExceeded) {
+                    iterStopReason = 'iteration_budget_exceeded';
+                    break;
+                  }
+                  const prOutput = prResult.result;
+                  if (prOutput?.variant && prOutput.surfaced) {
+                    surfacedVariants.push(prOutput.variant);
+                    iterVariantsCreated++;
+                    if (prOutput.matches && prOutput.matches.length > 0) {
+                      matchBuffersAll.push(
+                        prOutput.matches.map((m) => ({ match: m, idA: m.winnerId, idB: m.loserId })),
+                      );
+                    }
+                  }
+                } catch (err) {
+                  if (err instanceof IterationBudgetExceededError) {
+                    iterStopReason = 'iteration_budget_exceeded';
+                    break;
+                  }
+                  // Single-invocation failure during top-up is non-fatal; continue with next.
+                  logger.warn('Paragraph-recombine top-up invocation failed', {
+                    iteration, iterIdx, phaseName: 'paragraph_recombine',
+                    parentVariantId: parent.variantId,
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                }
+                topUpIndex++;
+              }
+            }
+
+            // J4 step 6: Single MergeRatingsAgent over ALL surfaced variants' match buffers.
+            if (surfacedVariants.length > 0) {
               const mergeExecOrder = ++executionOrder;
               const mergeCtx: AgentContext = {
                 db, runId, iteration,
@@ -1346,16 +1524,12 @@ export async function evolveArticle(
               const mergeAgent = new MergeRatingsAgent();
               const mergeResult = await mergeAgent.run({
                 iterationType: 'paragraph_recombine',
-                matchBuffers: prMatchBuffers,
-                newVariants,
+                matchBuffers: matchBuffersAll,
+                newVariants: surfacedVariants,
                 pool, ratings, matchCounts, matchHistory: allMatches,
               }, mergeCtx);
               if (mergeResult.budgetExceeded) iterStopReason = 'iteration_budget_exceeded';
             }
-
-            // Agent.run() catches an in-agent IterationBudgetExceededError and surfaces it
-            // as this flag (not a throw), so the budget path can arrive either way.
-            if (prResult.budgetExceeded) iterStopReason = 'iteration_budget_exceeded';
           } catch (err) {
             if (err instanceof IterationBudgetExceededError) {
               iterStopReason = 'iteration_budget_exceeded';

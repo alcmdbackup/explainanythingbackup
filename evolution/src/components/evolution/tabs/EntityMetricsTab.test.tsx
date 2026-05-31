@@ -197,4 +197,34 @@ describe('EntityMetricsTab', () => {
     expect(screen.getAllByText('Generation Cost').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Ranking Cost').length).toBeGreaterThanOrEqual(1);
   });
+
+  it('does not emit setState-after-unmount warning when unmounted mid-fetch', async () => {
+    // Verifies the abortableEffectController unmount-guard added in
+    // docs/planning/nightly_e2e_still_failing_20260530/. Uses a controllable
+    // Promise so we can unmount BEFORE the action resolves, then resolve it.
+    let resolve!: (v: unknown) => void;
+    const promise = new Promise((r) => { resolve = r; });
+    getEntityMetricsAction.mockReturnValue(promise);
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { unmount } = render(
+      <EntityMetricsTab entityType="run" entityId="00000000-0000-0000-0000-000000000001" />,
+    );
+
+    // Unmount BEFORE the action resolves
+    unmount();
+
+    // Now resolve the pending promise — guard must prevent setMetrics from firing
+    resolve({ success: true, data: [makeRow({ metric_name: 'cost', value: 1.0 })], error: null });
+    // Let microtasks drain
+    await new Promise((r) => setTimeout(r, 0));
+
+    // React would log a console.error if setState fired after unmount.
+    const setStateWarnings = errorSpy.mock.calls.filter((args) =>
+      args.some((a) => typeof a === 'string' && /unmounted|update on an unmounted/i.test(a)),
+    );
+    expect(setStateWarnings).toHaveLength(0);
+    errorSpy.mockRestore();
+  });
 });

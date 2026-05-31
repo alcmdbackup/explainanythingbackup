@@ -89,21 +89,56 @@ describe('getRunCostsWithFallback', () => {
     expect(out.get('r1')).toBeCloseTo(0.032);
   });
 
-  it('falls through to layer 3 (evolution_run_costs view) when layers 1+2 empty', async () => {
+  // Option H (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+  // Layer 2 sum must include paragraph_recombine_cost AND debate_cost. Pre-fix any
+  // paragraph_recombine-only run with a missing `cost` rollup would under-report on
+  // dashboard "Total Cost" + runs-list "Spent" by the full paragraph_recombine spend.
+  it('Option H: layer 2 sum includes paragraph_recombine_cost', async () => {
     const db = makeDb({
-      evolution_metrics: { cost: [], generation_cost: [], ranking_cost: [], reflection_cost: [], seed_cost: [] },
-      evolution_run_costs: {
-        __no_metric__: [{ run_id: 'r1', total_cost_usd: 0.12 }],
+      evolution_metrics: {
+        cost: [], // missing rollup
+        generation_cost: [],
+        ranking_cost: [],
+        reflection_cost: [],
+        seed_cost: [],
+        paragraph_recombine_cost: [{ entity_id: 'r1', value: 0.005 }],
       },
     });
     const out = await getRunCostsWithFallback(['r1'], db);
-    expect(out.get('r1')).toBeCloseTo(0.12);
+    expect(out.get('r1')).toBeCloseTo(0.005);
   });
 
-  it('returns 0 (with warn) for runs missing at every layer', async () => {
+  it('Option H: layer 2 sum includes debate_cost', async () => {
+    const db = makeDb({
+      evolution_metrics: {
+        cost: [],
+        generation_cost: [],
+        ranking_cost: [],
+        reflection_cost: [],
+        seed_cost: [],
+        debate_cost: [{ entity_id: 'r1', value: 0.020 }],
+      },
+    });
+    const out = await getRunCostsWithFallback(['r1'], db);
+    expect(out.get('r1')).toBeCloseTo(0.020);
+  });
+
+  // Layer 3 (`evolution_run_costs` view) was REMOVED by
+  // investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 (Option G9).
+  // The view was dropped in `20260323000004_drop_legacy_metrics.sql`. Pre-G9 this
+  // test asserted Layer 3 fall-through worked; post-G9 the chain stops at Layer 2
+  // and missing runs return 0 with a warn log.
+  it('returns 0 (with warn) for runs missing at every layer (post-G9: Layer 3 removed)', async () => {
     const db = makeDb({
       evolution_metrics: { cost: [], generation_cost: [], ranking_cost: [], reflection_cost: [], seed_cost: [] },
-      evolution_run_costs: { __no_metric__: [] },
+    });
+    const out = await getRunCostsWithFallback(['r1'], db);
+    expect(out.get('r1')).toBe(0);
+  });
+
+  it('returns 0 (with warn) for completely-missing runs', async () => {
+    const db = makeDb({
+      evolution_metrics: { cost: [], generation_cost: [], ranking_cost: [], reflection_cost: [], seed_cost: [] },
     });
     const out = await getRunCostsWithFallback(['ghost'], db);
     expect(out.get('ghost')).toBe(0);

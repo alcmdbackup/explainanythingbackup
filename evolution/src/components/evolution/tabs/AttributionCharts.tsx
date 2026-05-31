@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { getEntityMetricsAction } from '@evolution/services/metricsActions';
 import type { MetricRow } from '@evolution/lib/metrics/types';
 import type { EntityType } from '@evolution/lib/core/types';
+import { abortableEffectController } from '@evolution/lib/utils/abortableEffect';
 import {
   StrategyEffectivenessChart,
   extractStrategyEntries,
@@ -40,20 +41,21 @@ export function AttributionCharts({ entityType, entityId, subtitle, judgeModel }
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let cancelled = false;
+    // Guards setState after unmount; server-action POST continues server-side.
+    const ctl = abortableEffectController();
     getEntityMetricsAction(entityType, entityId)
       .then((res) => {
-        if (cancelled) return;
+        if (ctl.cancelled) return;
         if (res.success && res.data) setRows(res.data);
         setLoading(false);
       })
       .catch((err) => {
-        // B004-S7: log the error so a fetch failure isn't indistinguishable from
-        // "no data" (the empty-state branch returns null too — silent failure was real).
+        // B004-S7: log so fetch failure isn't indistinguishable from "no data"
+        // (the empty-state branch also returns null — silent failure was real).
         console.warn('[AttributionCharts] getEntityMetricsAction failed', err);
-        if (!cancelled) setLoading(false);
+        if (!ctl.cancelled) setLoading(false);
       });
-    return () => { cancelled = true; };
+    return () => ctl.abort();
   }, [entityType, entityId]);
 
   // Index metrics by name for the chart extractors.

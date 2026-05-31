@@ -267,18 +267,21 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
     const rewriteCalls = completeFn.mock.calls.filter(([, label]) => label === 'paragraph_rewrite');
     expect(rewriteCalls.length).toBeGreaterThanOrEqual(2);
 
-    // Each rewrite carries a numeric temperature in the 1.2–2.0 ladder (test ctx has no
-    // defaultModel → unclamped, so the schedule passes through).
+    // Each rewrite carries a numeric temperature. I3b
+    // (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529) special-cases
+    // index-0 to 0.7 (low for length compliance on the "tighten" directive) while
+    // index-1+ uses the 1.2–2.0 diversity ladder. Range now [0.7, 2.0]. Test ctx has
+    // no defaultModel → unclamped, so the schedule passes through.
     for (const call of rewriteCalls) {
       const options = call[2] as { temperature?: number } | undefined;
       expect(options?.temperature).toEqual(expect.any(Number));
-      expect(options!.temperature!).toBeGreaterThanOrEqual(1.2);
+      expect(options!.temperature!).toBeGreaterThanOrEqual(0.7);
       expect(options!.temperature!).toBeLessThanOrEqual(2.0);
     }
-    // For M=2 the schedule is exactly {1.2, 2.0} (floor raised from 1.0 in
-    // investigate_paragraph_recombine_invocation_20260529).
+    // For M=2 the schedule is exactly {0.7, 2.0} post-I3b — index-0 special-case +
+    // index-1 at the high end of the diversity ladder.
     const temps = new Set(rewriteCalls.map((c) => (c[2] as { temperature: number }).temperature));
-    expect(temps.has(1.2)).toBe(true);
+    expect(temps.has(0.7)).toBe(true); // I3b: index-0 special-case
     expect(temps.has(2.0)).toBe(true);
 
     // Within a slot the two rewrites get distinct directives → distinct prompts.
@@ -353,6 +356,73 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
     const result = await agent.execute(baseInput(makeLlmMock()), makeCtx());
     expect(typeof result.detail.totalCost).toBe('number');
     expect(result.detail.totalCost).toBeGreaterThanOrEqual(0);
+  });
+
+  // G1 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): per-rewrite
+  // costUsd, temperature, status fields populated on execution_detail.slots[*].rewrites[*].
+  // Pre-G1 every rewrites[i].costUsd === 0 placeholder.
+  it('G1: per-rewrite execution_detail carries costUsd, temperature, status', async () => {
+    const agent = new ParagraphRecombineAgent();
+    const result = await agent.execute(baseInput(makeLlmMock()), makeCtx());
+    expect(result.detail.slots.length).toBeGreaterThan(0);
+    // At least one slot has rewrites with the new fields.
+    const slotsWithRewrites = result.detail.slots.filter((s) => s.rewrites.length > 0);
+    expect(slotsWithRewrites.length).toBeGreaterThan(0);
+    for (const slot of slotsWithRewrites) {
+      for (const rewrite of slot.rewrites) {
+        // status is one of the four enum values (or absent for back-compat — but new agent always emits).
+        if (rewrite.status !== undefined) {
+          expect(['succeeded', 'dropped', 'skipped_slot_abort', 'llm_error']).toContain(rewrite.status);
+        }
+        // costUsd is a non-negative number (0 for dropped/skipped rewrites where LLM didn't run).
+        expect(typeof rewrite.costUsd).toBe('number');
+        expect(rewrite.costUsd).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+
+  // G2: per-slot ranking carries cost, comparisonCount, status (when ranking ran).
+  it('G2: per-slot ranking carries cost, comparisonCount, status', async () => {
+    const agent = new ParagraphRecombineAgent();
+    const result = await agent.execute(baseInput(makeLlmMock()), makeCtx());
+    const slotsWithRanking = result.detail.slots.filter((s) => s.ranking !== undefined);
+    expect(slotsWithRanking.length).toBeGreaterThan(0);
+    for (const slot of slotsWithRanking) {
+      const r = slot.ranking!;
+      // Optional new fields — when present, must be the right shape.
+      if (r.cost !== undefined) expect(r.cost).toBeGreaterThanOrEqual(0);
+      if (r.comparisonCount !== undefined) expect(r.comparisonCount).toBeGreaterThanOrEqual(0);
+      if (r.status !== undefined) {
+        expect(['completed', 'self_aborted', 'skipped_insufficient_pool']).toContain(r.status);
+      }
+    }
+  });
+
+  // G4/G5: top-level estimatedTotalCost + estimationErrorPct + per-phase split persisted.
+  // These fields auto-join the existing cost_estimation_error_pct / estimated_cost metric
+  // family — pre-G4/G5 paragraph_recombine had no projector-vs-actual visibility.
+  it('G4/G5: emits estimatedTotalCost + estimationErrorPct + per-phase paragraph_rewrite/paragraph_rank in execution_detail', async () => {
+    const agent = new ParagraphRecombineAgent();
+    const result = await agent.execute(baseInput(makeLlmMock()), makeCtx());
+    const detail = result.detail as Record<string, unknown>;
+    // G4: top-level estimatedTotalCost (projector.expected).
+    expect(typeof detail.estimatedTotalCost).toBe('number');
+    expect(detail.estimatedTotalCost as number).toBeGreaterThanOrEqual(0);
+    // G4: upperBound.
+    expect(typeof detail.estimatedTotalCostUpperBound).toBe('number');
+    // G4: per-phase split.
+    const pRewrite = detail.paragraph_rewrite as { estimatedCost: number; cost: number } | undefined;
+    const pRank = detail.paragraph_rank as { estimatedCost: number; cost: number } | undefined;
+    expect(pRewrite).toBeDefined();
+    expect(pRank).toBeDefined();
+    expect(typeof pRewrite!.estimatedCost).toBe('number');
+    expect(typeof pRewrite!.cost).toBe('number');
+    expect(typeof pRank!.estimatedCost).toBe('number');
+    expect(typeof pRank!.cost).toBe('number');
+    // G5: estimationErrorPct (may be undefined if estimated=0 — guard).
+    if (detail.estimationErrorPct !== undefined) {
+      expect(typeof detail.estimationErrorPct).toBe('number');
+    }
   });
 
   it('childVariantIds matches the emitted variant id on success', async () => {
@@ -462,16 +532,20 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
 });
 
 describe('paragraphRewriteTemperature (Option A ladder)', () => {
-  it('M=1 → 1.5 (single rewrite gets the mid value)', () => {
-    expect(paragraphRewriteTemperature(0, 1, undefined)).toBe(1.5);
+  it('M=1 → 0.7 (single rewrite uses index-0 special-case temp)', () => {
+    // I3b: index-0 is always 0.7 regardless of M, including M=1.
+    expect(paragraphRewriteTemperature(0, 1, undefined)).toBe(0.7);
   });
 
-  it('M=3, unknown model cap (undefined) → [1.2, 1.6, 2.0] unclamped (floor raised to 1.2)', () => {
-    expect([0, 1, 2].map((i) => paragraphRewriteTemperature(i, 3, undefined))).toEqual([1.2, 1.6, 2.0]);
+  it('M=3, unknown model cap (undefined) → [0.7, 1.2, 2.0] (index-0 special, index-1+ diversity ladder)', () => {
+    // I3b: index-0 = 0.7 (length compliance), index-1+ walks 1.2–2.0 diversity ladder.
+    // For M=3, indices 1-2 split (2.0-1.2)=0.8 across (M-2)=1 step → [0.7, 1.2, 2.0].
+    expect([0, 1, 2].map((i) => paragraphRewriteTemperature(i, 3, undefined))).toEqual([0.7, 1.2, 2.0]);
   });
 
   it('clamps to a lower model maxTemperature', () => {
-    expect([0, 1, 2].map((i) => paragraphRewriteTemperature(i, 3, 1.0))).toEqual([1.0, 1.0, 1.0]);
+    // I3b: with maxTemp=1.0, index-0 stays 0.7 (already < 1.0), index-1+ clamps to 1.0.
+    expect([0, 1, 2].map((i) => paragraphRewriteTemperature(i, 3, 1.0))).toEqual([0.7, 1.0, 1.0]);
   });
 
   it('returns undefined (omit option) when the model rejects temperature (null cap)', () => {

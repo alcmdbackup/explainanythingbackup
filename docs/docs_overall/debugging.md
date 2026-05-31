@@ -2,6 +2,29 @@
 
 Guide to debugging issues across all environments — local development, deployed preview, and production.
 
+## `NS_BINDING_ABORTED` on Firefox during chained `page.goto`
+
+Symptom: a Playwright E2E test on Firefox fails with `page.goto: NS_BINDING_ABORTED; maybe frame was detached?` Chromium passes the same test. Test stack trace points at a chained `page.goto()` that runs after a `click → detail-page` sequence.
+
+Root cause: the detail page mounts `useEffect` server-action fetches; Firefox aborts these in-flight fetches when the next top-level navigation arrives, then propagates the abort to Playwright. Chromium silently coalesces. Diagnosed in `docs/planning/nightly_e2e_still_failing_20260530/`.
+
+Fix (test-side):
+```ts
+import { safeGoto } from '@/lib/testing/safe-goto';
+// instead of: await page.goto('/admin/evolution/strategies');
+await safeGoto(adminPage, '/admin/evolution/strategies');
+```
+
+Fix (app-side, defense-in-depth — for evolution detail pages):
+```ts
+import { abortableEffectController } from '@evolution/lib/utils/abortableEffect';
+useEffect(() => {
+  const ctl = abortableEffectController();
+  serverAction().then(r => { if (!ctl.cancelled) setState(r); });
+  return () => ctl.abort();
+}, [deps]);
+```
+
 ## Quick Reference
 
 | What You Need | Tool | Command / Access |
@@ -451,10 +474,52 @@ FROM evolution_variants v WHERE v.variant_kind='paragraph' AND v.prompt_id IN (
   SELECT id FROM evolution_prompts WHERE prompt_kind='paragraph' AND prompt LIKE '[para] V<parent8>%');
 ```
 
+### Debugging paragraph_recombine cost-undershoot (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529)
+
+If `paragraph_recombine` invocations look like they're "barely spending anything," the per-rewrite/per-slot instrumentation added by Phase 1 (G1-G7) makes this drillable. Query:
+
+```sql
+-- Per-rewrite cost + temperature + status (G1)
+SELECT
+  inv.id, inv.cost_usd, inv.duration_ms,
+  inv.execution_detail->>'estimationErrorPct' AS error_pct,
+  inv.execution_detail->'paragraph_rewrite'->>'cost' AS pr_rewrite_actual,
+  inv.execution_detail->'paragraph_rewrite'->>'estimatedCost' AS pr_rewrite_est,
+  inv.execution_detail->'paragraph_rank'->>'cost' AS pr_rank_actual,
+  inv.execution_detail->'paragraph_rank'->>'estimatedCost' AS pr_rank_est
+FROM evolution_agent_invocations inv
+WHERE inv.agent_name = 'paragraph_recombine'
+ORDER BY inv.created_at DESC LIMIT 10;
+
+-- Per-rewrite status breakdown (G1)
+SELECT
+  slot->>'slotIndex' AS slot,
+  jsonb_array_elements(slot->'rewrites')->>'index' AS rewrite_idx,
+  jsonb_array_elements(slot->'rewrites')->>'status' AS status,
+  jsonb_array_elements(slot->'rewrites')->>'dropReason' AS drop_reason,
+  jsonb_array_elements(slot->'rewrites')->>'temperature' AS temperature,
+  jsonb_array_elements(slot->'rewrites')->>'costUsd' AS cost_usd
+FROM evolution_agent_invocations inv,
+  LATERAL jsonb_array_elements(inv.execution_detail->'slots') AS slot
+WHERE inv.id = '<invocation-id>';
+
+-- Run-level estimation error (G6, auto-joins via finalization compute fns)
+SELECT entity_id AS run_id, value AS error_pct
+FROM evolution_metrics
+WHERE entity_type = 'run' AND metric_name = 'cost_estimation_error_pct'
+ORDER BY updated_at DESC LIMIT 20;
+```
+
+Common patterns:
+- **High `length_under` drop rate on rewrite index 0**: pre-I3 the "tighten" directive at temp 1.2 dropped 92-100% of index-0 rewrites. Post-I3 the directive uses a hard char-count + temperature 0.7 — target drop rate <30%.
+- **Cap-vs-actual = ~99%**: pre-F1 the default cap was $0.40 vs actual $0.005. Post-F1 default is $0.05 with `iterCfg.perInvocationCapUsd` override.
+- **Iteration budget under-utilized**: pre-J the agent ran 1 invocation per iteration. Set `iterCfg.maxDispatches > 1` + `sourceMode: 'pool'` to fill the iteration budget.
+
 ### Related
 
-- [Cost Optimization](../../evolution/docs/cost_optimization.md) — Budget event logger implementation details
+- [Cost Optimization](../../evolution/docs/cost_optimization.md) — Budget event logger implementation details + Paragraph-Recombine Cost section with Options F/G/H/I/J/K notes.
 - [Reference](../../evolution/docs/reference.md) — CostTracker API including `releaseReservation` and `setEventLogger`
+- [Paragraph Recombine](../../evolution/docs/paragraph_recombine.md) — agent deep dive including multi-dispatch + projector-vs-actual instrumentation.
 
 ---
 

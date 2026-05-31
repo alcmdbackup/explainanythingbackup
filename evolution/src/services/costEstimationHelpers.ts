@@ -23,15 +23,32 @@ export type InvRow = {
  * tactic first; fall back to strategy for legacy GFPA rows. Truthy-check on
  * tactic so empty-string early-failure rows fall through to the legacy field.
  */
+/** Read a finite numeric field from the first phase block that has it. */
+function readPhaseNumber(
+  blocks: ReadonlyArray<Record<string, unknown> | undefined>,
+  field: 'estimatedCost' | 'cost',
+): number | null {
+  for (const block of blocks) {
+    const v = block?.[field];
+    if (typeof v === 'number') return v;
+  }
+  return null;
+}
+
 export function buildInvocationRows(invocations: InvRow[]): CostInvocationRow[] {
   return invocations.map((inv) => {
     const d = (inv.execution_detail ?? {}) as Record<string, unknown>;
     const gen = d.generation as Record<string, unknown> | undefined;
     const rank = d.ranking as Record<string, unknown> | undefined;
-    const genEst = typeof gen?.estimatedCost === 'number' ? gen.estimatedCost as number : null;
-    const genAct = typeof gen?.cost === 'number' ? gen.cost as number : null;
-    const rankEst = typeof rank?.estimatedCost === 'number' ? rank.estimatedCost as number : null;
-    const rankAct = typeof rank?.cost === 'number' ? rank.cost as number : null;
+    // K5 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): paragraph_recombine
+    // invocations persist `paragraph_rewrite.{estimatedCost,cost}` and
+    // `paragraph_rank.{estimatedCost,cost}` instead of the generate-style `generation`/`ranking`
+    // objects. Map them into the same row shape so the Cost Estimates tab renders the
+    // projected-vs-actual rows uniformly. Display rule: paragraph_rewrite goes into the
+    // "Gen" column (it's the variant-producing phase) and paragraph_rank goes into the
+    // "Rank" column.
+    const pRewrite = d.paragraph_rewrite as Record<string, unknown> | undefined;
+    const pRank = d.paragraph_rank as Record<string, unknown> | undefined;
     const errPct = typeof d.estimationErrorPct === 'number' && Number.isFinite(d.estimationErrorPct)
       ? d.estimationErrorPct as number : null;
     const tactic = (typeof d.tactic === 'string' && d.tactic ? d.tactic as string : null)
@@ -41,10 +58,10 @@ export function buildInvocationRows(invocations: InvRow[]): CostInvocationRow[] 
       agentName: inv.agent_name ?? 'unknown',
       iteration: inv.iteration,
       tactic,
-      generationEstimate: genEst,
-      generationActual: genAct,
-      rankingEstimate: rankEst,
-      rankingActual: rankAct,
+      generationEstimate: readPhaseNumber([gen, pRewrite], 'estimatedCost'),
+      generationActual: readPhaseNumber([gen, pRewrite], 'cost'),
+      rankingEstimate: readPhaseNumber([rank, pRank], 'estimatedCost'),
+      rankingActual: readPhaseNumber([rank, pRank], 'cost'),
       totalCost: inv.cost_usd,
       estimationErrorPct: errPct,
     };

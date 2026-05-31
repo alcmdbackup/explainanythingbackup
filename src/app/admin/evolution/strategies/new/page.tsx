@@ -82,6 +82,13 @@ interface IterationRow {
   maxComparisonsPerParagraph?: number;
   maxParagraphsPerInvocation?: number;
   paragraphRewriteModel?: string;
+  /** investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 — Phase 8 (L).
+   *  Multi-dispatch + per-invocation cap controls. maxDispatches caps how many
+   *  parallel paragraph_recombine invocations dispatch per iteration; default 1
+   *  matches pre-J behavior. perInvocationCapUsd is a safety cap, not a spend
+   *  target — keeps existing strategy behavior identical when unset. */
+  maxDispatches?: number;
+  perInvocationCapUsd?: number;
 }
 
 // Paragraph_recombine wizard defaults — match agent constants.
@@ -89,6 +96,12 @@ const PARAGRAPH_RECOMBINE_DEFAULTS = {
   rewritesPerParagraph: 3,
   maxComparisonsPerParagraph: 8,
   maxParagraphsPerInvocation: 12,
+  // Phase 8 (L): multi-dispatch defaults to single-dispatch for back-compat.
+  // Users opt into multi-dispatch by raising this above 1.
+  maxDispatches: 1,
+  // Phase 8 (L): default safety cap matches DEFAULT_PER_INVOCATION_CAP_USD in
+  // ParagraphRecombineAgent.ts (Option F: 0.40 → 0.05).
+  perInvocationCapUsd: 0.05,
 } as const;
 
 // Default cutoff applied when user switches a generate iteration to sourceMode='pool'.
@@ -141,6 +154,8 @@ interface IterationConfigPayload {
   maxComparisonsPerParagraph?: number;
   maxParagraphsPerInvocation?: number;
   paragraphRewriteModel?: string;
+  maxDispatches?: number;
+  perInvocationCapUsd?: number;
 }
 
 /** Variant-producing agent types share the same parent-article source machinery
@@ -263,6 +278,16 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
       : {}),
     ...(it.agentType === 'paragraph_recombine' && it.paragraphRewriteModel
       ? { paragraphRewriteModel: it.paragraphRewriteModel }
+      : {}),
+    // investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 Phase 8 (L):
+    // maxDispatches + perInvocationCapUsd opt-in fields. Emit only when explicitly
+    // set so default-1 strategies hash identically to pre-Phase-8 wizard output
+    // (canonicalizeIterationConfig also gates on `!== undefined` per J1.5).
+    ...(it.agentType === 'paragraph_recombine' && it.maxDispatches != null && it.maxDispatches !== PARAGRAPH_RECOMBINE_DEFAULTS.maxDispatches
+      ? { maxDispatches: it.maxDispatches }
+      : {}),
+    ...(it.agentType === 'paragraph_recombine' && it.perInvocationCapUsd != null && it.perInvocationCapUsd !== PARAGRAPH_RECOMBINE_DEFAULTS.perInvocationCapUsd
+      ? { perInvocationCapUsd: it.perInvocationCapUsd }
       : {}),
   }));
 }
@@ -686,6 +711,11 @@ export default function NewStrategyPage(): JSX.Element {
         updated.rewritesPerParagraph ??= PARAGRAPH_RECOMBINE_DEFAULTS.rewritesPerParagraph;
         updated.maxComparisonsPerParagraph ??= PARAGRAPH_RECOMBINE_DEFAULTS.maxComparisonsPerParagraph;
         updated.maxParagraphsPerInvocation ??= PARAGRAPH_RECOMBINE_DEFAULTS.maxParagraphsPerInvocation;
+        // Phase 8 (L): default the new multi-dispatch + cap fields when switching
+        // into paragraph_recombine. Stays at default unless user changes them, and
+        // payload emission skips defaults so back-compat hash is preserved.
+        updated.maxDispatches ??= PARAGRAPH_RECOMBINE_DEFAULTS.maxDispatches;
+        updated.perInvocationCapUsd ??= PARAGRAPH_RECOMBINE_DEFAULTS.perInvocationCapUsd;
       } else {
         // generate: drop reflection + criteria + debate + paragraph fields (stale from prior selection).
         delete updated.reflectionTopN;
@@ -699,6 +729,8 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.maxComparisonsPerParagraph;
         delete updated.maxParagraphsPerInvocation;
         delete updated.paragraphRewriteModel;
+        delete updated.maxDispatches;
+        delete updated.perInvocationCapUsd;
       }
       // Variant-producing: ensure sourceMode is always set so payload emission is deterministic.
       updated.sourceMode ??= 'seed';
@@ -1573,6 +1605,39 @@ export default function NewStrategyPage(): JSX.Element {
                           className="w-44 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
                           data-testid={`paragraph-rewrite-model-${idx}`}
                           title="Override model used for paragraph rewriting LLM calls. Empty = inherit strategy generation model."
+                        />
+                        {/* investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 Phase 8 (L):
+                            multi-dispatch + per-invocation safety cap inputs. Default 1 / $0.05
+                            preserves pre-J back-compat (toIterationConfigsPayload skips emission
+                            when values equal defaults so config_hash stays stable). */}
+                        <span className="ml-2 text-[var(--text-primary)]">· Max dispatches:</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={it.maxDispatches ?? PARAGRAPH_RECOMBINE_DEFAULTS.maxDispatches}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Math.max(1, Math.min(10, Number(e.target.value) || 1));
+                            updateIteration(idx, { maxDispatches: v });
+                          }}
+                          className="w-14 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                          data-testid={`max-dispatches-${idx}`}
+                          title="Cap on parallel paragraph_recombine invocations per iteration (1-10). Default 1 reproduces pre-J single-dispatch behavior. >1 requires sourceMode='pool' + qualityCutoff to take effect at runtime."
+                        />
+                        <span className="ml-2 text-[var(--text-primary)]">· Per-invocation cap $:</span>
+                        <input
+                          type="number"
+                          step="0.001"
+                          min={0.001}
+                          max={0.5}
+                          value={it.perInvocationCapUsd ?? PARAGRAPH_RECOMBINE_DEFAULTS.perInvocationCapUsd}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Math.max(0.001, Math.min(0.5, Number(e.target.value) || 0.05));
+                            updateIteration(idx, { perInvocationCapUsd: v });
+                          }}
+                          className="w-20 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                          data-testid={`per-invocation-cap-usd-${idx}`}
+                          title="Per-invocation safety cap (USD). Default $0.05 (Option F). Caps a runaway invocation; not a spend target."
                         />
                       </div>
                     )}
