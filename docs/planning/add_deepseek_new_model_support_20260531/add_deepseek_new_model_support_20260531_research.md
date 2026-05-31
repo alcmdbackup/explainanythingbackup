@@ -3,7 +3,7 @@
 ## Problem Statement
 Add direct API integration support for deepseek-v4-pro and deepseek-v4-flash using direct API integration with deepseek.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1155)
 Add direct API integration support for deepseek-v4-pro and deepseek-v4-flash using direct API integration with deepseek.
 
 ## High Level Summary
