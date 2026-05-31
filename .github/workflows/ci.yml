@@ -545,6 +545,11 @@ jobs:
     environment: staging
     strategy:
       fail-fast: false
+      # max-parallel: 1 — both browsers run sequentially against the same staging
+      # DB. Without this, parallel rows race when seeding identically-named test
+      # data (admin-content.spec.ts "Admin Test Visible") and trip strict-mode
+      # violations on getByRole row lookups. Matches nightly's matrix config.
+      max-parallel: 1
       matrix:
         browser: [chromium, firefox]
     env:
