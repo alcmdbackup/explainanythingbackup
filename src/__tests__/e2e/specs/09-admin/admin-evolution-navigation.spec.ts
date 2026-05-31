@@ -5,6 +5,7 @@ import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { randomUUID } from 'crypto';
+import { safeGoto } from '@/lib/testing/safe-goto';
 
 function getServiceClient() {
   return createClient<Database>(
@@ -108,8 +109,9 @@ adminTest.describe('Evolution Navigation', { tag: '@evolution' }, () => {
     await adminPage.waitForURL(`**/admin/evolution/experiments/${experimentId}`, { timeout: 30000 });
     expect(adminPage.url()).toContain(`/admin/evolution/experiments/${experimentId}`);
 
-    // Strategy list → detail
-    await adminPage.goto('/admin/evolution/strategies', { timeout: 30000 });
+    // Strategy list → detail (chained after experiment detail; Firefox can NS_BINDING_ABORTED
+    // here when the prior detail page's in-flight useEffect fetches abort)
+    await safeGoto(adminPage, '/admin/evolution/strategies', { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
     await expect(adminPage.locator('h1')).toContainText(/strateg/i, { timeout: 15000 });

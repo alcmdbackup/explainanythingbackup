@@ -5,6 +5,7 @@ import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { trackEvolutionId } from '../../helpers/evolution-test-data-factory';
+import { EvolutionListPage } from '../../helpers/pages/admin/EvolutionListPage';
 
 const TEST_PREFIX = '[TEST] Strategy Wizard';
 
@@ -155,12 +156,10 @@ adminTest.describe('Strategy Creation Wizard', { tag: '@evolution' }, () => {
     await adminPage.waitForLoadState('domcontentloaded');
     await expect(adminPage.locator('main').getByRole('heading', { name: 'Strategies' })).toBeVisible({ timeout: 15000 });
 
-    // Uncheck "Hide test content" to see [TEST] prefixed strategies
-    const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
-    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
-    if (await hideTestCheckbox.isChecked()) {
-      await hideTestCheckbox.click();
-    }
+    // Uncheck "Hide test content" via POM so seeded [TEST]-prefixed rows appear.
+    // POM uses idempotent setChecked(false); no isChecked() race.
+    const listPage = new EvolutionListPage(adminPage);
+    await listPage.resetFilters();
 
     // The strategy name should be visible in the list
     await expect(adminPage.locator('[data-testid="entity-list-table"]').getByText(TEST_PREFIX)).toBeVisible({ timeout: 15000 });
@@ -275,9 +274,16 @@ adminTest.describe('Strategy Creation Wizard', { tag: '@evolution' }, () => {
     await expect(adminPage.locator('[data-testid="tactic-guidance-btn-0"]')).toHaveCount(0);
 
     // Submit — the key assertion is that the strategy is created with agentType:'reflect_and_generate'.
+    // Use Promise.all to attach the URL waiter BEFORE the click; this avoids a race
+    // where the click + server redirect complete before the toHaveURL assertion attaches
+    // (Firefox is especially prone to this). Server Actions POST to the page URL with
+    // a Next-Action header, so URL-change is the deterministic signal — not waitForResponse.
     const createBtn = adminPage.locator('button', { hasText: 'Create Strategy' });
     await expect(createBtn).toBeEnabled();
-    await createBtn.click();
+    await Promise.all([
+      adminPage.waitForURL(/\/admin\/evolution\/strategies\/[0-9a-f-]+/, { timeout: 20000 }),
+      createBtn.click(),
+    ]);
 
     await expect(adminPage).toHaveURL(/\/admin\/evolution\/strategies\/[0-9a-f-]+/, { timeout: 20000 });
     const url = adminPage.url();

@@ -70,17 +70,40 @@ fi
 npm run test:e2e:critical || abort "test:e2e:critical"
 echo "  ✓ test:e2e:critical"
 
+echo "→ Phase D: e2e firefox-evolution (opt-in; skipped if firefox not installed)"
+RAN_FIREFOX_EVOLUTION=false
+# Detect Firefox install. Skip phase if missing — server-side CI matrix
+# (ci.yml e2e-evolution Firefox row) is the authoritative enforcement.
+if compgen -G "$HOME/.cache/ms-playwright/firefox-*" > /dev/null 2>&1; then
+  if npx playwright test --project=firefox --grep=@evolution --grep-invert='@skip-prod' --reporter=line; then
+    RAN_FIREFOX_EVOLUTION=true
+    echo "  ✓ test:e2e:firefox-evolution"
+  else
+    abort "test:e2e:firefox-evolution"
+  fi
+else
+  echo "  ⊘ Firefox not installed — skipping (install via 'npx playwright install firefox' to enable)"
+fi
+
 # All passed — atomically write test-pass.json
 HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 TMP=".claude/test-pass.json.tmp"
 
+# Append firefox-evolution entry only if Phase D actually ran (audit accuracy)
+if [ "$RAN_FIREFOX_EVOLUTION" = "true" ]; then
+  TESTS='["lint","typecheck","test:esm","test","test:integration","test:e2e:critical","test:e2e:firefox-evolution"]'
+else
+  TESTS='["lint","typecheck","test:esm","test","test:integration","test:e2e:critical"]'
+fi
+
 jq -n \
   --arg commit "$HEAD_SHA" \
   --arg passed_at "$NOW" \
+  --argjson tests "$TESTS" \
   '{
     commit: $commit,
-    tests: ["lint","typecheck","test:esm","test","test:integration","test:e2e:critical"],
+    tests: $tests,
     passed_at: $passed_at,
     schema_version: 1
   }' > "$TMP" || abort "writing test-pass.json"

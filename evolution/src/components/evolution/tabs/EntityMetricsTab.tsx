@@ -9,6 +9,7 @@ import { getEntityMetricDef } from '@evolution/lib/core/entityRegistry';
 import { METRIC_FORMATTERS } from '@evolution/lib/core/metricCatalog';
 import type { EntityType, MetricFormatter } from '@evolution/lib/core/types';
 import { DYNAMIC_METRIC_REGISTRY, type MetricRow } from '@evolution/lib/metrics/types';
+import { abortableEffectController } from '@evolution/lib/utils/abortableEffect';
 
 interface EntityMetricsTabProps {
   entityType: EntityType;
@@ -133,10 +134,18 @@ export function EntityMetricsTab({ entityType, entityId }: EntityMetricsTabProps
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function load() {
+    // State-guard for unmount safety. Server Actions are POST RPCs whose
+    // server-side work cannot be cancelled from the client, but we can prevent
+    // setState writes after unmount. Without this guard, Firefox surfaces
+    // racing fetches as NS_BINDING_ABORTED during chained nav.
+    // TODO(perf): plumb AbortSignal through getEntityMetricsAction if response
+    // cancellation becomes important — separate PR.
+    const ctl = abortableEffectController();
+    async function load(): Promise<void> {
       setLoading(true);
       setError(null);
       const result = await getEntityMetricsAction(entityType, entityId);
+      if (ctl.cancelled) return;
       if (result.success && result.data) {
         setMetrics(result.data);
       } else {
@@ -145,6 +154,7 @@ export function EntityMetricsTab({ entityType, entityId }: EntityMetricsTabProps
       setLoading(false);
     }
     load();
+    return () => ctl.abort();
   }, [entityType, entityId]);
 
   if (loading) {
@@ -211,8 +221,11 @@ export function EntityMetricsTab({ entityType, entityId }: EntityMetricsTabProps
         if (cat !== 'cost' || list.length <= 6) {
           return <div key={cat}>{heading}{gridFor(list, `metrics-${cat}`)}</div>;
         }
-        const spent = list.filter(m => !isEstimationMetric(m.id ?? ''));
-        const accuracy = list.filter(m => isEstimationMetric(m.id ?? ''));
+        const spent: GroupedMetric[] = [];
+        const accuracy: GroupedMetric[] = [];
+        for (const m of list) {
+          (isEstimationMetric(m.id ?? '') ? accuracy : spent).push(m);
+        }
         return (
           <div key={cat}>
             {heading}

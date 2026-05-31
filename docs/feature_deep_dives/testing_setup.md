@@ -335,6 +335,49 @@ import remarkParse from 'remark-parse';
 
 ## E2E Patterns
 
+### `safeGoto` for chained `page.goto` on evolution detail pages
+
+Added 2026-05-30. Wraps `page.goto` with a single retry on Firefox's `NS_BINDING_ABORTED`. Use it for ANY chained `page.goto()` call that happens AFTER a `click → detail-page-nav` sequence on evolution admin pages — those detail pages mount `useEffect` fetches that Firefox aborts when the next nav arrives. Chromium silently coalesces; Firefox surfaces the abort to Playwright.
+
+```ts
+import { safeGoto } from '@/lib/testing/safe-goto';
+
+// Initial goto: regular page.goto (no race possible)
+await adminPage.goto('/admin/evolution/experiments');
+// ... click an experiment row → detail page mounts EntityMetricsTab + AttributionCharts ...
+
+// Chained goto: use safeGoto — Firefox can NS_BINDING_ABORTED otherwise
+await safeGoto(adminPage, '/admin/evolution/strategies');
+```
+
+Helper retries once after `waitForLoadState('domcontentloaded')`. Non-NS errors propagate unchanged. See `docs/planning/nightly_e2e_still_failing_20260530/` for the full forensics.
+
+### `EvolutionListPage` POM for "Hide test content" filter
+
+Mirrors `AdminContentPage.resetFilters()`. The "Hide test content" filter is default-on across all evolution admin list pages (runs / experiments / strategies / variants), so seeded `[TEST]`/`[E2E]`/`[TEST_EVO]` rows are invisible until reset. Tests must call `await listPage.resetFilters()` immediately after navigation, before asserting on seeded rows.
+
+```ts
+import { EvolutionListPage } from '../../helpers/pages/admin/EvolutionListPage';
+
+const listPage = new EvolutionListPage(adminPage);
+await listPage.resetFilters();         // uncheck — idempotent setChecked(false)
+await listPage.enableHideTestFilter(); // re-check for filter-toggle tests
+```
+
+### `abortableEffectController` for React useEffect unmount safety
+
+Added 2026-05-30 at `evolution/src/lib/utils/abortableEffect.ts`. Wraps `AbortController` for use in React effects that await Server Actions. Server Action POSTs cannot be cancelled from the client (the server keeps running), but this controller prevents `setState` after unmount, which on Firefox would otherwise surface as `NS_BINDING_ABORTED` errors during chained navigation.
+
+```ts
+import { abortableEffectController } from '@evolution/lib/utils/abortableEffect';
+
+useEffect(() => {
+  const ctl = abortableEffectController();
+  someAsyncAction().then(r => { if (!ctl.cancelled) setState(r); });
+  return () => ctl.abort();
+}, [deps]);
+```
+
 ### `expect.poll` for POM Helper Assertions
 
 Custom POM helpers that return `Promise<T>` should be asserted with `expect.poll`, NOT `expect(await helper())`. The latter captures the value once and races with React hydration / streaming. Enforced by ESLint `flakiness/no-point-in-time-pom-helpers` (testing_overview.md Rule 4).
