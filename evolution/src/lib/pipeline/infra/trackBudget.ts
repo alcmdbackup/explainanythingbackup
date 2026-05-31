@@ -41,6 +41,12 @@ export interface V2CostTracker {
   getPhaseCosts(): Partial<Record<AgentName, number>>;
   /** Phase 4 alias for getPhaseCosts. Semantically identical; same return shape. */
   getSubagentCosts?(): Partial<Record<AgentName, number>>;
+  /**
+   * Phase 12: per-iter accessor on iter trackers; on run trackers and agent scopes
+   * this is undefined / not provided. Callers needing per-iter (none today) use this.
+   * `getPhaseCosts()` returns run-cumulative on iter trackers post-Phase-12.
+   */
+  getIterationPhaseCosts?(): Partial<Record<AgentName, number>>;
   getAvailableBudget(): number;
   /** B007-S2: compute the margined reservation without mutating state. Lets wrappers
    *  (e.g. createIterationBudgetTracker) peek both budgets atomically before committing.
@@ -78,6 +84,11 @@ export function createAgentCostScope(shared: V2CostTracker): AgentCostScope {
     getPhaseCosts: shared.getPhaseCosts.bind(shared),
     // Phase 4 alias — bind only when shared exposes it (test mocks may omit).
     ...(shared.getSubagentCosts && { getSubagentCosts: shared.getSubagentCosts.bind(shared) }),
+    // Phase 12 (analyze_effectiveness_paragraph_recombine_20260530): forward
+    // getIterationPhaseCosts so the per-iter accessor is reachable through scopes
+    // wrapping iter trackers (without this, ctx.costTracker.getIterationPhaseCosts is
+    // silently undefined for every agent — defeating the documented escape hatch).
+    ...(shared.getIterationPhaseCosts && { getIterationPhaseCosts: shared.getIterationPhaseCosts.bind(shared) }),
     getAvailableBudget: shared.getAvailableBudget.bind(shared),
     // B007-S2: bind optional methods only when present (test mocks may omit them).
     ...(shared.computeMargined && { computeMargined: shared.computeMargined.bind(shared) }),
@@ -227,6 +238,15 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
 // ─── Per-Iteration Budget Tracker ───────────────────────────────
 
 /**
+ * Phase 12 kill switch: when EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED === 'false',
+ * iter-tracker getPhaseCosts/getSubagentCosts revert to per-iter accounting. Tristate:
+ * unset / 'true' / other → false (new run-cumulative), 'false' → true (legacy per-iter).
+ */
+function isLegacyPerIterPhaseCosts(): boolean {
+  return process.env.EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED === 'false';
+}
+
+/**
  * Creates a V2CostTracker that wraps a run-level tracker with a per-iteration budget cap.
  * reserve() checks run tracker first (throws BudgetExceededError if run exhausted),
  * then checks iteration remaining (throws IterationBudgetExceededError).
@@ -301,12 +321,33 @@ export function createIterationBudgetTracker(
       return iterSpent;
     },
 
+    // Phase 12 (analyze_effectiveness_paragraph_recombine_20260530): getPhaseCosts() now
+    // delegates to the RUN-CUMULATIVE accumulator on runTracker, not the per-iter local one.
+    // The createEvolutionLLMClient.writeMetricMax(GREATEST) path requires monotonically
+    // non-decreasing values across the run; the previous per-iter shape silently shadowed
+    // smaller per-iter contributions to overlapping AgentName labels (e.g. 'ranking' spend
+    // from both generate iter 1 + paragraph_recombine iter 2 collapsed to MAX, not SUM).
+    //
+    // Kill switch: EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED. Default 'true' (unset OK).
+    // Set to 'false' to revert to the legacy per-iter accumulator behavior.
+    // Tristate: unset → true (new), 'true' → true (new), 'false' → false (legacy), other → true.
+    //
+    // For callers that genuinely need per-iter (none today), see getIterationPhaseCosts().
     getPhaseCosts(): Partial<Record<AgentName, number>> {
-      return { ...iterPhaseCosts };
+      if (isLegacyPerIterPhaseCosts()) return { ...iterPhaseCosts };
+      return runTracker.getPhaseCosts();
     },
 
     // Phase 4 alias for getPhaseCosts (rename_agents_subagents_evolution_20260508).
+    // Phase 12 lockstep: alias must move with getPhaseCosts() — both gate on the same flag.
     getSubagentCosts(): Partial<Record<AgentName, number>> {
+      if (isLegacyPerIterPhaseCosts()) return { ...iterPhaseCosts };
+      return runTracker.getSubagentCosts?.() ?? runTracker.getPhaseCosts();
+    },
+
+    // Phase 12.3: per-iter accessor for callers that genuinely need per-iter shape.
+    // None today; provided for future code that needs to distinguish iter from run scope.
+    getIterationPhaseCosts(): Partial<Record<AgentName, number>> {
       return { ...iterPhaseCosts };
     },
 

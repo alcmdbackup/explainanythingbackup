@@ -117,7 +117,7 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
       <div className="space-y-2">
         <h4 className="font-display text-lg font-medium text-[var(--text-muted)]">Execution</h4>
         <div className="bg-[var(--surface-primary)] rounded-page p-3 space-y-1">
-          <ConfigRow label="Iterations" value={String(config.iterations ?? '—')} />
+          <ConfigRow label="Iterations" value={String(config.iterations ?? config.iterationConfigs?.length ?? '—')} />
           {config.budgetUsd != null && (
             <ConfigRow label="Budget" value={`$${config.budgetUsd.toFixed(2)}`} highlight />
           )}

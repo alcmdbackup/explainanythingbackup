@@ -506,7 +506,11 @@ export const getStrategyCostEstimatesAction = adminAction(
 
     const runsWithEstimates = runs.filter((r) => r.errorPct != null).length;
 
-    // Slice breakdown — query GFSA invocations for this strategy's child runs and group.
+    // Slice breakdown — query GFSA + paragraph_recombine invocations for this strategy's
+    // child runs and group. Phase 8 (analyze_effectiveness_paragraph_recombine_20260530):
+    // include paragraph_recombine — pre-fix the `.eq('agent_name', 'generate_from_previous_article')`
+    // filter silently dropped paragraph_recombine invocations from the slice breakdown.
+    // Skip merge_ratings (no cost-estimate shape).
     type SliceBucket = { actuals: number[]; errors: number[]; tactic: string; generationModel: string | null; judgeModel: string | null };
     const slices = new Map<string, SliceBucket>();
     if (runIds.length > 0) {
@@ -514,7 +518,7 @@ export const getStrategyCostEstimatesAction = adminAction(
         .from('evolution_agent_invocations')
         .select('agent_name, cost_usd, execution_detail, run_id')
         .in('run_id', runIds)
-        .eq('agent_name', 'generate_from_previous_article');
+        .in('agent_name', ['generate_from_previous_article', 'paragraph_recombine']);
 
       // Fetch strategy config once to get generation/judge model names.
       const { data: stratRow } = await ctx.supabase
@@ -525,13 +529,15 @@ export const getStrategyCostEstimatesAction = adminAction(
       const stratConfig = (stratRow?.config ?? {}) as { generationModel?: string; judgeModel?: string };
 
       for (const inv of (invs ?? []) as Array<{ agent_name: string; cost_usd: number | null; execution_detail: Record<string, unknown> | null }>) {
-        const d = inv.execution_detail ?? {};
-        // Fix #38 (use_playwright_find_ux_issues_bugs_20260501): same fix as
-        // buildInvocationRows above — read execution_detail.tactic first, fall back
-        // to .strategy for legacy GFPA rows. Default 'unknown' when neither is set.
-        const dr = d as Record<string, unknown>;
-        const tactic = (typeof dr.tactic === 'string' && dr.tactic ? dr.tactic as string : null)
-          ?? (typeof dr.strategy === 'string' ? dr.strategy as string : 'unknown');
+        const d = (inv.execution_detail ?? {}) as Record<string, unknown>;
+        // Phase 8: special-case paragraph_recombine — its execution_detail lacks the
+        // GFPA-style `tactic` field. Use the agent_name as the synthetic slice key so it
+        // surfaces in the breakdown as an umbrella row (cost_usd already sums
+        // paragraph_rewrite + paragraph_rank phases).
+        const tactic = inv.agent_name === 'paragraph_recombine'
+          ? 'paragraph_recombine'
+          : ((typeof d.tactic === 'string' && d.tactic ? d.tactic as string : null)
+              ?? (typeof d.strategy === 'string' ? d.strategy as string : 'unknown'));
         const key = `${tactic}|${stratConfig.generationModel ?? ''}|${stratConfig.judgeModel ?? ''}`;
         const slice = slices.get(key) ?? {
           actuals: [], errors: [],
@@ -542,7 +548,7 @@ export const getStrategyCostEstimatesAction = adminAction(
         if (typeof inv.cost_usd === 'number' && Number.isFinite(inv.cost_usd)) {
           slice.actuals.push(inv.cost_usd);
         }
-        const err = (d as Record<string, unknown>).estimationErrorPct;
+        const err = d.estimationErrorPct;
         if (typeof err === 'number' && Number.isFinite(err)) slice.errors.push(err);
         slices.set(key, slice);
       }

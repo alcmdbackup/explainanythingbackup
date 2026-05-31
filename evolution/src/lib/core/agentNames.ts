@@ -91,6 +91,11 @@ export const COST_METRIC_BY_AGENT: Partial<Record<AgentName, MetricName>> = {
   // SUM of these two phase-cost accumulators once per invocation (Phase 9 fix) —
   // a single sum-write is MAX-safe because both accumulators are run-cumulative
   // (monotonic). Per-slot/per-rewrite split lives in execution_detail.slots[*].
+  // Phase 12 (analyze_effectiveness_paragraph_recombine_20260530): the run-cumulative
+  // invariant was previously FALSE because createIterationBudgetTracker.getPhaseCosts()
+  // returned per-iter, not run-cumulative — silently shadowed smaller per-iter
+  // contributions under writeMetricMax(GREATEST). Phase 12 fixed this by delegating
+  // getPhaseCosts to runTracker. The invariant above is now TRUE post-fix.
   paragraph_rewrite: 'paragraph_recombine_cost',
   paragraph_rank: 'paragraph_recombine_cost',
 };

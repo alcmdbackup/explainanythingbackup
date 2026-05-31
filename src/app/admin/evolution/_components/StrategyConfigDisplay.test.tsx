@@ -49,4 +49,51 @@ describe('StrategyConfigDisplay', () => {
     render(<StrategyConfigDisplay config={{ ...baseConfig, singleArticle: true }} />);
     expect(screen.getByText('Single Article')).toBeInTheDocument();
   });
+
+  // Phase 9 — Iterations stat falls back to iterationConfigs.length for V2 strategies.
+  // The component has BOTH a stat row (label "Iterations") AND a table heading <h4>Iterations</h4>;
+  // these tests target the stat row by querying via the label's parent div (ConfigRow).
+  function getIterationsStatValue(container: HTMLElement): string {
+    // ConfigRow renders <div><span>Iterations</span><span>VALUE</span></div>
+    const allLabels = Array.from(container.querySelectorAll('span.font-ui.text-xs'));
+    const labelEl = allLabels.find((el) => el.textContent === 'Iterations');
+    expect(labelEl).toBeDefined();
+    const valueEl = labelEl!.nextElementSibling as HTMLElement | null;
+    return valueEl?.textContent ?? '';
+  }
+
+  it('falls back to iterationConfigs.length when legacy iterations field is absent', () => {
+    const v2Config = {
+      generationModel: 'gemini-2.5-flash-lite',
+      judgeModel: 'qwen-2.5-7b-instruct',
+      iterationConfigs: [
+        { agentType: 'generate', sourceMode: 'seed', budgetPercent: 40 },
+        { agentType: 'paragraph_recombine', sourceMode: 'pool', budgetPercent: 60 },
+      ],
+    };
+    const { container } = render(<StrategyConfigDisplay config={v2Config} />);
+    expect(getIterationsStatValue(container)).toBe('2');
+  });
+
+  it('prefers legacy iterations field when both are present', () => {
+    const dualConfig = {
+      ...baseConfig,
+      iterations: 3,
+      iterationConfigs: [
+        { agentType: 'generate', sourceMode: 'seed', budgetPercent: 40 },
+        { agentType: 'paragraph_recombine', sourceMode: 'pool', budgetPercent: 60 },
+      ],
+    };
+    const { container } = render(<StrategyConfigDisplay config={dualConfig} />);
+    expect(getIterationsStatValue(container)).toBe('3');
+  });
+
+  it('renders em-dash when neither field is set', () => {
+    const emptyConfig = {
+      generationModel: 'gpt-4.1-nano',
+      judgeModel: 'qwen-2.5-7b-instruct',
+    };
+    const { container } = render(<StrategyConfigDisplay config={emptyConfig} />);
+    expect(getIterationsStatValue(container)).toBe('—');
+  });
 });

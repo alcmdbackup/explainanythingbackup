@@ -462,17 +462,20 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
   });
 
   // Phase 9 retrofit R7b — logger.child propagation cases.
-  it('when ctx.logger.child is defined, builds slot.N + slot.N.ranking dotted paths', async () => {
-    const childCalls: string[] = [];
+  it('when ctx.logger.child is defined, builds [slot, N] array paths (Phase 11.0 fix)', async () => {
+    // Phase 11.0: child() must be called with ARRAY form ['slot', N] not 'slot.N' string
+    // form — the createEntityLogger dot-segment validator rejects strings containing '.',
+    // returning null subagent_name and silently breaking slot-level log attribution.
+    const childCalls: Array<string | string[]> = [];
     const childLogger = {
       info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
-      child: jest.fn().mockImplementation(function (this: never, name: string) {
+      child: jest.fn().mockImplementation(function (this: never, name: string | string[]) {
         childCalls.push(name);
         // Return a logger that itself supports .child for the second-level call.
         return {
           info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
-          child: jest.fn().mockImplementation((n: string) => {
-            childCalls.push(`<nested>${n}`);
+          child: jest.fn().mockImplementation((n: string | string[]) => {
+            childCalls.push(Array.isArray(n) ? n : `<nested>${n}`);
             return { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
           }),
         };
@@ -482,11 +485,13 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
     (ctx as { logger: unknown }).logger = childLogger;
     const agent = new ParagraphRecombineAgent();
     await agent.execute(baseInput(makeLlmMock()), ctx);
-    // Two slot.N invocations expected from the 2-paragraph sample article.
-    expect(childCalls).toContain('slot.0');
-    expect(childCalls).toContain('slot.1');
-    // Nested .child('ranking') happens inside each slot once the surviving rewrites
-    // enter the ranking loop.
+    // Two slot child calls expected from the 2-paragraph sample article, in array form.
+    const arraySlotCalls = childCalls.filter((c): c is string[] =>
+      Array.isArray(c) && c.length === 2 && c[0] === 'slot',
+    );
+    expect(arraySlotCalls.length).toBe(2);
+    expect(arraySlotCalls.map((c) => c[1]).sort()).toEqual(['0', '1']);
+    // Nested .child('ranking') happens inside each slot once surviving rewrites enter ranking.
     expect(childCalls).toContain('<nested>ranking');
   });
 
@@ -528,6 +533,78 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
     const agent = new ParagraphRecombineAgent();
     await agent.execute(baseInput(makeLlmMock()), ctx);
     expect(writeMetricMaxMock.mock.calls.some((c) => c[3] === 'paragraph_recombine_cost')).toBe(false);
+  });
+
+  // ─── Phase 10 (analyze_effectiveness_paragraph_recombine_20260530): SVR populated ─
+  // Mirror generateFromPreviousArticle.ts:259-267 — universal quality metric.
+  // For paragraph_recombine, SVR is meaningful but biased high vs GFPA because
+  // preserved-original slots (no_valid_rewrites or winnerSource='original') keep parent
+  // sentences verbatim, inflating the ratio. Observational only.
+  it('Phase 10: emits recombined variant with sentenceVerbatimRatio populated in [0, 1]', async () => {
+    const agent = new ParagraphRecombineAgent();
+    const result = await agent.execute(baseInput(makeLlmMock()), makeCtx());
+    expect(result.result.variant).not.toBeNull();
+    const svr = result.result.variant?.sentenceVerbatimRatio;
+    expect(svr).toEqual(expect.any(Number));
+    expect(svr!).toBeGreaterThanOrEqual(0);
+    expect(svr!).toBeLessThanOrEqual(1);
+  });
+
+  // ─── Phase 11 (analyze_effectiveness_paragraph_recombine_20260530): slot-discard logging ─
+  // 11.0 verifies slotLogger.child(['slot', N]) emits a non-null subagent name.
+  // 11.2 verifies aggregated per-slot warn fires when any rewrites drop.
+  it('Phase 11.0: slotLogger.child accepts array form for slot.N (no dot-segment bug)', async () => {
+    const ctx = makeCtx();
+    const childSpy = jest.fn().mockReturnValue({
+      warn: jest.fn(),
+      info: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+      child: jest.fn(),
+    });
+    (ctx.logger as { child: unknown }).child = childSpy;
+    const agent = new ParagraphRecombineAgent();
+    await agent.execute(baseInput(makeLlmMock()), ctx);
+    // Find child calls that passed array form for slot path.
+    const arrayCalls = childSpy.mock.calls.filter((c) => Array.isArray(c[0]));
+    expect(arrayCalls.length).toBeGreaterThan(0);
+    // Each slot.N child call passes ['slot', '<number string>'].
+    const slotCalls = arrayCalls.filter((c) => (c[0] as string[])[0] === 'slot');
+    expect(slotCalls.length).toBeGreaterThan(0);
+    for (const c of slotCalls) {
+      const segs = c[0] as string[];
+      expect(segs).toHaveLength(2);
+      expect(/^\d+$/.test(segs[1]!)).toBe(true);
+    }
+  });
+
+  it('Phase 11.2: emits aggregated warn per slot when rewrites drop, with reasonCounts', async () => {
+    const warnCalls: Array<{ msg: string; ctx?: Record<string, unknown> }> = [];
+    const ctx = makeCtx();
+    const slotLogger = {
+      warn: (msg: string, ctxField?: Record<string, unknown>) => warnCalls.push({ msg, ctx: ctxField }),
+      info: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+      child: jest.fn(),
+    };
+    (ctx.logger as { child: unknown }).child = jest.fn().mockReturnValue(slotLogger);
+
+    // Inject rewrites that violate the length window → forced drops.
+    const badLlm = makeLlmMock(() => 'short.'); // < 80% length → length_under for every rewrite
+    const agent = new ParagraphRecombineAgent();
+    await agent.execute(baseInput(badLlm), ctx);
+
+    const dropWarns = warnCalls.filter((w) => w.msg.includes('rewrites dropped'));
+    expect(dropWarns.length).toBeGreaterThan(0);
+    for (const w of dropWarns) {
+      expect(w.ctx).toMatchObject({
+        slotIndex: expect.any(Number),
+        droppedCount: expect.any(Number),
+        totalCount: expect.any(Number),
+        reasonCounts: expect.any(Object),
+      });
+    }
   });
 });
 
