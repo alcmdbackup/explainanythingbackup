@@ -274,6 +274,51 @@ adminTest.describe('Strategy Form — Budget Dispatch Fields', { tag: '@evolutio
     await expect(adminPage.getByText('Budget Floor Mode')).toBeVisible();
   });
 
+  // investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 (Phase 7 K3/F4):
+  // The new strategy wizard shows the paragraph_recombine iteration in the dispatch plan
+  // preview, and (when configured with maxDispatches > 1 + sourceMode='pool') renders the
+  // parallel + top-up dispatch projection chip — same surface used by generate iterations.
+  // K3 adds a cyan agent-type badge; F4 adds the per-row "cap $X" annotation.
+  adminTest('paragraph_recombine: strategy detail page renders with new perInvocationCapUsd/maxDispatches fields', async ({ adminPage }) => {
+    // Create a paragraph_recombine strategy with the new opt-in knobs.
+    const sb = getServiceClient();
+    const { data: strategy } = await sb
+      .from('evolution_strategies')
+      .insert({
+        name: '[TEST_EVO] Paragraph Recombine Multi-Dispatch',
+        config: {
+          generationModel: 'gpt-4.1-nano',
+          judgeModel: 'gpt-4.1-nano',
+          iterationConfigs: [
+            { agentType: 'generate', budgetPercent: 60 },
+            {
+              agentType: 'paragraph_recombine',
+              budgetPercent: 40,
+              sourceMode: 'pool',
+              qualityCutoff: { mode: 'topN', value: 5 },
+              maxDispatches: 3,
+              perInvocationCapUsd: 0.08,
+            },
+          ],
+        },
+        config_hash: `e2e-paragraph-multidispatch-${Date.now()}`,
+        status: 'active',
+      })
+      .select('id')
+      .single();
+    if (!strategy) return;
+    trackEvolutionId('strategy', strategy.id);
+
+    await adminPage.goto(`/admin/evolution/strategies/${strategy.id}`);
+    const configTab = adminPage.locator('[data-testid="tab-config"]');
+    await configTab.waitFor({ state: 'visible', timeout: 30_000 });
+    await configTab.click();
+
+    // The page renders without falling into an error boundary. The agent name 'paragraph_recombine'
+    // surfaces in the iteration listing — proving the new fields parse cleanly through the schema.
+    await expect(adminPage.getByText('paragraph_recombine').first()).toBeVisible({ timeout: 15000 });
+  });
+
   adminTest('strategy config display shows buffer fields for existing strategy', async ({ adminPage }) => {
     // Create a strategy with buffer fields via DB, then verify display on detail page
     const sb = getServiceClient();

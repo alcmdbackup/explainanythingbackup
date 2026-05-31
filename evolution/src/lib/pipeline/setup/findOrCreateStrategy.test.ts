@@ -419,6 +419,61 @@ describe('V2 hashStrategyConfig — new criteria-based agents (updated_criteria_
   });
 });
 
+// J1.5 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): two
+// strategies differing ONLY in `perInvocationCapUsd` must hash DIFFERENTLY so
+// they don't collide on `config_hash` upsert. Pre-J1.5 the field was unhashed
+// → silently corrupted the strategy registry.
+describe('V2 hashStrategyConfig — paragraph_recombine perInvocationCapUsd (J1.5)', () => {
+  const baseConfig: StrategyConfig = {
+    generationModel: 'gpt-4.1-mini',
+    judgeModel: 'gpt-4.1-nano',
+    iterationConfigs: [
+      { agentType: 'paragraph_recombine', budgetPercent: 100 },
+    ],
+  };
+
+  it('hash differs when perInvocationCapUsd differs', () => {
+    const withDefaultCap: StrategyConfig = baseConfig;
+    const withSmallerCap: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [{ ...baseConfig.iterationConfigs[0]!, perInvocationCapUsd: 0.02 }],
+    };
+    const withLargerCap: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [{ ...baseConfig.iterationConfigs[0]!, perInvocationCapUsd: 0.10 }],
+    };
+    const h1 = hashStrategyConfig(withDefaultCap);
+    const h2 = hashStrategyConfig(withSmallerCap);
+    const h3 = hashStrategyConfig(withLargerCap);
+    expect(h1).not.toBe(h2);
+    expect(h2).not.toBe(h3);
+    expect(h1).not.toBe(h3);
+  });
+
+  it('hash is stable when perInvocationCapUsd is omitted (back-compat)', () => {
+    expect(hashStrategyConfig(baseConfig)).toBe(hashStrategyConfig(baseConfig));
+  });
+
+  it('perInvocationCapUsd is NOT emitted for non-paragraph_recombine agents (refinement-rejected)', () => {
+    // Schema refinement rejects perInvocationCapUsd on non-paragraph_recombine types,
+    // so this assertion is mostly defensive — but if a future bug bypasses the refinement
+    // we still want canonicalizeIterationConfig to leave the field out.
+    const baseGenerate: StrategyConfig = {
+      generationModel: 'gpt-4.1-mini',
+      judgeModel: 'gpt-4.1-nano',
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }],
+    };
+    const withCapOnGenerate = {
+      ...baseGenerate,
+      iterationConfigs: [
+        // Casting around the refinement to test the canonicalize whitelist directly.
+        { ...baseGenerate.iterationConfigs[0]!, perInvocationCapUsd: 0.10 } as StrategyConfig['iterationConfigs'][number],
+      ],
+    };
+    expect(hashStrategyConfig(withCapOnGenerate)).toBe(hashStrategyConfig(baseGenerate));
+  });
+});
+
 describe('V2 upsertStrategy', () => {
   const baseConfig: StrategyConfig = {
     generationModel: 'gpt-4.1-mini',

@@ -128,8 +128,14 @@ describe('evolutionVisualizationActions', () => {
         (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
         // 10. evolution_metrics (proposer_approver_criteria_cost — layer 2, Promise.all)
         (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
-        // 11. evolution_run_costs (layer 3)
+        // investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 Option H:
+        // Layer 2 widened to 9 metrics — added paragraph_recombine_cost + debate_cost.
+        // 11. evolution_metrics (paragraph_recombine_cost — layer 2, Promise.all)
         (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 12. evolution_metrics (debate_cost — layer 2, Promise.all)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // Layer 3 (evolution_run_costs view) was REMOVED by Option G9 — the view
+        // was dropped in 20260323000004_drop_legacy_metrics.sql. Mock step deleted.
         // 12. evolution_strategies (names) — enrichment
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
@@ -245,9 +251,14 @@ describe('evolutionVisualizationActions', () => {
         (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
         // 10. evolution_metrics (proposer_approver_criteria_cost — layer 2)
         (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
-        // 11. evolution_run_costs (layer 3)
+        // investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 Option H:
+        // Layer 2 widened to 9 metrics — added paragraph_recombine_cost + debate_cost.
+        // 11. evolution_metrics (paragraph_recombine_cost — layer 2)
         (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
-        // 12. evolution_strategies (names enrichment)
+        // 12. evolution_metrics (debate_cost — layer 2)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // Layer 3 (evolution_run_costs view) removed by Option G9.
+        // 13. evolution_strategies (names enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: strategies, error: null })

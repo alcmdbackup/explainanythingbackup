@@ -65,22 +65,38 @@ function resolveLabel(metricName: string, entityType: EntityType): string {
 }
 
 // U23 (use_playwright_find_bugs_ux_issues_20260422): explain what each per-purpose
-// cost actually rolls up. The 'cost' rollup is the sum of generation+ranking+seed,
-// so users hovering 'Spent' know that those three sub-metrics aren't separate
-// sources of additional cost — they're the components.
+// cost actually rolls up. H4 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+// the old `cost` description said "= generation + ranking + seed" — that was true 6+ phases
+// ago but is factually wrong post Phase-6 (reflection, iterative-edit, evaluation,
+// proposer/approver, paragraph_recombine, debate all also contribute). H3: added entries
+// for the missing per-purpose metrics (paragraph_recombine_cost, evaluation_cost,
+// iterative_edit_cost, proposer_approver_criteria_cost, reflection_cost, debate_cost).
 const COST_DESCRIPTIONS: Record<string, string> = {
-  cost: 'Total run cost = generation + ranking + seed (LLM calls only).',
+  cost: 'Total run cost = sum of all per-purpose LLM cost layers (generation, ranking, reflection, seed, evaluation, iterative_edit, proposer_approver_criteria, paragraph_recombine, debate). Includes all LLM calls.',
   generation_cost: 'Cost of LLM calls during the generation phase. Included in Spent.',
   ranking_cost: 'Cost of LLM calls during the ranking phase (judge model). Included in Spent.',
+  reflection_cost: 'Cost of LLM calls for the reflect-and-generate wrapper (one reflection call per parent before delegating to GFPA). Included in Spent.',
   seed_cost: 'Cost of LLM calls to seed the initial pool. Included in Spent.',
+  evaluation_cost: 'Cost of LLM calls for the criteria-driven `evaluate_and_suggest` combined call (scores criteria + drafts fix suggestions in one prompt). Included in Spent.',
+  iterative_edit_cost: 'Cost of LLM calls for the iterative-editing agent (Proposer + Approver + drift-recovery per cycle). Included in Spent.',
+  proposer_approver_criteria_cost: 'Cost of LLM calls for the proposer/approver criteria agent (umbrella: propose + forward-approve + mirror-approve). Included in Spent.',
+  paragraph_recombine_cost: 'Cost of LLM calls for the paragraph_recombine agent (per-paragraph rewrite + per-slot ranking). Included in Spent. Article-level ranking of the recombined variant flows to ranking_cost, not here.',
+  debate_cost: 'Cost of LLM calls for the debate-and-generate agent (combined judge + synthesis). Included in Spent.',
   total_cost: 'Sum of cost across all aggregated runs.',
   total_generation_cost: 'Sum of generation_cost across all aggregated runs. Included in Total Cost.',
   total_ranking_cost: 'Sum of ranking_cost across all aggregated runs. Included in Total Cost.',
   total_seed_cost: 'Sum of seed_cost across all aggregated runs. Included in Total Cost.',
-  avg_cost_per_run: 'Average cost across runs (= avg of generation+ranking+seed).',
+  total_paragraph_recombine_cost: 'Sum of paragraph_recombine_cost across all aggregated runs. Included in Total Cost.',
+  total_debate_cost: 'Sum of debate_cost across all aggregated runs. Included in Total Cost.',
+  total_evaluation_cost: 'Sum of evaluation_cost across all aggregated runs. Included in Total Cost.',
+  total_iterative_edit_cost: 'Sum of iterative_edit_cost across all aggregated runs. Included in Total Cost.',
+  total_proposer_approver_criteria_cost: 'Sum of proposer_approver_criteria_cost across all aggregated runs. Included in Total Cost.',
+  total_reflection_cost: 'Sum of reflection_cost across all aggregated runs. Included in Total Cost.',
+  avg_cost_per_run: 'Average cost across runs.',
   avg_generation_cost_per_run: 'Average generation_cost across runs. Included in Avg Cost/Run.',
   avg_ranking_cost_per_run: 'Average ranking_cost across runs. Included in Avg Cost/Run.',
   avg_seed_cost_per_run: 'Average seed_cost across runs. Included in Avg Cost/Run.',
+  avg_paragraph_recombine_cost_per_run: 'Average paragraph_recombine_cost across runs. Included in Avg Cost/Run.',
 };
 
 // U26 (use_playwright_find_bugs_ux_issues_20260422): classifies a Cost-category

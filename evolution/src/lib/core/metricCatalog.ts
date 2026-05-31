@@ -301,6 +301,20 @@ export const METRIC_CATALOG = {
     timing: 'at_finalization',
     description: 'Mean ranking-phase estimation error % across GFSA invocations',
   },
+  // G7 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): per-phase
+  // estimation-error rollups for paragraph_recombine. Sourced from
+  // execution_detail.paragraph_rewrite.{estimatedCost,cost} and
+  // execution_detail.paragraph_rank.{estimatedCost,cost} populated by the agent.
+  paragraph_rewrite_estimation_error_pct: {
+    name: 'paragraph_rewrite_estimation_error_pct', label: 'Paragraph Rewrite Estimation Error %', category: 'cost', formatter: 'percentValue',
+    timing: 'at_finalization',
+    description: 'Mean paragraph_rewrite-phase estimation error % across paragraph_recombine invocations',
+  },
+  paragraph_rank_estimation_error_pct: {
+    name: 'paragraph_rank_estimation_error_pct', label: 'Paragraph Rank Estimation Error %', category: 'cost', formatter: 'percentValue',
+    timing: 'at_finalization',
+    description: 'Mean paragraph_rank-phase estimation error % across paragraph_recombine invocations',
+  },
   agent_cost_projected: {
     name: 'agent_cost_projected', label: 'Projected Agent Cost', category: 'cost', formatter: 'costDetailed',
     timing: 'at_finalization',
@@ -349,6 +363,17 @@ export const METRIC_CATALOG = {
     name: 'avg_ranking_estimation_error_pct', label: 'Avg Ranking Error %', category: 'cost', formatter: 'percentValue',
     timing: 'at_propagation',
     description: 'Mean ranking_estimation_error_pct across child runs',
+  },
+  // G7: strategy/experiment-level rollups for the per-phase paragraph_recombine metrics.
+  avg_paragraph_rewrite_estimation_error_pct: {
+    name: 'avg_paragraph_rewrite_estimation_error_pct', label: 'Avg Paragraph Rewrite Error %', category: 'cost', formatter: 'percentValue',
+    timing: 'at_propagation',
+    description: 'Mean paragraph_rewrite_estimation_error_pct across child runs',
+  },
+  avg_paragraph_rank_estimation_error_pct: {
+    name: 'avg_paragraph_rank_estimation_error_pct', label: 'Avg Paragraph Rank Error %', category: 'cost', formatter: 'percentValue',
+    timing: 'at_propagation',
+    description: 'Mean paragraph_rank_estimation_error_pct across child runs',
   },
   avg_estimation_abs_error_usd: {
     name: 'avg_estimation_abs_error_usd', label: 'Avg Abs Error', category: 'cost', formatter: 'costDetailed',

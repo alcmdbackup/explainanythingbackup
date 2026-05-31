@@ -7,10 +7,10 @@ For how costs fit into the pipeline lifecycle, see [Architecture](./architecture
 > **⚠ Historical cost-data caveats** (debug_evolution_run_cost_20260426). Three windows of historical cost data have known reliability issues that cannot be retroactively repaired:
 >
 > 1. **Pre-2026-02-23**: cost numbers are reliable.
-> 2. **2026-02-23 → 2026-04-30 (audit-gap window)**: `llmCallTracking` rows are missing entirely for evolution runs in this period — per-call token-level audit is impossible. Run-level cost rollups in `evolution_metrics` are still trustworthy because they came from `scope.getOwnSpent()`, but you cannot drill down further.
+> 2. **2026-02-23 → ongoing (audit-gap window — REMAINS ACTIVE)**: `llmCallTracking` rows are missing entirely for evolution runs from 2026-02-23 onward — per-call token-level audit is impossible. Run-level cost rollups in `evolution_metrics` are still trustworthy because they came from `scope.getOwnSpent()`, but you cannot drill down further. Per `investigate_paragraph_rewrite_cost_undershoot_evolution_20260529` Round 3+4 staging analysis: zero `evolution_*` `call_source` rows on staging since 2026-02-22 (1009 May 29-30 LLM-tracking rows on staging contain zero evolution call_sources, no "save failed" warn logs — the INSERT isn't even being attempted). The April-28 fix at `claimAndExecuteRun.ts:187-229` is structurally correct in main but staging may be running stale code OR a new spending-gate Next.js coupling regression. **paragraph_recombine slice was fixed** by Phase 1 G8 of the 20260529 project (wired `db`/`runId`/`invocationId` into the per-slot LLM client at `ParagraphRecombineAgent.ts:352-354`); the broader regression needs its own follow-up project.
 > 3. **Pre-2026-04-20 OpenRouter-routed runs (gemini-flash-lite, qwen, gpt-oss-20b)**: cost numbers may show ~3× inflation due to Bug A — the legacy `response.length / 4` heuristic over-counted tokens for these models. Not retroactively repairable because pre-fix `llmCallTracking` rows have NULL `evolution_invocation_id` and the backfill script's preflight rejects them.
 >
-> Post-2026-04-30 data is reliable. The CostEstimatesTab on `/admin/evolution/runs/[runId]` surfaces a banner when `run.created_at < '2026-04-30T00:00:00Z'` to warn consumers.
+> Post-2026-04-30 data WAS supposed to be reliable per the April fix, but `investigate_paragraph_rewrite_cost_undershoot_evolution_20260529` confirmed it's NOT (staging shows zero rows since 2026-02-22). The CostEstimatesTab banner is therefore misleading — keep it for now since it accurately marks pre-April rows as unreliable, but per-call audit remains impossible for any evolution-side LLM call until a follow-up project lands.
 
 > **Per-purpose cost split.** Every LLM call passes a typed `AgentName` label as the
 > second argument to `llm.complete()` (defined in `evolution/src/lib/core/agentNames.ts`,
@@ -307,6 +307,26 @@ The `ParagraphRecombineAgent` cost stack scales as `N slots × M rewrites × (re
 **Cost projection** (`estimateParagraphRecombineCost`): math-direct sum with a 1.3× upper-bound margin. Wizard preview surfaces a single `paragraph_recombine` line item via `EstPerAgentValue.paragraphRecombine`.
 
 **Strategy/experiment-level rollups**: `total_paragraph_recombine_cost` (sum) and `avg_paragraph_recombine_cost_per_run` (avg).
+
+#### Multi-dispatch (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529, Option J)
+
+Pre-J the agent ran EXACTLY 1 invocation per iteration regardless of iteration budget. Strategies that set `iterationConfig.maxDispatches > 1` + `sourceMode: 'pool'` now opt into K-dispatch: the loop selects K distinct parents from the `qualityCutoff`-filtered eligible set and runs them in parallel + sequential top-up, mirroring the `generate` iteration's RUNTIME pattern (`resolveParallelFloor` is projector-only; only `resolveSequentialFloor` is consulted at runtime). Both budget-floor methods (fraction-of-budget + multiple-of-agent-cost) are honored via the existing strategy-level floor fields, with optional per-iteration overrides (`iterCfg.{parallelFloor,sequentialFloor}{Fraction,AgentMultiple}`) for distinct floor profiles within a single strategy. `maxDispatches` defaults to 1 → exact back-compat.
+
+#### Projector-vs-actual accuracy (Options G4–G7)
+
+Per Round 1+2 of `investigate_paragraph_rewrite_cost_undershoot_evolution_20260529`, actual median spend on staging was `$0.0048` vs projector `expected = $0.0093` — about 50% of projection. When the projector is RECOMPUTED with each invocation's actual inputs (parent length, slot count, output chars), it predicts actual within 1–7% — the math is mechanically correct. The 50% gap is entirely from inputs:
+
+| Contributor | Share of projector→actual gap | Mechanism |
+|---|---|---|
+| **Rewrite drops collapsing per-slot rank pool** | **53–98% (dominant)** | Projector assumes `min(M, cap) = 3` comparisons per surviving rewrite; reality is 0–1 when slots end with 1 surviving rewrite (16.7% of slots pre-I3). Fixed by Options I3a+I3b (hard char-count directive + per-index temperature override). |
+| **Shorter actual rewrite outputs** | 11–32% | Projector assumes 1000 chars/rewrite; actuals are 620–790 chars. |
+| **Fewer slots than the 12-cap** | 0–30% | Shorter articles produce fewer slots. |
+
+The new run-level metrics that paragraph_recombine joins automatically (no finalization.ts changes needed — the existing `computeCostEstimationErrorPct` + `computeEstimatedCost` iterate ALL invocation details agnostic to agent_name):
+
+- `cost_estimation_error_pct` — top-level error %.
+- `estimated_cost` — top-level projector `expected`.
+- New per-phase rollups: `paragraph_rewrite_estimation_error_pct`, `paragraph_rank_estimation_error_pct` + their `avg_*` propagation to strategy/experiment.
 
 ### Budget-Aware Dispatch
 

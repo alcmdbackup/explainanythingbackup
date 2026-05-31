@@ -113,6 +113,13 @@ const iterationConfigSchema = z.object({
   maxComparisonsPerParagraph: z.number().int().min(1).max(20).optional(),
   maxParagraphsPerInvocation: z.number().int().min(1).max(50).optional(),
   paragraphRewriteModel: z.string().optional(),
+  // investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 — Options F + J + J3.
+  perInvocationCapUsd: z.number().min(0.001).max(0.5).optional(),  // F: per-invocation cap override
+  maxDispatches: z.number().int().min(1).max(10).optional(),       // J: opt into multi-dispatch (default 1)
+  parallelFloorFraction: z.number().min(0).max(1).optional(),      // J3: per-iter budget-floor override
+  parallelFloorAgentMultiple: z.number().min(0).optional(),
+  sequentialFloorFraction: z.number().min(0).max(1).optional(),
+  sequentialFloorAgentMultiple: z.number().min(0).optional(),
 });
 ```
 
@@ -128,7 +135,20 @@ With superRefine validations:
 - No swiss iteration may precede all variant-producing iterations.
 - `criteriaIds` / `weakestK` are required for ALL three criteria-based types and rejected on other agent types. `criteriaIds` is sorted (canonicalized) before being included in the strategy `config_hash` so `[a,b]` and `[b,a]` deduplicate.
 - `lengthCapRatio` is rejected on agent types other than `proposer_approver_criteria_generate`. `redundancyJaccardThreshold` is rejected on legacy `criteria_and_generate` (only the 2 new criteria types). `includesMirrorApprover` is rejected on agent types other than `proposer_approver_criteria_generate`. The `editingMaxCycles === 1` invariant is enforced for `proposer_approver_criteria_generate`.
-- The 4 paragraph knobs (`rewritesPerParagraph`, `maxComparisonsPerParagraph`, `maxParagraphsPerInvocation`, `paragraphRewriteModel`) are rejected on agent types other than `paragraph_recombine`.
+- The 4 paragraph knobs (`rewritesPerParagraph`, `maxComparisonsPerParagraph`, `maxParagraphsPerInvocation`, `paragraphRewriteModel`) are rejected on agent types other than `paragraph_recombine`. Same for `perInvocationCapUsd` and `maxDispatches` (added by `investigate_paragraph_rewrite_cost_undershoot_evolution_20260529`). The four `*Floor*` per-iteration override fields are NOT agent-type-gated — they're advisory floors that any iteration can carry, but the runtime currently honors them only for paragraph_recombine (J4); the generate runtime path continues to use strategy-level floors.
+
+## Paragraph_recombine multi-dispatch (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529)
+
+When `iterationConfig.agentType === 'paragraph_recombine'` and `maxDispatches > 1` and `sourceMode === 'pool'`, the runtime engages multi-dispatch: the loop selects K distinct parents from the `qualityCutoff`-filtered eligible set (seeded pre-shuffle via `deriveSeed(..., 'paragraph_recombine_shuffle')` for determinism), runs `ParagraphRecombineAgent` against each in parallel + sequential top-up, then feeds the concatenated match histories into a single `MergeRatingsAgent.run()`. Both budget-floor methods are supported:
+
+| Floor method | Strategy field | Per-iteration override (J3) | Formula |
+|---|---|---|---|
+| Fraction of iteration budget | `minBudgetAfter{Parallel,Sequential}Fraction` (0–1) | `parallelFloorFraction` / `sequentialFloorFraction` | `floor = iterBudgetUsd × fraction` |
+| Multiple of agent cost | `minBudgetAfter{Parallel,Sequential}AgentMultiple` (≥ 0) | `parallelFloorAgentMultiple` / `sequentialFloorAgentMultiple` | `floor = agentCost × multiple` (parallel uses `projector.expected`, sequential uses `actualAvgCostPerAgent` falling back to expected) |
+
+`Fraction` overrides `AgentMultiple` within a single config per `budgetFloorResolvers.ts` selection rules. Iter-level overrides take precedence over strategy-level when both are set.
+
+`maxDispatches` defaults to `1` (back-compat exact). Strategies opt in by setting `maxDispatches > 1`. Both `maxDispatches` and `perInvocationCapUsd` participate in `config_hash` via `canonicalizeIterationConfig` (J1.5).
 
 The `criteria_and_generate` agent type (evaluateCriteriaThenGenerateFromPreviousArticle_20260501) routes through the `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` wrapper, which makes one combined LLM call to score the parent article against the referenced `evolution_criteria` rows AND draft fix suggestions for the `effectiveWeakestK = min(weakestK, criteriaIds.length)` weakest criteria, then delegates to `GenerateFromPreviousArticleAgent.execute()` with `tactic: 'criteria_driven'` and a `customPrompt` built from the suggestions. See [Agents Overview](./agents/overview.md#evaluatecriteriathengeneratefrompreviousarticleagent-evaluatecriteriathengeneratefrompreviousarticle_20260501) for the full agent contract.
 

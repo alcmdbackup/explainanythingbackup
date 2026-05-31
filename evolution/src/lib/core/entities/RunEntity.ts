@@ -14,6 +14,7 @@ import {
   computeTotalMatches, computeDecisiveRate, computeVariantCount,
   computeCostEstimationErrorPct, computeEstimatedCost, computeEstimationAbsErrorUsd,
   computeGenerationEstimationErrorPct, computeRankingEstimationErrorPct,
+  computeParagraphRewriteEstimationErrorPct, computeParagraphRankEstimationErrorPct,
   computeAgentCostProjected, computeAgentCostActual,
   computeParallelDispatched, computeSequentialDispatched,
   computeMedianSequentialGfsaDurationMs, computeAvgSequentialGfsaDurationMs,
@@ -82,6 +83,10 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
       { ...METRIC_CATALOG.estimation_abs_error_usd, compute: computeEstimationAbsErrorUsd },
       { ...METRIC_CATALOG.generation_estimation_error_pct, compute: computeGenerationEstimationErrorPct },
       { ...METRIC_CATALOG.ranking_estimation_error_pct, compute: computeRankingEstimationErrorPct },
+      // G7 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): per-phase
+      // paragraph_recombine estimation-error rollups.
+      { ...METRIC_CATALOG.paragraph_rewrite_estimation_error_pct, compute: computeParagraphRewriteEstimationErrorPct },
+      { ...METRIC_CATALOG.paragraph_rank_estimation_error_pct, compute: computeParagraphRankEstimationErrorPct },
       { ...METRIC_CATALOG.agent_cost_projected, compute: computeAgentCostProjected },
       { ...METRIC_CATALOG.agent_cost_actual, compute: computeAgentCostActual },
       { ...METRIC_CATALOG.parallel_dispatched, compute: computeParallelDispatched },

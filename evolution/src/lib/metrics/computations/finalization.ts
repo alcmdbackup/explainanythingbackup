@@ -148,16 +148,18 @@ export function computeEstimationAbsErrorUsd(ctx: FinalizationContext): number |
   return diffs.reduce((a, b) => a + b, 0) / diffs.length;
 }
 
-/** Mean per-invocation generation-phase error % across GFSA invocations. */
-export function computeGenerationEstimationErrorPct(ctx: FinalizationContext): number | null {
+/** Mean per-invocation phase-level estimation error % across invocations whose
+ *  execution_detail carries a `<phaseKey>.{estimatedCost,cost}` block. Returns null
+ *  when no invocation has paired data for the phase. */
+function meanPhaseEstimationErrorPct(ctx: FinalizationContext, phaseKey: string): number | null {
   if (!ctx.invocationDetails) return null;
   const errors: number[] = [];
   for (const detail of ctx.invocationDetails.values()) {
     const d = detail as unknown as Record<string, unknown>;
-    const gen = d.generation as Record<string, unknown> | undefined;
-    if (!gen) continue;
-    const est = gen.estimatedCost;
-    const act = gen.cost;
+    const phase = d[phaseKey] as Record<string, unknown> | undefined;
+    if (!phase) continue;
+    const est = phase.estimatedCost;
+    const act = phase.cost;
     if (typeof est === 'number' && typeof act === 'number') {
       const e = pctError(act, est);
       if (e !== null) errors.push(e);
@@ -167,23 +169,27 @@ export function computeGenerationEstimationErrorPct(ctx: FinalizationContext): n
   return errors.reduce((a, b) => a + b, 0) / errors.length;
 }
 
+/** Mean per-invocation generation-phase error % across GFSA invocations. */
+export function computeGenerationEstimationErrorPct(ctx: FinalizationContext): number | null {
+  return meanPhaseEstimationErrorPct(ctx, 'generation');
+}
+
 /** Mean per-invocation ranking-phase error % across GFSA invocations. */
 export function computeRankingEstimationErrorPct(ctx: FinalizationContext): number | null {
-  if (!ctx.invocationDetails) return null;
-  const errors: number[] = [];
-  for (const detail of ctx.invocationDetails.values()) {
-    const d = detail as unknown as Record<string, unknown>;
-    const rank = d.ranking as Record<string, unknown> | undefined;
-    if (!rank) continue;
-    const est = rank.estimatedCost;
-    const act = rank.cost;
-    if (typeof est === 'number' && typeof act === 'number') {
-      const e = pctError(act, est);
-      if (e !== null) errors.push(e);
-    }
-  }
-  if (errors.length === 0) return null;
-  return errors.reduce((a, b) => a + b, 0) / errors.length;
+  return meanPhaseEstimationErrorPct(ctx, 'ranking');
+}
+
+/** G7 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+ *  Mean per-invocation paragraph_rewrite-phase error % across paragraph_recombine
+ *  invocations. Reads from `execution_detail.paragraph_rewrite.{estimatedCost,cost}`
+ *  populated by the agent at G4/G5. */
+export function computeParagraphRewriteEstimationErrorPct(ctx: FinalizationContext): number | null {
+  return meanPhaseEstimationErrorPct(ctx, 'paragraph_rewrite');
+}
+
+/** G7: same as above but for paragraph_rank phase. */
+export function computeParagraphRankEstimationErrorPct(ctx: FinalizationContext): number | null {
+  return meanPhaseEstimationErrorPct(ctx, 'paragraph_rank');
 }
 
 // ─── Budget-floor observables (passed through FinalizationContext) ─────────────

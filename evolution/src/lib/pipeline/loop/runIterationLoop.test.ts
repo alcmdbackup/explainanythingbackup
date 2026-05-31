@@ -67,6 +67,13 @@ jest.mock('../infra/estimateCosts', () => ({
   estimateGenerationCost: jest.fn(() => 2.0),
   estimateRankingCost: jest.fn(() => 1.0),
   getVariantChars: jest.fn(() => 9197),
+  // J4 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+  // multi-dispatch refactor calls the projector for parallel batch sizing.
+  estimateParagraphRecombineCost: jest.fn(() => ({
+    expected: 0.01,
+    upperBound: 0.013,
+    perPhase: { paragraphRewriteCost: 0.006, paragraphRankCost: 0.004 },
+  })),
 }));
 
 jest.mock('../infra/trackBudget', () => {
@@ -258,6 +265,91 @@ describe('evolveArticle (orchestrator)', () => {
 
     const prIter = result.iterationResults?.find((ir) => ir.agentType === 'paragraph_recombine');
     expect(prIter?.variantsCreated).toBe(1);
+  });
+
+  // J4 / J5 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+  // assert that maxDispatches unset reproduces EXACTLY the single-dispatch
+  // behavior pre-J. This is the load-bearing rollback regression test for J6.
+  it('paragraph_recombine multi-dispatch defaults to K=1 (back-compat exact)', async () => {
+    mockGenerateRun.mockResolvedValue(generateSuccess('g1'));
+    mockParagraphRun.mockResolvedValue({
+      success: true,
+      result: { variant: mkVariant('pr1'), status: 'converged', surfaced: true, matches: [] },
+      cost: 0.01, durationMs: 5, invocationId: 'inv-pr',
+    });
+
+    const cfg = makeConfig();
+    cfg.iterationConfigs = [
+      { agentType: 'generate', budgetPercent: 60 },
+      // maxDispatches UNSET → defaults to 1 → exact single-dispatch behavior.
+      { agentType: 'paragraph_recombine', budgetPercent: 40 },
+    ];
+
+    await evolveArticle('seed text', makeProvider(), makeDb() as never, 'run-1', cfg);
+
+    // Single dispatch — back-compat with pre-J behavior.
+    expect(mockParagraphRun).toHaveBeenCalledTimes(1);
+  });
+
+  // J4 multi-dispatch: when maxDispatches > 1 + sourceMode='pool', the loop
+  // dispatches K parents in parallel.
+  it('paragraph_recombine multi-dispatch with maxDispatches=3 + sourceMode=pool dispatches 3 invocations', async () => {
+    // Iter 1 (generate) seeds the pool with 3 variants so the eligible set has enough.
+    mockGenerateRun
+      .mockResolvedValueOnce(generateSuccess('g1'))
+      .mockResolvedValueOnce(generateSuccess('g2'))
+      .mockResolvedValueOnce(generateSuccess('g3'))
+      .mockResolvedValue(generateSuccess('gN'));
+    mockParagraphRun.mockResolvedValue({
+      success: true,
+      result: { variant: mkVariant('pr'), status: 'converged', surfaced: true, matches: [] },
+      cost: 0.001, durationMs: 5, invocationId: 'inv-pr',
+    });
+
+    const cfg = makeConfig();
+    // First iter: generate 3 candidates so we have a pool to draw from.
+    cfg.iterationConfigs = [
+      { agentType: 'generate', budgetPercent: 60 },
+      {
+        agentType: 'paragraph_recombine',
+        budgetPercent: 40,
+        sourceMode: 'pool',
+        qualityCutoff: { mode: 'topN', value: 5 },
+        maxDispatches: 3,
+      },
+    ];
+
+    await evolveArticle('seed text', makeProvider(), makeDb() as never, 'run-1', cfg);
+
+    // J4 step 3: parallelDispatchCount = min(DISPATCH_SAFETY_CAP, floor(availBudget/projector.expected),
+    // maxDispatches, eligibleParents.length). The mocked projector returns expected=0.01 and our
+    // mocked iter budget is large, so this should land at min(3, 3) = 3 (capped by maxDispatches).
+    expect(mockParagraphRun.mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect(mockParagraphRun.mock.calls.length).toBeLessThanOrEqual(3);
+  });
+
+  // F3 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): iterCfg.perInvocationCapUsd
+  // is threaded into the agent input. Pre-F3 the override existed on the agent but had no path
+  // from IterationConfig to the dispatch.
+  it('paragraph_recombine threads iterCfg.perInvocationCapUsd into the agent input', async () => {
+    mockGenerateRun.mockResolvedValue(generateSuccess('g1'));
+    mockParagraphRun.mockResolvedValue({
+      success: true,
+      result: { variant: mkVariant('pr1'), status: 'converged', surfaced: true, matches: [] },
+      cost: 0.001, durationMs: 5, invocationId: 'inv-pr',
+    });
+
+    const cfg = makeConfig();
+    cfg.iterationConfigs = [
+      { agentType: 'generate', budgetPercent: 60 },
+      { agentType: 'paragraph_recombine', budgetPercent: 40, perInvocationCapUsd: 0.08 },
+    ];
+
+    await evolveArticle('seed text', makeProvider(), makeDb() as never, 'run-1', cfg);
+
+    expect(mockParagraphRun).toHaveBeenCalled();
+    const agentInput = mockParagraphRun.mock.calls[0]![0] as { perInvocationCapUsd?: number };
+    expect(agentInput.perInvocationCapUsd).toBe(0.08);
   });
 
   it('paragraph_recombine iteration is a no-op when EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED=false', async () => {

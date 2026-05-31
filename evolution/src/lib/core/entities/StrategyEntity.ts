@@ -145,6 +145,13 @@ export class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
       { ...METRIC_CATALOG.avg_ranking_estimation_error_pct,
         sourceEntity: 'run', sourceMetric: 'ranking_estimation_error_pct',
         aggregate: aggregateAvg, aggregationMethod: 'avg' },
+      // G7 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529).
+      { ...METRIC_CATALOG.avg_paragraph_rewrite_estimation_error_pct,
+        sourceEntity: 'run', sourceMetric: 'paragraph_rewrite_estimation_error_pct',
+        aggregate: aggregateAvg, aggregationMethod: 'avg' },
+      { ...METRIC_CATALOG.avg_paragraph_rank_estimation_error_pct,
+        sourceEntity: 'run', sourceMetric: 'paragraph_rank_estimation_error_pct',
+        aggregate: aggregateAvg, aggregationMethod: 'avg' },
       { ...METRIC_CATALOG.avg_estimation_abs_error_usd,
         sourceEntity: 'run', sourceMetric: 'estimation_abs_error_usd',
         aggregate: aggregateAvg, aggregationMethod: 'avg' },

@@ -13,6 +13,7 @@ import {
   computeCostEstimationErrorPct,
   computeEstimatedCost, computeEstimationAbsErrorUsd,
   computeGenerationEstimationErrorPct, computeRankingEstimationErrorPct,
+  computeParagraphRewriteEstimationErrorPct, computeParagraphRankEstimationErrorPct,
   computeAgentCostProjected, computeAgentCostActual,
   computeParallelDispatched, computeSequentialDispatched,
   computeMedianSequentialGfsaDurationMs, computeAvgSequentialGfsaDurationMs,
@@ -131,6 +132,12 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
     sourceMetric: 'generation_estimation_error_pct', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   { name: 'avg_ranking_estimation_error_pct', label: 'Avg Ranking Error %', category: 'cost', formatter: 'percentValue',
     sourceMetric: 'ranking_estimation_error_pct', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  // G7 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+  // strategy/experiment-level rollups for the new per-phase metrics.
+  { name: 'avg_paragraph_rewrite_estimation_error_pct', label: 'Avg Paragraph Rewrite Error %', category: 'cost', formatter: 'percentValue',
+    sourceMetric: 'paragraph_rewrite_estimation_error_pct', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  { name: 'avg_paragraph_rank_estimation_error_pct', label: 'Avg Paragraph Rank Error %', category: 'cost', formatter: 'percentValue',
+    sourceMetric: 'paragraph_rank_estimation_error_pct', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   { name: 'avg_estimation_abs_error_usd', label: 'Avg Abs Error', category: 'cost', formatter: 'costDetailed',
     sourceMetric: 'estimation_abs_error_usd', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   { name: 'total_estimated_cost', label: 'Total Estimated Cost', category: 'cost', formatter: 'cost',
@@ -234,6 +241,14 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
         compute: computeGenerationEstimationErrorPct },
       { name: 'ranking_estimation_error_pct', label: 'Ranking Estimation Error %', category: 'cost', formatter: 'percentValue',
         compute: computeRankingEstimationErrorPct },
+      // G7 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+      // per-phase rollups for paragraph_recombine. Sourced from
+      // `execution_detail.paragraph_rewrite.{estimatedCost,cost}` and
+      // `execution_detail.paragraph_rank.{estimatedCost,cost}` populated by the agent.
+      { name: 'paragraph_rewrite_estimation_error_pct', label: 'Paragraph Rewrite Estimation Error %', category: 'cost', formatter: 'percentValue',
+        compute: computeParagraphRewriteEstimationErrorPct },
+      { name: 'paragraph_rank_estimation_error_pct', label: 'Paragraph Rank Estimation Error %', category: 'cost', formatter: 'percentValue',
+        compute: computeParagraphRankEstimationErrorPct },
       // Budget-floor observables (passed through FinalizationContext from runIterationLoop)
       { name: 'agent_cost_projected', label: 'Projected Agent Cost', category: 'cost', formatter: 'costDetailed',
         compute: computeAgentCostProjected },

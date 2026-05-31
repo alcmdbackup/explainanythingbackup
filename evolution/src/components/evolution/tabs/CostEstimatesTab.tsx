@@ -445,6 +445,7 @@ function PerIterationSummarySection({ invocations }: { invocations: RunCostEstim
       //  - Then swiss / generate substring matches.
       const name = inv.agentName.toLowerCase();
       if (name === 'reflect_and_generate_from_previous_article') entry.type = 'reflect_generate';
+      else if (name === 'paragraph_recombine') entry.type = 'paragraph_recombine'; // K6
       else if (name.includes('edit')) entry.type = 'iterative_editing';
       else if (name.includes('swiss')) entry.type = 'swiss';
       else if (name.includes('generate')) entry.type = 'generate';
@@ -477,6 +478,7 @@ function PerIterationSummarySection({ invocations }: { invocations: RunCostEstim
                     s.type === 'generate' ? 'bg-blue-500/20 text-blue-400' :
                     s.type === 'swiss' ? 'bg-purple-500/20 text-purple-400' :
                     s.type === 'reflect_generate' ? 'bg-amber-500/20 text-amber-400' :
+                    s.type === 'paragraph_recombine' ? 'bg-cyan-500/20 text-cyan-400' : // K6
                     'bg-gray-500/20 text-gray-400'
                   }`}>
                     {s.type === 'reflect_generate' ? 'reflect+gen' : s.type}

@@ -87,6 +87,10 @@ export const STATIC_METRIC_NAMES = [
   'paragraph_recombine_cost',
   'total_paragraph_recombine_cost', 'avg_paragraph_recombine_cost_per_run',
   'paragraph_slot_match_persist_failures',
+  // G7 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+  // per-phase estimation-error rollups for paragraph_recombine.
+  'paragraph_rewrite_estimation_error_pct', 'paragraph_rank_estimation_error_pct',
+  'avg_paragraph_rewrite_estimation_error_pct', 'avg_paragraph_rank_estimation_error_pct',
   'avg_final_elo', 'best_final_elo', 'worst_final_elo',
   'avg_median_elo', 'avg_p90_elo', 'best_max_elo',
   'avg_matches_per_run', 'avg_decisive_rate',

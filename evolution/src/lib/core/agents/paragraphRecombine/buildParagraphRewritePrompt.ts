@@ -46,6 +46,15 @@ export const PARAGRAPH_REWRITE_DIRECTIVES: readonly string[] = [
  * When `directive` is provided, an "APPROACH FOR THIS REWRITE" block is injected so each
  * of the M parallel rewrites pursues a distinct transformation (see PARAGRAPH_REWRITE_DIRECTIVES).
  * The param is optional/defaulted so the single existing caller and tests still compile.
+ *
+ * I3a (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): instead of
+ * the vague "~0.85x" ratio in the rule-3 wording, inject a HARD CHARACTER COUNT computed
+ * from the actual paragraph length. LLMs are notoriously poor at ratio-of-length
+ * arithmetic but follow explicit character-count constraints far better. Pre-I3a the
+ * post-fix invocations showed index-0 length_under drop rates of 92–100% with outputs
+ * landing at 0.50–0.74 of original (mean 0.67) — well below the 0.8 validator floor.
+ * The hard char-count below pegs the floor to `ceil(0.85 × paragraphText.length)` so
+ * the LLM sees a concrete target. Belt-and-suspenders: the validator still enforces 0.8.
  */
 export function buildParagraphRewritePrompt(
   parentH1: string,
@@ -54,6 +63,9 @@ export function buildParagraphRewritePrompt(
   totalSlots: number,
   directive?: string,
 ): string {
+  const originalChars = paragraphText.length;
+  const minChars = Math.ceil(0.85 * originalChars);
+  const maxChars = Math.floor(1.20 * originalChars);
   const approachBlock = directive
     ? `APPROACH FOR THIS REWRITE
   ${directive}
@@ -77,8 +89,9 @@ ${approachBlock}RULES (violations are silently discarded)
   2. FIRST AND LAST SENTENCES. Rewrites are OK, but be extra careful —
      these often carry transitions to neighboring paragraphs you can't see.
 
-  3. LENGTH WITHIN ±20%. Total character count must stay within 20% of the
-     original.
+  3. LENGTH. The original paragraph is ${originalChars} characters. Your rewrite
+     MUST be at least ${minChars} characters and at most ${maxChars} characters.
+     Stay inside this window — rewrites outside it are silently discarded.
 
 OUTPUT
   Plain prose only — no markdown, no preamble, no commentary. Just the
