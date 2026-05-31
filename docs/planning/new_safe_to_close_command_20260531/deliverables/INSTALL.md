@@ -2,6 +2,16 @@
 
 The execution environment for this project (worktree_37_7) bind-mounts `.claude/commands/` as read-only at the OS level (verified via `mount | grep claude`), preventing in-session installation. The deliverables are staged here; install them from any shell outside this Claude session.
 
+## TL;DR — one command
+
+From the worktree root, **outside** a Claude Code session:
+
+```bash
+bash docs/planning/new_safe_to_close_command_20260531/deliverables/install.sh
+```
+
+The script runs the Phase 8b strict order (pre-flight anchor integrity → copy files → post-edit verification → atomic commit) with automatic rollback on any failure. Safe to re-run.
+
 ## What's here
 
 | File | Destination | Action |
