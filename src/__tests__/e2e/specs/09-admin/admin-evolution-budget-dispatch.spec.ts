@@ -279,6 +279,45 @@ adminTest.describe('Strategy Form — Budget Dispatch Fields', { tag: '@evolutio
   // preview, and (when configured with maxDispatches > 1 + sourceMode='pool') renders the
   // parallel + top-up dispatch projection chip — same surface used by generate iterations.
   // K3 adds a cyan agent-type badge; F4 adds the per-row "cap $X" annotation.
+  // Phase 8 (L) — investigate_paragraph_rewrite_cost_undershoot_evolution_20260529:
+  // Verifies the wizard exposes maxDispatches and perInvocationCapUsd as numeric inputs
+  // when a paragraph_recombine iteration is selected. Pre-Phase-8 these fields existed in
+  // the schema + projector + dispatch view but had no input control — every wizard-created
+  // strategy defaulted to maxDispatches=1 and shipped single-dispatch even after J4 deployed.
+  adminTest('paragraph_recombine wizard inputs: maxDispatches + perInvocationCapUsd render with defaults', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/strategies/new');
+    await adminPage.waitForLoadState('domcontentloaded');
+    await expect(adminPage.locator('#strategy-name')).toBeVisible({ timeout: 15_000 });
+
+    // Step 1: fill required Strategy Config fields and advance to iterations.
+    await adminPage.locator('#strategy-name').fill(`${TEST_PREFIX} L7 wizard ${Date.now()}`);
+    await adminPage.locator('#generation-model').selectOption({ index: 1 });
+    await adminPage.locator('#budget-usd').fill('1.00');
+    await adminPage.locator('button', { hasText: 'Next: Configure Iterations' }).click();
+
+    // Step 2: switch iter 0's agentType to paragraph_recombine so the knob row renders.
+    const agentTypeSelect = adminPage.getByTestId('agent-type-select-0');
+    await expect(agentTypeSelect).toBeVisible({ timeout: 10_000 });
+    await agentTypeSelect.selectOption('paragraph_recombine');
+    await expect(adminPage.getByTestId('iteration-paragraph-controls-0')).toBeVisible({ timeout: 5_000 });
+
+    // The 2 new inputs must render with their defaults (1 and 0.05).
+    const maxDispatchesInput = adminPage.getByTestId('max-dispatches-0');
+    const perInvocationCapInput = adminPage.getByTestId('per-invocation-cap-usd-0');
+    await expect(maxDispatchesInput).toBeVisible({ timeout: 5_000 });
+    await expect(perInvocationCapInput).toBeVisible();
+    await expect(maxDispatchesInput).toHaveValue('1');
+    await expect(perInvocationCapInput).toHaveValue('0.05');
+
+    // Raising the values must be reflected. The actual dispatch-plan-preview update is
+    // covered by DispatchPlanView.test.tsx unit tests; here we only assert the input
+    // layer accepts user changes (so the payload emission path is exercised).
+    await maxDispatchesInput.fill('5');
+    await expect(maxDispatchesInput).toHaveValue('5');
+    await perInvocationCapInput.fill('0.08');
+    await expect(perInvocationCapInput).toHaveValue('0.08');
+  });
+
   adminTest('paragraph_recombine: strategy detail page renders with new perInvocationCapUsd/maxDispatches fields', async ({ adminPage }) => {
     // Create a paragraph_recombine strategy with the new opt-in knobs.
     const sb = getServiceClient();
