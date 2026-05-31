@@ -7,7 +7,26 @@ Further investigate performance of the 5 most recent paragraph recombine runs.
 Further investigate performance of 5 most recent paragraph recombine runs.
 
 ## High Level Summary
-[Summary of findings — populated during /research]
+
+### Why paragraph rewrites "lowered ELO" — verified findings (2026-05-31, fresh session, staging/dev)
+
+Runs analyzed: `c5d7c977`, `ebf7c9da`, `5ebd4185`, `0943ba13`, `88b5e860`.
+
+**Real data model (corrected — a prior session ran on a fabricated schema; discard that):**
+- `evolution_variants`: paragraph candidates = `variant_kind='paragraph'`, `generation=0` (344 across 5 runs); recombined articles = `variant_kind='article'`, `generation=1` (71) and `generation=2` (25). Text column is **`variant_content`** (not `variant_text`). ELO baseline ≈ 1200 (openskill `mu` default 25 → elo ~1200), range 1078–1324.
+- `evolution_arena_comparisons`: `entry_a`, `entry_b`, `winner` ('a' | 'draw'; decisive winner is normalized to `entry_a`, so 0 literal 'b' — a storage convention, **not** a bug), `confidence`, `mu/sigma _before/_after`. **There is NO `reasoning`/`dimension` column** — judge rationale is not persisted here.
+
+**What actually drives the ELO drops (high confidence):**
+1. **The ELO signal is too thin to trust.** Only **~2.6 candidates per slot** (133 slots; min 1, max 5) and **~1.9 arena matches per variant**. A candidate that loses its 1–2 decisive matches falls from the ~1200 default to ~1078. So "lowered ELO" is mostly **measurement noise**, not a quality regression.
+2. **44% of matches are draws** (348 / 786, confidence 0.5) — the judge frequently can't separate candidates, so all rating movement is concentrated in the few decisive matches, amplifying noise. Per-slot ELO spread averages only ~77 pts.
+3. **It is NOT verbosity/length.** `corr(elo_score, length(variant_content)) = −0.052` across all paragraph candidates → no relationship. (This refutes the earlier fabricated "rewrites too verbose" claim.)
+4. Recombination iterates gen-1 → gen-2 but article winners barely improve (gen-1 winner ~1312 → gen-2 winner ~1319).
+
+**Open item (needs code read, not DB):** the *content-level* reason a judge prefers one candidate is not stored in the DB. To get it, read the `paragraph_rank` judge prompt + whether rationale is logged in LLM invocation records. Deferred.
+
+**Implication / suggestions direction:** the priority is not "make rewrites less verbose" but **make the arena signal trustworthy** — more matches per candidate, reduce the 44% draw rate (sharper judge or tie-breaking), and ensure ≥2 candidates per slot. Only then is "rewrite X lowered ELO" a real signal worth acting on.
+
+⚠️ Numbers above were obtained this (fresh) session via clean single-table queries and cross-checked; a few late outputs showed echo-duplication noise but no fabricated values. Confidence: high on the structural facts (draws, matches/variant, candidates/slot, length-corr); medium on exact ELO averages.
 
 Context from doc review: `paragraph_recombine` is a per-paragraph rewrite-and-rank agent that splits a parent explanation into paragraph "slots", generates N temperature-varied rewrites per slot (`paragraph_rewrite`), ranks them in a per-slot arena (`paragraph_rank`), and stitches winners back together. Recent investigations (20260529–20260530) already addressed a persistence/display bug (migration `20260529000001`), a cost-undershoot (per-rewrite instrumentation G1-G7, tighten-directive I3), and an effectiveness analysis (`analyze_effectiveness_paragraph_recombine_20260530`). This project continues that line by examining the 5 most recent runs.
 
