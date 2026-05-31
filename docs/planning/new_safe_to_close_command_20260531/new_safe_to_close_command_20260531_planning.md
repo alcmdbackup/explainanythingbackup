@@ -97,10 +97,17 @@ Two related operational gaps:
   - 0 commits → GREEN
   - ≥ 1 commits, oldest ≤ 14 days → YELLOW ("$N commits awaiting release; oldest $DAYS days ago")
   - oldest > 17 days (observed cadence max from R2D §3) → RED ("release cadence stalled — consider /mainToProd")
-- [ ] **Active release PR** (R2D §B): `gh pr list --base production --state open --limit 1 --json number,title,createdAt,statusCheckRollup`
-  - None → GREEN
-  - One exists, < 6h old → YELLOW ("release in flight — PR #N — your close may race with it")
-  - One exists, ≥ 6h old → RED ("release PR stalled — check CI")
+- [ ] **Active PRs in flight** — symmetric across both bases (covers a gap surfaced in user review: original plan only checked production-targeting PRs, missing main-targeting in-flight work):
+  - **Release PRs** (`gh pr list --base production --state open --json number,title,createdAt,statusCheckRollup`):
+    - None → GREEN
+    - One exists, < 6h old → YELLOW ("release in flight — PR #N — your close may race with it")
+    - One exists, ≥ 6h old → RED ("release PR stalled — check CI")
+  - **Main-targeting PRs** (`gh pr list --base main --state open --json number,title,author,createdAt,updatedAt,statusCheckRollup,headRefName`):
+    - For each PR, compute CI status from `statusCheckRollup` and `updatedAt` age
+    - Any PR with CI failing AND `updatedAt` > 24h → RED ("PR #N (@author): CI failing $DAYS days — release queue blocker")
+    - Total open PR count > 20 → YELLOW ("$N PRs to main — queue backlog growing")
+    - Otherwise → GREEN (count printed informationally; not flagged)
+  - **Abandoned-worktree case** (my PRs without a matching worktree): cross-reference `gh pr list --author @me --base main --state open` against `git worktree list` branches. Any of MY open PRs to main whose `headRefName` doesn't appear in any worktree → RED ("PR #N — no worktree found; was the worktree deleted before merge?")
 - [ ] **No reverse check needed** (R1C §5): hotfixes go through main, not direct to production
 
 ### Phase 5: Release-health signals (added per R2D forensics)
@@ -130,7 +137,7 @@ Two related operational gaps:
   /finalize artifacts:      ✓ / ⚠ / ✗
   Un-promoted migrations:   ✓ / ✗  (N files, oldest $DAYS days)
   Un-released commits:      ✓ / ⚠ / ✗  (N commits, oldest $DAYS days)
-  Active release PR:        ✓ / ⚠ / ✗
+  Active PRs in flight:     ✓ / ⚠ / ✗  (release: N | main: N open, N stalled, N abandoned-worktree)
   Nightly E2E:              ✓ / ⚠ / ✗
   Release-health issues:    ✓ / ⚠ / ✗
   ──────────────────────────────────────
@@ -141,6 +148,8 @@ Two related operational gaps:
   - Un-promoted migrations → `Run: /mainToProd`
   - Nightly red ≥ 2 → `Check: gh issue list --label release-health --state open` + link to debugging.md
   - Stalled release PR → `Check: gh pr checks <PR#>`
+  - Stalled main-targeting PR with failing CI → `Check: gh pr checks <PR#>` + `Notify: @author` (release queue blocker)
+  - Abandoned-worktree PR → `Run: gh pr view <PR#>` then either re-create worktree (`git worktree add`) or close PR (`gh pr close <PR#>`)
   - Push-gate stale → `Run: /finalize` (or accept the typo-only diff and re-finalize)
   - Plan checkboxes unchecked → list line numbers + suggest `/plan-update`
 - [ ] **State file**: when RED or YELLOW, write `.claude/safe-to-close-verdict.json` (schema modeled on R1C §5's `.claude/nightly-red-override.json`):
@@ -247,7 +256,7 @@ Eight Explore agents launched in two rounds of four. Round 1 mapped the surface 
 - **CI-gate status map** must be explicit (open=GREEN, pending=YELLOW, closed=RED, unknown=YELLOW).
 - **Doc-update is opt-in via `--update-docs`** because transcripts are inaccessible and forcing the mutation by default surprises users.
 - **/initialize: two groups (Workflow + Operations), 7 docs total**, pre-read core docs stay OUT of `_status.json.relevantDocs` to prevent `/finalize` Step 6 flooding.
-- **Add 4 release-health signals** beyond un-promoted migrations: nightly status, open release-health issues, active release PR, release frequency. Calibrated to observed 2-3 day cadence (RED at 17 days, not the stale-doc 14 days).
+- **Add 4 release-health signals** beyond un-promoted migrations: nightly status, open release-health issues, active PRs in flight (symmetric across `--base main` AND `--base production`, including abandoned-worktree detection), release frequency. Calibrated to observed 2-3 day cadence (RED at 17 days, not the stale-doc 14 days).
 - **No schema-aware migration diff** — file-presence check is sufficient; false positives are safer than false negatives.
 - **Known limitations documented inline**: file-presence (not schema) migration check; transcript inaccessibility; reused-branch-name handling picks most-recent.
 
