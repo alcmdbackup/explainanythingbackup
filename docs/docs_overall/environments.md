@@ -84,6 +84,10 @@ Every PR that adds files under `supabase/migrations/**` must pass `scripts/lint-
 
 Both `e2e-nightly.yml` and `post-deploy-smoke.yml` post failure alerts to the channel configured by the repository's `SLACK_WEBHOOK_URL` secret. The channel currently receiving these is whichever channel the webhook is wired to in Slack — confirm with a repo admin and document the channel name here when a dedicated `#release-alerts` channel is established. The 62-day silent outage was largely an attention problem: alerts were firing but the channel went unread. Whoever owns the channel should keep it unmuted and configure keyword highlights on `[release-health]` issues + the workflow names above.
 
+**Auto-filed release-health GitHub issues** (added 2026-05-30): `e2e-nightly.yml` now auto-files a `[release-health] Nightly E2E failed — YYYY-MM-DD` GitHub issue on any nightly failure via the `notify-release-health` job. Same-day recurrences comment on the existing issue rather than duplicating. This provides an inbox-style surface beyond Slack — designed for the recurring "channel unread" failure mode that produced the 5-night nightly-failure streak in May 2026. See `docs/planning/nightly_e2e_still_failing_20260530/` for the design.
+
+**`/mainToProd` nightly-red precheck** (added 2026-05-30): the skill now queries the latest nightly run as Step 0 and fail-CLOSES (refuses to promote) when nightly conclusion is not `success`. Override via `PROMOTE_DESPITE_NIGHTLY_RED=true` + `NIGHTLY_OVERRIDE_REASON="<why>"`; the override writes `.claude/nightly-red-override.json` (schema matches `.claude/ci-gate-override.json`) committed to the deploy branch for `git log`-discoverable audit.
+
 **CI Flow (PRs)**: When a PR contains migration files, the CI `deploy-migrations` job applies them to staging before tests run. This eliminates the migration/test deadlock where tests fail because the schema hasn't been applied yet. Types are then regenerated from the updated staging schema and auto-committed to the PR branch.
 
 - Fork PRs and Dependabot PRs skip migration deployment (no secrets access)
@@ -290,7 +294,7 @@ detect-changes → typecheck + lint (parallel)
 | **Test types** | Unit → Integration + E2E (parallel) | E2E only | E2E `@smoke` only |
 | **Target** | Local build | Local build | Live production URL |
 | **Secrets** | Staging environment | Staging environment | Production environment |
-| **Browsers** | Chromium | Chromium + Firefox | Chromium |
+| **Browsers** | Chromium (+ Firefox on `e2e-evolution` job for evolution/admin-path PRs) | Chromium + Firefox | Chromium |
 
 > **Note:** CI and Nightly workflows build and run the app locally on the GitHub runner (`npm run build && npm start`). They do NOT test against any deployed environment. Only the Post-Deploy Smoke workflow tests against a live deployment.
 

@@ -5,6 +5,10 @@ on:
     - cron: '0 6 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   e2e:
     runs-on: ubuntu-latest
@@ -221,4 +225,50 @@ jobs:
                   }
                 ]
               }' "$SLACK_WEBHOOK_URL"
+          fi
+
+  # Auto-file a release-health GitHub issue on nightly failure. Defends against
+  # the Slack-channel-unread "attention problem" diagnosed at environments.md:85.
+  # Runs once after the matrix completes (needs: [e2e]) — `max-parallel: 1` on
+  # the matrix means rows can't race this step.
+  notify-release-health:
+    needs: [e2e]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure release-health label exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Idempotent — first run creates, subsequent runs no-op
+        run: gh label create release-health --color FFA500 --description "Nightly/post-deploy health alerts" --repo "${{ github.repository }}" 2>/dev/null || true
+
+      - name: Find or create release-health issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TODAY=$(date -u +%F)
+          TITLE="[release-health] Nightly E2E failed — ${TODAY}"
+          # Use label + created:DATE filter for the lookup; em-dash in the title
+          # would be treated specially by `in:title` substring search.
+          EXISTING=$(gh issue list \
+            --repo "$REPO" \
+            --label release-health \
+            --state open \
+            --search "created:${TODAY}" \
+            --json number,title \
+            --jq "[.[] | select(.title == \"${TITLE}\")][0].number // empty")
+          BODY=$(cat <<EOF
+          Run: ${RUN_URL}
+          Workflow: ${{ github.workflow }} on ${{ github.head_ref || github.ref_name }}
+
+          Failing matrix rows visible in the run page. Triage steps: docs/docs_overall/debugging.md
+          EOF
+          )
+          if [ -n "${EXISTING}" ]; then
+            gh issue comment "${EXISTING}" --repo "$REPO" --body "Failure recurred: ${RUN_URL}"
+          else
+            gh issue create --repo "$REPO" --title "${TITLE}" --body "${BODY}" --label release-health
           fi

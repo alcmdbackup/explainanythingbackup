@@ -534,7 +534,7 @@ jobs:
 
   # Evolution E2E tests for PRs to production (single shard — small test set)
   e2e-evolution:
-    name: E2E Tests (Evolution)
+    name: E2E Tests (Evolution - ${{ matrix.browser }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [detect-changes, unit-tests]
@@ -543,6 +543,10 @@ jobs:
       && (github.base_ref == 'production' || github.base_ref == 'main') &&
       (needs.detect-changes.outputs.path == 'evolution-only' || needs.detect-changes.outputs.path == 'full')
     environment: staging
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
@@ -585,23 +589,26 @@ jobs:
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-${{ matrix.browser }}
 
       - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps ${{ matrix.browser }}
 
       - name: Install Playwright deps (if cached)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium
+        run: npx playwright install-deps ${{ matrix.browser }}
 
-      - name: Run Evolution E2E Tests
-        run: npm run test:e2e:evolution
+      - name: Run Evolution E2E Tests (${{ matrix.browser }})
+        # Inline command, NOT `npm run test:e2e:evolution` — that script hardcodes
+        # --project=chromium (package.json:29); appending --project=firefox would
+        # double the flag and run both browsers per matrix row.
+        run: npx playwright test --project=${{ matrix.browser }} --grep=@evolution --grep-invert='@skip-prod'
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: playwright-report-evolution
+          name: playwright-report-evolution-${{ matrix.browser }}
           path: |
             playwright-report/
             test-results/

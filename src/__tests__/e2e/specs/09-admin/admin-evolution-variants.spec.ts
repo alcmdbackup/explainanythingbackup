@@ -5,6 +5,7 @@ import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { randomUUID } from 'crypto';
+import { safeGoto } from '@/lib/testing/safe-goto';
 
 function getServiceClient() {
   return createClient<Database>(
@@ -250,8 +251,8 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     await adminPage.waitForURL(`**/admin/evolution/variants/${winnerVariantId}`, { timeout: 15000 });
     expect(adminPage.url()).toContain(`/admin/evolution/variants/${winnerVariantId}`);
 
-    // Navigate back to list and verify breadcrumb
-    await adminPage.goto('/admin/evolution/variants');
+    // Navigate back to list and verify breadcrumb (chained — use safeGoto on Firefox)
+    await safeGoto(adminPage, '/admin/evolution/variants');
     await adminPage.waitForLoadState('domcontentloaded');
 
     // EntityListPage renders pagination only when totalPages > 1.

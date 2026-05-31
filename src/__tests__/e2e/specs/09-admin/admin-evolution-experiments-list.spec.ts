@@ -5,6 +5,7 @@ import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { randomUUID } from 'crypto';
+import { safeGoto } from '@/lib/testing/safe-goto';
 
 function getServiceClient() {
   return createClient<Database>(
@@ -185,8 +186,8 @@ adminTest.describe('Evolution Experiments List', { tag: '@evolution' }, () => {
     await adminPage.waitForURL(`**/admin/evolution/experiments/${activeExperimentId}`, { timeout: 10000, waitUntil: 'commit' });
     expect(adminPage.url()).toContain(`/admin/evolution/experiments/${activeExperimentId}`);
 
-    // Navigate back to list and verify breadcrumb
-    await adminPage.goto('/admin/evolution/experiments');
+    // Navigate back to list and verify breadcrumb (chained — use safeGoto on Firefox)
+    await safeGoto(adminPage, '/admin/evolution/experiments');
     await adminPage.waitForLoadState('domcontentloaded');
 
     const breadcrumb = adminPage.locator('[data-testid="evolution-breadcrumb"]');
