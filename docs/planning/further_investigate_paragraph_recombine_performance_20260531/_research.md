@@ -25,7 +25,7 @@ Runs analyzed: `c5d7c977`, `ebf7c9da`, `5ebd4185`, `0943ba13`, `88b5e860`.
 
 So `paragraph_recombine` runs **once**, as the final generation, and is just one agent among several in this strategy — a strategy-placement choice, not part of the agent itself.
 
-⚠️ **Unresolved config↔data mismatch (must verify before acting):** the strategy's *current* stored `config` lists only **2** `iterationConfigs` — `generate`(sourceMode `seed`, 40%) then `paragraph_recombine`(sourceMode `pool`, 60%; `rewritesPerParagraph:3`, `maxParagraphsPerInvocation:12`), budget $0.05, judge `qwen-2.5-7b-instruct`, gen model `gemini-2.5-flash-lite`. This does **not** match the 3 generations / the gen-1 trio (`grounding_enhance`/`lexical_simplify`/`structural_transform`) seen in the data. Likely the config was edited after these runs (config drift), or generations are numbered differently from `iterationConfigs` indices, or the gen-1 agents come from a default tactic set rather than the strategy config. Reconciling this is an **open question** — the per-generation agent attribution above is from the variant rows (trustworthy); the strategy-config interpretation is NOT yet pinned down.
+✅ **RESOLVED (was flagged as a mismatch; it is not one):** the stored `config` (2 iterations: `generate`/seed then `paragraph_recombine`/pool) DOES match the per-run `iteration_snapshots`. The 3 generations come from 2 iterations because the `generate` iteration emits both seed paragraph rewrites (gen 0) and **tactic** variants (gen 1) via `tacticsUsed`; `paragraph_recombine` is gen 2. See the "RESOLVED: where the gen-1 agents come from" section below for details.
 
 Variant taxonomy & ELO (5 runs combined):
 | variant_kind | generation (agent) | n | avg_elo | min | max | avg_matches |
