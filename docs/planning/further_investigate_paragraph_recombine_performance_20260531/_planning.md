@@ -3,7 +3,7 @@
 ## Background
 Further investigate performance of the 5 most recent paragraph recombine runs.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1153)
 Further investigate performance of 5 most recent paragraph recombine runs.
 
 ## Problem
