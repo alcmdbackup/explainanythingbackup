@@ -16,11 +16,12 @@ Runs analyzed: `c5d7c977`, `ebf7c9da`, `5ebd4185`, `0943ba13`, `88b5e860`.
 - `evolution_variants`: paragraph candidates = `variant_kind='paragraph'`, `generation=0` (344 across 5 runs); recombined articles = `variant_kind='article'`, `generation=1` (71) and `generation=2` (25). Text column is **`variant_content`** (not `variant_text`). ELO baseline ≈ 1200 (openskill `mu` default 25 → elo ~1200), range 1078–1324.
 - `evolution_arena_comparisons`: `entry_a`, `entry_b`, `winner` ('a' | 'draw'; decisive winner is normalized to `entry_a`, so 0 literal 'b' — a storage convention, **not** a bug), `confidence`, `mu/sigma _before/_after`. **There is NO `reasoning`/`dimension` column** — judge rationale is not persisted here.
 
-**What actually drives the ELO drops (high confidence):**
-1. **The ELO signal is too thin to trust.** Only **~2.6 candidates per slot** (133 slots; min 1, max 5) and **~1.9 arena matches per variant**. A candidate that loses its 1–2 decisive matches falls from the ~1200 default to ~1078. So "lowered ELO" is mostly **measurement noise**, not a quality regression.
-2. **44% of matches are draws** (348 / 786, confidence 0.5) — the judge frequently can't separate candidates, so all rating movement is concentrated in the few decisive matches, amplifying noise. Per-slot ELO spread averages only ~77 pts.
-3. **It is NOT verbosity/length.** `corr(elo_score, length(variant_content)) = −0.052` across all paragraph candidates → no relationship. (This refutes the earlier fabricated "rewrites too verbose" claim.)
+**What actually drives the ELO drops (high confidence on structure; see caveat on exact figures):**
+1. **The ELO signal is too thin to trust.** Only **~1.6 candidates per slot** (211 slots; min 1, max 3 — many slots have a *single* candidate, i.e. no competition at all) and **~1.9 arena matches per variant**, with a small per-slot ELO spread (~49 pts). A candidate that loses one of its 1–2 sparse matches falls from the ~1200 default toward ~1078. So "lowered ELO" is mostly **measurement noise**, not a quality regression.
+2. **~44% of matches are draws** (≈348 draw vs ≈438 decisive, confidence 0.5) — the judge frequently can't separate candidates, so the few decisive matches drive all rating movement, amplifying the noise.
+3. **It is NOT verbosity/length.** `corr(elo_score, length(variant_content)) = +0.299` (n=344) — a *modest positive* relationship (ELO tertiles: low avg 740 chars → high avg 863 chars). Longer paragraphs score slightly **higher**, so verbosity is not penalized. This refutes the earlier (fabricated) "rewrites too verbose" claim.
 4. Recombination iterates gen-1 → gen-2 but article winners barely improve (gen-1 winner ~1312 → gen-2 winner ~1319).
+5. **Possible rationale store (unread):** `evolution_logs` / `evolution_run_logs` tables exist and may hold the per-comparison judge rationale (absent from `evolution_arena_comparisons`). Checking them is the next step for content-level "why".
 
 **Open item (needs code read, not DB):** the *content-level* reason a judge prefers one candidate is not stored in the DB. To get it, read the `paragraph_rank` judge prompt + whether rationale is logged in LLM invocation records. Deferred.
 
