@@ -42,14 +42,15 @@ Two related operational gaps:
   ```
   (Note: `Glob` and `Grep` intentionally omitted — all directory traversal uses Bash `git`/`grep` shell invocations.)
 - [ ] No `.claude/settings.json` change required (commands are auto-discovered from `.claude/commands/*.md` per R1D §5)
-- [ ] **Add `.claude/safe-to-close-verdict.json` to `.gitignore`** as part of this phase. Verified via `grep .gitignore`: existing gate files are individually listed (`.claude/push-gate.json`, `.claude/ci-gate.json`, `.claude/test-pass.json`, `.claude/ci-gate.disabled`) — no wildcard. Add a 5th line so the verdict file follows the same convention. Commit with the safe_to_close.md creation.
+- [ ] **Add `.claude/safe-to-close-verdict.json` to `.gitignore`** as part of this phase. Verified via `grep .gitignore`: existing gate files are individually listed (`.claude/push-gate.json`, `.claude/ci-gate.json`, `.claude/test-pass.json`, `.claude/ci-gate.disabled`) — no wildcard. Append a single new line `.claude/safe-to-close-verdict.json` directly below the existing gate-file block (preserving alphabetical-by-introduction order is not required; co-locating with sibling files is).
+- [ ] **Atomic commit**: stage both `.claude/commands/safe_to_close.md` AND `.gitignore` together in a single `chore: add /safe_to_close command` commit. Phase 1 is one logical change; partial commits would leave the gitignore-without-command or command-without-gitignore states.
 - [ ] Argument parsing: `--update-docs` (opt-in mutation), `--dry-run` (print what would change, mutate nothing)
-- [ ] **Pre-flight checks at the top of the command** (Phase 1.5 inside the markdown spec — fail YELLOW with explicit hint, do not crash):
-  - `gh auth status` succeeds (else YELLOW "Run: gh auth login")
-  - `gh label list --search release-health --json name --jq '.[] | select(.name==\"release-health\")' | grep -q .` (else YELLOW "Label `release-health` missing — Phase 5 issue check will report unknown")
-  - `[ -f .github/workflows/e2e-nightly.yml ]` (else YELLOW "Workflow file renamed — update Phase 5 query")
-  - `git rev-parse --verify origin/main` AND `git rev-parse --verify origin/production` (else YELLOW "Run: git fetch origin main production — Phase 4 will skip until refs are present")
-  - Pre-flight failures do NOT abort the command — they produce a single "Pre-flight warnings" block ABOVE the verdict so the user knows which checks degraded
+- [ ] **Pre-flight checks at the top of the command** (Phase 1.5 inside the markdown spec — runs on EVERY invocation regardless of `--update-docs`/`--dry-run` flags; fail YELLOW with explicit hint, do not crash). **Order matters: cheapest local check first, network calls last, auth gated before any network call.**
+  - **Step 1.5a** (local, fail-fast): `[ -f .github/workflows/e2e-nightly.yml ]` (else YELLOW "Workflow file renamed — Phase 5 nightly check disabled")
+  - **Step 1.5b** (local): `git rev-parse --verify origin/main >/dev/null 2>&1` AND `git rev-parse --verify origin/production >/dev/null 2>&1` (else YELLOW "Run: git fetch origin main production — Phase 4 will skip until refs are present"). Store the result in a shell variable `REFS_OK=1|0` consumed by Phase 4.
+  - **Step 1.5c** (network, gates 1.5d): `gh auth status` succeeds (else YELLOW "Run: gh auth login — Phases 2/5/6 will skip"). Store as `GH_AUTH_OK=1|0`. If `GH_AUTH_OK=0`, skip 1.5d entirely (no point making network calls).
+  - **Step 1.5d** (network, only if 1.5c passed): label existence via `gh label list --search release-health --json name --jq 'map(select(.name=="release-health")) | length > 0'` returning `true` (precise match, not substring — else YELLOW "Label `release-health` missing — Phase 5 issue check will report unknown")
+  - Pre-flight failures do NOT abort the command — they produce a single "Pre-flight warnings" block ABOVE the verdict so the user knows which checks degraded. Each downstream phase that depends on a pre-flight check reads the stored variable and YELLOW-skips with "(Phase 1.5: $REASON)" appended.
 
 ### Phase 2: Worktree + PR scan
 - [ ] Enumerate worktrees: `git worktree list --porcelain` → parse `worktree`/`branch` pairs (R1A §1)
@@ -81,9 +82,11 @@ Two related operational gaps:
   - Count `- [ ]` (unchecked) and `- [x]`/`- [X]` (checked) lines **outside** fences
   - **Template-placeholder filter** (R2A #9): exclude lines matching `^- \[ \] \[.*\]$` (literal-bracket placeholders left in from the initialize template)
   - If unchecked > 0 → RED with file:line list
-- [ ] **Gate files** (R1B §2, schemas confirmed) — every JSON read includes `schema_version` validation; mismatch → YELLOW with "gate file schema_version=N (expected 1) — /safe_to_close may misread; consider upgrading":
+- [ ] **Gate files** (R1B §2, schemas confirmed) — every JSON read includes `schema_version` validation with explicit three-state semantics:
+  - **Field absent** → treat as v1 (omit-tolerant for gate files written by current `/finalize` which doesn't yet emit the field)
+  - **Field present AND value == 1** → GREEN proceed
+  - **Field present AND value ≠ 1** → YELLOW with "gate file `$FILE` has schema_version=$N (expected 1) — /safe_to_close may misread; consider upgrading the consumer". Do NOT silently accept v2+ as v1. (Future tools that intentionally omit the field to bypass this check is out of scope — that's an explicit-malice scenario.)
   - `.claude/push-gate.json` exists AND `.commit` matches `git rev-parse HEAD` → GREEN; otherwise RED
-    - **Expected `schema_version: 1`** (omit-tolerant: gate files written by current finalize.md don't include schema_version yet; treat missing as v1)
     - If push-gate exists but `.commit` differs from HEAD (R2A #11): RED, but **show the intervening commits inline** so the user can decide:
       ```bash
       git log "$(jq -r .commit .claude/push-gate.json)..HEAD" --oneline
@@ -142,14 +145,14 @@ Two related operational gaps:
   ```
   Safe to Close Verdict
   ──────────────────────────────────────
-  Worktree PR state:        ✓ / ⚠ / ✗  (N open across worktrees — full list below)
-  Current plan checkboxes:  ✓ / ✗  (N unchecked)
-  /finalize artifacts:      ✓ / ⚠ / ✗
-  Un-promoted migrations:   ✓ / ✗  (N files, oldest $DAYS days)
-  Un-released commits:      ✓ / ⚠ / ✗  (N commits, oldest $DAYS days)
-  Active PRs in flight:     ✓ / ⚠ / ✗  (release: N | main: N open, N stalled, N abandoned-worktree)
-  Nightly E2E:              ✓ / ⚠ / ✗
-  Release-health issues:    ✓ / ⚠ / ✗
+  Worktree PR state:        ✓ / ⚠ / ✗ / ⊘  (N open across worktrees — full list below)
+  Current plan checkboxes:  ✓ / ✗ / ⊘  (N unchecked)
+  /finalize artifacts:      ✓ / ⚠ / ✗ / ⊘
+  Un-promoted migrations:   ✓ / ✗ / ⊘  (N files, oldest $DAYS days)
+  Un-released commits:      ✓ / ⚠ / ✗ / ⊘  (N commits, oldest $DAYS days)
+  Active PRs in flight:     ✓ / ⚠ / ✗ / ⊘  (release: N | main: N open, N stalled, N abandoned-worktree)
+  Nightly E2E:              ✓ / ⚠ / ✗ / ⊘
+  Release-health issues:    ✓ / ⚠ / ✗ / ⊘
   ──────────────────────────────────────
   VERDICT: GREEN / YELLOW / RED
   ```
@@ -169,10 +172,13 @@ Two related operational gaps:
     "verdict": "red|yellow|green",
     "checked_at": "ISO timestamp",
     "checked_sha": "<HEAD SHA>",
-    "checks": { "<check_name>": { "status": "ok|warn|fail", "detail": "..." }, ... }
+    "checks": { "<check_name>": { "status": "ok|warn|fail|skipped", "detail": "...", "skipped_reason": "..." }, ... }
   }
   ```
-  This file is gitignored (per `.claude/` convention), not committed. Provides audit trail for repeated runs.
+  - **`status` enum**: `ok` (✓ GREEN), `warn` (⚠ YELLOW), `fail` (✗ RED), `skipped` (⊘ — phase skipped due to Phase 1.5 pre-flight YELLOW, e.g. missing refs / gh auth / label). When `skipped`, `skipped_reason` field is required and references the Phase 1.5 sub-step (e.g. "1.5b: origin/production not fetched").
+  - **Verdict display rendering**: `⊘ skipped` rows appear in the verdict table next to ✓/⚠/✗ but are excluded from the GREEN/YELLOW/RED aggregation logic (a skipped phase is informational, not blocking).
+  - File is gitignored (per `.claude/` convention added in Phase 1), not committed. Provides audit trail for repeated runs.
+  - Not re-entrant: concurrent invocations may clobber — bounded harm (audit-only file, no downstream consumer).
 
 ### Phase 7: Doc-update step (opt-in via `--update-docs`)
 - [ ] Only runs if `--update-docs` flag passed AND `--dry-run` NOT passed
@@ -185,7 +191,7 @@ Two related operational gaps:
   1. `git log origin/main..HEAD --format='%h %s%n%b' --no-merges` — what shipped
   2. Planning doc's existing "Review & Discussion" section — what was already captured
   3. **One** AskUserQuestion: "Any final notes to capture before closing? (deferred work, late decisions, surprises)" — interactive catch-all
-- [ ] **Markdown safety**: before applying each Edit, validate that the new block does NOT contain unbalanced ``` fences (avoid breaking downstream parsers). If unbalanced, YELLOW-skip that doc with a "potential markdown corruption — skipped" message.
+- [ ] **Markdown safety**: before applying each Edit, validate the **merged** (existing-file-content + new-block) result. "Unbalanced fences" is defined operationally as: `grep -c '^```' "$file_with_new_block_appended" % 2 != 0` (count of lines starting with ``` is odd). If unbalanced, YELLOW-skip that doc with "potential markdown corruption — skipped" and leave the file untouched.
 - [ ] **Append targets**:
   - `_progress.md`: append a final phase "## Phase N+1: Closeout" with subsections Work Done / Issues Encountered / User Clarifications, derived from the three sources above
   - `_planning.md` "Review & Discussion": append `### Closeout Notes` block (mirrors the `/plan-review` iteration-append pattern from R2B §5.1)
@@ -200,8 +206,19 @@ Two related operational gaps:
 - [ ] **Pre-flight integrity check**: before any edit, verify all 5 anchor strings exist in `.claude/commands/initialize.md`. List of anchors below. If any missing → abort Phase 8 (do not partial-edit).
 
 - [ ] **Edit 1** — Split Step 2.5 into Core Workflow + Core Operations groups (R2C §3).
-  - **Anchor (find)**: the exact 7 lines `### 2.5. Read Core Documentation\n\nBefore creating project files, read these three core documents to understand the codebase context:\n\n1. **Read** \`docs/docs_overall/getting_started.md\`...` (use Edit's `old_string` to match the full block)
-  - **Replace with**: identical heading, then the two labeled groups (Workflow: 3 existing docs; Operations: environments, testing_overview, `docs/feature_deep_dives/testing_setup.md`, debugging). Path-check: testing_setup.md lives under `feature_deep_dives`, not `docs_overall` (verified).
+  - **Anchor (find — full block, line 139 through line 147 in current initialize.md)**:
+    ```
+    ### 2.5. Read Core Documentation
+
+    Before creating project files, read these three core documents to understand the codebase context:
+
+    1. **Read** `docs/docs_overall/getting_started.md` - Documentation structure and reading order
+    2. **Read** `docs/docs_overall/architecture.md` - System design, data flow, and tech stack
+    3. **Read** `docs/docs_overall/project_workflow.md` - Complete workflow for projects
+
+    These provide essential context for the project initialization.
+    ```
+  - **Replace with**: identical `### 2.5. Read Core Documentation` heading, then two labeled groups ("Core Workflow Docs:" with the 3 existing entries; "Core Operations Docs:" with the 4 new entries — environments, testing_overview, `docs/feature_deep_dives/testing_setup.md`, debugging), then the existing closing sentence "These provide essential context for the project initialization." (verbatim). Path-check: `testing_setup.md` lives under `feature_deep_dives`, not `docs_overall` (verified via Glob).
 
 - [ ] **Edit 2** — Update Step 2.7's Explore-agent exclusion clause to list all 7 docs.
   - **Anchor (find)**: `Exclude the 3 core docs already read: getting_started.md, architecture.md, project_workflow.md`
@@ -224,22 +241,73 @@ Two related operational gaps:
 
 ### Phase 8b: Rollback plan
 
-If Phase 8 edits produce a broken `initialize.md` (YAML breakage, accidental delete, wrong heading):
+If Phase 8 edits produce a broken `initialize.md` (YAML breakage, accidental delete, wrong heading), the rollback strategy is `git checkout` (no committed state to worry about).
 
-- [ ] **Detection**: after each edit, run `grep -c "^### " .claude/commands/initialize.md` — heading count must equal the pre-edit count + any expected additions. If it differs unexpectedly, abort and rollback.
-- [ ] **Manual rollback** (always available — Phase 8 commits initialize.md in a single commit at the END of Phase 8, not per-edit):
-  ```bash
-  git checkout HEAD -- .claude/commands/initialize.md  # discard all Phase 8 edits
-  ```
-- [ ] **Atomic-commit strategy**: stage and commit all 5 Phase-8 edits in ONE commit (`chore: /initialize defaults add 4 Core Operations Docs`). Never partial-commit. If any edit fails the pre-flight or post-edit check, `git checkout` and abort the whole phase.
-- [ ] **Verification after commit**: dry-run `/initialize chore/test_rollback_check` in a scratch worktree to confirm the modified initialize.md doesn't error before declaring Phase 8 done (this is the Phase 9 sanity check, but call it out here so rollback is wired to it).
+**Strict execution order — every step must pass before proceeding to the next:**
+
+1. **Pre-flight integrity** (no file modifications yet):
+   - For each of the 5 anchor strings in Edits 1-5, run `grep -F "<anchor>" .claude/commands/initialize.md`. ALL 5 must match.
+   - If any anchor missing → abort Phase 8 entirely (no edits applied, no commit). Surface: "initialize.md has drifted — anchor for Edit N not found. Re-research current line numbers and update plan."
+
+2. **Apply all 5 edits via Edit tool** (file is now modified but UNCOMMITTED):
+   - If any Edit call errors (e.g. unique match failure) → immediately `git checkout HEAD -- .claude/commands/initialize.md` to discard ALL partial changes, then abort.
+
+3. **Post-edit verification** (file modified, uncommitted; verify before staging):
+   - For each of the 5 NEW anchor blocks (the `Replace with` content from Edits 1-5), grep for a distinctive substring (e.g. "Core Operations Docs" for Edit 1, "Exclude the 7 core docs" for Edit 2). ALL 5 must match.
+   - Verify Step 2.5's labeled groups parse: `grep -c "^\*\*Core .* Docs:\*\*" .claude/commands/initialize.md` must return ≥ 2.
+   - If any post-edit check fails → `git checkout HEAD -- .claude/commands/initialize.md` and abort.
+
+4. **Stage and atomic commit** (only after all 5 post-edit checks pass):
+   ```bash
+   git add -- .claude/commands/initialize.md
+   git commit -m "chore: /initialize defaults add 4 Core Operations Docs"
+   ```
+   No partial commits. No per-edit commits. One logical change → one commit.
+
+5. **Post-commit smoke test** (no scratch-worktree required — runs in the current worktree):
+   - Read `.claude/commands/initialize.md` once more and confirm it parses as valid markdown (no orphan ``` fences, no broken YAML frontmatter).
+   - Optionally invoke `/initialize chore/throwaway_smoke_$(date +%s)` interactively up to the point where the Explore agent would launch, then Ctrl-C. The goal is to confirm no parse-time error in the modified command spec — NOT to actually create a project folder. (This step is optional: failing here means revert via `git revert HEAD` on the atomic commit.)
+
+**Manual rollback (always available, any time after step 4):**
+```bash
+git revert HEAD                                       # if Phase 8 commit was bad
+# OR for in-progress (uncommitted) state:
+git checkout HEAD -- .claude/commands/initialize.md   # discard pending edits
+```
 
 ### Phase 9: Self-validation (manual)
-- [ ] Run `/safe_to_close` from this worktree (PR not yet created) — expect: RED on "no `.claude/push-gate.json`" + RED on "$N un-released commits" (all the recent main-vs-production work)
-- [ ] After /finalize + PR creation, re-run — expect: YELLOW on "current worktree PR ready to merge" + same migration/release signals
-- [ ] After PR merge + checkout to main, re-run — expect: whatever the global state is at that moment
-- [ ] Plant a fake `supabase/migrations/9999_test.sql` on a local branch off main — verify migration-drift RED path fires
-- [ ] After Phase 8, run `/initialize chore/test_init_check` in a scratch worktree — verify all 7 core docs read without prompting; verify `_status.json.relevantDocs` excludes them
+
+**Happy-path scenarios:**
+- [ ] **HP-1**: Run `/safe_to_close` from this worktree (PR not yet created) — expect: RED on "no `.claude/push-gate.json`" + RED on "$N un-released commits"
+- [ ] **HP-2**: After /finalize + PR creation, re-run — expect: YELLOW on "current worktree PR ready to merge" + same migration/release signals
+- [ ] **HP-3**: After PR merge + checkout to main, re-run — expect: whatever the global state is at that moment
+- [ ] **HP-4**: Run `/safe_to_close --dry-run --update-docs` — verify nothing mutates but the would-be diff prints
+- [ ] **HP-5**: Plant a fake `supabase/migrations/9999_test.sql` on a local branch off main (create `supabase/migrations/` first if needed) — verify migration-drift RED path fires; clean up fake file after
+
+**Pre-flight / Phase 1.5 fallback scenarios:**
+- [ ] **PF-1**: Temporarily `gh auth logout`, run `/safe_to_close` — expect: YELLOW pre-flight banner ("gh auth missing"); Phases 2/5/6 ⊘ skipped; Phases 3/4 still run
+- [ ] **PF-2**: Run `/safe_to_close` in a fresh clone where `origin/production` was never fetched — expect: YELLOW ("origin/production not fetched"); Phase 4 ⊘ skipped
+- [ ] **PF-3**: Rename `release-health` label temporarily (or run in a repo without the label) — expect: YELLOW pre-flight; Phase 5 issue check ⊘ skipped
+- [ ] **PF-4**: Rename `e2e-nightly.yml` temporarily — expect: YELLOW pre-flight; Phase 5 nightly check ⊘ skipped
+
+**Phase 3 / gate-file fallback scenarios:**
+- [ ] **GF-1**: Hand-edit `.claude/push-gate.json` to add `"schema_version": 2` → expect: YELLOW with schema mismatch message
+- [ ] **GF-2**: Hand-edit `.claude/ci-gate.json` to invalid JSON → expect: YELLOW "jq parse failure" with file path; no crash
+- [ ] **GF-3**: Run with no `.claude/push-gate.json` (delete or skip /finalize) → expect: RED "/finalize not run"
+
+**Phase 7 / doc-update fallback scenarios:**
+- [ ] **DU-1**: `chmod -w _progress.md` then run `/safe_to_close --update-docs` → expect: YELLOW skip for that file; other 2 docs still updated
+- [ ] **DU-2**: Run `/safe_to_close --update-docs` on a detached HEAD (`git checkout HEAD~1`) → expect: YELLOW "detached HEAD — skipping doc update"
+- [ ] **DU-3**: Run `/safe_to_close --update-docs` from a branch with no matching `_status.json` → expect: YELLOW "no planning doc — nothing to update"
+
+**Worktree scenarios:**
+- [ ] **WT-1**: Run from a worktree on `main` directly — expect: Phase 3 checkbox/gate checks skip with "branch is main, no project" YELLOW; other phases run normally
+- [ ] **WT-2**: Run with a peer worktree whose branch has an open PR > 30 days old — expect: RED row with "STALE — N days" annotation
+
+**Phase 8 /initialize edit scenarios:**
+- [ ] **IN-1**: After Phase 8, run `/initialize chore/throwaway_init_check_$(date +%s)` in this worktree — verify all 7 core docs read without prompting; verify `_status.json.relevantDocs` excludes them; manually delete the scratch project folder afterwards
+- [ ] **IN-2**: Simulate anchor drift — temporarily edit `.claude/commands/initialize.md` to break the Step 2.7 anchor, run Phase 8 — expect: pre-flight integrity abort with "Edit 2 anchor not found"; revert the manual edit afterwards
+- [ ] **IN-3**: After Phase 8 commit, verify `git revert HEAD` works cleanly (no conflicts), then `git revert HEAD` again to restore — confirms Phase 8b manual rollback works
 
 ## Testing
 
