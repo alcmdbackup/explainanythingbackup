@@ -49,13 +49,13 @@ Two related operational gaps:
   - **Step 1.5a** (local, fail-fast): `[ -f .github/workflows/e2e-nightly.yml ]` (else YELLOW "Workflow file renamed — Phase 5 nightly check disabled")
   - **Step 1.5b** (local): `git rev-parse --verify origin/main >/dev/null 2>&1` AND `git rev-parse --verify origin/production >/dev/null 2>&1` (else YELLOW "Run: git fetch origin main production — Phase 4 will skip until refs are present"). Store the result in a shell variable `REFS_OK=1|0` consumed by Phase 4.
   - **Step 1.5c** (network, gates 1.5d): `gh auth status` succeeds (else YELLOW "Run: gh auth login — Phases 2/5/6 will skip"). Store as `GH_AUTH_OK=1|0`. If `GH_AUTH_OK=0`, skip 1.5d entirely (no point making network calls).
-  - **Step 1.5d** (network, only if 1.5c passed): label existence via `gh label list --search release-health --json name --jq 'map(select(.name=="release-health")) | length > 0'` returning `true` (precise match, not substring — else YELLOW "Label `release-health` missing — Phase 5 issue check will report unknown")
+  - **Step 1.5d** (network, only if 1.5c passed): label existence via `gh label list --search release-health --json name --jq 'map(select(.name=="release-health")) | length > 0' 2>/dev/null` returning `true` (precise match, not substring). **Explicit error wrapper**: if `gh` exits non-zero (network failure, rate limit) OR jq returns anything other than `true` → YELLOW "Label `release-health` missing or unreachable — Phase 5 issue check will report unknown". Never crash.
   - Pre-flight failures do NOT abort the command — they produce a single "Pre-flight warnings" block ABOVE the verdict so the user knows which checks degraded. Each downstream phase that depends on a pre-flight check reads the stored variable and YELLOW-skips with "(Phase 1.5: $REASON)" appended.
 
 ### Phase 2: Worktree + PR scan
 - [ ] Enumerate worktrees: `git worktree list --porcelain` → parse `worktree`/`branch` pairs (R1A §1)
 - [ ] Filter out placeholder slots: branch names matching `^refs/heads/git_worktree_37_[0-9]+$` are unused slots, skip silently
-- [ ] **Defensive guard** (R2A #7): `git rev-parse --verify origin/production >/dev/null 2>&1 || YELLOW("origin/production not fetched")` before any check using it
+- [ ] ~~Defensive guard for `origin/production`~~ — removed: Phase 1.5b already verifies both refs at the start of every run; Phase 2 only uses `origin/main` directly anyway. (Iter-3 review caught this as dead code.)
 - [ ] Single `gh pr list --author @me --state open --json number,title,headRefName,baseRefName,isDraft,url,updatedAt` call (one query covers all worktrees)
 - [ ] **Defensive guard** (R2A #10): wrap in `|| YELLOW("gh auth/network failed; PR state unknown")` — never crash
 - [ ] **All open PRs are surfaced — no age-based suppression.** User-feedback override of R2A #1: stale PRs are exactly the kind the user wants surfaced, since "old and forgotten" is the failure mode (cf. the 4 dormant PRs R1A found, including one from March 21). Classification rules:
@@ -101,7 +101,7 @@ Two related operational gaps:
   - **`jq` parse failure on any gate file** (corrupted JSON) → YELLOW with the offending file path printed; do NOT crash
 
 ### Phase 4: Post-deploy migrations + backports
-- [ ] **Pre-check** (R2A #7): already gated by Phase 1.5 pre-flight — if either `origin/main` or `origin/production` failed to resolve there, skip the entire Phase 4 with explicit YELLOW (the verdict row prints "⚠ Phase 4 skipped — refs missing"). Inside Phase 4, do NOT re-fetch (avoid network surprise mid-run); rely on the Phase 1.5 fetch result.
+- [ ] **Pre-check** (R2A #7): already gated by Phase 1.5 pre-flight — if either `origin/main` or `origin/production` failed to resolve there (`REFS_OK=0`), skip the entire Phase 4 with status `skipped`. The verdict row prints **`⊘ Phase 4 skipped — refs missing`** (not ⚠ YELLOW — `⊘` is the dedicated `skipped` symbol per the verdict schema; it's excluded from RED/YELLOW/GREEN aggregation). Inside Phase 4, do NOT re-fetch (avoid network surprise mid-run); rely on the Phase 1.5 fetch result.
 - [ ] **Un-promoted migrations**: `git diff --name-only origin/production..origin/main -- 'supabase/migrations/*.sql'`
   - Non-empty → RED with file list + age of each (via `git log -1 --format=%ai $FILE`)
   - **Known limitation** (R2A #3, documented inline in command): pure file-presence check, not schema-aware. False positive possible if a migration file was added then deleted; acceptable since false positives are safer than false negatives here.
@@ -264,9 +264,9 @@ If Phase 8 edits produce a broken `initialize.md` (YAML breakage, accidental del
    ```
    No partial commits. No per-edit commits. One logical change → one commit.
 
-5. **Post-commit smoke test** (no scratch-worktree required — runs in the current worktree):
+5. **Post-commit smoke test (MANDATORY — not optional)** (no scratch-worktree required — runs in the current worktree):
    - Read `.claude/commands/initialize.md` once more and confirm it parses as valid markdown (no orphan ``` fences, no broken YAML frontmatter).
-   - Optionally invoke `/initialize chore/throwaway_smoke_$(date +%s)` interactively up to the point where the Explore agent would launch, then Ctrl-C. The goal is to confirm no parse-time error in the modified command spec — NOT to actually create a project folder. (This step is optional: failing here means revert via `git revert HEAD` on the atomic commit.)
+   - Invoke `/initialize chore/throwaway_smoke_$(date +%s)` interactively up to the point where Step 2.5 (Read Core Documentation) completes — i.e., confirm all 7 docs read successfully without error — then Ctrl-C BEFORE any AskUserQuestion fires. The goal is to confirm no parse-time error in the modified command spec AND that all 7 doc paths resolve. Failing here means revert via `git revert HEAD` on the atomic Phase 8 commit.
 
 **Manual rollback (always available, any time after step 4):**
 ```bash
@@ -283,6 +283,13 @@ git checkout HEAD -- .claude/commands/initialize.md   # discard pending edits
 - [ ] **HP-3**: After PR merge + checkout to main, re-run — expect: whatever the global state is at that moment
 - [ ] **HP-4**: Run `/safe_to_close --dry-run --update-docs` — verify nothing mutates but the would-be diff prints
 - [ ] **HP-5**: Plant a fake `supabase/migrations/9999_test.sql` on a local branch off main (create `supabase/migrations/` first if needed) — verify migration-drift RED path fires; clean up fake file after
+- [ ] **HP-6**: Run `/finalize` to write push-gate.json, then make a typo-fix commit (so `.commit ≠ HEAD`) — verify Phase 3 prints RED with intervening commits inline (per Phase 3 line 92's "show intervening commits" rule)
+
+**Threshold-boundary scenarios (load-bearing, called out in iter-3 review):**
+- [ ] **TB-1**: Construct a state where un-released commits' oldest is 13 days, 15 days, 18 days — verify GREEN → YELLOW → RED transitions across the 14d/17d boundaries
+- [ ] **TB-2**: Construct a state where nightly latest=`success`, then latest=`failure`/prior=`success`, then latest 2 both `failure` — verify GREEN → YELLOW → RED transitions
+- [ ] **TB-3**: File a release-health label issue at T-0, run once (expect YELLOW); wait/spoof to >12h, re-run (expect RED) — verifies 12h boundary
+- [ ] **TB-4**: Open a PR to production then wait/spoof age past 6h — verifies release PR 6h boundary YELLOW → RED
 
 **Pre-flight / Phase 1.5 fallback scenarios:**
 - [ ] **PF-1**: Temporarily `gh auth logout`, run `/safe_to_close` — expect: YELLOW pre-flight banner ("gh auth missing"); Phases 2/5/6 ⊘ skipped; Phases 3/4 still run
@@ -303,6 +310,7 @@ git checkout HEAD -- .claude/commands/initialize.md   # discard pending edits
 **Worktree scenarios:**
 - [ ] **WT-1**: Run from a worktree on `main` directly — expect: Phase 3 checkbox/gate checks skip with "branch is main, no project" YELLOW; other phases run normally
 - [ ] **WT-2**: Run with a peer worktree whose branch has an open PR > 30 days old — expect: RED row with "STALE — N days" annotation
+- [ ] **WT-3**: Have an open PR (`gh pr list --author @me`) whose `headRefName` doesn't match any worktree — expect: RED with "abandoned-worktree" annotation + recovery hint (`gh pr close` or `git worktree add`)
 
 **Phase 8 /initialize edit scenarios:**
 - [ ] **IN-1**: After Phase 8, run `/initialize chore/throwaway_init_check_$(date +%s)` in this worktree — verify all 7 core docs read without prompting; verify `_status.json.relevantDocs` excludes them; manually delete the scratch project folder afterwards
@@ -407,5 +415,25 @@ Scores: Security 2/5 (regressed — found 7 issues introduced by iter 1 fixes), 
 - jq quote-escaping for non-ASCII label names: label name is fixed ASCII (release-health)
 - Concurrent invocation file locking: bounded harm (verdict is audit-only), documented
 - Template-placeholder regex single-line limit: placeholders are single-line by definition
+
+### Iteration 3 plan-review fixes (2026-05-31)
+
+Scores: Security 4/5 (↑↑ from 2), Architecture 3/5 (↓ from 4 due to symbol-consistency regression introduced by iter 2), Testing 3/5 (= but 4 of 7 testing gaps are real boundary-coverage misses).
+
+**Real critical gaps fixed (4):**
+- Phase 1.5d explicit error wrapper: gh failure or non-`true` jq result → YELLOW, no crash
+- Phase 2 dead-code defensive guard for `origin/production` removed (Phase 1.5b already covers it)
+- Phase 4 pre-check symbol corrected: `⚠ Phase 4 skipped` → `⊘ Phase 4 skipped` per verdict schema
+- Phase 9 expanded with 4 boundary scenarios (HP-6 commit-mismatch + 4 TB-N threshold transitions + WT-3 abandoned-worktree PR); Phase 8b smoke test promoted from optional → mandatory
+
+**Recognized as not-a-plan-gap (1):**
+- Architecture agent flagged "gitignore not implemented" — that's an EXECUTION deliverable for Phase 1, not a plan defect. The plan correctly specifies the change in Phase 1 with atomic-commit strategy. Plan readiness ≠ implementation completion.
+
+**Acknowledged but not fixed (Testing's 7→3 remaining as low-priority polish):**
+- PR-queue-backlog (>20) threshold test: queue overflow is a slow drift, not a sharp boundary; documented limitation
+- Current-worktree CI-passing/approved isolation tests: HP-2 covers the dominant case; full state-matrix is over-engineering for manual validation
+- Phase 4 release-PR 6h boundary granularity: covered by TB-4
+
+[Subsequent /plan-review iterations append here.]
 
 [Subsequent /plan-review iterations append here.]
