@@ -1,3 +1,6 @@
+// Unit tests for abortableEffectController — the AbortController-wrapping helper
+// used by EntityMetricsTab and AttributionCharts for React useEffect cleanup.
+
 import { abortableEffectController } from './abortableEffect';
 
 describe('abortableEffectController', () => {

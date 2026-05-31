@@ -247,6 +247,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REPO: ${{ github.repository }}
+          # Pass via env: to avoid GitHub Actions script-injection antipattern
+          # of interpolating ${{ }} directly into bash heredocs / scripts.
+          WORKFLOW_NAME: ${{ github.workflow }}
+          REF_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           set -euo pipefail
           TODAY=$(date -u +%F)
@@ -262,7 +266,7 @@ jobs:
             --jq "[.[] | select(.title == \"${TITLE}\")][0].number // empty")
           BODY=$(cat <<EOF
           Run: ${RUN_URL}
-          Workflow: ${{ github.workflow }} on ${{ github.head_ref || github.ref_name }}
+          Workflow: ${WORKFLOW_NAME} on ${REF_NAME}
 
           Failing matrix rows visible in the run page. Triage steps: docs/docs_overall/debugging.md
           EOF
