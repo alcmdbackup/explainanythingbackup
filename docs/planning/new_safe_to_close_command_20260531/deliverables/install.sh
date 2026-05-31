@@ -100,7 +100,7 @@ fi
 # Fence balance.
 fence_parity=$(( $(grep -c '^```' .claude/commands/initialize.md) % 2 ))
 if [[ "$fence_parity" -ne 0 ]]; then
-  echo "ERROR: unbalanced ``` fences in initialize.md. Rolling back."
+  echo 'ERROR: unbalanced triple-backtick fences in initialize.md. Rolling back.'
   git checkout HEAD -- .claude/commands/initialize.md
   rm -f .claude/commands/safe_to_close.md
   exit 1
