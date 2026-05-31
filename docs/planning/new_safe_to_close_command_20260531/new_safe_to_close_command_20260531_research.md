@@ -62,8 +62,37 @@ Nine commands already exist in `.claude/commands/`: `debug.md`, `finalize.md`, `
 - docs/docs_overall/managing_claude_settings.md
 - docs/docs_overall/instructions_for_updating.md
 
+### Postmortem Docs Mined (R2D forensic round)
+- docs/planning/smoke_test_and_nightly_e2e_failing_20260523/ — primary 62-day prod drift postmortem; 73-migration backlog blocked by single non-idempotent `ADD CONSTRAINT` in `20260322000003`; Phases 1-8 with 3-iteration plan-review
+- docs/planning/nightly_e2e_still_failing_20260530/ — 5-night Firefox NS_BINDING_ABORTED streak postmortem; introduced `.claude/nightly-red-override.json` schema (the model for our `.claude/safe-to-close-verdict.json`), auto-filed release-health issues, `/mainToProd` nightly-red precheck
+
 ## Code Files Read
 
-- .claude/commands/initialize.md — the file being modified in task 2
-- .claude/commands/finalize.md — pattern source for verification-gate aggregation, checkbox scan (Step 1b.5)
-- .claude/commands/mainToProd.md — pattern source for backport/post-deploy reasoning
+- .claude/commands/initialize.md — the file being modified in task 2 (precise line-by-line edits documented in plan Phase 8)
+- .claude/commands/finalize.md — pattern source for verification-gate aggregation; verbatim source for code-fence-aware checkbox scan (Step 1b.5)
+- .claude/commands/mainToProd.md — pattern source for backport/post-deploy reasoning; release-PR query
+- .claude/hooks/block-push-without-gate.sh (via `git show origin/main:...`) — confirmed `push-gate.json`, `test-pass.json`, `ci-gate.json` schemas + the `(hotfix|fix|docs|chore)/` bypass regex
+
+## Key Round-1 / Round-2 Findings (load-bearing for the plan)
+
+- **Worktree topology** — 15 worktrees total, 7 are placeholder slots (`git_worktree_37_9..15` on `c02f9cfd`); filter via regex on branch name.
+- **`gh pr list` semantics** — `--author @me --state open` returns all worktree-relevant PRs in one call; `isDraft` field exists; PR age via `updatedAt`. 30-day age cutoff distinguishes active from stale.
+- **Gate JSON schemas (verified):**
+  - `push-gate.json`: `{commit, skill, timestamp}` — commit must match HEAD exactly
+  - `test-pass.json`: `{commit, tests[], passed_at, schema_version}` — tests array ≥6 required
+  - `ci-gate.json`: `{branch, status: open|closed|unknown|pending, last_observed_sha, schema_version}` — explicit color map needed (R2A #5)
+- **Planning-doc resolution** — `grep -Frl "\"branch\": \"$BRANCH\"" docs/planning/*/_status.json | sort -V | tail -1` is more reliable than the /finalize three-path lookup; falls back to it only on zero matches.
+- **Template-placeholder checkboxes** — `_planning.md` template contains `- [ ] [Actionable item ...]` literal-bracket placeholders; must filter `^- \[ \] \[.*\]$` from unchecked count (R2A #9).
+- **Migration drift check** — `git diff --name-only origin/production..origin/main -- 'supabase/migrations/*.sql'` is correct (file-presence, not schema-aware; documented as known limitation). Verified empty on this fresh-off-main branch.
+- **Release cadence** — environments.md documents 2-week cadence as the rule; observed actual cadence in May 2026 is median 2 days, mean 5.1 days, max 17 days. RED threshold calibrated to observed max (17 days), not documented (14 days).
+- **Post-merge verification banner** — referenced in environments.md but NOT actually implemented in `/finalize` or `/mainToProd`. `/safe_to_close` does not depend on it; writes its own state file (`.claude/safe-to-close-verdict.json`) modeled on the existing `.claude/nightly-red-override.json` schema.
+- **Slash-command auto-discovery** — no `.claude/settings.json` change needed; commands are picked up from `.claude/commands/*.md` automatically (R1D §5).
+- **Transcript files** — persisted at `~/.claude/projects/<project>/*.jsonl` but the harness does NOT expose them. The doc-update step in Phase 7 derives "discussions" from git log + planning-doc "Review & Discussion" + one AskUserQuestion, not from transcripts.
+- **Hotfix carve-out** — `(hotfix|fix|docs|chore)/` branches bypass the push gate (per `block-push-without-gate.sh`), but hotfixes still go through main before production. No need for an inverse `git log production ^main` check.
+
+## Known Limitations (Documented Inline in the Command)
+
+- File-presence migration check (not schema-aware) — false positives possible on add-then-delete; tradeoff: prefers safety over precision.
+- Reused branch names — when multiple `_status.json` files reference the same branch, picks the most recently created folder via `sort -V | tail -1`.
+- Transcript-based discussion capture is impossible (harness limitation) — Phase 7 uses git log + plan section + one user prompt instead.
+- /safe_to_close does not gate on Claude Code presence — runs as plain bash + gh + git so users on other harnesses can invoke the same checks.
