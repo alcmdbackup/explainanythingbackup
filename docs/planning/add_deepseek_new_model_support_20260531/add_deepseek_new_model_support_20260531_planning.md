@@ -142,7 +142,7 @@ Adding a 5th optional arg `cachedPromptTokens = 0` is backward-compatible (all s
   - backward-compat: omitting the 5th arg bills all prompt tokens at `inputPer1M`.
   - fallback: a model without `cachedInputPer1M` (e.g. `gpt-4o`) passed `cachedPromptTokens>0` still bills all input at full rate.
   - guard: negative / non-finite `cachedPromptTokens` throws (B021 extension).
-  - `LLM_PRICING['deepseek-v4-pro'].cachedInputPer1M === 0.0145`, flash `=== 0.0028`.
+  - `LLM_PRICING['deepseek-v4-pro'].cachedInputPer1M === 0.003625`, flash `=== 0.0028`.
   - invariant (cheap, recommended): for every model with `cachedInputPer1M` set, assert `cachedInputPer1M <= inputPer1M` (sanity given the 120× gap motivating the feature).
 - [ ] `src/config/modelRegistry.test.ts` — `getModelOptions()` "includes new models" test: add `deepseek-v4-pro`/`deepseek-v4-flash`.
 - [ ] `src/lib/schemas/schemas.test.ts` — `allowedLLMModelSchema.parse('deepseek-v4-pro')` / flash succeed.
@@ -192,3 +192,9 @@ Minor fixes folded in: augment existing modelRegistry import (not a new line); f
 Critical gap fixed:
 - **[Testing] Wrong expected value in the cache-aware cost test** — corrected to `0.0020996 → 0.0021` (`toBeCloseTo(0.0021, 6)`); the prior `0.00211` would have failed.
 Minor fixes folded in: corrected Phase 2b usage-shape paths (`core/types.ts:169`, `setup/buildRunContext.ts`, `loop/runIterationLoop.ts`, `setup/generateSeedArticle.ts`) and noted they are pass-through-only (no edit needed for correctness); cited the concrete evolution-gate test mirror (`createEvolutionLLMClient.test.ts:181-231`); added CI full-path note (runs e2e-evolution / integration-evolution).
+
+> NOTE: cost-test expected values in Iteration 1-2 entries above (`0.00211`/`0.0021`) predate the permanent-pricing switch and are superseded — the current expected value under the permanent pro rates is **0.000525** (see Testing section).
+
+### Iteration 4 (Security 5/5, Architecture 4/5, Testing 4/5)
+Critical gap fixed:
+- **[Testing/Architecture] Stale pricing assertion** — after switching to permanent pro pricing, the unit-test assertion `LLM_PRICING['deepseek-v4-pro'].cachedInputPer1M === 0.0145` was left over and would fail; corrected to `0.003625` (matches registry + cost test).
