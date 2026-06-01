@@ -32,8 +32,8 @@ A parent↔child diff already exists but is buried in the **Lineage** tab (colla
 ## Phased Execution Plan
 
 ### Phase 1: Data layer — expose variant_kind + a parent-diff action
-- [ ] Add `variantKind: 'article' | 'paragraph'` to `VariantFullDetail` and map it in `getVariantFullDetailAction` (already pulled via `select('*')`, just unmapped) — needed so the header `VariantParentBadge` can pick the right `noParentLabel` and the Diff tab can choose article-vs-paragraph framing. (`evolution/src/services/variantDetailActions.ts`)
-- [ ] Add `getVariantParentDiffAction(variantId)` (mirrors `getInvocationVariantContextAction`; same `adminAction` + `ActionResult<T>` convention). Returns:
+- [x] Add `variantKind: 'article' | 'paragraph'` to `VariantFullDetail` and map it in `getVariantFullDetailAction` (already pulled via `select('*')`, just unmapped) — needed so the header `VariantParentBadge` can pick the right `noParentLabel` and the Diff tab can choose article-vs-paragraph framing. (`evolution/src/services/variantDetailActions.ts`)
+- [x] Add `getVariantParentDiffAction(variantId)` (mirrors `getInvocationVariantContextAction`; same `adminAction` + `ActionResult<T>` convention). Returns:
   ```ts
   interface VariantParentDiff {
     variantId: string;
@@ -51,33 +51,33 @@ A parent↔child diff already exists but is buried in the **Lineage** tab (colla
   - **slotContext**: if `variant_kind='paragraph'`, read `evolution_prompts.prompt` for `prompt_id` and parse via a new helper `parseSlotParagraphNumber(promptName): number | null` (regex `^\[para\] .*\.P(\d+)$`; validate `N >= 1`). If unparseable/missing → `slotContext: null` (omit the header, don't error).
   - Parentless (empty lineage + no original found, or the variant is itself a seed/original) → `parent: null`.
   - Errors: variant-not-found, parent-deleted, prompt-row-missing all degrade to `parent: null` / `slotContext: null` (never throw); cross-run parent read is fine under the service-role `adminAction` client (RLS bypassed).
-- [ ] Add `parseSlotParagraphNumber(prompt: string | null): number | null` helper to `evolution/src/lib/shared/paragraphLabels.ts` (inverse of `formatSlotTopicName`): `const m = prompt?.match(/^\[para\] .+\.P(\d+)$/); return m ? Math.max(1, parseInt(m[1],10)) : null;` — returns `null` (never throws) on missing/malformed input. Colocated unit test.
-- [ ] Unit test the action — all 6 scenarios: (1) article with parent text, (2) paragraph rewrite via `parent_variant_ids[0]`, (3) paragraph rewrite via prompt_id fallback (empty lineage), (4) parentless seed article, (5) parentless original-slot paragraph, (6) cross-run parent (assert `crossRun=true`). (`evolution/src/services/variantDetailActions.test.ts`)
+- [x] Add `parseSlotParagraphNumber(prompt: string | null): number | null` helper to `evolution/src/lib/shared/paragraphLabels.ts` (inverse of `formatSlotTopicName`): `const m = prompt?.match(/^\[para\] .+\.P(\d+)$/); return m ? Math.max(1, parseInt(m[1],10)) : null;` — returns `null` (never throws) on missing/malformed input. Colocated unit test.
+- [x] Unit test the action — all 6 scenarios: (1) article with parent text, (2) paragraph rewrite via `parent_variant_ids[0]`, (3) paragraph rewrite via prompt_id fallback (empty lineage), (4) parentless seed article, (5) parentless original-slot paragraph, (6) cross-run parent (assert `crossRun=true`). (`evolution/src/services/variantDetailActions.test.ts`)
 
 ### Phase 2: UI — side-by-side diff tab
-- [ ] Add a **new** `SideBySideWordDiff` component (Parent left / Variant right) at `evolution/src/components/evolution/visualizations/SideBySideWordDiff.tsx`, reusing `diffWordsWithSpace` and the existing `TextDiff` status-color tokens + `data-testid` conventions. **Do not** add a mode to `TextDiff` (keeps `InvocationParentBlock` + `VariantLineageSection` consumers unchanged, per Decision 8). Reuse the `previewLength`/expand UX so long article columns stay scrollable. New `data-testid`s (e.g. `sxs-diff`, `sxs-parent`, `sxs-variant`) + colocated unit test.
-- [ ] Add a `VariantParentDiffTab` (tab body): calls `getVariantParentDiffAction` in a `useEffect` (same pattern as `VariantLineageSection`); renders `SideBySideWordDiff` when `parent` present; renders the explicit empty state (`variant_kind='paragraph'` → "Original paragraph — source paragraph, no parent to diff."; else "Seed · no parent") when `parent` is null; shows the "Paragraph N" header when `slotContext` present; shows the cross-run pill when `crossRun` (parentRunId = `parent.runId`).
-- [ ] Wire `{ id: 'diff', label: 'Diff vs parent' }` into the `TABS` array in `VariantDetailContent.tsx`; render `VariantParentDiffTab` for it. (`TABS` is defined before `useTabState`, so `?tab=diff` deep-linking works automatically; no `legacyTabMap` entry needed for a brand-new id.)
-- [ ] In `VariantDetailContent.tsx`, branch the header `VariantParentBadge` `noParentLabel` on `variant.variantKind` ('Original paragraph' for paragraph, else default 'Seed · no parent') — requires `variantKind` from Phase 1.
+- [x] Add a **new** `SideBySideWordDiff` component (Parent left / Variant right) at `evolution/src/components/evolution/visualizations/SideBySideWordDiff.tsx`, reusing `diffWordsWithSpace` and the existing `TextDiff` status-color tokens + `data-testid` conventions. **Do not** add a mode to `TextDiff` (keeps `InvocationParentBlock` + `VariantLineageSection` consumers unchanged, per Decision 8). Reuse the `previewLength`/expand UX so long article columns stay scrollable. New `data-testid`s (e.g. `sxs-diff`, `sxs-parent`, `sxs-variant`) + colocated unit test.
+- [x] Add a `VariantParentDiffTab` (tab body): calls `getVariantParentDiffAction` in a `useEffect` (same pattern as `VariantLineageSection`); renders `SideBySideWordDiff` when `parent` present; renders the explicit empty state (`variant_kind='paragraph'` → "Original paragraph — source paragraph, no parent to diff."; else "Seed · no parent") when `parent` is null; shows the "Paragraph N" header when `slotContext` present; shows the cross-run pill when `crossRun` (parentRunId = `parent.runId`).
+- [x] Wire `{ id: 'diff', label: 'Diff vs parent' }` into the `TABS` array in `VariantDetailContent.tsx`; render `VariantParentDiffTab` for it. (`TABS` is defined before `useTabState`, so `?tab=diff` deep-linking works automatically; no `legacyTabMap` entry needed for a brand-new id.)
+- [x] In `VariantDetailContent.tsx`, branch the header `VariantParentBadge` `noParentLabel` on `variant.variantKind` ('Original paragraph' for paragraph, else default 'Seed · no parent') — requires `variantKind` from Phase 1.
 
 ### Phase 3: Tests + docs
-- [ ] **Patch `createParagraphRecombineFixture`** (`src/__tests__/e2e/helpers/evolution-test-data-factory.ts`): the rewrite insert (~lines 917-930) currently omits `parent_variant_ids` (defaults to `[]`), so it only exercises the legacy fallback. Set `parent_variant_ids: [originalVariantId]` on rewrites to match post-`20260529000001` production AND add an option `legacyEmptyLineage?: boolean` (default false) to also seed the empty-lineage case. The original-slot variant is already parentless by construction, covering the parentless-original-slot scenario (point the detail page at `originalVariantId`).
-- [ ] Update `src/app/admin/evolution/variants/[variantId]/VariantDetailContent.test.tsx`: add a `getByRole('tab', { name: 'Diff vs parent' })` assertion (currently asserts only Content/Metrics/Lineage at lines 70-72), and add `getVariantParentDiffAction: jest.fn().mockResolvedValue({ success: true, data: null })` to the `@evolution/services/variantDetailActions` mock block (lines 13-17). Add `variantKind` to the `mockVariant` fixture. (Note: `VariantDetailContent` receives `variant` as a prop from the server component `page.tsx` — it does NOT call `getVariantFullDetailAction` itself, so no mock for that is needed; only the new `VariantParentDiffTab` fetches via `getVariantParentDiffAction`.)
-- [ ] E2E spec coverage (see Testing).
-- [ ] Update relevant docs (see Documentation Updates).
+- [x] **Patch `createParagraphRecombineFixture`** (`src/__tests__/e2e/helpers/evolution-test-data-factory.ts`): the rewrite insert (~lines 917-930) currently omits `parent_variant_ids` (defaults to `[]`), so it only exercises the legacy fallback. Set `parent_variant_ids: [originalVariantId]` on rewrites to match post-`20260529000001` production AND add an option `legacyEmptyLineage?: boolean` (default false) to also seed the empty-lineage case. The original-slot variant is already parentless by construction, covering the parentless-original-slot scenario (point the detail page at `originalVariantId`).
+- [x] Update `src/app/admin/evolution/variants/[variantId]/VariantDetailContent.test.tsx`: add a `getByRole('tab', { name: 'Diff vs parent' })` assertion (currently asserts only Content/Metrics/Lineage at lines 70-72), and add `getVariantParentDiffAction: jest.fn().mockResolvedValue({ success: true, data: null })` to the `@evolution/services/variantDetailActions` mock block (lines 13-17). Add `variantKind` to the `mockVariant` fixture. (Note: `VariantDetailContent` receives `variant` as a prop from the server component `page.tsx` — it does NOT call `getVariantFullDetailAction` itself, so no mock for that is needed; only the new `VariantParentDiffTab` fetches via `getVariantParentDiffAction`.)
+- [x] E2E spec coverage (see Testing).
+- [x] Update relevant docs (see Documentation Updates).
 
 ## Testing
 
 ### Unit Tests
-- [ ] `evolution/src/services/variantDetailActions.test.ts` — `getVariantParentDiffAction` across all 6 scenarios (article, paragraph-via-parent, paragraph-via-prompt-fallback, parentless seed, parentless original-slot, cross-run); `getVariantFullDetailAction` now returns `variantKind`.
-- [ ] `evolution/src/components/evolution/visualizations/SideBySideWordDiff.test.tsx` (or `TextDiff.test.tsx`) — two-column render, left=removed/right=added, unchanged in both, empty-input handling.
-- [ ] `src/app/admin/evolution/variants/[variantId]/VariantDetailContent.test.tsx` — new tab present; empty-state rendered when parent null.
+- [x] `evolution/src/services/variantDetailActions.test.ts` — `getVariantParentDiffAction` across all 6 scenarios (article, paragraph-via-parent, paragraph-via-prompt-fallback, parentless seed, parentless original-slot, cross-run); `getVariantFullDetailAction` now returns `variantKind`.
+- [x] `evolution/src/components/evolution/visualizations/SideBySideWordDiff.test.tsx` (or `TextDiff.test.tsx`) — two-column render, left=removed/right=added, unchanged in both, empty-input handling.
+- [x] `src/app/admin/evolution/variants/[variantId]/VariantDetailContent.test.tsx` — new tab present; empty-state rendered when parent null.
 
 ### Integration Tests
 - [ ] (Optional) real-DB test seeding an article variant + parent and a paragraph rewrite + original-slot, asserting `getVariantParentDiffAction` returns both texts and the prompt_id fallback works for empty lineage.
 
 ### E2E Tests
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-variant-diff-tab.spec.ts` (new) — tagged **`@evolution`** (admin/evolution page, not user-facing → not in the `@critical` PR gate per testing_overview.md). `test.describe.configure({ mode: 'serial' })` (shared `beforeAll` fixtures). Using `createMultiHopFixture` + `createParagraphRecombineFixture`:
+- [x] `src/__tests__/e2e/specs/09-admin/admin-evolution-variant-diff-tab.spec.ts` (new) — tagged **`@evolution`** (admin/evolution page, not user-facing → not in the `@critical` PR gate per testing_overview.md). `test.describe.configure({ mode: 'serial' })` (shared `beforeAll` fixtures). Using `createMultiHopFixture` + `createParagraphRecombineFixture`:
   - Article variant → deep-link `?tab=diff` → side-by-side diff vs parent visible (target `sxs-diff`/`sxs-parent`/`sxs-variant`), Parent left / Variant right.
   - Paragraph rewrite via `parent_variant_ids[0]` (reach via the variants list **Kind filter = paragraph**; call the page's `resetFilters()` POM helper after `goto` then set Kind=paragraph, with a hydration wait on a data-dependent row before asserting — testing_overview.md Rules 1 + 18) → isolated paragraph diff + "Paragraph N" header. The new `SideBySideWordDiff` uses its OWN `data-testid`s (`sxs-diff`/`sxs-parent`/`sxs-variant`); `TextDiff`'s testids are untouched.
   - Paragraph rewrite seeded with `legacyEmptyLineage: true` → diff still renders (fallback path).
@@ -93,15 +93,15 @@ A parent↔child diff already exists but is buried in the **Lineage** tab (colla
 - [ ] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-variant-diff-tab.spec.ts` against the local server via `ensure-server.sh`.
 
 ### B) Automated Tests
-- [ ] `npm run test:unit -- variantDetailActions`
-- [ ] `npm run test:unit -- VariantDetailContent`
-- [ ] `npm run test:unit -- SideBySideWordDiff` (or TextDiff)
+- [x] `npm run test:unit -- variantDetailActions`
+- [x] `npm run test:unit -- VariantDetailContent`
+- [x] `npm run test:unit -- SideBySideWordDiff` (or TextDiff)
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `evolution/docs/variant_lineage.md` — document the new "Diff vs parent" tab + paragraph-variant handling + the prompt_id fallback for empty lineage.
-- [ ] `evolution/docs/visualization.md` — update the `/admin/evolution/variants/[variantId]` detail-page description (new tab; side-by-side word diff; `variant_kind` now exposed).
-- [ ] `evolution/docs/paragraph_recombine.md` — note how a paragraph variant's "diff vs parent" surfaces the isolated original paragraph on the variant detail page.
+- [x] `evolution/docs/variant_lineage.md` — document the new "Diff vs parent" tab + paragraph-variant handling + the prompt_id fallback for empty lineage.
+- [x] `evolution/docs/visualization.md` — update the `/admin/evolution/variants/[variantId]` detail-page description (new tab; side-by-side word diff; `variant_kind` now exposed).
+- [x] `evolution/docs/paragraph_recombine.md` — note how a paragraph variant's "diff vs parent" surfaces the isolated original paragraph on the variant detail page.
 - [ ] `evolution/docs/arena.md` — only if leaderboard/links change (not expected).
 - [ ] `evolution/docs/data_model.md` — only if any schema change is needed (none expected — read-only feature).
 
