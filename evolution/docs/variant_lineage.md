@@ -70,6 +70,17 @@ Server action wrapper: `getVariantFullChainAction(variantId)` in `evolution/src/
 
 ---
 
+## Diff vs parent tab
+
+`evolution/src/components/evolution/variant/VariantParentDiffTab.tsx` (enable_side_by_side_variant_comparisons_vs_parent_20260531).
+
+A dedicated, always-present **"Diff vs parent"** tab on the variant detail page surfaces the parent↔child comparison simply (the Lineage tab's per-hop diffs + pair-picker remain the power-user path). It calls `getVariantParentDiffAction(variantId)` and renders a **side-by-side word diff** via `SideBySideWordDiff` (Parent left / This-variant right; left column highlights removed words, right column highlights added — one symmetric `diffWordsWithSpace` pass shows both A→B and B→A).
+
+- **Article variants**: whole-article diff against the primary parent (`parent_variant_ids[0]`).
+- **Paragraph variants** (`variant_kind='paragraph'`): the primary parent is the slot's **original-paragraph variant**, whose `variant_content` IS the isolated parent paragraph — so the diff is inherently paragraph-vs-paragraph (the relevant paragraph in the parent is already isolated). A "Paragraph N" header is parsed from the slot topic name via `parseSlotParagraphNumber` (`paragraphLabels.ts`). The parent-article link is intentionally omitted (slot variants have NULL `agent_invocation_id` and the 8-char topic prefix is non-unique).
+- **Legacy slot rewrites** with empty `parent_variant_ids` (pre-migration `20260529000001`) recover the original via the fallback query `prompt_id + agent_name='paragraph_original' + variant_kind='paragraph'` (`.order('created_at').limit(1)` — no DB uniqueness).
+- **Parentless** variants (seed article / original-slot paragraph) render an explicit empty state; **cross-run** parents get an "other run" pill. `getVariantFullDetailAction` now also exposes `variantKind` so the header `VariantParentBadge` label switches to "Original paragraph".
+
 ## Lineage tab UI
 
 `evolution/src/components/evolution/variant/VariantLineageSection.tsx`.
@@ -172,8 +183,11 @@ Lazy recomputation happens on the next read (`recomputeMetrics.ts`). Consequence
 | `supabase/migrations/20260418000002_variants_get_full_chain_rpc.sql` | RPC with cycle protection |
 | `supabase/migrations/20260418000003_variants_add_agent_invocation_id.sql` | Variant → invocation FK |
 | `supabase/migrations/20260418000004_stale_trigger_elo_attr_delta.sql` | Attribution stale cascade |
-| `evolution/src/services/variantDetailActions.ts` | `getVariantFullChainAction`, `VariantChainNode` |
+| `evolution/src/services/variantDetailActions.ts` | `getVariantFullChainAction`, `VariantChainNode`, `getVariantParentDiffAction`, `VariantParentDiff` |
 | `evolution/src/components/evolution/variant/VariantLineageSection.tsx` | Lineage tab UI |
+| `evolution/src/components/evolution/variant/VariantParentDiffTab.tsx` | Diff vs parent tab UI |
+| `evolution/src/components/evolution/visualizations/SideBySideWordDiff.tsx` | Side-by-side word diff renderer |
+| `evolution/src/lib/shared/paragraphLabels.ts` | `parseSlotParagraphNumber` (Paragraph-N header) |
 | `evolution/src/components/evolution/variant/VariantParentBadge.tsx` | Shared badge |
 | `evolution/src/lib/shared/ratingDelta.ts` | `bootstrapDeltaCI` |
 | `evolution/src/lib/metrics/experimentMetrics.ts` | Attribution aggregation |

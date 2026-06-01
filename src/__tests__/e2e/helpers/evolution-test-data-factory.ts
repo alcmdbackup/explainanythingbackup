@@ -784,6 +784,10 @@ export interface CreateParagraphRecombineFixtureOptions {
   forceFormatRejection?: boolean;
   /** Force one slot to self-abort via slot_budget (red badge test). */
   forceSlotAbort?: boolean;
+  /** When true, persist slot rewrites with EMPTY parent_variant_ids to reproduce the
+   *  pre-migration-20260529000001 legacy lineage (exercises the prompt_id fallback in
+   *  getVariantParentDiffAction). Default false → rewrites carry [originalSlotVariantId]. */
+  legacyEmptyLineage?: boolean;
 }
 
 export interface ParagraphRecombineFixture {
@@ -792,7 +796,11 @@ export interface ParagraphRecombineFixture {
   promptId: string;
   parentVariantId: string;
   slotTopicIds: string[];
+  /** Rewrite (paragraph_rewrite) variant ids, flattened across slots. */
   slotVariantIds: string[];
+  /** Original-paragraph (paragraph_original) variant ids, one per slot. Parentless by
+   *  construction — used to test the "Original paragraph" empty state. */
+  originalSlotVariantIds: string[];
   cleanup: () => Promise<void>;
 }
 
@@ -859,6 +867,7 @@ export async function createParagraphRecombineFixture(
   // 3. Per-slot: paragraph topic + original variant + N rewrite variants + comparisons.
   const slotTopicIds: string[] = [];
   const slotVariantIds: string[] = [];
+  const originalSlotVariantIds: string[] = [];
   const slots: Record<string, unknown>[] = [];
   for (let slotIdx = 0; slotIdx < slotCount; slotIdx++) {
     const topicId = randomUUID();
@@ -890,6 +899,7 @@ export async function createParagraphRecombineFixture(
       variant_kind: 'paragraph',
       synced_to_arena: true,
     });
+    originalSlotVariantIds.push(originalVariantId);
 
     // Self-abort branch (no rewrites, discardReason set).
     if (options.forceSlotAbort && slotIdx === slotCount - 1) {
@@ -926,6 +936,9 @@ export async function createParagraphRecombineFixture(
         agent_name: 'paragraph_rewrite',
         generation_method: 'llm',
         variant_kind: 'paragraph',
+        // Production sets parent_variant_ids=[originalSlotVariantId] on slot rewrites since
+        // migration 20260529000001. legacyEmptyLineage reproduces the pre-migration empty case.
+        parent_variant_ids: options.legacyEmptyLineage ? [] : [originalVariantId],
         synced_to_arena: true,
       });
       rewriteVariantIds.push(rId);
@@ -1029,6 +1042,7 @@ export async function createParagraphRecombineFixture(
     parentVariantId,
     slotTopicIds,
     slotVariantIds,
+    originalSlotVariantIds,
     cleanup: async () => {
       // trackEvolutionId queues everything for global teardown; the explicit fallback
       // here mirrors createMultiHopFixture's style for tests that want immediate cleanup.

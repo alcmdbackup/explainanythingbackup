@@ -190,6 +190,10 @@ The run-level metrics that paragraph_recombine joins via these fields:
 | `evolution/src/lib/pipeline/infra/estimateCosts.ts` | `estimateParagraphRecombineCost` |
 | `evolution/src/lib/pipeline/loop/runIterationLoop.ts` | Dispatch branch + kill switch (line ~526) |
 
+## Variant detail "Diff vs parent"
+
+A paragraph slot-rewrite variant's primary parent (`parent_variant_ids[0]`) is the slot's original-paragraph variant, whose `variant_content` is the isolated parent paragraph. The variant detail page's **Diff vs parent** tab therefore shows a paragraph-vs-paragraph side-by-side diff out of the box, with a "Paragraph N" header parsed from the slot topic name. Legacy rewrites persisted with empty lineage (pre-migration `20260529000001`) are handled via a `prompt_id + agent_name='paragraph_original'` fallback. See [Variant Lineage → Diff vs parent tab](./variant_lineage.md#diff-vs-parent-tab).
+
 ## Cross-references
 
 - [Architecture](./architecture.md) — pipeline structure
