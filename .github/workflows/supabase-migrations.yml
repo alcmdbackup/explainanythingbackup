@@ -219,19 +219,22 @@ jobs:
       - name: Verify migration status + drift gate
         run: |
           supabase migration list
-          # Drift gate: after a successful push, a dry-run must find NOTHING pending.
-          # If a local migration is still unapplied here, this environment has drifted
-          # from the repo — fail loud (the 62-day-incident signal). Conservative: only
-          # fails when the dry-run still names a migration file, so a healthy deploy
-          # (nothing pending) is never false-blocked. Runs post-push, so it is a signal,
-          # not a rollback.
+          # Drift gate: after a successful push, a dry-run must report
+          # "Remote database is up to date." — anything else means drift.
+          # Original implementation grepped pending lines via [0-9]{14}_[a-z],
+          # but supabase CLI also emits warnings like
+          # "Skipping migration 20260216000001_revert_continuation_pending.sql.rollback..."
+          # on push to main, which the regex matched as a false positive (PR #1149
+          # + #1151 merges both reported drift while staging was actually up to date).
+          # Positive-marker check avoids the false positive.
           PENDING=$(supabase db push --include-all --dry-run 2>&1 || true)
           echo "$PENDING"
-          if echo "$PENDING" | grep -qE '[0-9]{14}_[a-z]'; then
-            echo "::error::Migrations still pending after push — this environment drifted from the repo. Investigate before relying on it."
+          if echo "$PENDING" | grep -qF "Remote database is up to date"; then
+            echo "Drift gate OK: no migrations pending after push."
+          else
+            echo "::error::Drift gate: supabase CLI did not report 'Remote database is up to date' after push — this environment may have drifted from the repo. Investigate before relying on it."
             exit 1
           fi
-          echo "Drift gate OK: no migrations pending after push."
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
@@ -370,19 +373,18 @@ jobs:
       - name: Verify migration status + drift gate
         run: |
           supabase migration list
-          # Drift gate: after a successful push, a dry-run must find NOTHING pending.
-          # If a local migration is still unapplied here, this environment has drifted
-          # from the repo — fail loud (the 62-day-incident signal). Conservative: only
-          # fails when the dry-run still names a migration file, so a healthy deploy
-          # (nothing pending) is never false-blocked. Runs post-push, so it is a signal,
-          # not a rollback.
+          # Drift gate: after a successful push, a dry-run must report
+          # "Remote database is up to date." — anything else means drift.
+          # See deploy-staging step for the false-positive history that
+          # motivated the positive-marker check.
           PENDING=$(supabase db push --include-all --dry-run 2>&1 || true)
           echo "$PENDING"
-          if echo "$PENDING" | grep -qE '[0-9]{14}_[a-z]'; then
-            echo "::error::Migrations still pending after push — this environment drifted from the repo. Investigate before relying on it."
+          if echo "$PENDING" | grep -qF "Remote database is up to date"; then
+            echo "Drift gate OK: no migrations pending after push."
+          else
+            echo "::error::Drift gate: supabase CLI did not report 'Remote database is up to date' after push — this environment may have drifted from the repo. Investigate before relying on it."
             exit 1
           fi
-          echo "Drift gate OK: no migrations pending after push."
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
