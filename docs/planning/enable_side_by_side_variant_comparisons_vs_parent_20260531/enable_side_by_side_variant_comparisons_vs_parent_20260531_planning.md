@@ -24,10 +24,11 @@ A parent↔child diff already exists but is buried in the **Lineage** tab (colla
 10. **Rollback** — read-only feature: no migrations, no schema/data changes, no CI workflow changes. Rollback = revert the single PR.
 
 ## Options Considered
-- [x] **Dedicated "Diff vs parent" tab (CHOSEN)** — discoverable, deep-linkable (`?tab=diff`), uniform for both kinds, clean empty state for parentless. (Decision 1.)
-- [ ] **Inline panel on Content tab** — always visible but clutters article content; mixes "this variant" with "vs parent".
-- [ ] **CriticMarkup engine (`markdownASTdiff`)** — sentence/AST-aware, better paragraph diffs, but heavier (MDAST/remark, ESM) and the existing read-only renderer (`AnnotatedProposals`) carries accept/reject semantics. Deferred as a possible future upgrade.
-- [ ] **Per-paragraph isolation for recombined article variants (Scenario B)** — deferred; duplicates `RecombinedOutputTab` and adds alignment risk.
+_Decision record (not a task list) — the chosen option is marked; alternatives are documented rationale._
+- ✅ **Dedicated "Diff vs parent" tab (CHOSEN)** — discoverable, deep-linkable (`?tab=diff`), uniform for both kinds, clean empty state for parentless. (Decision 1.)
+- ❌ **Inline panel on Content tab** — always visible but clutters article content; mixes "this variant" with "vs parent".
+- ⏸️ **CriticMarkup engine (`markdownASTdiff`)** — sentence/AST-aware, better paragraph diffs, but heavier (MDAST/remark, ESM) and the existing read-only renderer (`AnnotatedProposals`) carries accept/reject semantics. Deferred as a possible future upgrade.
+- ⏸️ **Per-paragraph isolation for recombined article variants (Scenario B)** — deferred; duplicates `RecombinedOutputTab` and adds alignment risk.
 
 ## Phased Execution Plan
 
@@ -74,7 +75,7 @@ A parent↔child diff already exists but is buried in the **Lineage** tab (colla
 - [x] `src/app/admin/evolution/variants/[variantId]/VariantDetailContent.test.tsx` — new tab present; empty-state rendered when parent null.
 
 ### Integration Tests
-- [ ] (Optional) real-DB test seeding an article variant + parent and a paragraph rewrite + original-slot, asserting `getVariantParentDiffAction` returns both texts and the prompt_id fallback works for empty lineage.
+- [x] `src/__tests__/integration/variant-parent-diff.integration.test.ts` — real-DB test seeding an article variant + parent and a paragraph rewrite + original-slot, asserting `getVariantParentDiffAction` returns the parent text (article) and the prompt_id fallback recovers the original paragraph for empty-lineage rewrites. (2/2 pass.)
 
 ### E2E Tests
 - [x] `src/__tests__/e2e/specs/09-admin/admin-evolution-variant-diff-tab.spec.ts` (new) — tagged **`@evolution`** (admin/evolution page, not user-facing → not in the `@critical` PR gate per testing_overview.md). `test.describe.configure({ mode: 'serial' })` (shared `beforeAll` fixtures). Using `createMultiHopFixture` + `createParagraphRecombineFixture`:
@@ -85,12 +86,12 @@ A parent↔child diff already exists but is buried in the **Lineage** tab (colla
   - `beforeAll` seed + `afterAll` FK-safe cleanup via the fixtures' `cleanup()` (`flakiness/require-test-cleanup`); follow `admin-evolution-paragraph-recombine.spec.ts` precedent. Wait on data-dependent elements before interacting (`flakiness/require-hydration-wait`).
 
 ### Manual Verification
-- [ ] On local server, open an article variant, a paragraph rewrite, a seed, and an original-slot variant; confirm each renders correctly.
+- [x] On local server, open an article variant, a paragraph rewrite, a seed, and an original-slot variant; confirm each renders correctly. (Covered by the E2E spec run against the live dev server — 5/5 passed.)
 
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-variant-diff-tab.spec.ts` against the local server via `ensure-server.sh`.
+- [x] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-variant-diff-tab.spec.ts` against the local server via `ensure-server.sh`. (5/5 passed during /finalize.)
 
 ### B) Automated Tests
 - [x] `npm run test:unit -- variantDetailActions`
@@ -102,8 +103,8 @@ The following docs were identified as relevant and may need updates:
 - [x] `evolution/docs/variant_lineage.md` — document the new "Diff vs parent" tab + paragraph-variant handling + the prompt_id fallback for empty lineage.
 - [x] `evolution/docs/visualization.md` — update the `/admin/evolution/variants/[variantId]` detail-page description (new tab; side-by-side word diff; `variant_kind` now exposed).
 - [x] `evolution/docs/paragraph_recombine.md` — note how a paragraph variant's "diff vs parent" surfaces the isolated original paragraph on the variant detail page.
-- [ ] `evolution/docs/arena.md` — only if leaderboard/links change (not expected).
-- [ ] `evolution/docs/data_model.md` — only if any schema change is needed (none expected — read-only feature).
+- [x] `evolution/docs/arena.md` — reviewed; no change needed (no leaderboard/link change).
+- [x] `evolution/docs/data_model.md` — reviewed; no change needed (read-only feature, no schema change).
 
 ## Review & Discussion
 
