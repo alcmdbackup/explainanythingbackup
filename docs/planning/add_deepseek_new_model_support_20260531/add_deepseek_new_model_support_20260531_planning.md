@@ -25,6 +25,19 @@ The deepseek-v4-pro 75% promo ends **2026-05-31 15:59 UTC (today)** → use **st
 
 > ⚠️ **MUST-VERIFY before merge:** exact prices and the `usage` field name `prompt_cache_hit_tokens` are from docs/research and not yet confirmed against a live DeepSeek response (`usage` is typed `any`, so a wrong field silently degrades to cache-miss billing — conservative, not a crash). Confirm with one real API call.
 
+## Cost Estimation & Price Drift
+"Cost" is two different numbers and cache variability hits them differently:
+
+| Ledger | When | Source | Cache-hit handling |
+|---|---|---|---|
+| **Actual cost** | after the call | real `prompt_cache_hit_tokens` from `usage` | exact (hit vs miss per real split) |
+| **Estimate / reservation** | before the call | `calculateLLMCost(model, 1000, 4096, 0)` (llms.ts:827) + evolution `costTracker.reserve()` | assumes 0% hits → full cache-miss rate (conservative) |
+
+Design principles (the budget gate runs **reserve → spend → reconcile**, so an estimate is only a temporary bound; `recordSpend`/`reconcileAfterCall` trues up to the cache-aware actual and releases the margin — over-estimation never inflates *reported* spend, only the reserved high-water mark / admission):
+1. **Realized cache-hit ratio varies call-to-call** (cold cache after TTL, reuse patterns, concurrency) → affects only the estimate; we deliberately do NOT predict it (assume 0% = worst case). Actuals read the true split, so reporting/billing is unaffected.
+2. **DeepSeek's published cache *prices* drift** (the pro promo expiring 2026-05-31; the April cache-hit→1/10 adjustment) → this hits BOTH ledgers because prices are hardcoded constants; the cache-**hit** rate is the volatile field. Mitigations: prices stay in the registry (single source); stamp each DeepSeek entry with a `// pricing as of YYYY-MM-DD` comment so reviewers know when to re-verify; treat large jumps (e.g. a 4× promo expiry) as the thing that matters — small drift is noise vs. DeepSeek's actual invoice.
+3. **Keep reservations conservative (cache-miss / 0% hits)** — simple, safe, self-correcting via reconcile. Do not build hit-ratio prediction speculatively. ONLY if conservative reservations cause a real problem (e.g. premature per-slot self-abort on cache-heavy runs) introduce an assumed/EWMA-observed hit-ratio knob for the **reservation path only**, per call-source, with reconcile as backstop. Out of scope for this PR.
+
 ## Problem
 DeepSeek is already wired (`getDeepSeekClient` → `https://api.deepseek.com`), but only `deepseek-chat` is registered, and our cost model uses a single `inputPer1M` that ignores caching. The cache-hit rate is 50× (flash) / 120× (pro) cheaper than cache-miss, and the evolution pipeline reuses large prompts, so a single rate misprices every call. There are **two independent cost paths**: (1) `src/lib/services/llms.ts:622` → the `llmCallTracking` row; (2) `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts:209/217` → `costTracker.recordSpend()`, the **evolution budget gate**. Both must become cache-aware or the gate keeps over-reserving on cache-heavy runs (premature budget exhaustion). Also, DeepSeek defaults thinking ON, so a non-reasoning entry alone still incurs CoT cost unless `llms.ts` sends `thinking:{type:'disabled'}`.
 
@@ -77,7 +90,7 @@ Adding a 5th optional arg `cachedPromptTokens = 0` is backward-compatible (all s
 - [ ] Confirm `npm run typecheck` passes after threading (backstop for any missed usage-shape declaration).
 
 ### Phase 3: Register the two models
-- [ ] `src/config/modelRegistry.ts` — add after the existing `deepseek-chat` entry (~line 120):
+- [ ] `src/config/modelRegistry.ts` — add after the existing `deepseek-chat` entry (~line 120), prefixed with a `// DeepSeek V4 — pricing as of 2026-05-31 (cache-hit rate is volatile; re-verify)` comment:
   ```typescript
   'deepseek-v4-pro': {
     id: 'deepseek-v4-pro', displayName: 'DeepSeek V4 Pro', provider: 'deepseek',
