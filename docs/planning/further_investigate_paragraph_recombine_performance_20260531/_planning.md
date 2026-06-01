@@ -74,7 +74,7 @@ Any difference between two strategy configs must produce a different `config_has
 - [ ] **D1 — Canonicalization approach.** Replace the whitelist with a generic deep-canonicalizer that hashes the ENTIRE validated `StrategyConfig`: recursively drop `undefined`, sort object keys, preserve `iterationConfigs` array ORDER (execution order is semantic), sort only known order-insensitive arrays (`criteriaIds`). One function, schema-driven — new fields auto-participate.
 - [ ] **D2 — Hash versioning.** Prefix new hashes with a version tag (e.g. `v2:<sha12>`). Prevents a v1 hash ever colliding with a v2 hash, and makes the cutover auditable. Existing rows keep their bare (v1) hashes untouched.
 - [ ] **D3 — Backfill: none.** Do NOT recompute hashes for existing rows. Old rows stay as historical records under v1; new upserts compute v2. (Consequence: a re-run of a pre-existing config creates a new v2 row instead of matching the old v1 row — acceptable and expected. Document it.)
-- [ ] **D4 — Normalization to avoid FALSE splits.** Decide canonical handling so semantically-identical configs still dedupe: `undefined` vs omitted = same; numeric `40` vs `40.0` = same; drop deprecated mirror fields (`budgetBufferAfterParallel/Sequential`) or treat consistently. Goal: split on real differences, not serialization noise.
+- [x] **D4 — Normalization to avoid FALSE splits (DECIDED: normalize numbers).** Canonical handling so semantically-identical configs still dedupe: `undefined` vs omitted = same (drop undefined); **numbers normalized via `Number(x)` so `40` == `40.0` == `4e1` produce one token** (JSON.stringify already renders these identically, but normalize explicitly at canonicalize time to be safe against string-typed numerics from the DB jsonb); drop the deprecated mirror fields (`budgetBufferAfterParallel/Sequential`) before hashing. Goal: split on real differences, not serialization noise. Unit tests must cover `40` vs `40.0` → same hash.
 - [ ] **D5 — Redundant index cleanup.** Drop one of the two identical unique indexes on `config_hash` (`uq_strategies_config_hash`, `uq_strategy_config_hash`) — migration, low risk.
 
 ### Phased Execution Plan
@@ -118,7 +118,7 @@ Any difference between two strategy configs must produce a different `config_has
 - [ ] **R1 — Caller relies on merge?** Confirm no flow depends on two distinct configs deduping (e.g. wizard "find identical existing strategy"). Initial scan found none; verify.
 - [ ] **R2 — Hash length/storage.** `config_hash` currently 12 hex chars; the `v2:` prefix lengthens it — confirm the column has no length constraint that breaks (it's `text`/no limit in practice; verify).
 - [ ] **R3 — Performance metrics keyed on hash.** Strategy leaderboard / arena aggregates group by strategy; new-row-per-config means an old config's history won't carry to its v2 twin. Acceptable for going-forward specificity; note it.
-- [ ] **R4 — Scope of "every field".** Confirm intent includes top-level (`budgetUsd`, `generationTemperature`, `maxComparisonsPerVariant`) AND all per-iteration knobs. Plan assumes YES (full config).
+- [x] **R4 — Scope of "every field" (CONFIRMED YES).** Hash covers the FULL config: all top-level fields (`budgetUsd`, `generationTemperature`, `maxComparisonsPerVariant`, `editingModel`, `approverModel`, budget floors, …) AND all per-iteration knobs. No field exempt except the deprecated mirror fields dropped per D4.
 
 ## Review & Discussion
 [Populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration]
