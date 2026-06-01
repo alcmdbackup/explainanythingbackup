@@ -125,4 +125,23 @@ Any difference between two strategy configs must produce a different `config_has
 **Arena anomaly: `winner='b'` never recorded + 41–44% draw rate.** Across all 8 paragraph_recombine runs analyzed (both the 3-rewrite cohort, 786 comparisons, and the 6-rewrite cohort, 356 comparisons), `evolution_arena_comparisons.winner` is **never** literally `'b'`, and ~41–44% of all comparisons are draws (confidence 0.5). Part of this is a benign storage convention (decisive winners normalized to `entry_a`), but the combination — challenger-position apparently never winning + a very high draw rate under a small judge model (`gemini-2.5-flash-lite` / `qwen-2.5-7b-instruct`) — points to a possible positional bias in the ranking code OR a judge-capability/rubric limit. This is the single biggest threat to arena signal quality (it underlies the "ELO drops are mostly noise" finding) but is **out of scope** for Task A (hashing) and the original 5-run performance question. **Action:** spin up a dedicated investigation project (suggested name `investigate_arena_draw_rate_and_positional_bias`) — verify whether the ranking code can ever emit a `b`/challenger win, and whether the draw rate falls with a stronger judge model or sharpened rubric.
 
 ## Review & Discussion
-[Populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration]
+
+### /plan-review — CONSENSUS REACHED (5/5/5) after 2 iterations
+
+**Iteration 1 — scores 2/2/2 (Security / Architecture / Testing).** Critical gaps found (all code-verified):
+- D5 index claim wrong verb/target — only one index is migration-defined; the second (`uq_strategy_config_hash`) is **DB drift** confirmed on live staging. Risk of dropping the `onConflict` target constraint.
+- D1 naive "strip undefined" would REGRESS existing default-value folding (`includesMirrorApprover`→true, `maxDispatches`→1, `perInvocationCapUsd`→0.05) → false splits.
+- R2 premise wrong: `config_hash` IS bounded — `z.string().min(1).max(100)` at `schemas.ts:50` (not "unconstrained text"). v2 prefix + clone suffix ≈ 58 chars < 100, safe.
+- `v2:` prefix breaks: name derivation `hash.slice(0,6)` (L161), format asserts (`/^[0-9a-f]{12}$/`, len===12), and two purpose-built snapshot-regression GUARD tests.
+- D4 `Math.round(x/0.001)*0.001` reintroduces a binary-float tail → switch to `Number(x).toFixed(3)` string token.
+
+**Fixes applied (commit `4985bc99`):** D1a runtime-default folding + null/empty-array guards; D4 → `toFixed(3)`; D2 patches name-slice + clone consumers; D5 → drop the drift index only, keep the onConflict target, marked optional; A2 expanded with format-assert rewrites, snapshot-guard re-baseline, inverted exclusion test; R2/R3/R5/R6 resolved with code evidence.
+
+**Iteration 2 — scores 5/5/5.** All iter-1 critical gaps verified resolved against code. Zero remaining critical gaps; only minor hardening nits (import default constants in tests, document Phase A3 has no rollback, add a dropped-mirror-field equivalence test, cite exact it-blocks). Plan is ready for execution.
+
+**Carry-in minor nits for the build phase (non-blocking):**
+- Add `Number.isFinite` defensive guard + comment that canonicalize runs AFTER zod parse.
+- Pin D1a default-folding tests to the actual runtime default constants (not literals) so a future default change can't silently desync.
+- Note intentional removal of agent-type emit-gates (a stray field on the wrong agent type now legitimately splits the hash) + one test for it.
+- Post-deploy: verify the drift-index drop landed on BOTH staging and prod (prod may differ).
+- Add equivalence test: two configs differing only in a deprecated mirror field (`budgetBufferAfterParallel`) hash the SAME.
