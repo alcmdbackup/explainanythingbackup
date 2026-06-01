@@ -413,11 +413,13 @@ Prices per 1M tokens (USD). The table includes 30+ model entries; these are the 
 Model lookup uses exact match first, then longest-prefix match (e.g., `gpt-4o-2024-11-20` matches the `gpt-4o` entry). Unknown models fall back to conservative default pricing ($10/$30 per 1M tokens).
 
 Key functions:
-- `getModelPricing(model: string): ModelPricing` -- returns `{ inputPer1M, outputPer1M, reasoningPer1M? }`
-- `calculateLLMCost(model, promptTokens, completionTokens, reasoningTokens?): number` -- returns USD rounded to 6 decimal places
+- `getModelPricing(model: string): ModelPricing` -- returns `{ inputPer1M, outputPer1M, reasoningPer1M?, cachedInputPer1M? }`
+- `calculateLLMCost(model, promptTokens, completionTokens, reasoningTokens?, cachedPromptTokens?): number` -- returns USD rounded to 6 decimal places
 - `formatCost(cost: number): string` -- `$0.0042` for sub-cent, `$1.23` otherwise
 
 The pricing table also includes reasoning models (o1, o3-mini) with a separate `reasoningPer1M` field. When present, reasoning tokens are billed at this rate in addition to the standard input/output costs. The evolution pipeline does not currently use reasoning models, but the pricing infrastructure supports them for future use.
+
+**Context caching (`cachedInputPer1M`).** Some providers (e.g. DeepSeek V4: `deepseek-v4-pro`, `deepseek-v4-flash`) bill cache-hit prompt tokens at a much lower rate than cache-miss tokens — for DeepSeek the cache-hit rate is 50-120x cheaper. When a model entry sets `cachedInputPer1M`, `calculateLLMCost` bills the cache-hit subset (`cachedPromptTokens`) at that rate and the remainder at `inputPer1M`; models without the field bill all prompt tokens at `inputPer1M` (unchanged). The cache-hit count flows from the provider's `usage.prompt_cache_hit_tokens` through `RawProviderUsage.cachedPromptTokens` so the evolution budget gate bills cache-aware, not just the `llmCallTracking` row. Pre-flight reservations still assume 0% cache hits (conservative); the reserve→spend→reconcile loop trues up to the cache-aware actual.
 
 Note that the evolution pipeline's `llm-client.ts` imports `getModelPricing` from this shared config file rather than maintaining its own pricing. This ensures a single source of truth for all cost calculations across the application.
 

@@ -132,7 +132,7 @@ Adding a 5th optional arg `cachedPromptTokens = 0` is backward-compatible (all s
 
 ### Phase 6: Verify & document
 - [ ] Full local checks (lint, tsc, build, unit, ESM, integration, E2E critical).
-- [ ] Doc updates (see Documentation Updates).
+- [x] Doc updates (see Documentation Updates).
 
 ## Testing
 
@@ -164,7 +164,7 @@ Adding a 5th optional arg `cachedPromptTokens = 0` is backward-compatible (all s
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-strategy-crud.spec.ts` (local server) — dropdown assertion passes.
+- [x] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-strategy-crud.spec.ts` (local server) — dropdown assertion passes.
 
 ### B) Automated Tests
 - [x] `npm run test -- src/config/llmPricing.test.ts src/config/modelRegistry.test.ts src/lib/schemas/schemas.test.ts src/lib/services/llms.test.ts`
@@ -177,8 +177,8 @@ Config-additive change: revert by removing the two `MODEL_REGISTRY` entries, the
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `docs/docs_overall/environments.md` — `DEEPSEEK_API_KEY` already documented; verify still correct (likely no change). No new env var.
-- [ ] `evolution/docs/cost_optimization.md` — if it documents the `ModelPricing` shape or cost-attribution fields, note the new `cachedInputPer1M` field and that DeepSeek cost is now cache-aware on the budget-gate path.
+- [x] `docs/docs_overall/environments.md` — `DEEPSEEK_API_KEY` already documented; verify still correct (likely no change). No new env var.
+- [x] `evolution/docs/cost_optimization.md` — if it documents the `ModelPricing` shape or cost-attribution fields, note the new `cachedInputPer1M` field and that DeepSeek cost is now cache-aware on the budget-gate path.
 
 ## Review & Discussion
 ### Iteration 1 (Security 2/5, Architecture 4/5, Testing 4/5)
