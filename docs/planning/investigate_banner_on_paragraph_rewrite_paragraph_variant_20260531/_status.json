@@ -1,0 +1,22 @@
+{
+  "branch": "feat/investigate_banner_on_paragraph_rewrite_paragraph_variant_20260531",
+  "created_at": "2026-05-31T15:45:56-07:00",
+  "prerequisites": {
+    "getting_started_read": "2026-06-01T02:33:20Z",
+    "project_workflow_read": "2026-06-01T02:33:21Z",
+    "design_style_guide_read": "2026-06-01T02:33:21Z",
+    "testing_overview_read": "2026-06-01T02:33:22Z",
+    "testing_setup_read": "2026-06-01T02:33:23Z",
+    "environments_read": "2026-06-01T02:33:23Z",
+    "todos_created": "2026-06-01T02:34:08Z"
+  },
+  "relevantDocs": [
+    "evolution/docs/data_model.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/agents/overview.md",
+    "evolution/docs/paragraph_recombine.md",
+    "evolution/docs/visualization.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/architecture.md"
+  ]
+}

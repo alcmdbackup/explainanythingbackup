@@ -17,6 +17,7 @@ import { formatEloWithUncertainty, formatEloCIRange } from '@evolution/lib/utils
 import { dbToRating } from '@evolution/lib/shared/computeRatings';
 import { bootstrapDeltaCI } from '@evolution/lib/shared/ratingDelta';
 import { VariantParentBadge } from '@evolution/components/evolution/variant/VariantParentBadge';
+import { isDiscardedGenerateVariant } from '@evolution/lib/utils/variantStatus';
 
 /** Extended variant type with optional parent IDs for display.
  *  bring_back_debate_agent_20260506 PR 2: parent_variant_ids is the canonical column;
@@ -246,7 +247,7 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
                     })()}
                   </td>
                   <td className="px-2 py-2 text-center" data-testid={`persisted-${v.id.substring(0, 6)}`}>
-                    {v.persisted === false ? (
+                    {isDiscardedGenerateVariant(v.persisted, v.variant_kind) ? (
                       <span className="text-xs font-ui text-[var(--status-error)]" title="Discarded — not in final pool">✗</span>
                     ) : (
                       <span className="text-xs font-ui text-[var(--status-success)]" title="Surfaced to final pool">✓</span>

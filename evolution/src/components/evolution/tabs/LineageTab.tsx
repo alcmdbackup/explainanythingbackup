@@ -58,6 +58,7 @@ export function LineageTab({ runId }: LineageTabProps): JSX.Element {
     iterationBorn: n.generation,
     isWinner: n.isWinner,
     persisted: n.persisted ?? true,
+    variantKind: n.variantKind ?? 'article',
   }));
 
   // bring_back_debate_agent_20260506 Phase 4.9 — multi-parent lineage edges.

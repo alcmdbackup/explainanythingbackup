@@ -44,6 +44,10 @@ export interface VariantFullDetail {
   runCreatedAt: string;
   /** Whether this variant survived to the final pool. False = discarded by its owning generate agent. */
   persisted: boolean;
+  /** 'article' | 'paragraph'. NOT NULL DEFAULT 'article'. The persisted=false "discarded"
+   *  banner applies only to article variants — paragraph variants are always persisted=false
+   *  by design (sync_to_arena) and are surfaced, not discarded. */
+  variantKind: string;
   /**
    * UUID of the agent invocation that produced this variant. NULL for variants
    * created before migration 20260418000003 (no backfill). Distinct from
@@ -171,6 +175,8 @@ export const getVariantFullDetailAction = adminAction('getVariantFullDetailActio
     runCreatedAt: runResult.data?.created_at ?? variant.created_at,
     // Default to true for legacy variants written before the persisted column existed.
     persisted: variant.persisted ?? true,
+    // Default 'article' for legacy variants written before the variant_kind column existed.
+    variantKind: variant.variant_kind ?? 'article',
     agentInvocationId: invocation?.id ?? null,
     agentInvocationName: invocation?.agent_name ?? null,
   };

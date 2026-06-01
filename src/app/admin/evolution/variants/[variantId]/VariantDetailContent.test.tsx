@@ -40,6 +40,7 @@ const mockVariant: VariantFullDetail = {
   runStatus: 'completed',
   runCreatedAt: '2026-03-01T00:00:00Z',
   persisted: true,
+  variantKind: 'article',
   agentInvocationId: null,
   agentInvocationName: null,
 };
@@ -119,5 +120,24 @@ describe('VariantDetailContent', () => {
     const crossLinks = screen.getByTestId('cross-links');
     expect(crossLinks).toHaveTextContent('Produced by');
     expect(crossLinks).toHaveTextContent('cccccccc'); // first 8 chars of UUID
+  });
+
+  it('shows the discarded banner for a discarded ARTICLE variant (persisted=false)', () => {
+    const discardedArticle: VariantFullDetail = { ...mockVariant, persisted: false, variantKind: 'article' };
+    render(<VariantDetailContent variant={discardedArticle} />);
+    expect(screen.getByTestId('variant-discarded-banner')).toBeInTheDocument();
+  });
+
+  it('does NOT show the discarded banner for a PARAGRAPH variant (persisted=false by design, not discarded)', () => {
+    // Paragraph-recombine variants are always persisted=false (sync_to_arena never sets persisted),
+    // but they are surfaced, not discarded — the generate-agent banner must not fire.
+    const paragraph: VariantFullDetail = { ...mockVariant, persisted: false, variantKind: 'paragraph' };
+    render(<VariantDetailContent variant={paragraph} />);
+    expect(screen.queryByTestId('variant-discarded-banner')).not.toBeInTheDocument();
+  });
+
+  it('does NOT show the discarded banner for a surfaced article variant (persisted=true)', () => {
+    render(<VariantDetailContent variant={mockVariant} />);
+    expect(screen.queryByTestId('variant-discarded-banner')).not.toBeInTheDocument();
   });
 });

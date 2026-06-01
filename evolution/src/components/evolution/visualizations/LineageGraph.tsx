@@ -5,6 +5,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { VariantCard, TACTIC_PALETTE } from './VariantCard';
 import type { LineageData } from '@evolution/services/evolutionVisualizationActions';
+import { isDiscardedGenerateVariant } from '@evolution/lib/utils/variantStatus';
 
 interface LineageGraphProps {
   nodes: LineageData['nodes'];
@@ -141,15 +142,16 @@ export function LineageGraph({ nodes, edges, treeSearchPath }: LineageGraphProps
       .attr('stroke', 'var(--accent-gold)')
       .attr('stroke-width', 2.5);
 
-    // Node circles. Discarded variants (persisted=false) render at reduced opacity with a
-    // dashed border so admins can spot them in the lineage graph at a glance.
+    // Node circles. Discarded GENERATE variants (article kind + persisted=false) render at
+    // reduced opacity with a dashed border so admins can spot them at a glance. Paragraph
+    // variants are always persisted=false by design but are NOT discards — render them normally.
     nodeGroups.append('circle')
       .attr('r', d => scaleRadius(d.elo))
       .attr('fill', d => TACTIC_PALETTE[d.tactic] ?? 'var(--text-muted)')
-      .attr('fill-opacity', d => d.persisted === false ? 0.4 : 1)
-      .attr('stroke', d => d.persisted === false ? 'var(--status-error)' : 'var(--surface-elevated)')
+      .attr('fill-opacity', d => isDiscardedGenerateVariant(d.persisted, d.variantKind) ? 0.4 : 1)
+      .attr('stroke', d => isDiscardedGenerateVariant(d.persisted, d.variantKind) ? 'var(--status-error)' : 'var(--surface-elevated)')
       .attr('stroke-width', 2)
-      .attr('stroke-dasharray', d => d.persisted === false ? '3,2' : 'none');
+      .attr('stroke-dasharray', d => isDiscardedGenerateVariant(d.persisted, d.variantKind) ? '3,2' : 'none');
 
     // Labels
     nodeGroups.append('text')
