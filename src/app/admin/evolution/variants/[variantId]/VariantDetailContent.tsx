@@ -12,6 +12,7 @@ import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 import type { VariantFullDetail } from '@evolution/services/variantDetailActions';
 import { formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
 import { bootstrapDeltaCI } from '@evolution/lib/shared/ratingDelta';
+import { isDiscardedGenerateVariant } from '@evolution/lib/utils/variantStatus';
 
 const TABS = [
   { id: 'content', label: 'Content' },
@@ -112,7 +113,7 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
         {parentBadge}
       </div>
 
-      {variant.persisted === false && (
+      {isDiscardedGenerateVariant(variant.persisted, variant.variantKind) && (
         <div
           className="rounded-book border border-[var(--status-error)] bg-[var(--status-error)]/10 p-3"
           data-testid="variant-discarded-banner"

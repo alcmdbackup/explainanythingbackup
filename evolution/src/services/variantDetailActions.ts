@@ -47,7 +47,9 @@ export interface VariantFullDetail {
   createdAt: string;
   runStatus: string;
   runCreatedAt: string;
-  /** Whether this variant survived to the final pool. False = discarded by its owning generate agent. */
+  /** Whether this variant survived to the final pool. False = discarded by its owning generate agent.
+   *  Note: paragraph variants are always persisted=false by design (sync_to_arena) and are surfaced,
+   *  not discarded — the discarded banner is gated on variantKind='article' via isDiscardedGenerateVariant. */
   persisted: boolean;
   /**
    * UUID of the agent invocation that produced this variant. NULL for variants

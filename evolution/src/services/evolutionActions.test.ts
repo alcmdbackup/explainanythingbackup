@@ -5,6 +5,7 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
 import { logAdminAction } from '@/lib/services/auditLog';
 import { createSupabaseChainMock, createTableAwareMock, TEST_UUIDS } from '@evolution/testing/service-test-mocks';
+import { NON_DISCARDED_OR_FILTER } from '@evolution/lib/utils/variantStatus';
 
 // ─── Mocks (must be before imports of modules under test) ────
 
@@ -561,6 +562,29 @@ describe('evolutionActions', () => {
       expect(eqCalls.some(([k, v]) => k === 'evolution_runs.evolution_strategies.is_test_content' && v === false)).toBe(true);
     });
 
+    it('default filter keeps paragraph variants via NON_DISCARDED_OR_FILTER (.or), not .eq(persisted,true)', async () => {
+      const orCalls: string[] = [];
+      const eqCalls: Array<[string, unknown]> = [];
+      const mock = createTableAwareMock([
+        (b) => {
+          const origOr = b.or as jest.Mock;
+          b.or = jest.fn((...args: unknown[]) => { orCalls.push(String(args[0])); return origOr(...args); });
+          const origEq = b.eq as jest.Mock;
+          b.eq = jest.fn((...args: unknown[]) => { eqCalls.push([String(args[0]), args[1]]); return origEq(...args); });
+          b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null, count: 0 }));
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await listVariantsAction({ limit: 50, offset: 0 });
+
+      expect(result.success).toBe(true);
+      // Paragraph variants are always persisted=false — the default filter must NOT hide them.
+      expect(orCalls).toContain(NON_DISCARDED_OR_FILTER);
+      // The old blanket `.eq('persisted', true)` filter must be gone.
+      expect(eqCalls.some(([k, v]) => k === 'persisted' && v === true)).toBe(false);
+    });
+
     // B6 (use_playwright_find_bugs_ux_issues_20260422): listVariantsAction must
     // return parent_elo on the public Elo scale (~1200), NOT raw OpenSkill mu (~25).
     // Previously this assigned `parent.mu` directly to parent_elo, which broke the
@@ -898,6 +922,27 @@ describe('evolutionActions', () => {
   // ─── getEvolutionVariantsAction ────────────────────────────────
 
   describe('getEvolutionVariantsAction', () => {
+    it('default filter keeps paragraph variants via NON_DISCARDED_OR_FILTER (.or), not .eq(persisted,true)', async () => {
+      const orCalls: string[] = [];
+      const eqCalls: Array<[string, unknown]> = [];
+      const mock = createTableAwareMock([
+        (b) => {
+          const origOr = b.or as jest.Mock;
+          b.or = jest.fn((...args: unknown[]) => { orCalls.push(String(args[0])); return origOr(...args); });
+          const origEq = b.eq as jest.Mock;
+          b.eq = jest.fn((...args: unknown[]) => { eqCalls.push([String(args[0]), args[1]]); return origEq(...args); });
+          b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null }));
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionVariantsAction(VALID_UUID);
+
+      expect(result.success).toBe(true);
+      expect(orCalls).toContain(NON_DISCARDED_OR_FILTER);
+      expect(eqCalls.some(([k, v]) => k === 'persisted' && v === true)).toBe(false);
+    });
+
     it('rejects invalid runId', async () => {
       const result = await getEvolutionVariantsAction('not-uuid');
 
@@ -915,6 +960,7 @@ describe('evolutionActions', () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
+        or: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
         limit: jest.fn().mockResolvedValue({ data: variants, error: null }),
       };
@@ -932,6 +978,7 @@ describe('evolutionActions', () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
+        or: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
         limit: jest.fn().mockResolvedValue({ data: [], error: null }),
       };

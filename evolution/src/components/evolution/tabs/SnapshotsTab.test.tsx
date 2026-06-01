@@ -97,6 +97,37 @@ describe('SnapshotsTab', () => {
     expect(screen.getByText('1240')).toBeInTheDocument();
   });
 
+  it('marks a discarded article ✗ but a paragraph variant ✓ in the pool table (variant_kind-aware)', async () => {
+    const pId = 'dddddddd-1111-2222-3333-444444444444';
+    const aId = 'eeeeeeee-1111-2222-3333-444444444444';
+    const info: Record<string, SnapshotVariantInfo> = {
+      // Paragraph variant: persisted=false by design (sync_to_arena), but NOT a discard → ✓.
+      [pId]: { id: pId, agentName: 'paragraph_rewrite', persisted: false, variantKind: 'paragraph' },
+      // Article variant with persisted=false → a real generate discard → ✗.
+      [aId]: { id: aId, agentName: 'structural_transform', persisted: false, variantKind: 'article' },
+    };
+    const snaps: IterationSnapshotRow[] = [
+      {
+        iteration: 1,
+        iterationType: 'generate',
+        phase: 'end',
+        capturedAt: '2026-04-08T00:02:00Z',
+        poolVariantIds: [pId, aId],
+        ratings: { [pId]: { elo: 1200, uncertainty: 100 }, [aId]: { elo: 1100, uncertainty: 100 } },
+        matchCounts: { [pId]: 2, [aId]: 2 },
+      },
+    ];
+    (evolutionActions.getRunSnapshotsAction as jest.Mock).mockResolvedValue({
+      success: true,
+      data: { snapshots: snaps, variantInfo: info },
+    });
+    render(<SnapshotsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('snapshots-tab')).toBeInTheDocument());
+
+    // Exactly one ✗ (the discarded article); the paragraph variant renders ✓, not ✗.
+    expect(screen.getAllByText('✗')).toHaveLength(1);
+  });
+
   it('toggles iteration group on header click', async () => {
     (evolutionActions.getRunSnapshotsAction as jest.Mock).mockResolvedValue({
       success: true,

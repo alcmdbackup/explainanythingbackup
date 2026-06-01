@@ -197,10 +197,12 @@ describe('VariantsTab', () => {
     );
   });
 
-  it('renders persisted=true with check and persisted=false with X', async () => {
+  it('marks only discarded ARTICLE variants with ✗; surfaced and paragraph variants get ✓', async () => {
     const variantsMixed: EvolutionVariant[] = [
-      { ...mockVariants[0]!, persisted: true },
-      { ...mockVariants[1]!, persisted: false },
+      { ...mockVariants[0]!, id: 'aaaa11-surfaced-article', persisted: true, variant_kind: 'article' },
+      { ...mockVariants[1]!, id: 'bbbb22-discarded-article', persisted: false, variant_kind: 'article' },
+      // Paragraph variants are always persisted=false (sync_to_arena) but are NOT discards → ✓.
+      { ...mockVariants[1]!, id: 'cccc33-paragraph-variant', persisted: false, variant_kind: 'paragraph' },
     ];
     (evolutionActions.getEvolutionVariantsAction as jest.Mock).mockResolvedValue({
       success: true,
@@ -211,11 +213,12 @@ describe('VariantsTab', () => {
     render(<VariantsTab runId="run-1" />);
     await waitFor(() => expect(screen.getByTestId('variants-tab')).toBeInTheDocument());
 
-    // First variant id starts with "aaaa-1"
-    const firstCell = screen.getByTestId(`persisted-${variantsMixed[0]!.id.substring(0, 6)}`);
-    const secondCell = screen.getByTestId(`persisted-${variantsMixed[1]!.id.substring(0, 6)}`);
-    expect(firstCell.textContent).toContain('✓');
-    expect(secondCell.textContent).toContain('✗');
+    const surfacedArticle = screen.getByTestId(`persisted-${variantsMixed[0]!.id.substring(0, 6)}`);
+    const discardedArticle = screen.getByTestId(`persisted-${variantsMixed[1]!.id.substring(0, 6)}`);
+    const paragraph = screen.getByTestId(`persisted-${variantsMixed[2]!.id.substring(0, 6)}`);
+    expect(surfacedArticle.textContent).toContain('✓');
+    expect(discardedArticle.textContent).toContain('✗');
+    expect(paragraph.textContent).toContain('✓');
   });
 
   // Phase 4b: Elo CI rendering
