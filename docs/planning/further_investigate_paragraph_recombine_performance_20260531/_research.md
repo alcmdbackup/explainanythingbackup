@@ -25,7 +25,7 @@ Runs analyzed: `c5d7c977`, `ebf7c9da`, `5ebd4185`, `0943ba13`, `88b5e860`.
 
 So `paragraph_recombine` runs **once**, as the final generation, and is just one agent among several in this strategy — a strategy-placement choice, not part of the agent itself.
 
-✅ **RESOLVED (was flagged as a mismatch; it is not one):** the stored `config` (2 iterations: `generate`/seed then `paragraph_recombine`/pool) DOES match the per-run `iteration_snapshots`. The 3 generations come from 2 iterations because the `generate` iteration emits both seed paragraph rewrites (gen 0) and **tactic** variants (gen 1) via `tacticsUsed`; `paragraph_recombine` is gen 2. See the "RESOLVED: where the gen-1 agents come from" section below for details.
+✅ **RESOLVED (was flagged as a mismatch; it is not one):** the stored `config` (2 iterations: `generate`/seed then `paragraph_recombine`/pool) DOES match the per-run `iteration_snapshots`. The 3 generations come from 2 iterations because the `generate` iteration emits both seed paragraph rewrites (gen 0) and **tactic** variants (gen 1) — where the tactic set is a **hardcoded code default** (`SYSTEM_GENERATE_TACTICS`/`DEFAULT_TACTICS`), NOT a config field; `paragraph_recombine` is gen 2. See the "RESOLVED: where the gen-1 agents come from" section below for details.
 
 Variant taxonomy & ELO (5 runs combined):
 | variant_kind | generation (agent) | n | avg_elo | min | max | avg_matches |
@@ -67,9 +67,9 @@ The `generation` column (0/1/2) counts **variant lineage depth**, not `iteration
 
 ### Strategy config specificity / dedup behavior (answers "does any variation create a net-new strategy?")
 
-**No — and this is a real gap.** `evolution/src/lib/strategy/strategyHash.ts` (read in full):
-- `hashStrategyConfig()` hashes ONLY `generationModel`, `judgeModel`, and a **whitelist** of per-iteration fields produced by `canonicalizeIterationConfig()`.
-- `upsertStrategy()` does `INSERT ... ON CONFLICT (config_hash)` and there is a **UNIQUE index** `evolution_strategies_config_hash_key` (verified; 0 hash collisions in the table).
+**No — and this is a real gap.** The ACTIVE hasher is `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts` (verified: it defines `hashStrategyConfig` L110, `canonicalizeIterationConfig` L35, `upsertStrategy` L155; callers = `lib/pipeline/index.ts:51` re-export → pipeline, and `services/strategyRegistryActions.ts:186,267` → wizard/registry). NOTE: a similarly-named `evolution/src/lib/shared/hashStrategyConfig.ts` exists but only exports labeling/`StrategyHashInput` helpers — it is NOT the hasher; ignore it for this work.
+- `hashStrategyConfig()` (L110–117) hashes ONLY `generationModel`, `judgeModel`, and a **whitelist** of per-iteration fields produced by `canonicalizeIterationConfig()` (L35–103).
+- `upsertStrategy()` (L155–180) does `INSERT ... ON CONFLICT (config_hash)`. There are **TWO redundant** UNIQUE indexes on `config_hash` (`uq_strategies_config_hash` + `uq_strategy_config_hash`).
 
 Consequence: **two configs that differ only in a non-hashed field get the SAME `config_hash`, collide on the unique index, and the upsert dedupes them into one row — silently overwriting the stored `config` with the latest caller's values.** They are NOT treated as distinct strategies. This is "merged/blocked," exactly the behavior to eliminate.
 
@@ -162,5 +162,47 @@ Ordered by leverage:
 - The environment intermittently corrupts/reorders/injects narration into tool output. Mitigation: every load-bearing metric was re-run 2–3× and only values stable across independent queries were recorded. Structural findings = high confidence; exact ELO averages = medium confidence.
 - The planned "5 rounds × 4 agents" workflow was **not** executed — multi-agent outputs would flow through the same unreliable channel. Recommended for a future stable session to do the code-level deep dive (Open Questions 1–2).
 
+## Strategy Hashing — Verified Mechanism (Task A input)
+
+Re-verified this session by reading code + DB and an independent agent pass.
+
+**Active code path (definitive):** `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts`
+- `hashStrategyConfig(config)` (L110–117) = `sha256({ generationModel, judgeModel, iterationConfigs.map(canonicalizeIterationConfig) }).slice(0,12)`.
+- `canonicalizeIterationConfig` (L35–103) is a **whitelist** — only emits a fixed set of fields, most gated by `agentType`.
+- `upsertStrategy` (L155–180) → `INSERT ... ON CONFLICT (config_hash)`. Same hash ⇒ UPDATE the existing row (overwrites `config`), NOT a new strategy.
+- Callers: pipeline (via `lib/pipeline/index.ts:51`) and wizard/registry (`services/strategyRegistryActions.ts:186,267`).
+
+**Fields the hash INCLUDES** (per iteration): `agentType`, `budgetPercent`, `sourceMode`, `qualityCutoff`, `generationGuidance`, `reflectionTopN` (reflect only), `criteriaIds`+`weakestK` (criteria agents), `lengthCapRatio`/`redundancyJaccardThreshold`/`includesMirrorApprover` (specific agents), `perInvocationCapUsd`+`maxDispatches` (paragraph_recombine only), 4 budget-floor fractions. Top-level: `generationModel`, `judgeModel`.
+
+**Fields the hash EXCLUDES** (→ a config differing ONLY here silently collapses/overwrites): per-iteration `rewritesPerParagraph`, `maxComparisonsPerParagraph`, `maxParagraphsPerInvocation`, `paragraphRewriteModel`, `editingMaxCycles`, `editingEligibilityCutoff`, `editingProposerSoftCap`, `debateJudgeReasoningEffort`; top-level `budgetUsd`, `generationTemperature`, `maxComparisonsPerVariant`, `editingModel`, `approverModel`, `generationGuidance`(strategy-level), the `minBudgetAfter*` floors, deprecated buffers. (Schema source of truth: `iterationConfigSchema` + `strategyConfigBaseSchema` in `evolution/src/lib/schemas.ts:612–935`.)
+
+**Confirmed concrete failure mode:** two configs identical except `rewritesPerParagraph: 3` vs `6` produce the SAME `config_hash` → the second `upsert` overwrites the first; they are NOT distinct strategies. This is exactly the behavior to eliminate (Task A).
+
+## Task 2 — Last 3 runs (rewritesPerParagraph = 6)
+
+The 3 newest paragraph_recombine runs (all `2026-05-31T20:45`, strategy `250ff6c3` "Paragraph, more versions per slot", `config_hash 5501c92d`):
+`42f3b164-a392-41c4-bda1-ddf4b870220b`, `827207ad-2f03-4159-b64e-adce104c02b8`, `ae9f21d5-cb12-4625-88b1-84facbe8b9c1` — **confirmed `rewritesPerParagraph = 6`.**
+
+**Dedup outcome (reassuring, but by luck not design):** the 6-rewrite strategy is a DISTINCT row with a distinct hash (`5501c92d`) from the 3-rewrite one (`ce9799fa`, hash `1e90b42a`); `ce9799fa.config` still correctly reads `rewritesPerParagraph=3` (NOT overwritten). It survived ONLY because the two configs also differ in **three hashed fields**: `sourceMode` (pool→seed), `maxDispatches` (10→5), `qualityCutoff` (present→absent). Had `rewritesPerParagraph` been the ONLY change (3→6), the hashes would match and the new strategy would have silently overwritten the old one. ⟶ motivates Task A.
+
+**Performance of the 6-rewrite runs (n=3) vs the 3-rewrite cohort (n=5):**
+
+| Metric | 6-rewrite (last 3) | 3-rewrite (prior 5) |
+|---|---|---|
+| Candidates per slot | **8.11** (9 slots, 4–13) | 1.63 |
+| Rewrites generated/slot | 6.0 | 3.0 |
+| Rewrite survival | **45%** (73 kept / 162) | ~49–51% |
+| Drop reason | length_over 75, length_under 14 | length-dominated |
+| Draw rate | 41.3% (147/356) | 44.3% (348/786) |
+| `winner='b'` | **0** | 0 |
+| Paragraph avg ELO | ~1200.0 (n=73) | 1202.2 (n=344) |
+| Cost / paragraph_recombine invocation | ~$0.0098 | ~$0.0046 |
+
+Reading: rewritesPerParagraph=6 produced the denser arena we wanted (~5× more candidates/slot — the right direction for the thin-signal problem), but (1) it's **confounded** — these runs also changed `sourceMode`/`maxDispatches`/`qualityCutoff`, so the density gain isn't cleanly attributable to the rewrite count; (2) **~55% of the 6 rewrites are dropped, almost all `length_over`** — you pay for 6, keep ~2.7; the length gate is now the dominant efficiency leak; (3) structural pathologies persist — 41% draws and zero `b`-wins (challenger never beats incumbent), worth a judge/positional look.
+
 ## Code Files Read
-- None yet — this round was DB-forensics only. Pending (per Open Questions): the `paragraph_rank` judge prompt and `paragraph_rewrite` directive under `evolution/src/`, plus length-gate/temperature config.
+- `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts` — active strategy hasher (`hashStrategyConfig`, `canonicalizeIterationConfig`, `upsertStrategy`).
+- `evolution/src/lib/shared/hashStrategyConfig.ts` — labeling helpers only (NOT the hasher).
+- `evolution/src/lib/schemas.ts:612–935` — `iterationConfigSchema` + `strategyConfigBaseSchema` (full field set).
+- `evolution/src/lib/core/tactics/generateTactics.ts` — `SYSTEM_GENERATE_TACTICS` (gen-1 tactic source).
+- Pending (per Open Questions): the `paragraph_rank` judge prompt and `paragraph_rewrite` directive under `evolution/src/`, plus length-gate/temperature config.
