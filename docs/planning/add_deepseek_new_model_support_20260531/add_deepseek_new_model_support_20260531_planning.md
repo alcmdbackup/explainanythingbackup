@@ -23,7 +23,11 @@ The deepseek-v4-pro 75% promo ends **2026-05-31 15:59 UTC (today)** → use **st
 
 `inputPer1M` = cache-miss (full) rate; new `cachedInputPer1M` = cache-hit rate. Both: 1M context, 384K max output. No `reasoningPer1M` (CoT off).
 
-> ⚠️ **MUST-VERIFY before merge:** exact prices and the `usage` field name `prompt_cache_hit_tokens` are from docs/research and not yet confirmed against a live DeepSeek response (`usage` is typed `any`, so a wrong field silently degrades to cache-miss billing — conservative, not a crash). Confirm with one real API call.
+> **CONFIRMED via official docs (api-docs.deepseek.com, 2026-05-31):**
+> - Cache fields: `usage.prompt_cache_hit_tokens` + `usage.prompt_cache_miss_tokens`, and `prompt_tokens = hit + miss` (verbatim in the Create Chat Completion reference). DeepSeek uses ONLY these top-level fields — there is NO OpenAI-style `prompt_tokens_details.cached_tokens`. Both v4 models bill on separate cache-hit/miss input tiers.
+> - Thinking toggle: top-level body `thinking: { type: "enabled" | "disabled" }`, default `enabled`; disabled → no `reasoning_content`, sampling params (temperature) honored.
+>
+> ⚠️ **Still MUST-VERIFY before merge (one live API call):** (1) current prices — the pro 75% promo ends 2026-05-31 15:59 UTC, confirm whether standard ($1.74/$3.48) is in effect; (2) whether `prompt_cache_hit_tokens` is populated on the FINAL streaming chunk (plan degrades to full-rate if not — safe). Note DeepSeek **fail-silently ignores** unrecognized params, so a wrong-shaped `thinking` field leaves thinking ON with no error → the test/verify must assert BEHAVIOR (no `reasoning_content` in response), not just absence of error.
 
 ## Cost Estimation & Price Drift
 "Cost" is two different numbers and cache variability hits them differently:
@@ -161,6 +165,7 @@ Adding a 5th optional arg `cachedPromptTokens = 0` is backward-compatible (all s
 ### B) Automated Tests
 - [ ] `npm run test -- src/config/llmPricing.test.ts src/config/modelRegistry.test.ts src/lib/schemas/schemas.test.ts src/lib/services/llms.test.ts`
 - [ ] `npm run test:integration` (evolution cost path) + full local check trio during `/finalize` (lint + tsc + build + unit + ESM + integration + E2E critical).
+- [ ] **Live pre-merge verification (one real DeepSeek call with `DEEPSEEK_API_KEY`):** confirm (a) current prices match the registry, (b) a `deepseek-v4-flash` call with `thinking:{type:'disabled'}` returns NO `reasoning_content` (proves thinking actually disabled — DeepSeek fail-silently ignores a wrong-shaped param), and (c) the response `usage` includes `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens` (and whether it appears on the final streaming chunk).
 - [ ] **CI full-path note:** this PR touches `src/**` AND `evolution/**` and adds an `@evolution`-tagged admin spec (ci.yml classifies `09-admin/**` as evolution), so CI runs `integration-evolution` + `integration-non-evolution` and `e2e-evolution` + `e2e-non-evolution`. Run `npm run test:integration:evolution` and `npm run test:e2e:evolution` locally before push so the new dropdown spec (which runs under e2e-evolution, not e2e-critical) isn't silently unverified.
 
 ## Rollback
