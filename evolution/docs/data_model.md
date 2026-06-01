@@ -19,7 +19,7 @@ Stores strategy configurations with aggregated performance metrics. Strategies a
 | `label` | TEXT | NOT NULL, default `''` | Short label for UI |
 | `description` | TEXT | | Optional long description |
 | `config` | JSONB | NOT NULL | Full strategy configuration (`StrategyConfig`: generationModel, judgeModel, iterationConfigs[], strategiesPerRound, budgetUsd, generationGuidance). `iterationConfigs` is an ordered array of `{ agentType, budgetPercent, maxAgents?, generationGuidance? }` objects defining the iteration sequence. Per-iteration `generationGuidance` overrides the strategy-level setting for that iteration. See [Strategies](./strategies_and_experiments.md) for field details. |
-| `config_hash` | TEXT | NOT NULL, UNIQUE | SHA-256 hash for dedup |
+| `config_hash` | TEXT | NOT NULL, UNIQUE | Dedup key. **v2 (`v2:<12 hex>` prefix)** hashes the ENTIRE `config` after normalization (see below); v1 (bare 12 hex, legacy rows) hashed only a whitelist. `upsertStrategy` uses `ON CONFLICT (config_hash)`. |
 | `is_predefined` | BOOLEAN | NOT NULL, default `false` | System-provided strategy |
 | `pipeline_type` | TEXT | default `'full'` | `'full'` or `'single'` |
 | `status` | TEXT | NOT NULL, CHECK `('active','archived')` | |
@@ -37,6 +37,19 @@ Stores strategy configurations with aggregated performance metrics. Strategies a
 | `created_at` | TIMESTAMPTZ | NOT NULL, default `now()` | |
 
 > **Note:** `avg_final_elo` uses Welford's online algorithm via the `update_strategy_aggregates` RPC. The `stddev_final_elo` and `avg_elo_per_dollar` columns are reserved for future use.
+
+#### Strategy `config_hash` — v2 full-config hashing
+
+`hashStrategyConfig` (`evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts`) determines strategy identity. As of `further_investigate_paragraph_recombine_performance_20260531` (GH #1154) it hashes the **entire** `StrategyConfig`, not a whitelist — so two configs that differ in *any* meaningful field become distinct strategy rows instead of silently colliding on the `ON CONFLICT (config_hash)` upsert (the old whitelist dropped fields like `rewritesPerParagraph`, `budgetUsd`, `generationTemperature`, the `minBudgetAfter*` floors, etc., causing the later upsert to overwrite the earlier strategy's stored config).
+
+- **Versioning:** v2 hashes are prefixed `v2:` (e.g. `v2:1a2b3c4d5e6f`); legacy rows keep their bare 12-hex v1 hash. The prefix guarantees v1 and v2 never collide. **No backfill** — existing rows are untouched; re-running a pre-v2 config creates a new `v2:` row rather than matching the old one. Rollback is non-destructive (revert the hasher; new upserts resume v1; v2 rows become orphaned history).
+- **Normalization before hashing** (so semantically-identical configs still dedupe):
+  - *Runtime-default folding* — omitted ≡ explicit default for `includesMirrorApprover` (→`true`, proposer/approver only), `maxDispatches` (→`1`) and `perInvocationCapUsd` (→`0.05`) (paragraph_recombine only).
+  - *Agent-type stripping* — a field set on an agent type that ignores it at runtime is dropped (it can't change identity).
+  - *Set ordering* — `criteriaIds` and `generationGuidance` are unordered sets, sorted before hashing; empty `criteriaIds` ≡ omitted.
+  - *Deprecated alias strip* — `budgetBufferAfterParallel`/`budgetBufferAfterSequential` are removed (the parse path mirrors them from `minBudgetAfter*Fraction` via `preprocessBudgetFloor` but the create-action path omits them; stripping prevents a present-vs-absent false-split).
+  - *Number rounding* — every numeric leaf (incl. nested `qualityCutoff.value`, `generationGuidance[].percent`) is canonicalized to a 0.001 floor (`toFixed(3)`), so sub-0.001 differences don't create a new strategy.
+- The derived strategy `name` strips the `v2:` prefix before slicing the hex for display.
 
 > **Test-content filter:** the `evolution_is_test_name(text)` IMMUTABLE Postgres function matches exact lowercase `test`, bracketed `[TEST]`/`[E2E]`/`[TEST_EVO]` substrings, and the timestamp pattern `^.*-\d{10,13}-.*$`. It's called by a BEFORE INSERT/UPDATE-of-name trigger on `evolution_strategies` (since 20260415000001) and on `evolution_prompts` + `evolution_experiments` (since 20260423000001) that sets `is_test_content` via direct NEW mutation (no self-UPDATE, no recursion). The TS helper `isTestContentName` in `evolution/src/services/shared.ts` echoes this logic and is locked to the same fixture table via integration test for anti-drift protection. Admin UI filters via `applyTestContentColumnFilter` (`.eq('is_test_content', false)`) on tables that have the column directly, or via PostgREST embedded `!inner` join (`applyNonTestStrategyFilter`) on tables that join through `evolution_strategies` (e.g. `evolution_runs`).
 
