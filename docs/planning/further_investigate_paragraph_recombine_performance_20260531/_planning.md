@@ -87,7 +87,8 @@ Any difference between two strategy configs must produce a different `config_has
 #### Phase A2: Tests
 - [ ] Unit (`evolution/src/lib/pipeline/setup/findOrCreateStrategy.test.ts`): assert configs differing in EACH previously-unhashed field now produce different hashes — `rewritesPerParagraph`, `maxComparisonsPerParagraph`, `maxParagraphsPerInvocation`, `paragraphRewriteModel`, `budgetUsd`, `generationTemperature`, `maxComparisonsPerVariant`, `editingModel`, `approverModel`.
 - [ ] Unit: assert semantically-identical configs STILL hash equal (D4 — key order, undefined vs omitted, iterationConfigs order preserved → different hash; criteriaIds reorder → same hash).
-- [ ] Update fixtures asserting specific hash values: `src/__tests__/integration/__fixtures__/staging-strategies-2026-04-13.json`, `strategyRegistryActions.test.ts`, `strategyPreviewActions.test.ts` (regenerate expected hashes).
+- [ ] Update fixtures/tests asserting specific hash values (found via grep): `evolution/src/lib/pipeline/setup/findOrCreateStrategy.test.ts`, `evolution/src/lib/schemas.test.ts`, `evolution/src/services/strategyRegistryActions.test.ts`, `evolution/src/__tests__/integration/evolution-criteria-strategy-hash.integration.test.ts`, `src/__tests__/integration/__fixtures__/staging-strategies-2026-04-13.json`. NOTE: `evolution/src/lib/shared/hashStrategyConfig.test.ts` tests the *labeling* helper (not the hasher) — likely no change, verify.
+- [ ] Existing `config_hash` values are bare 12-hex (no prefix); the `v2:` prefix is net-new — confirm `evolution_strategies.config_hash` is unconstrained `text` (DB shows mixed lengths 12/24 already, so length is fine).
 - [ ] Run the affected unit suites.
 
 #### Phase A3: Migration — drop redundant index (D5)
