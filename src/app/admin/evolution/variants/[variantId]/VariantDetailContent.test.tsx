@@ -14,6 +14,7 @@ jest.mock('@evolution/services/variantDetailActions', () => ({
   getVariantParentsAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
   getVariantChildrenAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
   getVariantLineageChainAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
+  getVariantParentDiffAction: jest.fn().mockResolvedValue({ success: true, data: null }),
 }));
 
 jest.mock('@evolution/services/metricsActions', () => ({
@@ -31,6 +32,7 @@ const mockVariant: VariantFullDetail = {
   agentName: 'mutator',
   matchCount: 8,
   isWinner: true,
+  variantKind: 'article',
   parentVariantId: null,
   parentVariantIds: [],
   parentElo: null,
@@ -70,6 +72,7 @@ describe('VariantDetailContent', () => {
     expect(screen.getByRole('tab', { name: 'Content' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Metrics' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Lineage' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Diff vs parent' })).toBeInTheDocument();
   });
 
   it('renders run cross-link', () => {

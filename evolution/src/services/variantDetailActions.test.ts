@@ -39,6 +39,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   getVariantFullDetailAction,
+  getVariantParentDiffAction,
   getVariantParentsAction,
   getVariantChildrenAction,
   getVariantLineageChainAction,
@@ -520,6 +521,130 @@ describe('variantDetailActions', () => {
       expect(result.success).toBe(true);
       expect(result.data!.agentInvocationId).toBe('inv-array-shape-uuid');
       expect(result.data!.agentInvocationName).toBe('generate_from_previous_article');
+    });
+  });
+
+  // ─── getVariantParentDiffAction ──────────────────────────────
+  // enable_side_by_side_variant_comparisons_vs_parent_20260531.
+
+  describe('getVariantParentDiffAction', () => {
+    const RUN = VALID_UUID_2;
+    const PARENT = VALID_UUID_3;
+    const PARENT_RUN = '880e8400-e29b-41d4-a716-446655440003';
+    const PROMPT_ID = '990e8400-e29b-41d4-a716-446655440004';
+    const ORIGINAL_ID = 'aa0e8400-e29b-41d4-a716-446655440005';
+
+    /** Customizer: make .maybeSingle() resolve to a value. */
+    const single = (data: unknown) => (b: Record<string, jest.Mock>) => {
+      b.maybeSingle = jest.fn().mockResolvedValue({ data, error: null });
+    };
+    /** Customizer: make the awaited (non-single) chain (.order().limit()) resolve to an array. */
+    const thenArray = (data: unknown[]) => (b: Record<string, jest.Mock>) => {
+      b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data, error: null }));
+    };
+
+    it('article variant with same-run parent → parent content, crossRun=false, no slotContext', async () => {
+      const mock = createTableAwareMock([
+        single({ id: VALID_UUID, run_id: RUN, variant_kind: 'article', prompt_id: null, parent_variant_ids: [PARENT], variant_content: 'child text' }),
+        single({ id: PARENT, variant_content: 'parent text', elo_score: 1200, mu: 25, sigma: 8, run_id: RUN }),
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getVariantParentDiffAction(VALID_UUID);
+      expect(result.success).toBe(true);
+      expect(result.data!.variantKind).toBe('article');
+      expect(result.data!.variantContent).toBe('child text');
+      expect(result.data!.parent!.id).toBe(PARENT);
+      expect(result.data!.parent!.content).toBe('parent text');
+      expect(result.data!.crossRun).toBe(false);
+      expect(result.data!.slotContext).toBeNull();
+    });
+
+    it('paragraph rewrite via parent_variant_ids[0] → isolated original paragraph + Paragraph N', async () => {
+      const mock = createTableAwareMock([
+        single({ id: VALID_UUID, run_id: RUN, variant_kind: 'paragraph', prompt_id: PROMPT_ID, parent_variant_ids: [PARENT], variant_content: 'rewritten paragraph' }),
+        single({ id: PARENT, variant_content: 'original paragraph', elo_score: 1200, mu: 25, sigma: 8, run_id: RUN }),
+        single({ prompt: '[para] v8abc123.P3' }),
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getVariantParentDiffAction(VALID_UUID);
+      expect(result.success).toBe(true);
+      expect(result.data!.variantKind).toBe('paragraph');
+      expect(result.data!.parent!.content).toBe('original paragraph');
+      expect(result.data!.slotContext).toEqual({ paragraphNumber: 3 });
+    });
+
+    it('paragraph rewrite with EMPTY lineage (legacy) → recovers original via prompt_id fallback', async () => {
+      const mock = createTableAwareMock([
+        single({ id: VALID_UUID, run_id: RUN, variant_kind: 'paragraph', prompt_id: PROMPT_ID, parent_variant_ids: [], variant_content: 'rewrite' }),
+        thenArray([{ id: ORIGINAL_ID }]),                       // fallback: paragraph_original lookup
+        single({ id: ORIGINAL_ID, variant_content: 'orig para', elo_score: 1200, mu: 25, sigma: 8, run_id: RUN }),
+        single({ prompt: '[para] v8abc123.P2' }),
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getVariantParentDiffAction(VALID_UUID);
+      expect(result.success).toBe(true);
+      expect(result.data!.parent!.id).toBe(ORIGINAL_ID);
+      expect(result.data!.parent!.content).toBe('orig para');
+      expect(result.data!.slotContext).toEqual({ paragraphNumber: 2 });
+    });
+
+    it('parentless seed article → parent null, no slotContext', async () => {
+      const mock = createTableAwareMock([
+        single({ id: VALID_UUID, run_id: RUN, variant_kind: 'article', prompt_id: null, parent_variant_ids: [], variant_content: 'seed article' }),
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getVariantParentDiffAction(VALID_UUID);
+      expect(result.success).toBe(true);
+      expect(result.data!.parent).toBeNull();
+      expect(result.data!.crossRun).toBe(false);
+      expect(result.data!.slotContext).toBeNull();
+    });
+
+    it('parentless original-slot paragraph (fallback resolves to itself) → parent null, slotContext set', async () => {
+      const mock = createTableAwareMock([
+        single({ id: VALID_UUID, run_id: RUN, variant_kind: 'paragraph', prompt_id: PROMPT_ID, parent_variant_ids: [], variant_content: 'the original paragraph' }),
+        thenArray([{ id: VALID_UUID }]),                        // fallback returns the variant itself
+        single({ prompt: '[para] v8abc123.P1' }),
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getVariantParentDiffAction(VALID_UUID);
+      expect(result.success).toBe(true);
+      expect(result.data!.parent).toBeNull();
+      expect(result.data!.slotContext).toEqual({ paragraphNumber: 1 });
+    });
+
+    it('cross-run parent → crossRun=true', async () => {
+      const mock = createTableAwareMock([
+        single({ id: VALID_UUID, run_id: RUN, variant_kind: 'article', prompt_id: null, parent_variant_ids: [PARENT], variant_content: 'child' }),
+        single({ id: PARENT, variant_content: 'parent', elo_score: 1200, mu: 25, sigma: 8, run_id: PARENT_RUN }),
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getVariantParentDiffAction(VALID_UUID);
+      expect(result.success).toBe(true);
+      expect(result.data!.crossRun).toBe(true);
+    });
+
+    it('returns null data when variant not found', async () => {
+      const mock = createTableAwareMock([
+        single(null),
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getVariantParentDiffAction(VALID_UUID);
+      expect(result.success).toBe(true);
+      expect(result.data).toBeNull();
+    });
+
+    it('rejects invalid variantId', async () => {
+      const result = await getVariantParentDiffAction('not-a-uuid');
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid variantId');
     });
   });
 
