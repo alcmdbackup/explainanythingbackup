@@ -119,6 +119,45 @@ describe('LLM Pricing', () => {
       const cost = calculateLLMCost('gpt-5-mini', 10000, 5000);
       expect(cost).toBeCloseTo(0.0125, 6);
     });
+
+    it('should bill DeepSeek cache-hit tokens at cachedInputPer1M', () => {
+      // deepseek-v4-pro: input(miss) 0.435, cachedInput 0.003625, output 0.87.
+      // 1000 prompt (800 cache-hit), 500 output:
+      //   full input = (200/1M)*0.435   = 0.000087
+      //   cached     = (800/1M)*0.003625 = 0.0000029
+      //   output     = (500/1M)*0.87     = 0.000435
+      //   total = 0.0005249 -> rounds to 0.000525
+      const cost = calculateLLMCost('deepseek-v4-pro', 1000, 500, 0, 800);
+      expect(cost).toBeCloseTo(0.000525, 6);
+    });
+
+    it('should bill all prompt tokens at full rate when cachedPromptTokens omitted', () => {
+      // Backward-compatible: no 5th arg -> all 1000 prompt tokens at the cache-miss rate.
+      // (1000/1M)*0.435 + (500/1M)*0.87 = 0.000435 + 0.000435 = 0.00087
+      const cost = calculateLLMCost('deepseek-v4-pro', 1000, 500);
+      expect(cost).toBeCloseTo(0.00087, 6);
+    });
+
+    it('should ignore cachedPromptTokens for models without a cache-hit rate', () => {
+      // gpt-4o has no cachedInputPer1M -> all input bills at inputPer1M regardless of the 5th arg.
+      // (10000/1M)*2.5 + (5000/1M)*10 = 0.025 + 0.05 = 0.075
+      const withCached = calculateLLMCost('gpt-4o', 10000, 5000, 0, 8000);
+      const withoutCached = calculateLLMCost('gpt-4o', 10000, 5000);
+      expect(withCached).toBeCloseTo(0.075, 6);
+      expect(withCached).toBe(withoutCached);
+    });
+
+    it('should clamp cachedPromptTokens to promptTokens (no over-count)', () => {
+      // cached > prompt is clamped to prompt; all 1000 tokens billed at the cached rate.
+      // (1000/1M)*0.003625 + (500/1M)*0.87 = 0.000003625 + 0.000435 = 0.000438625 -> 0.000439
+      const cost = calculateLLMCost('deepseek-v4-pro', 1000, 500, 0, 5000);
+      expect(cost).toBeCloseTo(0.000439, 6);
+    });
+
+    it('should throw on negative or non-finite cachedPromptTokens (B021)', () => {
+      expect(() => calculateLLMCost('deepseek-v4-pro', 1000, 500, 0, -1)).toThrow();
+      expect(() => calculateLLMCost('deepseek-v4-pro', 1000, 500, 0, NaN)).toThrow();
+    });
   });
 
   describe('formatCost', () => {
@@ -188,6 +227,25 @@ describe('LLM Pricing', () => {
     it('should have output pricing >= input pricing for all models', () => {
       for (const [model, pricing] of Object.entries(LLM_PRICING)) {
         expect(pricing.outputPer1M).toBeGreaterThanOrEqual(pricing.inputPer1M);
+      }
+    });
+
+    it('should have cache-aware pricing for DeepSeek V4 models', () => {
+      expect(LLM_PRICING['deepseek-v4-pro']).toBeDefined();
+      expect(LLM_PRICING['deepseek-v4-pro']!.inputPer1M).toBe(0.435);
+      expect(LLM_PRICING['deepseek-v4-pro']!.outputPer1M).toBe(0.87);
+      expect(LLM_PRICING['deepseek-v4-pro']!.cachedInputPer1M).toBe(0.003625);
+      expect(LLM_PRICING['deepseek-v4-flash']).toBeDefined();
+      expect(LLM_PRICING['deepseek-v4-flash']!.inputPer1M).toBe(0.14);
+      expect(LLM_PRICING['deepseek-v4-flash']!.outputPer1M).toBe(0.28);
+      expect(LLM_PRICING['deepseek-v4-flash']!.cachedInputPer1M).toBe(0.0028);
+    });
+
+    it('should have cachedInputPer1M <= inputPer1M wherever a cache-hit rate is set', () => {
+      for (const [model, pricing] of Object.entries(LLM_PRICING)) {
+        if (pricing.cachedInputPer1M != null) {
+          expect(pricing.cachedInputPer1M).toBeLessThanOrEqual(pricing.inputPer1M);
+        }
       }
     });
   });

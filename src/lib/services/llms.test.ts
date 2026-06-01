@@ -912,8 +912,80 @@ describe('llms', () => {
     it('should not identify other models as OpenRouter', () => {
       expect(isOpenRouterModel('gpt-4.1-mini')).toBe(false);
       expect(isOpenRouterModel('deepseek-chat')).toBe(false);
+      expect(isOpenRouterModel('deepseek-v4-pro')).toBe(false);
+      expect(isOpenRouterModel('deepseek-v4-flash')).toBe(false);
       expect(isOpenRouterModel('claude-sonnet-4-20250514')).toBe(false);
       expect(isOpenRouterModel('LOCAL_qwen2.5:14b')).toBe(false);
+    });
+  });
+
+  describe('DeepSeek V4 model routing', () => {
+    it('should disable thinking for non-reasoning DeepSeek models', async () => {
+      process.env.DEEPSEEK_API_KEY = 'test-deepseek-key';
+
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'DeepSeek response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'deepseek-v4-flash',
+      });
+
+      await callLLM(
+        'Test prompt',
+        'test_source',
+        '00000000-0000-4000-8000-000000000001',
+        'deepseek-v4-flash',
+        false,
+        null,
+        null,
+        null,
+        false,
+      );
+
+      expect(mockCreateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: 'deepseek-v4-flash',
+          thinking: { type: 'disabled' },
+        })
+      );
+    });
+
+    it('should bill cache-hit prompt tokens at the cached rate', async () => {
+      process.env.DEEPSEEK_API_KEY = 'test-deepseek-key';
+
+      // deepseek-v4-flash: input 0.14, cachedInput 0.0028, output 0.28.
+      // 1000 prompt (800 cache-hit) + 500 output:
+      //   (200/1M)*0.14 + (800/1M)*0.0028 + (500/1M)*0.28 = 0.00017024 -> 0.00017
+      // vs all-miss (1000/1M)*0.14 + (500/1M)*0.28 = 0.00028.
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'cached response' }, finish_reason: 'stop' }],
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 500,
+          total_tokens: 1500,
+          prompt_cache_hit_tokens: 800,
+          prompt_cache_miss_tokens: 200,
+        },
+        model: 'deepseek-v4-flash',
+      });
+
+      let captured: LLMUsageMetadata | undefined;
+      await callLLM(
+        'Test prompt',
+        'test_source',
+        '00000000-0000-4000-8000-000000000001',
+        'deepseek-v4-flash',
+        false,
+        null,
+        null,
+        null,
+        false,
+        { onUsage: (u) => { captured = u; } },
+      );
+
+      expect(captured?.cachedPromptTokens).toBe(800);
+      expect(captured?.estimatedCostUsd).toBeCloseTo(0.00017, 6);
+      // Strictly cheaper than billing all prompt tokens at the cache-miss rate.
+      expect(captured!.estimatedCostUsd).toBeLessThan(0.00028);
     });
   });
 

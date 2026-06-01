@@ -83,6 +83,9 @@ export interface RawProviderUsage {
   promptTokens: number;
   completionTokens: number;
   reasoningTokens?: number;
+  /** Cache-hit subset of promptTokens (provider context caching) — feeds the cache-aware
+   *  rate in calculateLLMCost so the budget gate bills cached input correctly. */
+  cachedPromptTokens?: number;
 }
 
 /** Raw provider response — legacy bare string, or new {text, usage} shape. Discriminated at runtime. */
@@ -206,7 +209,7 @@ export function createEvolutionLLMClient(
           // matches reality) before throwing. The throw will retry or fail downstream.
           if (typeof response !== 'string' || response.trim().length === 0) {
             const billedActual = usage && Number.isFinite(usage.promptTokens) && Number.isFinite(usage.completionTokens)
-              ? calculateLLMCost(model, usage.promptTokens, usage.completionTokens, usage.reasoningTokens ?? 0)
+              ? calculateLLMCost(model, usage.promptTokens, usage.completionTokens, usage.reasoningTokens ?? 0, usage.cachedPromptTokens ?? 0)
               : calculateCost(prompt.length, 0, pricing);
             costTracker.recordSpend(agentName, billedActual, margined);
             throw new Error('Empty LLM response');
@@ -214,7 +217,7 @@ export function createEvolutionLLMClient(
 
           // Success — record actual cost.
           const actual = usage && Number.isFinite(usage.promptTokens) && Number.isFinite(usage.completionTokens)
-            ? calculateLLMCost(model, usage.promptTokens, usage.completionTokens, usage.reasoningTokens ?? 0)
+            ? calculateLLMCost(model, usage.promptTokens, usage.completionTokens, usage.reasoningTokens ?? 0, usage.cachedPromptTokens ?? 0)
             : calculateCost(prompt.length, response.length, pricing);
           costTracker.recordSpend(agentName, actual, margined);
 

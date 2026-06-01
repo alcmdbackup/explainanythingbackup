@@ -16,6 +16,10 @@ export interface ModelInfo {
   outputPer1M: number;
   /** Reasoning token price per 1M tokens (o1/o3 models). */
   reasoningPer1M?: number;
+  /** Cache-hit input price per 1M tokens (e.g. DeepSeek context caching). When set,
+   *  cache-hit prompt tokens bill at this rate while cache-miss tokens use inputPer1M.
+   *  Omit for providers without a separate cache-hit tier. */
+  cachedInputPer1M?: number;
   /** Maximum temperature the model accepts. null = temperature not supported. */
   maxTemperature: number | null;
   /** Whether this model appears in the evolution strategy creation dropdown. */
@@ -117,6 +121,19 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     id: 'deepseek-chat', displayName: 'DeepSeek Chat', provider: 'deepseek',
     inputPer1M: 0.28, outputPer1M: 0.42, maxTemperature: 2.0, supportsEvolution: true,
     supportsReasoning: false,
+  },
+  // DeepSeek V4 — registered non-reasoning (thinking disabled in llms.ts; see plan).
+  // pricing as of 2026-05-31 (the 75% v4-pro cut is permanent); cachedInputPer1M is the
+  // cache-hit input rate — re-verify, the cache-hit rate is the volatile field.
+  'deepseek-v4-pro': {
+    id: 'deepseek-v4-pro', displayName: 'DeepSeek V4 Pro', provider: 'deepseek',
+    inputPer1M: 0.435, cachedInputPer1M: 0.003625, outputPer1M: 0.87,
+    maxTemperature: 2.0, supportsEvolution: true, supportsReasoning: false,
+  },
+  'deepseek-v4-flash': {
+    id: 'deepseek-v4-flash', displayName: 'DeepSeek V4 Flash', provider: 'deepseek',
+    inputPer1M: 0.14, cachedInputPer1M: 0.0028, outputPer1M: 0.28,
+    maxTemperature: 2.0, supportsEvolution: true, supportsReasoning: false,
   },
 
   // Anthropic — Sonnet 4 supports extended thinking via the Anthropic SDK, but the

@@ -84,6 +84,11 @@ describe('schemas', () => {
       expect(allowedLLMModelSchema.parse('gpt-oss-20b')).toBe('gpt-oss-20b');
     });
 
+    it('should accept DeepSeek V4 models', () => {
+      expect(allowedLLMModelSchema.parse('deepseek-v4-pro')).toBe('deepseek-v4-pro');
+      expect(allowedLLMModelSchema.parse('deepseek-v4-flash')).toBe('deepseek-v4-flash');
+    });
+
     it('should reject invalid LLM models', () => {
       expect(() => allowedLLMModelSchema.parse('gpt-3')).toThrow();
       expect(() => allowedLLMModelSchema.parse('gpt-4')).toThrow();
