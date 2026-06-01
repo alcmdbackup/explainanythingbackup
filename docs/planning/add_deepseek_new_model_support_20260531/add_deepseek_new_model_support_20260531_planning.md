@@ -65,10 +65,10 @@ Adding a 5th optional arg `cachedPromptTokens = 0` is backward-compatible (all s
 ## Phased Execution Plan
 
 ### Phase 1: Cache-aware pricing infrastructure
-- [ ] `src/config/llmPricing.ts` — add optional `cachedInputPer1M?: number` to `ModelPricing`, placed adjacent to `reasoningPer1M` (after the two required price fields) for symmetry.
-- [ ] `src/config/modelRegistry.ts` — add optional `cachedInputPer1M?: number` to `ModelInfo`, same placement (next to `reasoningPer1M`).
-- [ ] `src/config/llmPricing.ts` — in the `registryPricing` builder, spread it with the existing guard pattern: `...(info.cachedInputPer1M != null && { cachedInputPer1M: info.cachedInputPer1M })`.
-- [ ] `src/config/llmPricing.ts` — extend `calculateLLMCost` with 5th optional arg `cachedPromptTokens = 0`:
+- [x] `src/config/llmPricing.ts` — add optional `cachedInputPer1M?: number` to `ModelPricing`, placed adjacent to `reasoningPer1M` (after the two required price fields) for symmetry.
+- [x] `src/config/modelRegistry.ts` — add optional `cachedInputPer1M?: number` to `ModelInfo`, same placement (next to `reasoningPer1M`).
+- [x] `src/config/llmPricing.ts` — in the `registryPricing` builder, spread it with the existing guard pattern: `...(info.cachedInputPer1M != null && { cachedInputPer1M: info.cachedInputPer1M })`.
+- [x] `src/config/llmPricing.ts` — extend `calculateLLMCost` with 5th optional arg `cachedPromptTokens = 0`:
   ```typescript
   const cached = pricing.cachedInputPer1M != null
     ? Math.min(cachedPromptTokens, promptTokens) : 0;
@@ -81,24 +81,24 @@ Adding a 5th optional arg `cachedPromptTokens = 0` is backward-compatible (all s
 ### Phase 2: Thread the cache-hit token count to BOTH cost paths
 
 #### Phase 2a — `llms.ts` (tracking-row path)
-- [ ] `src/lib/services/llms.ts` (~537) — read the split from `usage`:
+- [x] `src/lib/services/llms.ts` (~537) — read the split from `usage`:
   ```typescript
   const cachedPromptTokens = usage.prompt_cache_hit_tokens
     ?? usage.prompt_tokens_details?.cached_tokens ?? 0;
   ```
-- [ ] `src/lib/services/llms.ts` (~622) — pass it: `calculateLLMCost(costModel, promptTokens, completionTokens, reasoningTokens, cachedPromptTokens)`.
-- [ ] `src/lib/services/llms.ts` (32-55) — add `cachedPromptTokens?: number` to `LLMUsageMetadata`, and set it in the `usageMeta` object (~651).
-- [ ] Note: streaming may not return cache-hit tokens on the final chunk; `?? 0` degrades gracefully to full-rate (conservative). Acceptable for v1.
+- [x] `src/lib/services/llms.ts` (~622) — pass it: `calculateLLMCost(costModel, promptTokens, completionTokens, reasoningTokens, cachedPromptTokens)`.
+- [x] `src/lib/services/llms.ts` (32-55) — add `cachedPromptTokens?: number` to `LLMUsageMetadata`, and set it in the `usageMeta` object (~651).
+- [x] Note: streaming may not return cache-hit tokens on the final chunk; `?? 0` degrades gracefully to full-rate (conservative). Acceptable for v1.
 
 #### Phase 2b — evolution budget-gate path
-- [ ] `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts` (82-86) — add `cachedPromptTokens?: number` to `RawProviderUsage`.
-- [ ] Same file (209, 217) — pass `usage.cachedPromptTokens ?? 0` as the 5th arg to both `calculateLLMCost` calls feeding `costTracker.recordSpend`.
-- [ ] `evolution/src/lib/pipeline/claimAndExecuteRun.ts` — add `cachedPromptTokens?: number` to the rawProvider usage shape (the `{ promptTokens; completionTokens; reasoningTokens? }` type at lines 192/193/256), capture it in the `onUsage` callback (214-220) via `cachedPromptTokens: u.cachedPromptTokens`, and include it in the `capturedUsage` fallback (226).
-- [ ] Other declarations of the rawProvider usage shape (verified paths): `evolution/src/lib/core/types.ts:169` (the `AgentContext.rawProvider.complete()` return type — the one Agent.ts:130 passes into createEvolutionLLMClient), `evolution/src/lib/pipeline/setup/buildRunContext.ts:197`, `evolution/src/lib/pipeline/loop/runIterationLoop.ts:182`, `evolution/src/lib/pipeline/setup/generateSeedArticle.ts:80`. **These are pass-through-only** (only `createEvolutionLLMClient` reads `usage.*` for cost — grep-confirmed), and an OPTIONAL `cachedPromptTokens?` is return-covariant-compatible, so they compile WITHOUT edits. Add the optional field to `core/types.ts:169` for inventory completeness/clarity; the three pipeline files need no change for correctness (cosmetic only).
-- [ ] Confirm `npm run typecheck` passes after threading (backstop for any missed usage-shape declaration).
+- [x] `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts` (82-86) — add `cachedPromptTokens?: number` to `RawProviderUsage`.
+- [x] Same file (209, 217) — pass `usage.cachedPromptTokens ?? 0` as the 5th arg to both `calculateLLMCost` calls feeding `costTracker.recordSpend`.
+- [x] `evolution/src/lib/pipeline/claimAndExecuteRun.ts` — add `cachedPromptTokens?: number` to the rawProvider usage shape (the `{ promptTokens; completionTokens; reasoningTokens? }` type at lines 192/193/256), capture it in the `onUsage` callback (214-220) via `cachedPromptTokens: u.cachedPromptTokens`, and include it in the `capturedUsage` fallback (226).
+- [x] Other declarations of the rawProvider usage shape (verified paths): `evolution/src/lib/core/types.ts:169` (the `AgentContext.rawProvider.complete()` return type — the one Agent.ts:130 passes into createEvolutionLLMClient), `evolution/src/lib/pipeline/setup/buildRunContext.ts:197`, `evolution/src/lib/pipeline/loop/runIterationLoop.ts:182`, `evolution/src/lib/pipeline/setup/generateSeedArticle.ts:80`. **These are pass-through-only** (only `createEvolutionLLMClient` reads `usage.*` for cost — grep-confirmed), and an OPTIONAL `cachedPromptTokens?` is return-covariant-compatible, so they compile WITHOUT edits. Add the optional field to `core/types.ts:169` for inventory completeness/clarity; the three pipeline files need no change for correctness (cosmetic only).
+- [x] Confirm `npm run typecheck` passes after threading (backstop for any missed usage-shape declaration).
 
 ### Phase 3: Register the two models
-- [ ] `src/config/modelRegistry.ts` — add after the existing `deepseek-chat` entry (~line 120), prefixed with a `// DeepSeek V4 — pricing as of 2026-05-31 (cache-hit rate is volatile; re-verify)` comment:
+- [x] `src/config/modelRegistry.ts` — add after the existing `deepseek-chat` entry (~line 120), prefixed with a `// DeepSeek V4 — pricing as of 2026-05-31 (cache-hit rate is volatile; re-verify)` comment:
   ```typescript
   'deepseek-v4-pro': {
     id: 'deepseek-v4-pro', displayName: 'DeepSeek V4 Pro', provider: 'deepseek',
@@ -111,12 +111,12 @@ Adding a 5th optional arg `cachedPromptTokens = 0` is backward-compatible (all s
     maxTemperature: 2.0, supportsEvolution: true, supportsReasoning: false,
   },
   ```
-- [ ] Auto-propagation (no edits): `allowedLLMModelSchema`, `LLM_PRICING`, `MODEL_OPTIONS` → all four wizard dropdowns. Module-init invariant passes (no `defaultReasoningEffort`). Existing `deepseek-chat` pricing left untouched (out of scope).
+- [x] Auto-propagation (no edits): `allowedLLMModelSchema`, `LLM_PRICING`, `MODEL_OPTIONS` → all four wizard dropdowns. Module-init invariant passes (no `defaultReasoningEffort`). Existing `deepseek-chat` pricing left untouched (out of scope).
 
 ### Phase 4: Disable thinking for non-reasoning DeepSeek models (`llms.ts`)
-- [ ] Export `isDeepSeekModel` (currently private ~line 298): `export function isDeepSeekModel(...)`.
-- [ ] Add `modelSupportsReasoning` to the **existing** destructured import from `@/config/modelRegistry` at `src/lib/services/llms.ts:20` (do NOT add a new import line; `modelSupportsReasoning` is already exported at modelRegistry.ts:218).
-- [ ] In `callOpenAIModel`, after the reasoning-effort block (~line 459, where `validatedModel` and `requestOptions` are in scope and before the request is sent):
+- [x] Export `isDeepSeekModel` (currently private ~line 298): `export function isDeepSeekModel(...)`.
+- [x] Add `modelSupportsReasoning` to the **existing** destructured import from `@/config/modelRegistry` at `src/lib/services/llms.ts:20` (do NOT add a new import line; `modelSupportsReasoning` is already exported at modelRegistry.ts:218).
+- [x] In `callOpenAIModel`, after the reasoning-effort block (~line 459, where `validatedModel` and `requestOptions` are in scope and before the request is sent):
   ```typescript
   // DeepSeek defaults thinking ON. For non-reasoning DeepSeek models, disable it so they
   // behave as plain chat (temperature honored, no CoT tokens billed).
@@ -127,8 +127,8 @@ Adding a 5th optional arg `cachedPromptTokens = 0` is backward-compatible (all s
   Guard ensures it never leaks to non-DeepSeek providers; cast mirrors existing `reasoning`/`reasoning_effort` extra-field pattern (llms.ts:445-456).
 
 ### Phase 5: Tests
-- [ ] Add/extend unit tests (see Testing section).
-- [ ] Add E2E dropdown assertion.
+- [x] Add/extend unit tests (see Testing section).
+- [x] Add E2E dropdown assertion.
 
 ### Phase 6: Verify & document
 - [ ] Full local checks (lint, tsc, build, unit, ESM, integration, E2E critical).
@@ -137,26 +137,26 @@ Adding a 5th optional arg `cachedPromptTokens = 0` is backward-compatible (all s
 ## Testing
 
 ### Unit Tests
-- [ ] `src/config/llmPricing.test.ts` —
+- [x] `src/config/llmPricing.test.ts` —
   - cache-aware calc: `calculateLLMCost('deepseek-v4-pro', 1000, 500, 0, 800)` = (200/1e6)·0.435 + (800/1e6)·0.003625 + (500/1e6)·0.87 = 0.000087 + 0.0000029 + 0.000435 = **0.0005249 → rounds to 0.000525; assert `toBeCloseTo(0.000525, 6)`** (mirror the o1 test at llmPricing.test.ts:65-70).
   - backward-compat: omitting the 5th arg bills all prompt tokens at `inputPer1M`.
   - fallback: a model without `cachedInputPer1M` (e.g. `gpt-4o`) passed `cachedPromptTokens>0` still bills all input at full rate.
   - guard: negative / non-finite `cachedPromptTokens` throws (B021 extension).
   - `LLM_PRICING['deepseek-v4-pro'].cachedInputPer1M === 0.003625`, flash `=== 0.0028`.
   - invariant (cheap, recommended): for every model with `cachedInputPer1M` set, assert `cachedInputPer1M <= inputPer1M` (sanity given the 120× gap motivating the feature).
-- [ ] `src/config/modelRegistry.test.ts` — `getModelOptions()` "includes new models" test: add `deepseek-v4-pro`/`deepseek-v4-flash`.
-- [ ] `src/lib/schemas/schemas.test.ts` — `allowedLLMModelSchema.parse('deepseek-v4-pro')` / flash succeed.
-- [ ] `src/lib/services/llms.test.ts` — **all new deepseek tests must set `process.env.DEEPSEEK_API_KEY='test-deepseek-key'`** (the `beforeEach` at ~line 71 resets env to OPENAI/SUPABASE only; without this `getDeepSeekClient()` at ~277 throws). Mirror the OpenRouter env pattern at ~line 922.
+- [x] `src/config/modelRegistry.test.ts` — `getModelOptions()` "includes new models" test: add `deepseek-v4-pro`/`deepseek-v4-flash`.
+- [x] `src/lib/schemas/schemas.test.ts` — `allowedLLMModelSchema.parse('deepseek-v4-pro')` / flash succeed.
+- [x] `src/lib/services/llms.test.ts` — **all new deepseek tests must set `process.env.DEEPSEEK_API_KEY='test-deepseek-key'`** (the `beforeEach` at ~line 71 resets env to OPENAI/SUPABASE only; without this `getDeepSeekClient()` at ~277 throws). Mirror the OpenRouter env pattern at ~line 922.
   - `isOpenRouterModel('deepseek-v4-pro')`/flash `=== false` (mirror existing deepseek-chat assertion ~line 914).
   - mock a `deepseek-v4-flash` create call → assert request includes `thinking:{type:'disabled'}` (capture via `mockCreateSpy.mock.calls[0][0]`, pattern at ~line 1038).
   - mock a deepseek response whose `usage` includes `prompt_cache_hit_tokens` AND whose `model` field is `'deepseek-v4-flash'` (cost uses `costModel = modelUsed` from `completion.model`, llms.ts:617/532 — a blank/wrong model falls back to DEFAULT_PRICING and the assertion would pass for the wrong reason). Assert tracked `estimated_cost_usd` reflects the cached rate (lower than all-miss). Use the `estimated_cost_usd` assertion pattern at ~line 680.
-- [ ] `evolution` budget-gate cache-awareness: add a `createEvolutionLLMClient` test asserting that a `RawProviderUsage` with `cachedPromptTokens` produces a `recordSpend`/`getTotalSpent()` amount using the cached rate (lower than all-miss). **Mirror `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.test.ts:181-231` (the "Bug A regression" test)** — it mocks a provider returning `usage:{promptTokens,completionTokens}` and asserts `ct.getTotalSpent()` via `toBeCloseTo`; add `cachedPromptTokens` to the mocked usage for a `deepseek-v4-flash` variant.
+- [x] `evolution` budget-gate cache-awareness: add a `createEvolutionLLMClient` test asserting that a `RawProviderUsage` with `cachedPromptTokens` produces a `recordSpend`/`getTotalSpent()` amount using the cached rate (lower than all-miss). **Mirror `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.test.ts:181-231` (the "Bug A regression" test)** — it mocks a provider returning `usage:{promptTokens,completionTokens}` and asserts `ct.getTotalSpent()` via `toBeCloseTo`; add `cachedPromptTokens` to the mocked usage for a `deepseek-v4-flash` variant.
 
 ### Integration Tests
-- [ ] None required — no DB schema change, no new server action. Existing suites must stay green (evolution integration suites exercise the cost path; confirm no regression).
+- [x] None required — no DB schema change, no new server action. Existing suites must stay green (evolution integration suites exercise the cost path; confirm no regression).
 
 ### E2E Tests
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-strategy-crud.spec.ts` — new `adminTest` mirroring the gpt-oss-20b dropdown test (~line 92): read generation-model `<select>` option **values** via `evaluateAll` (stable-selector compliant, no nth-child) and assert they contain `deepseek-v4-pro` and `deepseek-v4-flash`. (Spec already has the required `afterAll` cleanup ~lines 22-45; new test creates no data, so cleanup rule is satisfied.)
+- [x] `src/__tests__/e2e/specs/09-admin/admin-strategy-crud.spec.ts` — new `adminTest` mirroring the gpt-oss-20b dropdown test (~line 92): read generation-model `<select>` option **values** via `evaluateAll` (stable-selector compliant, no nth-child) and assert they contain `deepseek-v4-pro` and `deepseek-v4-flash`. (Spec already has the required `afterAll` cleanup ~lines 22-45; new test creates no data, so cleanup rule is satisfied.)
 
 ### Manual Verification
 - [ ] `/admin/evolution/strategies/new` — both models appear in all four dropdowns.
@@ -167,7 +167,7 @@ Adding a 5th optional arg `cachedPromptTokens = 0` is backward-compatible (all s
 - [ ] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-strategy-crud.spec.ts` (local server) — dropdown assertion passes.
 
 ### B) Automated Tests
-- [ ] `npm run test -- src/config/llmPricing.test.ts src/config/modelRegistry.test.ts src/lib/schemas/schemas.test.ts src/lib/services/llms.test.ts`
+- [x] `npm run test -- src/config/llmPricing.test.ts src/config/modelRegistry.test.ts src/lib/schemas/schemas.test.ts src/lib/services/llms.test.ts`
 - [ ] `npm run test:integration` (evolution cost path) + full local check trio during `/finalize` (lint + tsc + build + unit + ESM + integration + E2E critical).
 - [ ] **Live pre-merge verification (one real DeepSeek call with `DEEPSEEK_API_KEY`):** confirm (a) current prices match the registry, (b) a `deepseek-v4-flash` call with `thinking:{type:'disabled'}` returns NO `reasoning_content` (proves thinking actually disabled — DeepSeek fail-silently ignores a wrong-shaped param), and (c) the response `usage` includes `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens` (and whether it appears on the final streaming chunk).
 - [ ] **CI full-path note:** this PR touches `src/**` AND `evolution/**` and adds an `@evolution`-tagged admin spec (ci.yml classifies `09-admin/**` as evolution), so CI runs `integration-evolution` + `integration-non-evolution` and `e2e-evolution` + `e2e-non-evolution`. Run `npm run test:integration:evolution` and `npm run test:e2e:evolution` locally before push so the new dropdown spec (which runs under e2e-evolution, not e2e-critical) isn't silently unverified.

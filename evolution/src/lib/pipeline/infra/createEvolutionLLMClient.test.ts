@@ -230,6 +230,29 @@ describe('V2 LLM Client', () => {
     expect(spent).toBeLessThan(0.001);
   });
 
+  it('cache-aware: bills cache-hit prompt tokens at the cached rate (budget gate)', async () => {
+    // deepseek-v4-flash: input 0.14, cachedInput 0.0028, output 0.28.
+    // 1000 prompt (800 cache-hit) + 500 output:
+    //   (200 * 0.14 + 800 * 0.0028 + 500 * 0.28) / 1M
+    //   = (28 + 2.24 + 140) / 1M = 0.00017024 -> 0.00017
+    // vs all-miss (no cachedPromptTokens): (1000*0.14 + 500*0.28)/1M = 0.00028.
+    const ct = createCostTracker(10);
+    const provider = {
+      complete: jest.fn(async () => ({
+        text: 'cached response',
+        usage: { promptTokens: 1000, completionTokens: 500, cachedPromptTokens: 800 },
+      })),
+    };
+    const llm = createEvolutionLLMClient(provider, ct, 'deepseek-v4-flash');
+
+    await llm.complete('prompt', 'generation');
+
+    const spent = ct.getTotalSpent();
+    expect(spent).toBeCloseTo(0.00017, 6);
+    // Strictly cheaper than billing all prompt tokens at the cache-miss rate.
+    expect(spent).toBeLessThan(0.00028);
+  });
+
   it('Bug A fallback: legacy bare-string provider still uses chars/4 path', async () => {
     const ct = createCostTracker(10);
     const provider = makeProvider(async () => 'x'.repeat(400)); // legacy bare string

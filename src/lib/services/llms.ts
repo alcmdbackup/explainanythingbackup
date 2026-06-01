@@ -17,7 +17,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 import { calculateLLMCost } from '@/config/llmPricing';
-import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId, getModelMaxTemperature, getModelDefaultReasoningEffort, MODEL_REGISTRY } from '@/config/modelRegistry';
+import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId, getModelMaxTemperature, getModelDefaultReasoningEffort, modelSupportsReasoning, MODEL_REGISTRY } from '@/config/modelRegistry';
 
 /** Clamp temperature to model's max. Returns undefined if model doesn't support temperature or temp not set. */
 function clampTemperature(temperature: number | undefined, model: string): number | undefined {
@@ -34,6 +34,9 @@ export interface LLMUsageMetadata {
   completionTokens: number;
   totalTokens: number;
   reasoningTokens: number;
+  /** Cache-hit subset of promptTokens (provider context caching). Carried so cost paths
+   *  downstream of onUsage (e.g. the evolution budget gate) can bill cache-aware. */
+  cachedPromptTokens?: number;
   estimatedCostUsd: number;
   model: string;
   /** Provider-extracted reasoning trace text (when available + permitted).
@@ -295,7 +298,7 @@ function getDeepSeekClient(): OpenAI {
     return deepseekClient;
 }
 
-function isDeepSeekModel(model: string): boolean {
+export function isDeepSeekModel(model: string): boolean {
     return model.startsWith('deepseek-');
 }
 
@@ -458,6 +461,14 @@ async function callOpenAIModel(
             }
         }
 
+        // DeepSeek defaults thinking ON. For non-reasoning DeepSeek models, explicitly disable
+        // it so they behave as plain chat models (temperature honored, no chain-of-thought
+        // tokens billed). The OpenAI SDK forwards this unknown field to api.deepseek.com, same
+        // as the reasoning/reasoning_effort fields above. Guard keeps it DeepSeek-only.
+        if (isDeepSeekModel(validatedModel) && !modelSupportsReasoning(validatedModel)) {
+            (requestOptions as unknown as Record<string, unknown>).thinking = { type: 'disabled' };
+        }
+
         if (response_obj && response_obj_name) {
             if (isDeepSeekModel(validatedModel) || isLocalModel(validatedModel) || isOpenRouterModel(validatedModel)) {
                 requestOptions.response_format = { type: 'json_object' };
@@ -493,6 +504,7 @@ async function callOpenAIModel(
         let promptTokens = 0;
         let completionTokens = 0;
         let reasoningTokens = 0;
+        let cachedPromptTokens = 0;
         let estimatedCostUsd = 0;
         // bring_back_debate_agent_20260506 Phase 1.20 — provider-specific reasoning trace.
         let reasoningTrace: string | undefined;
@@ -537,6 +549,10 @@ async function callOpenAIModel(
             promptTokens = usage.prompt_tokens ?? 0;
             completionTokens = usage.completion_tokens ?? 0;
             reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
+            // DeepSeek context caching: prompt_cache_hit_tokens is the cache-hit subset of
+            // prompt_tokens (the OpenAI-compatible prompt_tokens_details.cached_tokens is the
+            // fallback for other providers). Feeds the cache-aware rate in calculateLLMCost.
+            cachedPromptTokens = usage.prompt_cache_hit_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? 0;
 
             // bring_back_debate_agent_20260506 Phase 1.20 — extract reasoning trace text
             // per provider, only when reasoning was actually requested + thinking happened.
@@ -619,7 +635,7 @@ async function callOpenAIModel(
             // tokens to expose upstream tracking bugs; we must not let that
             // crash the user-facing LLM call — tracking is non-fatal by design.
             try {
-              estimatedCostUsd = calculateLLMCost(costModel, promptTokens, completionTokens, reasoningTokens);
+              estimatedCostUsd = calculateLLMCost(costModel, promptTokens, completionTokens, reasoningTokens, cachedPromptTokens);
             } catch (err) {
               logger.warn('LLM call tracking save failed (non-fatal cost calc)', {
                 call_source,
@@ -649,7 +665,7 @@ async function callOpenAIModel(
 
         const totalTokens = usage.total_tokens ?? 0;
         const usageMeta: LLMUsageMetadata = {
-          promptTokens, completionTokens, totalTokens, reasoningTokens, estimatedCostUsd, model: modelUsed,
+          promptTokens, completionTokens, totalTokens, reasoningTokens, cachedPromptTokens, estimatedCostUsd, model: modelUsed,
           reasoningTrace,
           reasoningTraceFormat,
         };

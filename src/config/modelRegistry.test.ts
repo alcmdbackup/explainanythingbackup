@@ -143,6 +143,8 @@ describe('modelRegistry', () => {
       expect(values).toContain('gpt-5-nano');
       expect(values).toContain('google/gemini-2.5-flash-lite');
       expect(values).toContain('qwen/qwen3-8b');
+      expect(values).toContain('deepseek-v4-pro');
+      expect(values).toContain('deepseek-v4-flash');
     });
   });
 

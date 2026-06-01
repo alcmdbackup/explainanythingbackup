@@ -189,8 +189,8 @@ export async function claimAndExecuteRun(
         prompt: string,
         label: AgentName,
         opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high'; invocationId?: string },
-      ): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } }> {
-        let capturedUsage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } | null = null;
+      ): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number; cachedPromptTokens?: number } }> {
+        let capturedUsage: { promptTokens: number; completionTokens: number; reasoningTokens?: number; cachedPromptTokens?: number } | null = null;
         const text = await callLLM(
           prompt,
           `evolution_${label}`,
@@ -216,6 +216,7 @@ export async function claimAndExecuteRun(
                 promptTokens: u.promptTokens,
                 completionTokens: u.completionTokens,
                 reasoningTokens: u.reasoningTokens > 0 ? u.reasoningTokens : undefined,
+                cachedPromptTokens: u.cachedPromptTokens,
               };
             },
           },
@@ -253,7 +254,7 @@ interface LLMProvider {
     prompt: string,
     label: AgentName,
     opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high'; invocationId?: string },
-  ): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } }>;
+  ): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number; cachedPromptTokens?: number } }>;
 }
 
 /** Build context, run evolution loop, finalize, sync arena. Re-throws on failure. */
