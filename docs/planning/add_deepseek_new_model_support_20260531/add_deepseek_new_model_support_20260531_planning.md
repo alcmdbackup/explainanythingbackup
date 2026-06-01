@@ -13,13 +13,13 @@ Resolved decisions (see research doc + below):
 - No changes to default-model constants.
 - **Cache-aware pricing (Option A):** account for DeepSeek's cache-hit vs cache-miss input rates **on every cost path that feeds budget tracking** (plan-review iteration 1 found the evolution gate is a separate path — see Phase 2b).
 
-## Verified Pricing (source: https://api-docs.deepseek.com/quick_start/pricing)
-The deepseek-v4-pro 75% promo ends **2026-05-31 15:59 UTC (today)** → use **standard** rates.
+## Verified Pricing (source: https://api-docs.deepseek.com/quick_start/pricing + press confirming the cut is permanent)
+The deepseek-v4-pro 75% cut is **now PERMANENT** (Engadget/TNW/InfoWorld; the official page's post-promo price = the same 75%-off level). **Use the discounted prices as the standing rates.**
 
 | Model | Input cache-hit /1M | Input cache-miss /1M | Output /1M |
 |---|---|---|---|
 | deepseek-v4-flash | $0.0028 | $0.14 | $0.28 |
-| deepseek-v4-pro (standard) | $0.0145 | $1.74 | $3.48 |
+| deepseek-v4-pro (75% cut, permanent) | $0.003625 | $0.435 | $0.87 |
 
 `inputPer1M` = cache-miss (full) rate; new `cachedInputPer1M` = cache-hit rate. Both: 1M context, 384K max output. No `reasoningPer1M` (CoT off).
 
@@ -27,7 +27,9 @@ The deepseek-v4-pro 75% promo ends **2026-05-31 15:59 UTC (today)** → use **st
 > - Cache fields: `usage.prompt_cache_hit_tokens` + `usage.prompt_cache_miss_tokens`, and `prompt_tokens = hit + miss` (verbatim in the Create Chat Completion reference). DeepSeek uses ONLY these top-level fields — there is NO OpenAI-style `prompt_tokens_details.cached_tokens`. Both v4 models bill on separate cache-hit/miss input tiers.
 > - Thinking toggle: top-level body `thinking: { type: "enabled" | "disabled" }`, default `enabled`; disabled → no `reasoning_content`, sampling params (temperature) honored.
 >
-> ⚠️ **Still MUST-VERIFY before merge (one live API call):** (1) current prices — the pro 75% promo ends 2026-05-31 15:59 UTC, confirm whether standard ($1.74/$3.48) is in effect; (2) whether `prompt_cache_hit_tokens` is populated on the FINAL streaming chunk (plan degrades to full-rate if not — safe). Note DeepSeek **fail-silently ignores** unrecognized params, so a wrong-shaped `thinking` field leaves thinking ON with no error → the test/verify must assert BEHAVIOR (no `reasoning_content` in response), not just absence of error.
+> ✅ **Pricing resolved:** the 75% cut is permanent → using the discounted pro rates above. ✅ **Streaming resolved (see Cost Estimation §):** streaming `usage` is null unless `stream_options:{include_usage:true}`, which our code does NOT set — so streaming cost is already a pre-existing no-op and cache-awareness there is moot; the evolution budget gate is non-streaming and fully cache-aware.
+>
+> ⚠️ **Still MUST-VERIFY before merge (one live API call):** DeepSeek **fail-silently ignores** unrecognized params, so a wrong-shaped `thinking` field leaves thinking ON with no error → the live check must assert BEHAVIOR (response has no `reasoning_content`), not just absence of error. Also spot-check the live prices still match the registry.
 
 ## Cost Estimation & Price Drift
 "Cost" is two different numbers and cache variability hits them differently:
@@ -41,6 +43,8 @@ Design principles (the budget gate runs **reserve → spend → reconcile**, so 
 1. **Realized cache-hit ratio varies call-to-call** (cold cache after TTL, reuse patterns, concurrency) → affects only the estimate; we deliberately do NOT predict it (assume 0% = worst case). Actuals read the true split, so reporting/billing is unaffected.
 2. **DeepSeek's published cache *prices* drift** (the pro promo expiring 2026-05-31; the April cache-hit→1/10 adjustment) → this hits BOTH ledgers because prices are hardcoded constants; the cache-**hit** rate is the volatile field. Mitigations: prices stay in the registry (single source); stamp each DeepSeek entry with a `// pricing as of YYYY-MM-DD` comment so reviewers know when to re-verify; treat large jumps (e.g. a 4× promo expiry) as the thing that matters — small drift is noise vs. DeepSeek's actual invoice.
 3. **Keep reservations conservative (cache-miss / 0% hits)** — simple, safe, self-correcting via reconcile. Do not build hit-ratio prediction speculatively. ONLY if conservative reservations cause a real problem (e.g. premature per-slot self-abort on cache-heavy runs) introduce an assumed/EWMA-observed hit-ratio knob for the **reservation path only**, per call-source, with reconcile as backstop. Out of scope for this PR.
+
+**Streaming caveat (investigated 2026-05-31):** the streaming path (llms.ts:502-526) reads `lastChunk.usage`, but DeepSeek (OpenAI-compatible) returns `usage: null` on stream chunks unless `stream_options:{include_usage:true}` is sent — and `requestOptions` (llms.ts:421-428) does NOT set it. So for ANY streamed call, usage is empty today and recorded cost is ~0 (pre-existing behavior across all providers, not introduced here). Implication for this PR: cache-aware billing applies on the **non-streaming** path that the evolution budget gate uses (fully effective); streaming cache-awareness is moot until/unless `include_usage` is enabled. Enabling `include_usage` would make ALL providers' streamed calls report real (non-zero) usage to the budget gate — a behavior change with its own blast radius — so it is explicitly **out of scope** and should be a separate investigation if streaming cost accuracy is wanted.
 
 ## Problem
 DeepSeek is already wired (`getDeepSeekClient` → `https://api.deepseek.com`), but only `deepseek-chat` is registered, and our cost model uses a single `inputPer1M` that ignores caching. The cache-hit rate is 50× (flash) / 120× (pro) cheaper than cache-miss, and the evolution pipeline reuses large prompts, so a single rate misprices every call. There are **two independent cost paths**: (1) `src/lib/services/llms.ts:622` → the `llmCallTracking` row; (2) `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts:209/217` → `costTracker.recordSpend()`, the **evolution budget gate**. Both must become cache-aware or the gate keeps over-reserving on cache-heavy runs (premature budget exhaustion). Also, DeepSeek defaults thinking ON, so a non-reasoning entry alone still incurs CoT cost unless `llms.ts` sends `thinking:{type:'disabled'}`.
@@ -98,7 +102,7 @@ Adding a 5th optional arg `cachedPromptTokens = 0` is backward-compatible (all s
   ```typescript
   'deepseek-v4-pro': {
     id: 'deepseek-v4-pro', displayName: 'DeepSeek V4 Pro', provider: 'deepseek',
-    inputPer1M: 1.74, cachedInputPer1M: 0.0145, outputPer1M: 3.48,
+    inputPer1M: 0.435, cachedInputPer1M: 0.003625, outputPer1M: 0.87,
     maxTemperature: 2.0, supportsEvolution: true, supportsReasoning: false,
   },
   'deepseek-v4-flash': {
@@ -134,7 +138,7 @@ Adding a 5th optional arg `cachedPromptTokens = 0` is backward-compatible (all s
 
 ### Unit Tests
 - [ ] `src/config/llmPricing.test.ts` —
-  - cache-aware calc: `calculateLLMCost('deepseek-v4-pro', 1000, 500, 0, 800)` = (200/1e6)·1.74 + (800/1e6)·0.0145 + (500/1e6)·3.48 = 0.000348 + 0.0000116 + 0.00174 = **0.0020996 → rounds to 0.0021; assert `toBeCloseTo(0.0021, 6)`** (mirror the o1 test at llmPricing.test.ts:65-70).
+  - cache-aware calc: `calculateLLMCost('deepseek-v4-pro', 1000, 500, 0, 800)` = (200/1e6)·0.435 + (800/1e6)·0.003625 + (500/1e6)·0.87 = 0.000087 + 0.0000029 + 0.000435 = **0.0005249 → rounds to 0.000525; assert `toBeCloseTo(0.000525, 6)`** (mirror the o1 test at llmPricing.test.ts:65-70).
   - backward-compat: omitting the 5th arg bills all prompt tokens at `inputPer1M`.
   - fallback: a model without `cachedInputPer1M` (e.g. `gpt-4o`) passed `cachedPromptTokens>0` still bills all input at full rate.
   - guard: negative / non-finite `cachedPromptTokens` throws (B021 extension).
