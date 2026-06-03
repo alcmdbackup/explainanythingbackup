@@ -517,7 +517,7 @@ export const getRunSnapshotsAction = adminAction(
 export const getEvolutionVariantsAction = adminAction(
   'getEvolutionVariantsAction',
   async (
-    args: string | { runId?: string; strategyId?: string; includeDiscarded?: boolean },
+    args: string | { runId?: string; strategyId?: string; includeDiscarded?: boolean; variantKind?: 'article' | 'paragraph' | 'any' },
     ctx: AdminContext,
   ): Promise<EvolutionVariant[]> => {
     // Backward-compat: accept either a bare runId string or an options object.
@@ -526,6 +526,14 @@ export const getEvolutionVariantsAction = adminAction(
     const runId = typeof args === 'string' ? args : args.runId;
     const strategyId = typeof args === 'string' ? undefined : args.strategyId;
     const includeDiscarded = typeof args === 'string' ? false : (args.includeDiscarded ?? false);
+    // hide_paragraphs_from_run_variants_tab_evolution_20260603: default to article-only so the run /
+    // strategy Variants tab hides paragraph_recombine slot rewrites (variant_kind='paragraph'), which
+    // carry run_id via the sync_to_arena RPC and otherwise leak in. Mirrors listVariantsAction's D13
+    // default. Defensive narrowing: any unexpected value collapses to 'article' (closed enum, but the
+    // string-arg form and untyped callers don't go through Zod here).
+    const requestedKind = typeof args === 'string' ? 'article' : (args.variantKind ?? 'article');
+    const variantKind: 'article' | 'paragraph' | 'any' =
+      requestedKind === 'paragraph' || requestedKind === 'any' ? requestedKind : 'article';
     if (runId && strategyId) throw new Error('Specify runId XOR strategyId, not both');
     if (!runId && !strategyId) throw new Error('Must specify runId or strategyId');
     if (runId && !validateUuid(runId)) throw new Error('Invalid runId');
@@ -549,6 +557,13 @@ export const getEvolutionVariantsAction = adminAction(
       // surfaced, not discarded — so keep them. `.or(...)` form is required: a single-string
       // `.not('and(...)')` is a 3-arg-signature tsc error. See NON_DISCARDED_OR_FILTER.
       query = query.or(NON_DISCARDED_OR_FILTER);
+    }
+    // Article-only default (hide_paragraphs_from_run_variants_tab_evolution_20260603). ANDs with the
+    // .or() above on the same `query`, so it applies to both the runId and strategyId !inner branches:
+    // Kind='article' → article non-discards; Kind='paragraph' → all paragraph rows; Kind='any' → no
+    // kind filter. Mirrors listVariantsAction:759-762.
+    if (variantKind !== 'any') {
+      query = query.eq('variant_kind', variantKind);
     }
     // B014-S5: cap variant list at 500 rows. Without a limit, an admin requesting all
     // variants for a strategy with many runs could OOM the action (response size +

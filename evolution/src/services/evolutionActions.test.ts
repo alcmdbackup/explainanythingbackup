@@ -943,6 +943,59 @@ describe('evolutionActions', () => {
       expect(eqCalls.some(([k, v]) => k === 'persisted' && v === true)).toBe(false);
     });
 
+    // hide_paragraphs_from_run_variants_tab_evolution_20260603 — article-only default + Kind filter.
+    function captureEqCalls(): { mock: unknown; eqCalls: Array<[string, unknown]> } {
+      const eqCalls: Array<[string, unknown]> = [];
+      const mock = createTableAwareMock([
+        (b) => {
+          const origEq = b.eq as jest.Mock;
+          b.eq = jest.fn((...args: unknown[]) => { eqCalls.push([String(args[0]), args[1]]); return origEq(...args); });
+          b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null }));
+        },
+      ]);
+      return { mock, eqCalls };
+    }
+
+    it('defaults to article-only: applies .eq(variant_kind, article)', async () => {
+      const { mock, eqCalls } = captureEqCalls();
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionVariantsAction(VALID_UUID); // string form → default 'article'
+
+      expect(result.success).toBe(true);
+      expect(eqCalls.some(([k, v]) => k === 'variant_kind' && v === 'article')).toBe(true);
+    });
+
+    it("variantKind 'paragraph' applies .eq(variant_kind, paragraph)", async () => {
+      const { mock, eqCalls } = captureEqCalls();
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionVariantsAction({ runId: VALID_UUID, variantKind: 'paragraph' });
+
+      expect(result.success).toBe(true);
+      expect(eqCalls.some(([k, v]) => k === 'variant_kind' && v === 'paragraph')).toBe(true);
+    });
+
+    it("variantKind 'any' applies NO variant_kind filter", async () => {
+      const { mock, eqCalls } = captureEqCalls();
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionVariantsAction({ runId: VALID_UUID, variantKind: 'any' });
+
+      expect(result.success).toBe(true);
+      expect(eqCalls.some(([k]) => k === 'variant_kind')).toBe(false);
+    });
+
+    it('applies the article-only filter on the strategyId (!inner) path too', async () => {
+      const { mock, eqCalls } = captureEqCalls();
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionVariantsAction({ strategyId: VALID_UUID });
+
+      expect(result.success).toBe(true);
+      expect(eqCalls.some(([k, v]) => k === 'variant_kind' && v === 'article')).toBe(true);
+    });
+
     it('rejects invalid runId', async () => {
       const result = await getEvolutionVariantsAction('not-uuid');
 
