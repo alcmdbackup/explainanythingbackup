@@ -1,0 +1,11 @@
+{
+  "branch": "fix/hide_paragraphs_from_run_variants_tab_evolution_20260603",
+  "created_at": "2026-06-03T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "evolution/docs/visualization.md",
+    "evolution/docs/paragraph_recombine.md",
+    "evolution/docs/variant_lineage.md",
+    "evolution/docs/data_model.md"
+  ]
+}
