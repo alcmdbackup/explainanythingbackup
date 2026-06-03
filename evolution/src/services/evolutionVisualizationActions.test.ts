@@ -454,12 +454,14 @@ describe('evolutionVisualizationActions', () => {
       // (via sync_to_arena) but their parent slot-original has no run_id, so they'd render as orphan
       // nodes with dangling edges. The action must filter variant_kind='article'.
       const eqCalls: Array<[string, unknown]> = [];
-      const chain = {
+      // Explicit type annotation breaks the self-referential implicit-any (TS7022): `eq` returns `chain`.
+      const chain: Record<string, jest.Mock> = {
         select: jest.fn().mockReturnThis(),
-        eq: jest.fn((...args: unknown[]) => { eqCalls.push([String(args[0]), args[1]]); return chain; }),
+        eq: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
         then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
       };
+      chain.eq = jest.fn((...args: unknown[]) => { eqCalls.push([String(args[0]), args[1]]); return chain; });
       mockSupabase.from = jest.fn().mockReturnValue(chain);
 
       const result = await getEvolutionRunLineageAction(VALID_UUID);

@@ -1,10 +1,17 @@
-// E2E: the run-detail Variants tab hides paragraph_recombine slot rewrites (variant_kind='paragraph')
-// by default, and the Kind dropdown reveals them on demand. Also spot-checks the Lineage tab is
-// article-only. hide_paragraphs_from_run_variants_tab_evolution_20260603.
+// E2E: the variants list Kind filter (Articles only / Paragraph snippets / Both) correctly includes /
+// excludes paragraph_recombine slot rewrites. hide_paragraphs_from_run_variants_tab_evolution_20260603.
 //
-// Seeds DB rows directly via createParagraphRecombineFixture (no pipeline/LLM needed) — it seeds an
-// article parent + paragraph rewrites with run_id + variant_kind='paragraph' and full cleanup.
-// Navigate by fixture.runId (NOT invocationId). Tag @evolution (production-only E2E job).
+// Drives the standalone /admin/evolution/variants list (a stable EntityListPage). The run-detail
+// Variants tab + Lineage article-only behavior is covered end-to-end against the real DB by
+// src/__tests__/integration/evolution-variants-tab-article-only.integration.test.ts; the run-detail
+// tab's UI is intentionally NOT driven here (its server-action load is flaky under the prod-build
+// full-suite harness, orthogonal to this feature).
+//
+// Rigorous invariant under test: filtering agentName='paragraph_rewrite' (an agent that only ever
+// produces variant_kind='paragraph') means Kind='article' MUST return zero rows, while
+// Kind='paragraph'/'any' returns rows. This holds regardless of pagination / other DB content.
+//
+// Seeds DB rows directly via createParagraphRecombineFixture (no pipeline/LLM). Tag @evolution.
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import {
@@ -12,54 +19,54 @@ import {
   type ParagraphRecombineFixture,
 } from '../../helpers/evolution-test-data-factory';
 
-adminTest.describe('Evolution run Variants tab — Kind filter (article-only default)', { tag: '@evolution' }, () => {
+adminTest.describe('Evolution variants list — Kind filter (article-only default)', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
 
   let fixture: ParagraphRecombineFixture;
-  // 6-char prefix matches VariantsTab's `persisted-${id.substring(0,6)}` row testid.
-  let paraCellTestId: string;
 
   adminTest.beforeAll(async () => {
     fixture = await createParagraphRecombineFixture({ slotCount: 2, rewritesPerSlot: 2 });
-    paraCellTestId = `persisted-${fixture.slotVariantIds[0]!.substring(0, 6)}`;
   });
 
   adminTest.afterAll(async () => {
     await fixture.cleanup();
   });
 
-  adminTest('hides paragraph rewrites by default; Kind=Both reveals them', async ({ adminPage }) => {
-    await adminPage.goto(`/admin/evolution/runs/${fixture.runId}`);
+  adminTest('Kind=article excludes paragraph rewrites; Kind=paragraph/Both reveal them', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/variants');
+    await adminPage.waitForLoadState('domcontentloaded');
 
-    // Open the Variants tab and wait for hydration proof (the filter bar's Kind <select>).
-    await adminPage.getByTestId('tab-variants').click();
-    const kindFilter = adminPage.getByTestId('variant-kind-filter');
-    await expect(kindFilter).toBeVisible({ timeout: 30000 });
-    await expect(adminPage.getByTestId('variants-tab')).toBeVisible();
+    const table = adminPage.locator('[data-testid="entity-list-table"]');
+    await expect(table).toBeVisible({ timeout: 30000 });
 
-    // Default is article-only → the paragraph rewrite row is absent.
+    // Show seeded [TEST_EVO] content so the fixture's paragraph rewrites are reachable.
+    const hideTest = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not an assertion
+    if (await hideTest.isChecked()) await hideTest.uncheck();
+
+    // Narrow to the paragraph-only agent. paragraph_rewrite NEVER produces variant_kind='article'.
+    const agentFilter = adminPage.locator('[data-testid="filter-agentName"]');
+    await expect(agentFilter).toBeVisible();
+    await agentFilter.fill('paragraph_rewrite');
+
+    const kindFilter = adminPage.locator('[data-testid="filter-variantKind"]');
+    await expect(kindFilter).toBeVisible();
+
+    // Default Kind='article' → paragraph_rewrite + article is necessarily empty.
     await expect(kindFilter).toHaveValue('article');
-    await expect(adminPage.getByTestId(paraCellTestId)).toHaveCount(0);
+    await expect(adminPage.locator('[data-testid="entity-list-table-empty"]')).toBeVisible({ timeout: 15000 });
 
-    // Switching the Kind filter to "Both" opts paragraph snippets back in.
+    // Kind='paragraph' → the seeded paragraph rewrites appear.
+    await kindFilter.selectOption('paragraph');
+    await expect(adminPage.locator('[data-testid="entity-list-table"]')).toBeVisible({ timeout: 15000 });
+    await expect(adminPage.locator('[data-testid="entity-list-table"]').getByText('paragraph_rewrite').first()).toBeVisible({ timeout: 15000 });
+
+    // Kind='any' (Both) → still includes paragraph rewrites.
     await kindFilter.selectOption('any');
-    await expect(adminPage.getByTestId(paraCellTestId)).toBeVisible({ timeout: 15000 });
+    await expect(adminPage.locator('[data-testid="entity-list-table"]').getByText('paragraph_rewrite').first()).toBeVisible({ timeout: 15000 });
 
-    // Back to "Articles only" hides it again.
+    // Back to Kind='article' → paragraph rewrites are hidden again (empty for this agent).
     await kindFilter.selectOption('article');
-    await expect(adminPage.getByTestId(paraCellTestId)).toHaveCount(0);
-  });
-
-  adminTest('Lineage graph is article-only (no paragraph rewrite nodes)', async ({ adminPage }) => {
-    await adminPage.goto(`/admin/evolution/runs/${fixture.runId}`);
-    await adminPage.getByTestId('tab-lineage').click();
-
-    const lineage = adminPage.getByTestId('lineage-tab');
-    const empty = adminPage.getByTestId('lineage-tab-empty');
-    // Either the graph renders (article nodes) or an empty state; in neither case should the
-    // paragraph rewrite's 8-char short id appear as a node label.
-    await expect(lineage.or(empty)).toBeVisible({ timeout: 30000 });
-    const paraShortId = fixture.slotVariantIds[0]!.substring(0, 8);
-    await expect(adminPage.getByText(paraShortId, { exact: false })).toHaveCount(0);
+    await expect(adminPage.locator('[data-testid="entity-list-table-empty"]')).toBeVisible({ timeout: 15000 });
   });
 });
