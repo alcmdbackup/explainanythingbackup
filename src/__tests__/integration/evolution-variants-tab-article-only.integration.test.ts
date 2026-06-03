@@ -18,7 +18,7 @@ jest.mock('@/lib/services/adminAuth', () => ({ requireAdmin: jest.fn().mockResol
 jest.mock('@/lib/logging/server/automaticServerLoggingBase', () => ({ withLogging: jest.fn((fn: unknown) => fn) }));
 jest.mock('@/lib/serverReadRequestId', () => ({ serverReadRequestId: jest.fn((fn: unknown) => fn) }));
 
-import { getEvolutionVariantsAction } from '@evolution/services/evolutionActions';
+import { getEvolutionVariantsAction, getRunSnapshotsAction } from '@evolution/services/evolutionActions';
 import { getEvolutionRunLineageAction } from '@evolution/services/evolutionVisualizationActions';
 
 describe('Variants tab + Lineage article-only default (integration)', () => {
@@ -54,7 +54,15 @@ describe('Variants tab + Lineage article-only default (integration)', () => {
       { id: promptId, prompt: '[TEST_EVO] article-only prompt', name: '[TEST_EVO] article-only prompt', prompt_kind: 'article' },
       { id: slotTopicId, prompt: `[para] V${articleVariantId.slice(0, 8)}.P1`, name: `[para] V${articleVariantId.slice(0, 8)}.P1`, prompt_kind: 'paragraph' },
     ]);
-    await ins('evolution_runs', { id: runId, strategy_id: strategyId, prompt_id: promptId, status: 'completed' });
+    // iteration_snapshots holds the run's ARTICLE pool only (production behavior) — per-slot paragraph
+    // variants live in per-slot local pools and never enter it. Seeding article-only here lets the
+    // Snapshots guard test prove the paragraph variant (which DOES carry run_id) is not surfaced.
+    await ins('evolution_runs', {
+      id: runId, strategy_id: strategyId, prompt_id: promptId, status: 'completed',
+      iteration_snapshots: [
+        { iteration: 0, phase: 'end', capturedAt: '2026-06-03T00:00:00Z', iterationType: 'generate', poolVariantIds: [articleVariantId] },
+      ],
+    });
     await ins('evolution_variants', [
       // Article variant (persisted, in the run pool).
       { id: articleVariantId, run_id: runId, prompt_id: promptId, variant_content: 'ARTICLE body', elo_score: 1300, mu: 30, sigma: 6, persisted: true, variant_kind: 'article', parent_variant_ids: [] },
@@ -100,5 +108,16 @@ describe('Variants tab + Lineage article-only default (integration)', () => {
     const ids = (res.data ?? []).map(n => n.id);
     expect(ids).toContain(articleVariantId);
     expect(ids).not.toContain(paragraphVariantId);
+  });
+
+  it('getRunSnapshotsAction pool is article-only (paragraph variant on the run is not surfaced)', async () => {
+    if (!tablesExist) return;
+    const res = await getRunSnapshotsAction(runId);
+    expect(res.success).toBe(true);
+    const poolIds = (res.data?.snapshots ?? []).flatMap(s => s.poolVariantIds ?? []);
+    expect(poolIds).toContain(articleVariantId);
+    expect(poolIds).not.toContain(paragraphVariantId);
+    // variantInfo is keyed only by ids referenced in the snapshot pool — never the run's paragraph variant.
+    expect(res.data?.variantInfo[paragraphVariantId]).toBeUndefined();
   });
 });

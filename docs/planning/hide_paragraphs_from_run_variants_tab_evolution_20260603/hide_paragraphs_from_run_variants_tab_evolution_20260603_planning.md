@@ -33,21 +33,21 @@ default `'article'` + Kind dropdown); the run-detail surfaces never adopted that
 ## Options Considered
 - [x] **Option A (chosen): Server-default article-only + Kind dropdown (Variants tab); article-only
   query filter (Lineage).** Mirror the proven `listVariantsAction` pattern. Lowest-risk, consistent.
-- [ ] **Option B: Hard article-only, no UI control.** Rejected — removes paragraph inspection, diverges
+- **Option B (rejected): Hard article-only, no UI control.** Removes paragraph inspection, diverges
   from the standalone list.
-- [ ] **Option C: Client-side filter only.** Rejected — server still returns paragraph rows (wasted
+- **Option C (rejected): Client-side filter only.** Server still returns paragraph rows (wasted
   payload) and doesn't cleanly cover Lineage.
 
 ## Phased Execution Plan
 
 ### Phase 0: Reproduce on each surface (grounding)
-- [ ] Seed (or find) a `paragraph_recombine` run on staging; confirm in the admin UI that paragraph
+- [x] Seed (or find) a `paragraph_recombine` run on staging; confirm in the admin UI that paragraph
   rewrite variants appear in the **Variants tab** and as nodes in the **Lineage graph**, and confirm
   they do **not** appear in the **Snapshots tab** (pool tables). Capture run id in `_progress.md`.
   (Alternatively reproduce via `createParagraphRecombineFixture` in the E2E helpers — see Testing.)
 
 ### Phase 1: Variants tab — server default + Kind dropdown
-- [ ] `evolution/src/services/evolutionActions.ts` — `getEvolutionVariantsAction` (~517):
+- [x] `evolution/src/services/evolutionActions.ts` — `getEvolutionVariantsAction` (~517):
   - Extend the object arg form with `variantKind?: 'article' | 'paragraph' | 'any'`.
   - Extract defensively: `const variantKind = typeof args === 'string' ? 'article' : (args.variantKind ?? 'article');`
     Narrow unexpected values to `'article'` (closed enum compared by value — no injection surface, but
@@ -56,7 +56,7 @@ default `'article'` + Kind dropdown); the run-detail surfaces never adopted that
     `if (vk !== 'any') query = query.eq('variant_kind', vk);`
     This applies to BOTH the `runId` and the `strategyId !inner` select branches (the `.eq` is on the
     same `query`), so both paths are covered.
-- [ ] `evolution/src/components/evolution/tabs/VariantsTab.tsx`:
+- [x] `evolution/src/components/evolution/tabs/VariantsTab.tsx`:
   - Add `const [kindFilter, setKindFilter] = useState<'article'|'paragraph'|'any'>('article');`
   - Pass `variantKind: kindFilter` in BOTH branches of the `getEvolutionVariantsAction` call
     (`runId ? { runId, includeDiscarded, variantKind: kindFilter } : { strategyId, includeDiscarded, variantKind: kindFilter }`).
@@ -65,13 +65,13 @@ default `'article'` + Kind dropdown); the run-detail surfaces never adopted that
     options: Articles only (default) / Paragraph snippets / Both — matching the standalone list's labels.
 
 ### Phase 2: Lineage graph — article-only (+ defensive edge guard)
-- [ ] `evolution/src/services/evolutionVisualizationActions.ts` — `getEvolutionRunLineageAction` (~251):
+- [x] `evolution/src/services/evolutionVisualizationActions.ts` — `getEvolutionRunLineageAction` (~251):
   add `.eq('variant_kind', 'article')` to the query. Because lineage **edges are derived from the node
   list** in `LineageTab.tsx:69–75` (`nodes.flatMap(n => n.parentIds.map(...))`), removing paragraph
   nodes automatically removes their edges — no dangling-edge risk from the paragraph→original direction.
   Article variants only have article parents (recombined article variant lineage is
   `parent_variant_ids=[poolParent]`, all article — D4), so no article node is orphaned.
-- [ ] `evolution/src/components/evolution/tabs/LineageTab.tsx`: add a defensive edge filter as
+- [x] `evolution/src/components/evolution/tabs/LineageTab.tsx`: add a defensive edge filter as
   belt-and-suspenders so a future schema change can't reintroduce dangling edges. Build the Set from
   the source `nodes` list (not the post-`.map` `graphNodes`), keep the existing `.flatMap` shape so the
   `parentIndex` field survives (LineageGraph uses it for solid vs dashed multi-parent edges), then filter:
@@ -79,38 +79,38 @@ default `'article'` + Kind dropdown); the run-detail surfaces never adopted that
   Pass `graphEdges` to `<LineageGraph edges={graphEdges} />` unchanged.
 
 ### Phase 3: Snapshots tab — verify-only (no production leak)
-- [ ] **No code change.** Confirm (Phase 0) that `getRunSnapshotsAction` never returns paragraph IDs in
+- [x] **No code change.** Confirm (Phase 0) that `getRunSnapshotsAction` never returns paragraph IDs in
   `poolVariantIds`/`discardedVariantIds` (they come from the run's article-pool iteration snapshots).
-- [ ] Keep the existing `isDiscardedGenerateVariant` gate and the existing
+- [x] Keep the existing `isDiscardedGenerateVariant` gate and the existing
   `SnapshotsTab.test.tsx` "paragraph ✓" defensive test UNCHANGED.
-- [ ] Add a guard unit test (see Testing) asserting `getRunSnapshotsAction` pool rows are article-only
+- [x] Add a guard unit test (see Testing) asserting `getRunSnapshotsAction` pool rows are article-only
   for a run, so a future regression that injects paragraph IDs into the article pool is caught.
 
 ## Testing
 
 ### Unit Tests
-- [ ] `evolution/src/services/evolutionActions.test.ts` — `getEvolutionVariantsAction`:
+- [x] `evolution/src/services/evolutionActions.test.ts` — `getEvolutionVariantsAction`:
   - default (`variantKind` omitted / string-arg form) applies `.eq('variant_kind','article')`;
   - `variantKind:'paragraph'` applies `.eq('variant_kind','paragraph')`; `'any'` applies NO `.eq` on kind;
   - the existing persisted-filter test (`~925–944`) still passes (asserts `.or(NON_DISCARDED_OR_FILTER)`
     present and no `.eq('persisted',true)` — unaffected by adding a `variant_kind` `.eq`);
   - assert the kind `.eq` is present on the `strategyId` (`!inner`) path too.
-- [ ] `evolution/src/components/evolution/tabs/VariantsTab.test.tsx`:
+- [x] `evolution/src/components/evolution/tabs/VariantsTab.test.tsx`:
   - **Update the exact-match assertions at lines ~190 and ~196** from
     `{ runId:'run-1', includeDiscarded:false/true }` to include `variantKind:'article'`.
   - The strategy-detail assertion (uses `expect.objectContaining`, ~line 298–299) survives — note it,
     don't "fix" it.
   - The "marks paragraph ✓" test (~200–222) mocks the action return directly, so it still passes.
   - Add a test: changing the Kind `<select>` to `paragraph`/`any` calls the action with the new `variantKind`.
-- [ ] `evolution/src/services/evolutionVisualizationActions.test.ts` — `describe('getEvolutionRunLineageAction')`
+- [x] `evolution/src/services/evolutionVisualizationActions.test.ts` — `describe('getEvolutionRunLineageAction')`
   (existing block ~line 411): the action uses a `.eq('run_id').order()` chain (NOT `.or()`); update the
   mock chain to capture/assert a new `.eq('variant_kind','article')` call, and ensure the chain still
   terminates correctly after the added `.eq`.
-- [ ] `evolution/src/components/evolution/tabs/SnapshotsTab.test.tsx` — leave the existing paragraph-✓
+- [x] `evolution/src/components/evolution/tabs/SnapshotsTab.test.tsx` — leave the existing paragraph-✓
   test unchanged (defensive gate). No new filtering behavior here.
 
 ### Integration Tests
-- [ ] Use the INTEGRATION helper `createTestVariant` from `evolution/src/testing/evolution-test-helpers.ts`
+- [x] Use the INTEGRATION helper `createTestVariant` from `evolution/src/testing/evolution-test-helpers.ts`
   (signature `(supabase, runId, explanationId, overrides?)` — passes `overrides` through), NOT the E2E
   factory's options-object `createTestVariant` (which does not accept `variant_kind`). Seed an article +
   `createTestVariant(supabase, runId, null, { variant_kind:'paragraph' })`. Assert:
@@ -123,12 +123,12 @@ default `'article'` + Kind dropdown); the run-detail surfaces never adopted that
   - Cleanup via `cleanupEvolutionData(supabase, { runIds:[runId] })` (these rows aren't `trackEvolutionId`-tracked).
 
 ### E2E Tests
-- [ ] Prefer reusing the existing `createParagraphRecombineFixture` (`src/__tests__/e2e/helpers/evolution-test-data-factory.ts`)
+- [x] Prefer reusing the existing `createParagraphRecombineFixture` (`src/__tests__/e2e/helpers/evolution-test-data-factory.ts`)
   — it seeds an article parent + paragraph variants with `run_id` + `variant_kind='paragraph'`, exposes
   `runId` + `cleanup()`, covering Variants + Lineage on one run. Navigate the spec by **`fixture.runId`**
   (`/admin/evolution/runs/${runId}`), NOT by `invocationId` (don't copy the existing recombine spec's
   invocation goto). The e2e factory's `createTestVariant` does NOT accept variant_kind.
-- [ ] New/extended spec under `src/__tests__/e2e/specs/09-admin/` (repo-root tree, NOT under `evolution/`;
+- [x] New/extended spec under `src/__tests__/e2e/specs/09-admin/` (repo-root tree, NOT under `evolution/`;
   Phase 1/2 code edits ARE under `evolution/src/...` — the repo is split-tree). Tag `@evolution`: open the run-detail
   **Variants tab**, assert paragraph rows hidden by default, and shown when the Kind `<select>` →
   "Paragraph snippets"/"Both". Open the **Lineage** tab and assert only article nodes render.
@@ -143,19 +143,19 @@ default `'article'` + Kind dropdown); the run-detail surfaces never adopted that
     `test.describe.configure({ mode: 'serial' })` (rule 13).
 
 ### Manual Verification
-- [ ] Open a recent `paragraph_recombine` run in the admin UI; confirm Variants tab + Lineage show only
+- [x] Open a recent `paragraph_recombine` run in the admin UI; confirm Variants tab + Lineage show only
   article variants by default and the Kind dropdown reveals paragraph snippets on demand; confirm
   Snapshots shows article rows only (was already the case).
 
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] `npx playwright test src/__tests__/e2e/specs/09-admin/ -g @evolution` on the local server (via ensure-server.sh).
+- [x] `npx playwright test src/__tests__/e2e/specs/09-admin/ -g @evolution` on the local server (via ensure-server.sh).
 
 ### B) Automated Tests
-- [ ] `npm run test -- VariantsTab evolutionActions evolutionVisualizationActions`
-- [ ] `npm run test:integration`
-- [ ] `npm run lint && npm run typecheck && npm run build`
+- [x] `npm run test -- VariantsTab evolutionActions evolutionVisualizationActions`
+- [x] `npm run test:integration`
+- [x] `npm run lint && npm run typecheck && npm run build`
 
 ## Rollback Plan
 Pure application change (server actions + React components + tests). **No DB migration** — the
@@ -167,12 +167,12 @@ code change. No data is mutated.
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `evolution/docs/visualization.md` — run Variants tab now defaults article-only + Kind dropdown;
+- [x] `evolution/docs/visualization.md` — run Variants tab now defaults article-only + Kind dropdown;
   Lineage graph defaults article-only; Snapshots unchanged (article-pool only, verified).
-- [ ] `evolution/docs/paragraph_recombine.md` — note run Variants tab + Lineage hide paragraph snippets
+- [x] `evolution/docs/paragraph_recombine.md` — note run Variants tab + Lineage hide paragraph snippets
   by default (Snapshots already article-only).
-- [ ] `evolution/docs/variant_lineage.md` — `getEvolutionRunLineageAction` now filters `variant_kind='article'`.
-- [ ] `evolution/docs/data_model.md` — no semantic change expected (reference only).
+- [x] `evolution/docs/variant_lineage.md` — `getEvolutionRunLineageAction` now filters `variant_kind='article'`.
+- [x] `evolution/docs/data_model.md` — no semantic change expected (reference only).
 
 ## Review & Discussion
 
