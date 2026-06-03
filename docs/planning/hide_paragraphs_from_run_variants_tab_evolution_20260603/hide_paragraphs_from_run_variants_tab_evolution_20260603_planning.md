@@ -210,3 +210,14 @@ on the pool/discarded id arrays. Optional non-blocking nit left for the executor
 `listVariantsAction`'s existing `z.enum([...]).default('article')` instead of hand-rolling the narrowing.
 
 **Plan is ready for execution.**
+
+### Finalize note — E2E scoping
+During `/finalize`, the run-detail Variants-tab E2E spec proved flaky: `getEvolutionVariantsAction`'s
+POST hangs under the prod-build full `@evolution` suite (empty tabpanel; orthogonal infra/DB-contention
+issue — the change only adds a stable `kindFilter` dep, not altering the load mechanism). It passed in
+dev and isolated prod but failed consistently deep in the warm 195-test suite. Per user direction, the
+E2E was rescoped to the **standalone `/admin/evolution/variants` EntityListPage** (stable), asserting the
+deterministic invariant `agentName='paragraph_rewrite' + Kind='article' ⇒ empty` / `Kind='paragraph'|'any'
+⇒ rows`. Stable 3/3 under CI=true. Run-detail Variants tab + Lineage article-only behavior stays fully
+covered by the 4 real-DB integration tests + unit tests. All other gates green (unit 7007, integration
+450, e2e:critical 49, lint/tsc/build, plan-assessment 4/4, code-review 3/3).

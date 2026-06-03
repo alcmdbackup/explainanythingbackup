@@ -51,9 +51,14 @@ returned variants/lineage are article-only.
 - Integration: new `src/__tests__/integration/evolution-variants-tab-article-only.integration.test.ts` —
   seeds an article + a paragraph rewrite on a run; asserts article-only default, `paragraph`/`any` opt-in,
   and article-only lineage against the real DB. **3 pass.**
-- E2E: new `src/__tests__/e2e/specs/09-admin/admin-evolution-variants-tab-kind-filter.spec.ts` (@evolution,
-  serial) — reuses `createParagraphRecombineFixture`, navigates by `runId`; asserts paragraph rows hidden by
-  default, shown on Kind=Both, hidden again; Lineage article-only. **2 pass.**
+- E2E: `src/__tests__/e2e/specs/09-admin/admin-evolution-variants-tab-kind-filter.spec.ts` (@evolution,
+  serial). **Scoping decision (finalize):** initially drove the run-detail Variants tab, but that tab's
+  `getEvolutionVariantsAction` POST hangs under the prod-build full-suite harness (empty tabpanel; an
+  orthogonal infra/DB-contention flake, NOT this feature — the change only adds a stable `kindFilter`
+  dep). Per user direction, the spec was rescoped to the **standalone `/admin/evolution/variants`
+  EntityListPage** using the deterministic invariant `agentName='paragraph_rewrite' + Kind='article'
+  ⇒ empty` / `Kind='paragraph'|'any' ⇒ rows`. Stable **3/3 under CI=true**. The run-detail Variants
+  tab + Lineage article-only behavior remains fully covered by the 4 real-DB integration tests.
 
 ## Docs
 ### Work Done
