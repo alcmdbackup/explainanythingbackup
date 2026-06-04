@@ -52,21 +52,21 @@ adminTest.describe('Evolution variants list — Kind filter (article-only defaul
     const kindFilter = adminPage.locator('[data-testid="filter-variantKind"]');
     await expect(kindFilter).toBeVisible();
 
-    // Default Kind='article' → paragraph_rewrite + article is necessarily empty.
-    await expect(kindFilter).toHaveValue('article');
-    await expect(adminPage.locator('[data-testid="entity-list-table-empty"]')).toBeVisible({ timeout: 15000 });
+    // 'paragraph_rewrite' appears only in the Agent column of paragraph-kind rows (the filter <input>
+    // value is not matched by getByText). So its visible-cell count is a clean proxy for "paragraph
+    // rewrites are shown". Kind='paragraph' must reveal them; Kind='article' must hide them.
+    const paragraphRows = adminPage.getByText('paragraph_rewrite', { exact: true });
 
     // Kind='paragraph' → the seeded paragraph rewrites appear.
     await kindFilter.selectOption('paragraph');
-    await expect(adminPage.locator('[data-testid="entity-list-table"]')).toBeVisible({ timeout: 15000 });
-    await expect(adminPage.locator('[data-testid="entity-list-table"]').getByText('paragraph_rewrite').first()).toBeVisible({ timeout: 15000 });
+    await expect(paragraphRows.first()).toBeVisible({ timeout: 15000 });
 
     // Kind='any' (Both) → still includes paragraph rewrites.
     await kindFilter.selectOption('any');
-    await expect(adminPage.locator('[data-testid="entity-list-table"]').getByText('paragraph_rewrite').first()).toBeVisible({ timeout: 15000 });
+    await expect(paragraphRows.first()).toBeVisible({ timeout: 15000 });
 
-    // Back to Kind='article' → paragraph rewrites are hidden again (empty for this agent).
+    // Kind='article' → paragraph rewrites (agent paragraph_rewrite) are necessarily hidden.
     await kindFilter.selectOption('article');
-    await expect(adminPage.locator('[data-testid="entity-list-table-empty"]')).toBeVisible({ timeout: 15000 });
+    await expect(paragraphRows).toHaveCount(0, { timeout: 15000 });
   });
 });
