@@ -40,6 +40,10 @@ Populated by threading `ctx.invocationId` from `Agent.run()` through `createVari
 
 ---
 
+## Run lineage graph is article-only
+
+`getEvolutionRunLineageAction(runId)` (`evolution/src/services/evolutionVisualizationActions.ts`) filters `.eq('run_id', runId).eq('variant_kind', 'article')` (hide_paragraphs_from_run_variants_tab_evolution_20260603). `paragraph_recombine` slot rewrites carry `run_id` (the `sync_to_arena` RPC sets `run_id=p_run_id`) but their primary parent — the slot's original-paragraph variant — has **no** `run_id` (`upsertSlotTopic` omits it), so including paragraph rewrites would render orphan nodes whose parent edge points off-graph (a dangling edge at (0,0)). Article variants only have article parents (a recombined article variant's lineage is `parent_variant_ids=[poolParent]`, all article), so the article-only filter keeps every article edge intact. `LineageTab.tsx` builds edges from the node list (`nodes.flatMap(n => n.parentIds.map(...))`) and additionally drops any edge whose `source`/`target` isn't in the node set, as a belt-and-suspenders guard.
+
 ## Recursive chain walk
 
 The Postgres RPC `get_variant_full_chain(target_variant_id UUID)` walks `parent_variant_ids[1]` (PostgreSQL 1-indexed primary parent) from the target variant up to the root seed. (Migration `20260508000002_evolution_variants_lineage_walker_array.sql`.)

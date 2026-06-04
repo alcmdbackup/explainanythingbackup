@@ -187,14 +187,37 @@ describe('VariantsTab', () => {
     render(<VariantsTab runId="run-1" />);
     await waitFor(() => expect(screen.getByTestId('variants-tab')).toBeInTheDocument());
 
-    expect(mock).toHaveBeenCalledWith({ runId: 'run-1', includeDiscarded: false });
+    expect(mock).toHaveBeenCalledWith({ runId: 'run-1', includeDiscarded: false, variantKind: 'article' });
 
     const checkbox = screen.getByTestId('include-discarded-toggle').querySelector('input')!;
     fireEvent.click(checkbox);
 
     await waitFor(() =>
-      expect(mock).toHaveBeenCalledWith({ runId: 'run-1', includeDiscarded: true }),
+      expect(mock).toHaveBeenCalledWith({ runId: 'run-1', includeDiscarded: true, variantKind: 'article' }),
     );
+  });
+
+  it('defaults the Kind filter to article-only and passes variantKind to the action on change', async () => {
+    const mock = evolutionActions.getEvolutionVariantsAction as jest.Mock;
+    mock.mockResolvedValue({ success: true, data: mockVariants, error: null });
+
+    render(<VariantsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('variants-tab')).toBeInTheDocument());
+
+    // Article-only is the default — hides paragraph_recombine slot rewrites.
+    expect((screen.getByTestId('variant-kind-filter') as HTMLSelectElement).value).toBe('article');
+    expect(mock).toHaveBeenCalledWith({ runId: 'run-1', includeDiscarded: false, variantKind: 'article' });
+
+    // Changing the Kind filter re-fetches with the selected kind. Re-query the select before each
+    // change and wait for the tab to settle (the component swaps to a skeleton while loading, which
+    // briefly unmounts the dropdown).
+    for (const kind of ['paragraph', 'any'] as const) {
+      await waitFor(() => expect(screen.getByTestId('variant-kind-filter')).toBeInTheDocument());
+      fireEvent.change(screen.getByTestId('variant-kind-filter'), { target: { value: kind } });
+      await waitFor(() =>
+        expect(mock).toHaveBeenCalledWith({ runId: 'run-1', includeDiscarded: false, variantKind: kind }),
+      );
+    }
   });
 
   it('marks only discarded ARTICLE variants with ✗; surfaced and paragraph variants get ✓', async () => {

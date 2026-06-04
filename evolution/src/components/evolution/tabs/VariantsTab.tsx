@@ -55,13 +55,19 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
   const [strategyFilter, setStrategyFilter] = useState<string>('');
   const [iterationFilter, setIterationFilter] = useState<string>('');
   const [includeDiscarded, setIncludeDiscarded] = useState(false);
+  // hide_paragraphs_from_run_variants_tab_evolution_20260603: default to article-only so
+  // paragraph_recombine slot rewrites (variant_kind='paragraph') are hidden; the dropdown lets users
+  // opt into paragraph snippets, mirroring the standalone /admin/evolution/variants list.
+  const [kindFilter, setKindFilter] = useState<'article' | 'paragraph' | 'any'>('article');
   const initialVariantApplied = useRef(false);
 
   useEffect(() => {
     async function load(): Promise<void> {
       setLoading(true);
       const result = await getEvolutionVariantsAction(
-        runId ? { runId, includeDiscarded } : { strategyId, includeDiscarded },
+        runId
+          ? { runId, includeDiscarded, variantKind: kindFilter }
+          : { strategyId, includeDiscarded, variantKind: kindFilter },
       );
       if (result.success && result.data) {
         setVariants(result.data);
@@ -71,7 +77,7 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
       setLoading(false);
     }
     load();
-  }, [runId, strategyId, includeDiscarded]);
+  }, [runId, strategyId, includeDiscarded, kindFilter]);
 
   useEffect(() => {
     if (!initialVariant || loading || initialVariantApplied.current || variants.length === 0) return;
@@ -141,6 +147,17 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
           >
             <option value="">All iterations</option>
             {iterations.map(i => <option key={i} value={String(i)}>Iteration {i}</option>)}
+          </select>
+          <select
+            value={kindFilter}
+            onChange={e => setKindFilter(e.target.value as 'article' | 'paragraph' | 'any')}
+            className="px-3 py-1.5 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)] text-xs"
+            data-testid="variant-kind-filter"
+            aria-label="Kind"
+          >
+            <option value="article">Articles only</option>
+            <option value="paragraph">Paragraph snippets only</option>
+            <option value="any">Both</option>
           </select>
         </div>
         <label className="flex items-center gap-2 text-xs font-ui text-[var(--text-secondary)] cursor-pointer" data-testid="include-discarded-toggle">

@@ -29,7 +29,7 @@ export function LineageTab({ runId }: LineageTabProps): JSX.Element {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function load() {
+    async function load(): Promise<void> {
       setLoading(true);
       const result = await getEvolutionRunLineageAction(runId);
       if (result.success && result.data) {
@@ -66,13 +66,19 @@ export function LineageTab({ runId }: LineageTabProps): JSX.Element {
   // is the canonical primary (rendered solid); parentIndex>=1 are additional parents
   // (debate's loser, etc. — rendered dashed by LineageGraph). Single-parent variants
   // produce a single solid edge as before.
+  // Defensive edge guard (hide_paragraphs_from_run_variants_tab_evolution_20260603): the action now
+  // filters to variant_kind='article', so paragraph nodes (and their parent-slot-original edges) are
+  // gone at the source. This belt-and-suspenders filter drops any edge whose endpoints aren't both in
+  // the node set, so a future schema change can't reintroduce dangling (0,0) edges. parentIndex is
+  // preserved so LineageGraph keeps its solid (0) vs dashed (>=1) multi-parent styling.
+  const nodeIds = new Set(graphNodes.map(n => n.id));
   const graphEdges = nodes.flatMap(n =>
     (n.parentIds ?? []).map((parentId, parentIndex) => ({
       source: parentId,
       target: n.id,
       parentIndex,
     })),
-  );
+  ).filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
 
   return (
     <div data-testid="lineage-tab">
