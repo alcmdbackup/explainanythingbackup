@@ -79,8 +79,6 @@ export default function PromptEditorPage(): JSX.Element {
   const [configs, setConfigs] = useState<ConfigState[]>([newConfig(1, 'article')]);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<PromptEditorRunResult | null>(null);
-  // Index of the result whose full-width "Diff vs parent" view is open (one at a time), or null.
-  const [diffIndex, setDiffIndex] = useState<number | null>(null);
   // "Load recent…" picker: lists recently rewritten content to pre-populate the source.
   const [loadMode, setLoadMode] = useState<RewriteSourceMode>('rewritten');
   const [recentItems, setRecentItems] = useState<RewriteSourceItem[]>([]);
@@ -122,7 +120,6 @@ export default function PromptEditorPage(): JSX.Element {
     nextId.current = 2;
     setConfigs([newConfig(1, u)]);
     setResult(null);
-    setDiffIndex(null);
   }, []);
 
   const addConfig = useCallback(() => {
@@ -155,7 +152,6 @@ export default function PromptEditorPage(): JSX.Element {
     if (!canRun) return;
     setRunning(true);
     setResult(null);
-    setDiffIndex(null);
     try {
       const body = {
         unit,
@@ -433,45 +429,23 @@ export default function PromptEditorPage(): JSX.Element {
                   </div>
                   <pre data-testid={`prompt-editor-output-${i}`} className="whitespace-pre-wrap text-xs font-mono leading-relaxed p-3 max-h-[360px] overflow-y-auto text-[var(--text-primary)] bg-[var(--surface-primary)]">{r.output ?? '—'}</pre>
                   {r.output && (
-                    <div className="p-2 border-t border-[var(--border-default)] flex items-center gap-4">
-                      <button className="text-xs font-ui text-[var(--text-secondary)] hover:text-[var(--accent-gold)] transition-colors" onClick={() => { navigator.clipboard?.writeText(r.output ?? ''); toast.success('Copied'); }}>⧉ copy</button>
-                      <button
-                        data-testid={`prompt-editor-diff-toggle-${i}`}
-                        className={`text-xs font-ui transition-colors ${diffIndex === i ? 'text-[var(--accent-gold)] font-medium' : 'text-[var(--text-secondary)] hover:text-[var(--accent-gold)]'}`}
-                        onClick={() => setDiffIndex((cur) => (cur === i ? null : i))}
-                      >
-                        ⇄ Diff vs parent
-                      </button>
-                    </div>
+                    <>
+                      <div className="p-2 border-t border-[var(--border-default)] flex items-center gap-4">
+                        <button className="text-xs font-ui text-[var(--text-secondary)] hover:text-[var(--accent-gold)] transition-colors" onClick={() => { navigator.clipboard?.writeText(r.output ?? ''); toast.success('Copied'); }}>⧉ copy</button>
+                        <span className="text-xs font-ui text-[var(--text-muted)]">Diff vs parent</span>
+                      </div>
+                      {/* Always-on parent diff (Parent left / This output right, removals struck
+                          red, additions green) — patterned after the variant-detail Diff tab. */}
+                      <div data-testid={`prompt-editor-diff-${i}`} className="p-3 border-t border-[var(--border-default)]">
+                        <SideBySideWordDiff parent={sourceText} variant={r.output} />
+                      </div>
+                    </>
                   )}
                 </div>
               );
             })}
           </div>
         </section>
-      )}
-
-      {/* Full-width "Diff vs parent" view — patterned after the variant-detail Diff tab
-          (Parent left / This output right, removals struck red, additions green). Rendered
-          full-width below the grid so the side-by-side isn't cramped inside a result card. */}
-      {result && diffIndex != null && result.configs[diffIndex]?.output && (
-        <Card data-testid="prompt-editor-diff-panel" className="border-[var(--accent-gold)]/40">
-          <CardContent className="p-5 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="font-display text-xl text-[var(--text-primary)]">
-                Diff vs parent · <span className="font-mono text-base text-[var(--text-secondary)]">{result.configs[diffIndex]!.label}</span>
-              </div>
-              <button
-                data-testid="prompt-editor-diff-close"
-                className="text-xs font-ui text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                onClick={() => setDiffIndex(null)}
-              >
-                ✕ close
-              </button>
-            </div>
-            <SideBySideWordDiff parent={sourceText} variant={result.configs[diffIndex]!.output!} />
-          </CardContent>
-        </Card>
       )}
     </div>
   );

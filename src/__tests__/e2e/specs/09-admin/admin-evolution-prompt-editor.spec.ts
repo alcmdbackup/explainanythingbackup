@@ -68,16 +68,14 @@ adminTest.describe('Prompt Editor', { tag: '@evolution' }, () => {
     await expect(adminPage.getByTestId('prompt-editor-format-chip-1')).toContainText('would-drop');
     await expect(adminPage.getByTestId('prompt-editor-output-1')).toContainText('- a bullet');
 
-    // "Diff vs parent" opens a full-width side-by-side (Parent | This output) patterned after
-    // the variant-detail diff tab.
-    await adminPage.getByTestId('prompt-editor-diff-toggle-0').click();
-    const diffPanel = adminPage.getByTestId('prompt-editor-diff-panel');
-    await expect(diffPanel).toBeVisible();
-    await expect(diffPanel).toContainText('Diff vs parent');
-    await expect(diffPanel.getByTestId('sxs-parent')).toContainText('Source'); // parent = shared source
-    await expect(diffPanel.getByTestId('sxs-variant')).toContainText('Rewritten A');
-    await adminPage.getByTestId('prompt-editor-diff-close').click();
-    await expect(diffPanel).toHaveCount(0);
+    // The parent diff is ALWAYS shown inline in each result card (Parent | This output),
+    // no click needed — patterned after the variant-detail diff tab.
+    const diff0 = adminPage.getByTestId('prompt-editor-diff-0');
+    await expect(diff0).toBeVisible();
+    await expect(diff0.getByTestId('sxs-parent')).toContainText('Source'); // parent = shared source
+    await expect(diff0.getByTestId('sxs-variant')).toContainText('Rewritten A');
+    // Both cards have their own inline diff.
+    await expect(adminPage.getByTestId('prompt-editor-diff-1')).toBeVisible();
   });
 
   adminTest('disables the temperature input for a null-maxTemperature model (o3-mini)', async ({ adminPage }) => {
