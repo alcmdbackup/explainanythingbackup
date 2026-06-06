@@ -56,26 +56,25 @@ adminTest.describe('Prompt Editor', { tag: '@evolution' }, () => {
 
     await adminPage.getByTestId('prompt-editor-run').click();
 
-    // Two result panels render with output + cost.
+    // Two result panels render with cost.
     const panels = adminPage.getByTestId('prompt-editor-result-panel');
     await expect(panels).toHaveCount(2);
-    await expect(adminPage.getByTestId('prompt-editor-output-0')).toContainText('Rewritten A');
-    await expect(adminPage.getByTestId('prompt-editor-output-1')).toContainText('Rewritten B');
     await expect(adminPage.getByTestId('prompt-editor-cost-0')).toContainText('$0.0021');
     await expect(adminPage.getByTestId('prompt-editor-total-cost')).toContainText('$0.0032');
 
-    // Display-only validation: the format chip renders while the (invalid) output is STILL shown.
-    await expect(adminPage.getByTestId('prompt-editor-format-chip-1')).toContainText('would-drop');
-    await expect(adminPage.getByTestId('prompt-editor-output-1')).toContainText('- a bullet');
-
-    // The parent diff is ALWAYS shown inline in each result card (Parent | This output),
-    // no click needed — patterned after the variant-detail diff tab.
+    // Each card shows exactly TWO panes — Parent (shared source) and the New output — both
+    // diffed inline, with no separate raw-output pane. The new output lives in the diff's
+    // right column (sxs-variant).
     const diff0 = adminPage.getByTestId('prompt-editor-diff-0');
     await expect(diff0).toBeVisible();
-    await expect(diff0.getByTestId('sxs-parent')).toContainText('Source'); // parent = shared source
-    await expect(diff0.getByTestId('sxs-variant')).toContainText('Rewritten A');
-    // Both cards have their own inline diff.
-    await expect(adminPage.getByTestId('prompt-editor-diff-1')).toBeVisible();
+    await expect(diff0.getByTestId('sxs-parent')).toContainText('Source');     // parent = shared source
+    await expect(diff0.getByTestId('sxs-variant')).toContainText('Rewritten A'); // new output
+
+    // Display-only validation: the format chip renders while the (invalid) output is STILL
+    // shown in the diff's new-output column.
+    await expect(adminPage.getByTestId('prompt-editor-format-chip-1')).toContainText('would-drop');
+    const diff1 = adminPage.getByTestId('prompt-editor-diff-1');
+    await expect(diff1.getByTestId('sxs-variant')).toContainText('- a bullet');
   });
 
   adminTest('disables the temperature input for a null-maxTemperature model (o3-mini)', async ({ adminPage }) => {

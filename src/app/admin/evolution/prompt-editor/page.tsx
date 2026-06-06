@@ -427,19 +427,20 @@ export default function PromptEditorPage(): JSX.Element {
                     {r.looksLikeRefusal && <div className="text-xs font-ui text-[var(--text-muted)]">↪ output looks like a refusal</div>}
                     {r.errorMsg && <div className="text-xs font-ui text-[var(--status-error)] truncate" title={r.errorMsg}>{r.errorMsg}</div>}
                   </div>
-                  <pre data-testid={`prompt-editor-output-${i}`} className="whitespace-pre-wrap text-xs font-mono leading-relaxed p-3 max-h-[360px] overflow-y-auto text-[var(--text-primary)] bg-[var(--surface-primary)]">{r.output ?? '—'}</pre>
-                  {r.output && (
+                  {r.output ? (
                     <>
-                      <div className="p-2 border-t border-[var(--border-default)] flex items-center gap-4">
-                        <button className="text-xs font-ui text-[var(--text-secondary)] hover:text-[var(--accent-gold)] transition-colors" onClick={() => { navigator.clipboard?.writeText(r.output ?? ''); toast.success('Copied'); }}>⧉ copy</button>
-                        <span className="text-xs font-ui text-[var(--text-muted)]">Diff vs parent</span>
-                      </div>
-                      {/* Always-on parent diff (Parent left / This output right, removals struck
-                          red, additions green) — patterned after the variant-detail Diff tab. */}
-                      <div data-testid={`prompt-editor-diff-${i}`} className="p-3 border-t border-[var(--border-default)]">
+                      {/* Two panes only: Parent (left) + New output (right), both diffed
+                          (removals struck red, additions green) — patterned after the
+                          variant-detail Diff tab. No separate raw-output pane. */}
+                      <div data-testid={`prompt-editor-diff-${i}`} className="p-3">
                         <SideBySideWordDiff parent={sourceText} variant={r.output} />
                       </div>
+                      <div className="p-2 border-t border-[var(--border-default)]">
+                        <button className="text-xs font-ui text-[var(--text-secondary)] hover:text-[var(--accent-gold)] transition-colors" onClick={() => { navigator.clipboard?.writeText(r.output ?? ''); toast.success('Copied'); }}>⧉ copy new output</button>
+                      </div>
                     </>
+                  ) : (
+                    <div className="p-3 text-xs font-mono text-[var(--text-muted)]">— no output</div>
                   )}
                 </div>
               );
