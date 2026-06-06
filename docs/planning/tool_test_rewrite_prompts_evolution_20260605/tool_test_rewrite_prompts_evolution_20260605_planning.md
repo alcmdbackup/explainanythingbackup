@@ -31,7 +31,8 @@ Researchers iterating on the evolution rewrite prompts have no fast feedback loo
 - [ ] Server action(s) under `evolution/src/services/` wrapped in `adminAction` (`requireAdmin` + host gate) that accept N configs and run them with `Promise.allSettled`.
 
 ### Phase 2: Playground admin UI
-- [ ] New route `src/app/admin/evolution/prompt-playground/page.tsx` (+ `loading.tsx`, sidebar nav link in `evolution/layout.tsx`).
+- [ ] New route `src/app/admin/evolution/prompt-playground/page.tsx` (+ `loading.tsx`).
+- [ ] **Link the tool from the evolution admin dashboard** — add a nav entry in the evolution sidebar (`src/app/admin/evolution/layout.tsx`) AND a card/link on `/admin/evolution-dashboard` so the playground is discoverable. (Required.)
 - [ ] Source input (article textarea / paragraph), family selector (generate-tactic | paragraph-recombine), and a repeatable "config card" (prompt text override, tactic/directive, model dropdown from `modelRegistry`, temperature slider validated vs model `maxTemperature`).
 - [ ] "Run all" dispatches configs in parallel; render results side by side with raw output, format-valid badge, cost, duration, and `SideBySideWordDiff` vs source.
 
