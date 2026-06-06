@@ -330,6 +330,17 @@ Destructive DDL (`DROP TABLE`, `RENAME COLUMN`, `TRUNCATE`, `DELETE FROM`) is bl
 
 ## CLI Scripts
 
+### `evolution/scripts/judge-eval.ts`
+
+Systematic judge-evaluation CLI (`docs/feature_deep_dives/judge_evaluation.md`). Subcommands:
+`seed --topic <uuid> --bank <name>` (pull all article + paragraph pairs from an arena topic),
+`create-test-set --bank <name> --name <name> --size-article N --size-paragraph M --strategy
+<random|stratified_confidence|stratified_gap|manual> --seed S` (materialize + freeze a sample),
+and `sweep --test-set <name> --models a,b --temperatures 0,1 --reasoning none,low --kind
+<article|paragraph|both> --repeats N [--dry-run] [--prompt-file <path>]`. Shares the hard cost
+ceiling (`assertWithinJudgeEvalCap`) with the server action. Env: `JUDGE_EVAL_ENABLED` (default
+true), `JUDGE_EVAL_MAX_CALLS` (20000), `JUDGE_EVAL_MAX_USD` (5).
+
 ### `evolution/scripts/evolution-runner-v2.ts`
 
 V2 batch runner designed for continuous operation. Polls for pending runs, claims and executes them with configurable parallelism.
