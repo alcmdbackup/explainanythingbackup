@@ -195,4 +195,5 @@ Both iteration-1 criticals verified resolved by Architecture (5/5) and Testing (
 
 Precision nits also folded in: `customPromptOverride` appended after `cache`/`mode` (param position); drive `run2PassReversal` directly to bypass the comparison cache so both passes execute; treat `null`≡`undefined` max-temp (no slider); reasoning-model filter via `supportsReasoning`; validator regex aligned to the reasoning-tolerant parser; unit test asserts `callLLM` not called on an invalid override.
 
-[Iteration 3 pending re-review.]
+### Iteration 3 — Security 5/5 · Architecture 5/5 · Testing 5/5 ✅ CONSENSUS REACHED
+All three reviewers verified the iteration-2 fixes against source (`llmSpendingGate.ts` throws `GlobalBudgetExceededError`/`LLMKillSwitchError` from `@/lib/errors/serviceError`; prod-guard matches `returnExplanation/route.ts:17`; param-position, cache-bypass, and `null`≡`undefined` max-temp all reflected in the live bullets). Zero critical gaps, zero remaining blocking minors. **Plan is execution-ready.**
