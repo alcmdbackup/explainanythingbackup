@@ -3,7 +3,7 @@
 ## Background
 Create a new tool that helps systematically evaluate judge performance. The "judge" is the LLM that performs pairwise (A/B/TIE) comparisons of text variants in the evolution arena, producing winner verdicts and confidence/decisiveness scores that drive the Elo ratings. Today judge quality is studied ad-hoc; there's no repeatable tool to log match history, record the exact judge settings used, and measure whether custom prompt / temperature / added reasoning improves the decisiveness rate. This project builds that tool, storing results in a structured, retrievable way (keyed by judge settings) and replicating the methodology of the historical judge analyses already done in this repo and on GitHub.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1167)
 - Keep logs of match history
 - Record settings used
 - Test out if custom prompt/temperature/adding reasoning improves decisiveness rate
