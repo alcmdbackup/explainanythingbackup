@@ -128,6 +128,16 @@ export async function getOrCreateTestSet(
   return { testSet: ts as JudgeEvalTestSet, created: true };
 }
 
+export async function loadTestSetByName(db: Db, name: string): Promise<JudgeEvalTestSet | null> {
+  const { data, error } = await db
+    .from('judge_eval_test_sets')
+    .select('*')
+    .eq('name', name)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as JudgeEvalTestSet | null) ?? null;
+}
+
 /** Resolve a test set's frozen members back to full pairs from its bank, kind-filtered. */
 export async function loadTestSetPairs(
   db: Db,
