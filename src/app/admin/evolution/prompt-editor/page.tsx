@@ -405,7 +405,7 @@ export default function PromptEditorPage(): JSX.Element {
       {result && (
         <section className="space-y-3">
           <h2 className="font-display text-2xl text-[var(--text-primary)]">Results</h2>
-          <div data-testid="prompt-editor-results" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div data-testid="prompt-editor-results" className="space-y-4">
             {result.configs.map((r: PromptEditorConfigResult, i: number) => {
               const st = STATUS_STYLES[r.status] ?? STATUS_STYLES.error!;
               return (
