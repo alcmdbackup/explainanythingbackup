@@ -46,9 +46,11 @@ Judge matches (pairwise LLM comparisons that drive Elo ratings) are written to `
 
 ### Phase 2: Realtime re-judge sandbox (display-only)
 - [ ] Add optional `customPromptOverride?: string` param to `buildComparisonPrompt` + `compareWithBiasMitigation` (`evolution/src/lib/shared/computeRatings.ts`); when set, use it directly instead of the built-in rubric. Preserve `## Text A` / `## Text B` / `Your answer:`. Add a unit test asserting all existing callers are byte-for-byte unchanged when the param is omitted.
-- [ ] Add `rejudgeComparisonAction({ comparisonId, judgeModel, mode?, customPrompt?, temperature? }) => { winner, confidence, turns, costUsd }` in `arenaActions.ts`: validate (UUID + model in `MODEL_REGISTRY`), fetch both texts, build a `callLLM` closure over `src/lib/services/llms.ts:callLLM` for the chosen model **passing `temperature`**, call `compareWithBiasMitigation`. **Do NOT write to `evolution_arena_comparisons`, do NOT call rank/merge agents, and do NOT pass `db`/`runId` to any evolution LLM client** (avoids `evolution_metrics` cost writes). Compute cost via `calculateLLMCost`.
+- [ ] Add `rejudgeComparisonAction({ comparisonId, judgeModel, mode?, customPrompt?, temperature?, explainReasoning? }) => { winner, confidence, turns, costUsd, passes }` in `arenaActions.ts`, where `passes: { direction: 'forward' | 'reverse'; prompt: string; rawResponse: string; parsedWinner: 'A'|'B'|'TIE'|null }[]`. Validate (UUID + model in `MODEL_REGISTRY`), fetch both texts, then run the 2-pass reversal via `run2PassReversal` (`computeRatings.ts:291`) so the `buildPrompts`/`callLLM`/`parseResponse` closures can **capture the exact prompt sent and the raw model response per pass** into `passes`. Build the `callLLM` closure over `src/lib/services/llms.ts:callLLM` for the chosen model **passing `temperature`**. **Do NOT write to `evolution_arena_comparisons`, do NOT call rank/merge agents, and do NOT pass `db`/`runId` to any evolution LLM client** (avoids `evolution_metrics` cost writes). Compute cost via `calculateLLMCost`.
+- [ ] **Raw prompt + reasoning support.** When `explainReasoning` is on, the judge prompt instructs the model to give a brief rationale and then end with a strict final verdict line (`Your answer: A|B|TIE`). Parse the verdict with a **reasoning-tolerant parser** that scans the LAST verdict marker — e.g. the last match of `/(?:your answer|verdict|winner)\s*:?\s*\**\s*(A|B|TIE)\b/gi` — **not** `parseWinner` (which is anchored to the start and does a bare `contains 'EQUAL'|'TIE'|'DRAW'` that a reasoning paragraph would false-trigger). Always return `rawResponse` in `passes` regardless of parse success so the reasoning is visible even when the verdict can't be extracted (surface "verdict unparsed" in that case). When `explainReasoning` is off, keep `parseWinner` (single-token path) unchanged.
 - [ ] Build `/admin/evolution/matches/[comparisonId]/page.tsx` (mirror variant detail): tabs for Metadata, Stored comparison (side-by-side texts via `SideBySideWordDiff`/`VariantContentSection` + stored winner/confidence), and a Re-judge sandbox.
-- [ ] Re-judge sandbox UI: model picker from `getModelOptions()` (default `DEFAULT_JUDGE_MODEL`, exclude/flag reasoning models); preset toggle (`article`/`paragraph`) + collapsible custom-prompt textarea; **temperature slider** (default `0`, range `0…model maxTemperature`; disabled/hidden when the model has no `maxTemperature` since `clampTemperature` returns undefined); "Re-judge" button → `rejudgeComparisonAction`; render each result as a stacked card next to the stored result, labeled with model + temp + prompt, with cost + a clear "not persisted" marker. Note in the UI that `temp > 0` makes the 2-pass reversal non-deterministic (intended for experimentation).
+- [ ] Re-judge sandbox UI: model picker from `getModelOptions()` (default `DEFAULT_JUDGE_MODEL`, exclude/flag reasoning models); preset toggle (`article`/`paragraph`) + collapsible custom-prompt textarea; **temperature slider** (default `0`, range `0…model maxTemperature`; disabled/hidden when the model has no `maxTemperature` since `clampTemperature` returns undefined); **"Explain reasoning" toggle** (off by default). "Re-judge" button → `rejudgeComparisonAction`; render each result as a stacked card next to the stored result, labeled with model + temp + prompt, with cost + a clear "not persisted" marker. Note in the UI that `temp > 0` makes the 2-pass reversal non-deterministic (intended for experimentation).
+- [ ] Each result card has **collapsible "Prompt" and "Model output" sections per pass** (forward + reverse) showing the exact `passes[].prompt` sent and the `passes[].rawResponse` returned — so the operator can read the raw judge prompt and, when "Explain reasoning" is on, the model's full rationale. Reasoning mode increases output tokens → note higher cost/latency in the cost line.
 
 ### Phase 3: Polish, dashboard link & docs
 - [ ] Loading / error / empty states; disable re-judge while in flight; show latency; breadcrumb on detail page.
@@ -60,7 +62,8 @@ Judge matches (pairwise LLM comparisons that drive Elo ratings) are written to `
 ### Unit Tests
 - [ ] `arenaActions` tests — `getRecentMatchesAction` builds correct query (run_id `.eq`, `created_at` desc, `count:'exact'`, range cap, nested test-content filter); `getComparisonDetailAction` joins variant content + handles a missing variant; `rejudgeComparisonAction` calls `compareWithBiasMitigation` with the chosen model, returns `{winner,confidence,turns,costUsd}`, and makes **no** Supabase write call (assert insert/update/upsert never invoked) and never passes `db`/`runId` to the evolution client.
 - [ ] `computeRatings` test — `buildComparisonPrompt`/`compareWithBiasMitigation` output is byte-for-byte unchanged when `customPromptOverride` is omitted (backward-compat guard for the 8 existing callers); and uses the override verbatim when provided.
-- [ ] Match-list/detail component unit tests (render rows, winner/confidence formatting, model picker default `qwen-2.5-7b-instruct`, preset toggle + custom-prompt textarea, "not persisted" marker).
+- [ ] Reasoning-parser test — the last-verdict scanner extracts `A`/`B`/`TIE` from a multi-paragraph reasoning response ending in `Your answer: X`; returns null (→ "verdict unparsed") when no marker present; and is NOT fooled by a stray "equally"/"draw" in the prose (the failure mode `parseWinner` would hit). Also assert `rejudgeComparisonAction` returns `passes` with non-empty `prompt` + `rawResponse` for both directions.
+- [ ] Match-list/detail component unit tests (render rows, winner/confidence formatting, model picker default `qwen-2.5-7b-instruct`, preset toggle + custom-prompt textarea, temperature slider, "Explain reasoning" toggle, collapsible prompt/output sections, "not persisted" marker).
 
 ### Integration Tests
 - [ ] `src/__tests__/integration/match-viewer.integration.test.ts` — against real Supabase: seed a run + two variants + a comparison row, assert `getRecentMatchesAction`/`getComparisonDetailAction` return them; assert filter-by-run-id isolates rows. Auto-skip when evolution tables not migrated (existing pattern). Include `afterAll` cleanup via evolution test helpers.
@@ -134,23 +137,31 @@ The following docs were identified as relevant and may need updates:
 ├───────────────────────────────────┴──────────────────────────────────────────┤
 │ ⚖  RE-JUDGE SANDBOX                                          ⓘ not persisted   │
 │  Model [ qwen-2.5-7b-instruct ▾]   Rubric ( •Article ○Paragraph )             │
-│  Temperature  0.0  ▮▯▯▯▯▯▯▯▯▯  (max 2.0 · 0 = deterministic 2-pass)            │
+│  Temperature  0.0  ▮▯▯▯▯▯▯▯▯▯  (max 2.0)        Explain reasoning [ ON ●]      │
 │  ▸ Custom judge prompt (optional)                                              │
 │    ┌────────────────────────────────────────────────────────────────────────┐ │
 │    │ default Article rubric — expand to override (keep ## Text A / ## Text B │ │
-│    │ and the "Your answer:" line so the parser still works)                  │ │
+│    │ and a final "Your answer: A|B|TIE" line so the parser still works)      │ │
 │    └────────────────────────────────────────────────────────────────────────┘ │
-│  Est. ~$0.0009                                                [ ▶ Re-judge ]   │
+│  Est. ~$0.0024 (reasoning ↑ tokens)                           [ ▶ Re-judge ]   │
 │  ┌────────────────────────────────────────────────────────────────────────┐   │
-│  │ gpt-4.1-mini · temp 0.0 · Article    ▣ WINNER B   conf 0.70  2t  $0.0011│   │
-│  │ Stored A (0.50)  →  Re-judge B (0.70)        ⚠ disagrees with stored    │   │
-│  ├────────────────────────────────────────────────────────────────────────┤   │
-│  │ qwen-2.5-7b · temp 1.0 · Article     ▣ WINNER A   conf 0.50  2t  $0.0008│   │
-│  │ Stored A (0.50)  →  Re-judge A (0.50)        ✓ agrees with stored       │   │
+│  │ gpt-4.1-mini · temp 0.0 · Article · reasoning  ▣ WINNER B  conf 0.70  2t│   │
+│  │ Stored A (0.50)  →  Re-judge B (0.70)      ⚠ disagrees with stored      │   │
+│  │ ▾ Prompt (forward)                                                      │   │
+│  │   You are an expert judge. Compare ## Text A and ## Text B on clarity,  │   │
+│  │   structure, engagement … Explain briefly, then end with               │   │
+│  │   "Your answer: A|B|TIE".  ## Text A … ## Text B …                      │   │
+│  │ ▾ Model output (forward)                                                │   │
+│  │   Text B is clearer and better structured; Text A buries the key idea.  │   │
+│  │   B's opening sentence states the mechanism directly. Your answer: B    │   │
+│  │ ▸ Prompt (reverse)    ▸ Model output (reverse)                          │   │
 │  └────────────────────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────────────────┘
-   • Each re-judge appends a result card (model + temp + prompt labeled) so you
-     can fan out several models/temperatures/prompts against one stored pair.
+   • Each re-judge appends a result card (model + temp + rubric + reasoning flag).
+     Expand Prompt / Model output per pass (forward + reverse) to read the exact
+     judge prompt sent and the model's raw reasoning + verdict.
+   • Verdict parsed from the LAST "Your answer:" marker; if unparsed, the card
+     shows "verdict unparsed" but still renders the raw reasoning.
    • "not persisted" = nothing written to comparisons or ratings.
    • Reached directly, or via the "Open in Match Viewer" link on every match-
      history row (variant detail → Matches tab).
