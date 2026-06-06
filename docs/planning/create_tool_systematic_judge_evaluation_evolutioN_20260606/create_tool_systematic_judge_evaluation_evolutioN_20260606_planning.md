@@ -84,5 +84,112 @@ The following docs were identified as relevant and may need updates:
 - [ ] `docs/research/judge_agreement_summary_tables.md` / `judging_accuracy_20260412.md` — cross-link the new repeatable tool.
 - [ ] New deep dive (optional): `docs/feature_deep_dives/judge_evaluation.md`.
 
+## Pair Selection (starting bank)
+
+Pairs are chosen along one axis — **Elo-gap size** — to bracket judge difficulty, not sampled randomly:
+- **Large-gap pair (~400 Elo / 25 mu):** clear winner; sanity floor; the only tier with usable ground truth (accuracy + implied-β computed here).
+- **Close pair (~1–2 Elo):** the discriminating test — weak judges collapse to position-bias TIEs here (nano 0% decisive vs qwen/mini/deepseek 100%). No real ground truth → `gap_kind='close'`, **tie-acceptable** (measure decisiveness + position-bias, not accuracy).
+
+**Sourcing:** pull from a *completed* run (pipeline has already assigned Elo/mu — the noisy ground-truth proxy) via `npm run query:staging -- "...ORDER BY mu DESC"`; pick top-vs-mid for the large gap and two adjacent near-equal variants for the close pair. **Snapshot texts into the bank** for reproducibility if the run is purged.
+
+**Start with run `140f7bce`** for parity with the historical tables — first numbers are directly comparable to `judge_agreement_summary_tables.md`; the harness is validated when it reproduces qwen 100% / nano 0% on the close pair. Fix the historical **D==B UUID labeling bug** while seeding. Keep the starting bank small (2 anchor pairs, 3 distinct texts) to control cost, then optionally add a **medium-gap (~80 Elo)** tier + a **known-tie** pair the historical bank lacked.
+
+**Caveat:** Elo ground truth is itself judge-derived (mildly circular) — robust for the large gap, which is why accuracy/implied-β are restricted to large/medium tiers.
+
+## Wireframes (ASCII)
+
+> Three screens under the existing #1168 "Tools" sidebar group. Judge Lab is the batch/sweep + persisted-results + leaderboard surface; interactive single-match re-judge stays in the merged Match Viewer, which every stored comparison deep-links back to.
+
+### Screen 1 — Judge Lab (`/admin/evolution/judge-lab`)
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│ Evolution                                                              abel ▾       │
+├───────────────┬────────────────────────────────────────────────────────────────────┤
+│ OVERVIEW      │  Judge Lab                                                          │
+│  Dashboard    │  Systematically evaluate judge settings on a fixed pair-bank        │
+│  Start Exp.   │ ┌── New sweep ────────────────────────────────────────────────────┐ │
+│ ENTITIES      │ │ Pair-bank [ 140f7bce · Federal Reserve (3 pairs) ▾ ]   [ Manage ]│ │
+│  Experiments  │ │ Models    ☑ qwen-2.5-7b  ☑ gpt-4.1-nano  ☐ gpt-4.1-mini         │ │
+│  Prompts      │ │           ☐ deepseek-chat  ☐ gpt-oss-20b  ☐ qwen3-8b            │ │
+│  Strategies   │ │ Temps     ☑0  ☑0.3  ☑0.7  ☑1.0     Reasoning ☑none ☐low ☐med   │ │
+│  Tactics      │ │ Prompt    ( •Article  ○Paragraph  ○Custom… )      Repeats [ 10 ] │ │
+│  Criteria     │ │ ───────────────────────────────────────────────────────────────│ │
+│  Runs         │ │ Grid: 2 models × 4 temps × 1 reasoning × 1 prompt = 8 cells      │ │
+│  Variants     │ │ Est. 8 cells × 3 pairs × 10 reps × 2 calls = 480 calls ≈ $0.18  │ │
+│  Invocations  │ │                                   [ Dry-run ]   [ ▶ Launch sweep ]│ │
+│ RESULTS       │ └─────────────────────────────────────────────────────────────────┘ │
+│  Arena        │  Settings leaderboard          sort: Decisive ▾   ☑ Hide test banks │
+│ TOOLS         │ ┌──────────────┬────┬─────┬───────┬──────┬─────┬──────┬──────┬──────┐│
+│  Match Viewer │ │ Model        │Temp│Reas.│Prompt │Decis.│Agree│AvgCnf│PosBi.│$/dec ││
+│ ▶ Judge Lab   │ ├──────────────┼────┼─────┼───────┼──────┼─────┼──────┼──────┼──────┤│
+│               │ │ qwen-2.5-7b  │ 0  │none │article│100%  │100% │ 1.00 │  0%  │.00027││
+│               │ │ deepseek-chat│ 0  │none │article│100%  │100% │ 1.00 │  0%  │.00189││
+│               │ │ gpt-4.1-mini │ 0  │none │article│100%  │100% │ 1.00 │  0%  │.00272││
+│               │ │ gpt-4.1-nano │ 0  │none │article│ 45%  │ 60% │ 0.72 │ 50%  │.00060││
+│               │ │ gpt-4.1-nano │1.0 │none │article│  0%  │100% │ 0.50 │100%  │  ∞   ││
+│               │ └──────────────┴────┴─────┴───────┴──────┴─────┴──────┴──────┴──────┘│
+│               │  Row click → eval-run detail.   42 settings · ‹Prev  1/3  Next›      │
+└───────────────┴────────────────────────────────────────────────────────────────────┘
+  • Decis. = decisive_rate (confidence > 0.6, live-metric parity).  PosBi. = position-bias rate.
+  • $/dec = cost per decisive comparison; "∞" = 0 decisive.  • Best decisive first; ties → cost.
+```
+
+### Screen 2 — Eval-run detail (`/admin/evolution/judge-lab/runs/[evalRunId]`)
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│ Judge Lab  ›  run 5e9c…  ·  gpt-4.1-nano · temp 1.0 · none · article               │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│ Settings  model gpt-4.1-nano   temp 1.0   reasoning none   prompt article (hash 3af1)│
+│ Pair-bank 140f7bce (3 pairs)   repeats 10   480 calls   $0.058   2026-06-06 15:12   │
+├───────────────────────────────────────────┬────────────────────────────────────────┤
+│ PAIR  A-vs-B  (large gap, Δ404 Elo)        │ PAIR  C-vs-D  (close, Δ1.4 Elo)        │
+│  decisive   60%      accuracy   100%       │  decisive    0%     accuracy   n/a (tie)│
+│  agreement  80%      implied β  43.7 (10×) │  agreement 100%     implied β  n/a      │
+│  avg conf   0.80     pos-bias    40%       │  avg conf  0.50     pos-bias  100%      │
+│  med wall   510 ms   ⚠ over-confident      │  med wall  420 ms   ⚠ pure position bias│
+├───────────────────────────────────────────┴────────────────────────────────────────┤
+│ Per-repeat (A-vs-B)                                            ☐ show raw passes     │
+│ ┌────┬─────────┬─────────┬────────┬─────┬─────┬──────┬───────┬──────────────────────┐│
+│ │ #  │ fwd     │ reverse │ winner │ conf│ dec │ wall │ oTok  │                      ││
+│ ├────┼─────────┼─────────┼────────┼─────┼─────┼──────┼───────┼──────────────────────┤│
+│ │ 1  │ A       │ A       │  A     │1.00 │ ✓   │ 480ms│  3    │ ▸ open in Match Viewer││
+│ │ 2  │ A       │ B (=A)  │  A     │1.00 │ ✓   │ 502ms│  3    │ ▸ open in Match Viewer││
+│ │ 3  │ B       │ B       │  TIE   │0.50 │ ✗   │ 530ms│  4    │ ▸ open in Match Viewer││
+│ │ 4  │ A       │ TIE     │  A     │0.70 │ ✓   │ 470ms│  5    │ ▸ open in Match Viewer││
+│ │ …  │         │         │        │     │     │      │       │                      ││
+│ └────┴─────────┴─────────┴────────┴─────┴─────┴──────┴───────┴──────────────────────┘│
+│  Winner histogram  A ███████░░ 7   TIE ██░ 2   B █ 1        (modal: A, 70%)          │
+│  Expanding a row reveals forward/reverse prompt + raw response (read-only, escaped). │
+└──────────────────────────────────────────────────────────────────────────────────┘
+  • "B (=A)" annotates the reverse pass un-reversed to the original frame (same text won).
+  • accuracy/implied-β shown only for ground-truth (large-gap) pairs; close pair = tie-acceptable.
+```
+
+### Screen 3 — Pair-bank manager (`/admin/evolution/judge-lab/pair-banks`)
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│ Judge Lab  ›  Pair-banks                                            [ + New bank ]  │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│  Bank: 140f7bce · Federal Reserve            source run 140f7bce   3 pairs          │
+│ ┌──────────┬───────────────────┬───────────────────┬──────────┬─────────┬─────────┐│
+│ │ Label    │ Variant A         │ Variant B         │ gap_kind │ Δ Elo   │ truth   ││
+│ ├──────────┼───────────────────┼───────────────────┼──────────┼─────────┼─────────┤│
+│ │ large    │ 4d3ced31 (mu43.9) │ 2f25e2b0 (mu18.7) │ large    │  404    │ A wins  ││
+│ │ close    │ 39d3275f (mu18.75)│ 2f25e2b0 (mu18.66)│ close    │  1.4    │ tie-ok  ││
+│ │ medium † │ —  (add via query)│ —                 │ medium   │  ~80    │ A wins  ││
+│ └──────────┴───────────────────┴───────────────────┴──────────┴─────────┴─────────┘│
+│  † optional medium-gap tier the historical bank lacked.                              │
+│  ┌─ Add pair ──────────────────────────────────────────────────────────────────┐   │
+│  │ Source [ query staging ORDER BY mu DESC ▾ ]   Variant A [____]  B [____]      │   │
+│  │ Texts are snapshotted into the bank on save (reproducible if the run is purged)│   │
+│  │                                                          [ Preview ] [ Save ]  │   │
+│  └────────────────────────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────────────────────┘
+  • expected_winner stored only for large/medium (mu-gap ground truth); close = tie-acceptable.
+```
+
 ## Review & Discussion
 _(populated by /plan-review)_
