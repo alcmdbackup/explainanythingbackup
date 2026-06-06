@@ -56,6 +56,17 @@ adminTest.describe('Prompt Playground', { tag: '@evolution' }, () => {
     // Display-only validation: the format chip renders while the (invalid) output is STILL shown.
     await expect(adminPage.getByTestId('playground-format-chip-1')).toContainText('would-drop');
     await expect(adminPage.getByTestId('playground-output-1')).toContainText('- a bullet');
+
+    // "Diff vs parent" opens a full-width side-by-side (Parent | This output) patterned after
+    // the variant-detail diff tab.
+    await adminPage.getByTestId('playground-diff-toggle-0').click();
+    const diffPanel = adminPage.getByTestId('playground-diff-panel');
+    await expect(diffPanel).toBeVisible();
+    await expect(diffPanel).toContainText('Diff vs parent');
+    await expect(diffPanel.getByTestId('sxs-parent')).toContainText('Source'); // parent = shared source
+    await expect(diffPanel.getByTestId('sxs-variant')).toContainText('Rewritten A');
+    await adminPage.getByTestId('playground-diff-close').click();
+    await expect(diffPanel).toHaveCount(0);
   });
 
   adminTest('disables the temperature input for a null-maxTemperature model (o3-mini)', async ({ adminPage }) => {

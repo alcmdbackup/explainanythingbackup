@@ -61,13 +61,15 @@ export default function PromptPlaygroundPage(): JSX.Element {
   const [configs, setConfigs] = useState<ConfigState[]>([newConfig(1, 'article')]);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<PlaygroundRunResult | null>(null);
-  const [diffOpen, setDiffOpen] = useState<Record<number, boolean>>({});
+  // Index of the result whose full-width "Diff vs parent" view is open (one at a time), or null.
+  const [diffIndex, setDiffIndex] = useState<number | null>(null);
 
   const switchUnit = useCallback((u: RewriteUnit) => {
     setUnit(u);
     nextId.current = 2;
     setConfigs([newConfig(1, u)]);
     setResult(null);
+    setDiffIndex(null);
   }, []);
 
   const addConfig = useCallback(() => {
@@ -100,6 +102,7 @@ export default function PromptPlaygroundPage(): JSX.Element {
     if (!canRun) return;
     setRunning(true);
     setResult(null);
+    setDiffIndex(null);
     try {
       const body = {
         unit,
@@ -332,17 +335,39 @@ export default function PromptPlaygroundPage(): JSX.Element {
                 {r.output && (
                   <div className="p-2 border-t border-[var(--border-default)] flex items-center gap-3">
                     <button className="text-xs font-ui text-[var(--text-secondary)] hover:underline" onClick={() => { navigator.clipboard?.writeText(r.output ?? ''); toast.success('Copied'); }}>⧉ copy</button>
-                    <button className="text-xs font-ui text-[var(--text-secondary)] hover:underline" onClick={() => setDiffOpen((d) => ({ ...d, [i]: !d[i] }))}>⇄ vs source</button>
-                  </div>
-                )}
-                {r.output && diffOpen[i] && (
-                  <div className="p-2 border-t border-[var(--border-default)]">
-                    <SideBySideWordDiff parent={sourceText} variant={r.output} />
+                    <button
+                      data-testid={`playground-diff-toggle-${i}`}
+                      className={`text-xs font-ui hover:underline ${diffIndex === i ? 'text-[var(--accent-gold)]' : 'text-[var(--text-secondary)]'}`}
+                      onClick={() => setDiffIndex((cur) => (cur === i ? null : i))}
+                    >
+                      ⇄ Diff vs parent
+                    </button>
                   </div>
                 )}
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Full-width "Diff vs parent" view — patterned after the variant-detail Diff tab
+          (Parent left / This output right, removals struck red, additions green). Rendered
+          full-width below the grid so the side-by-side isn't cramped inside a result card. */}
+      {result && diffIndex != null && result.configs[diffIndex]?.output && (
+        <div data-testid="playground-diff-panel" className="rounded-page border border-[var(--accent-gold)]/40 bg-[var(--surface-primary)] p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="font-ui text-sm text-[var(--text-primary)]">
+              Diff vs parent · <span className="font-mono">{result.configs[diffIndex]!.label}</span>
+            </div>
+            <button
+              data-testid="playground-diff-close"
+              className="text-xs font-ui text-[var(--text-muted)] hover:underline"
+              onClick={() => setDiffIndex(null)}
+            >
+              ✕ close
+            </button>
+          </div>
+          <SideBySideWordDiff parent={sourceText} variant={result.configs[diffIndex]!.output!} />
         </div>
       )}
     </div>
