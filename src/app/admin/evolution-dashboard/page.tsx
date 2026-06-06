@@ -129,7 +129,21 @@ function DashboardContent(): JSX.Element {
       {/* U20 (use_playwright_find_bugs_ux_issues_20260422): the previous row of
           Tactics → / Strategies → / Experiments → / Prompts → / Arena → quick-links
           duplicated the sidebar with no extra info (no per-entity counts).
-          Dropped entirely; the sidebar already links to all of them. */}
+          Dropped entirely; the sidebar already links to all of them.
+
+          match_viewer_with_experimentation_procedures_20260605: a single deliberate
+          Tools link for Match Viewer — not in the entity nav, so it gets surfaced here
+          for discoverability (per project requirement). */}
+      <div className="border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)] p-4">
+        <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-2">Tools</h2>
+        <Link
+          href="/admin/evolution/matches"
+          data-testid="dashboard-match-viewer-link"
+          className="text-sm text-[var(--accent-gold)] hover:underline"
+        >
+          ⚖️ Match Viewer → <span className="text-[var(--text-muted)]">browse judge matches &amp; re-run judging</span>
+        </Link>
+      </div>
     </div>
   );
 }

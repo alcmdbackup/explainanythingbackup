@@ -30,6 +30,15 @@ const navGroups: NavGroup[] = [
       { href: '/admin/evolution/arena', label: 'Arena', icon: '🏟️', testId: 'evolution-sidebar-nav-arena', description: 'Best evolved content' },
     ],
   },
+  // Tools: utilities that are not entity-list pages. Match Viewer
+  // (match_viewer_with_experimentation_procedures_20260605) browses judge matches and
+  // re-runs judging in a display-only sandbox — a tool, not an entity.
+  {
+    label: 'Tools',
+    items: [
+      { href: '/admin/evolution/matches', label: 'Match Viewer', icon: '⚖️', testId: 'evolution-sidebar-nav-matches', description: 'Judge match history and re-run comparisons' },
+    ],
+  },
 ];
 
 const DASHBOARD_PATH = '/admin/evolution-dashboard';

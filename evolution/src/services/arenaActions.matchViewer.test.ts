@@ -95,7 +95,7 @@ describe('getRecentMatchesAction', () => {
 describe('getComparisonDetailAction', () => {
   it('joins both variants’ content and renders missing ones as null', async () => {
     const mock = createTableAwareMock([
-      (b) => { b.single.mockResolvedValueOnce({ data: compRow, error: null }); },
+      (b) => { b.single!.mockResolvedValueOnce({ data: compRow, error: null }); },
       // Only entry_a exists; entry_b was deleted.
       (b) => { b.then = jest.fn((r) => r({ data: [{ id: VA, variant_content: 'A text', elo_score: 1243 }], error: null })); },
     ]);
@@ -114,7 +114,7 @@ describe('rejudgeComparisonAction', () => {
   function dbWithBothVariants() {
     const builders: Record<string, jest.Mock>[] = [];
     const mock = createTableAwareMock([
-      (b) => { builders.push(b); b.single.mockResolvedValueOnce({ data: { entry_a: VA, entry_b: VB }, error: null }); },
+      (b) => { builders.push(b); b.single!.mockResolvedValueOnce({ data: { entry_a: VA, entry_b: VB }, error: null }); },
       (b) => { builders.push(b); b.then = jest.fn((r) => r({ data: [
         { id: VA, variant_content: 'Text A content' },
         { id: VB, variant_content: 'Text B content' },
