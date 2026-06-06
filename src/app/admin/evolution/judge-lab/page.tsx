@@ -151,6 +151,10 @@ export default function JudgeLabPage(): JSX.Element {
         decisiveness are reported separately. Interactive single-match re-judge lives in the{' '}
         <Link className="underline" href="/admin/evolution/matches">Match Viewer</Link>.
       </p>
+      <div className="flex gap-3 text-xs">
+        <Link className="underline" href="/admin/evolution/judge-lab/pair-banks">Pair-banks</Link>
+        <Link className="underline" href="/admin/evolution/judge-lab/test-sets">Test Sets</Link>
+      </div>
 
       {/* Sweep launcher */}
       <div className="rounded-book paper-texture card-enhanced p-4 space-y-3" data-testid="judge-lab-sweep">
@@ -309,7 +313,15 @@ export default function JudgeLabPage(): JSX.Element {
             )}
             {rows.map((r, i) => (
               <tr key={`${r.eval_run_id}-${r.pair_kind}-${i}`} data-testid="leaderboard-row" className="border-t border-[var(--border-default)]">
-                <td className="py-1 font-mono">{r.judge_model ?? '—'}</td>
+                <td className="py-1 font-mono">
+                  {r.eval_run_id ? (
+                    <Link className="underline" href={`/admin/evolution/judge-lab/runs/${r.eval_run_id}`}>
+                      {r.judge_model ?? '—'}
+                    </Link>
+                  ) : (
+                    r.judge_model ?? '—'
+                  )}
+                </td>
                 <td>{r.temperature ?? '—'}</td>
                 <td>{r.reasoning_effort ?? 'none'}</td>
                 <td>{r.pair_kind ?? '—'}</td>

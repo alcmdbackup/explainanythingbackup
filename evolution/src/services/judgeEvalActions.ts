@@ -16,6 +16,7 @@ import {
   getOrCreateTestSet,
 } from '@evolution/lib/judgeEval/persist';
 import { executeSweep, type SweepOutcome } from '@evolution/lib/judgeEval/executeSweep';
+import { seedPairBankFromTopic } from '@evolution/lib/judgeEval/seed';
 import {
   kindFilterSchema,
   reasoningEffortSchema,
@@ -45,6 +46,29 @@ export const listTestSetsAction = adminAction('listTestSets', async (ctx: AdminC
   if (error) throw error;
   return data ?? [];
 });
+
+const seedSchema = z.object({
+  topicId: z.string().uuid(),
+  bankName: z.string().min(1).max(120),
+  includeArticles: z.boolean().default(true),
+  includeParagraphs: z.boolean().default(true),
+});
+
+/** Pull ALL comparison pairs from an arena topic into a (upserted) pair-bank. Read-heavy and
+ *  no LLM cost. For very large topics (e.g. Federal Reserve 2 ~8.8k pairs) prefer the CLI
+ *  (`judge-eval.ts seed`) to avoid the server-action time limit. */
+export const seedPairBankAction = adminAction(
+  'seedPairBank',
+  async (input: z.input<typeof seedSchema>, ctx: AdminContext) => {
+    const parsed = seedSchema.parse(input);
+    return seedPairBankFromTopic(db(ctx), {
+      topicId: parsed.topicId,
+      bankName: parsed.bankName,
+      includeArticles: parsed.includeArticles,
+      includeParagraphs: parsed.includeParagraphs,
+    });
+  },
+);
 
 const createTestSetSchema = z.object({
   bankName: z.string().min(1),
