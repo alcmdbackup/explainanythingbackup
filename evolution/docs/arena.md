@@ -207,6 +207,7 @@ The prompt registry actions (`listPromptsAction`, `createPromptAction`, `updateP
 
 ## Cross-references
 
+- [Judge Evaluation (Judge Lab)](../../docs/feature_deep_dives/judge_evaluation.md) -- the `judge_eval_*` tables (pair-banks, test sets, runs, calls) are SEPARATE from `evolution_arena_comparisons`; the tool seeds pair-banks by reading arena comparisons but never writes them.
 - [Architecture](./architecture.md) -- where the arena fits in the overall pipeline
 - [Rating System](./rating_and_comparison.md) -- Elo/uncertainty rating mechanics (OpenSkill internally), match scheduling, convergence
 - [Data Model](./data_model.md) -- full database schema including arena tables
