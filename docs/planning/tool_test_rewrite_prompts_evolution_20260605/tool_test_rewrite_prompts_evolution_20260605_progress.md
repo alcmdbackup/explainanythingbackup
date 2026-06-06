@@ -25,6 +25,10 @@
 ### Issues Encountered
 - First workflow launch failed (`meta is not defined` — referenced `meta.phases` in the script body); fixed by using a local `PHASE_TITLES` array and re-ran.
 
+## Plan Review
+### Work Done
+- `/plan-review`: 3 iterations → CONSENSUS 5/5/5 (Security/Architecture/Testing). Caught the false "no DB writes" premise, wrong `callLLM`/`calculateLLMCost` signatures, dead `LLMRefusalError` branch, redundant transport, and `setText=null`. All fixed + re-verified against source. See planning doc "Review & Discussion".
+
 ## Phase 1: Backend rewrite-invocation harness
 ### Work Done
 [Pending]

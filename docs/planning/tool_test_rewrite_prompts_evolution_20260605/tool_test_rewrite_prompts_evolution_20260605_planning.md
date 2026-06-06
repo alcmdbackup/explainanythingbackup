@@ -127,4 +127,25 @@ interface PlaygroundRunResult { configs: PlaygroundConfigResult[]; totalCostUsd:
 - [ ] `evolution/docs/cost_optimization.md` — note the per-run cost cap + `evolution_playground` call_source label.
 
 ## Review & Discussion
-[This section is populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration]
+
+### /plan-review — CONSENSUS REACHED (3 iterations)
+Final scores: Security **5/5**, Architecture **5/5**, Testing **5/5**. All gaps verified-and-fixed against the codebase.
+
+| Perspective | Iter1 | Iter2 | Iter3 |
+|---|---|---|---|
+| Security & Technical | 2 | 4 | 5 |
+| Architecture & Integration | 3 | 5 | 5 |
+| Testing & CI/CD | 2 | 5 | 5 |
+
+**Iteration 1 blockers fixed:**
+- "Ephemeral / no DB writes" was FALSE — `callLLM` always writes one `llmCallTracking` row + reserves/reconciles budget. Reframed: no *evolution-pipeline* rows; LLM-call tracking + shared `evolution` budget are expected.
+- `callLLM` returns `Promise<string>` (not `{text,usage}`); usage/cost via `options.onUsage(LLMUsageMetadata.estimatedCostUsd)`; `model` is the 4th positional arg.
+- `calculateLLMCost(model, promptTokens, completionTokens)` — corrected signature & `@/config/llmPricing` location.
+- `LLMRefusalError` is never thrown by `callLLM` → dropped; real taxonomy `GlobalBudgetExceededError`/`LLMKillSwitchError`/timeout; refusals return as text (`success`).
+- Single transport: API route w/ `maxDuration=300` (drop redundant server action — `maxDuration` doesn't apply to page-invoked actions).
+- Spend bound: char-based pre-flight `calculateLLMCost` vs `$0.50/run` + model dropdown limited to `getEvolutionModelIds()` (== `callLLM`'s validation enum).
+- Host test = 404 (middleware) in `00-host-isolation`; route auth = 403. Unit seam = `jest.mock('@/lib/services/llms')` firing `onUsage`. E2E route-mocked. Kill-switch `EVOLUTION_PLAYGROUND_ENABLED`.
+
+**Iteration 2 blocker fixed:** `setText` must be `null` not `undefined` (`validateStreamingArgs` throws) — call is `callLLM(prompt,'evolution_playground',ANONYMOUS_USER_UUID,model,false,null,null,null,false,{temperature,onUsage})`. Plus minors: `calculateLLMCost` path, paragraph `dropReason`→`formatIssues[]`, `adminTest`/`adminPage` fixture, `evolutionTablesExist` guard, host-404 in `e2e-critical`, `getModelOptions()` for the dropdown.
+
+**Residual minor (non-blocking, for implementation):** default `costUsd` to 0 if `onUsage` never fires (mirror pipeline fallback); only spread `dropReason` on the invalid branch.
