@@ -3,7 +3,7 @@
 ## Background
 Build a match viewer for the evolution pipeline — an admin UI to inspect the outcomes of recent judge matches (pairwise comparisons). It should let an operator view recent matches, filter them by run id, select a match from a list, and experiment with judging in realtime by re-running the comparison with different models and different judge prompts. The goal is to make the previously-invisible judging step inspectable and to provide a low-friction sandbox for tuning judge model and prompt choices.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1165)
 build a match viewer.
 - View outcome of recent matches
 - Filter matches by run id
