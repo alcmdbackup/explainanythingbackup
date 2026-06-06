@@ -107,6 +107,7 @@ Server actions and the server-side runner core. All server actions use Next.js `
 | `tacticPromptActions.ts` | Per-(tactic × prompt) performance aggregation. Returns `{ items, hitCap }` where `hitCap=true` signals the 5000-row query cap was hit and `TacticPromptPerformanceTable` renders a truncation banner (Gap 9 fix). |
 | `tacticStrategyActions.ts` | Per-(tactic × strategy) performance for the strategy detail Tactics tab. Dual-query merge: pre-aggregated `eloAttrDelta:*` rows at `entity_type='strategy'` supply Elo Delta + CI; live `evolution_variants` aggregates supply cost / variant count / winner count / win rate. Tactics with variants but no attribution row sort last with `avgEloDelta=null`. (track_tactic_effectiveness_evolution_20260422 Phase 4) |
 | `criteriaActions.ts` | Criteria registry server actions: `listCriteriaAction`, `getCriteriaDetailAction`, `createCriteriaAction`, `updateCriteriaAction`, `archiveCriteriaAction`, `deleteCriteriaAction`, `getCriteriaForEvaluation` (mid-run dispatch fetch — exported as a non-`'use server'` helper for use from the pipeline), `getCriteriaVariantsAction`, `getCriteriaRunsAction`, plus `validateCriteriaIds(criteriaIds, db)` which `createStrategyAction` calls before persisting any strategy whose iteration configs reference criteria UUIDs. Soft-delete via `deleted_at` (mirrors PromptEntity). (evaluateCriteriaThenGenerateFromPreviousArticle_20260501) |
+| `promptEditorActions.ts` | Prompt Editor "Load recent" picker server actions: `listRewriteSourcesAction({ unit, mode, limit })` lists recently rewritten content (article/paragraph × original/rewritten) from `evolution_variants` + `evolution_explanations` with a lightweight `{ id, source, preview, meta }` shape and an ilike test-content heuristic; `getRewriteSourceTextAction({ id, source })` fetches the full text to pre-populate the editor source. See [prompt_editor.md](./prompt_editor.md). (tool_test_rewrite_prompts_evolution_20260605) |
 
 ### Schemas (`evolution/src/lib/schemas.ts`)
 
@@ -504,6 +505,7 @@ The admin UI is a Next.js App Router application. All pages are under `src/app/a
 | Route | Page File | Purpose |
 |-------|-----------|---------|
 | `/admin/evolution-dashboard` | `evolution-dashboard/page.tsx` | Aggregate metrics dashboard; auto-refresh every 15 seconds |
+| `/admin/evolution/prompt-editor` | `evolution/prompt-editor/page.tsx` | Prompt Editor — single-call rewrite testbed (article + paragraph), parallel configs, side-by-side outputs + cost. Backend: `evolution/src/lib/promptEditor/*` + `/api/evolution/prompt-editor`. See [prompt_editor.md](./prompt_editor.md). |
 | `/admin/evolution/runs` | `evolution/runs/page.tsx` | Runs list with status filtering (pending, running, completed, failed) |
 | `/admin/evolution/runs/[runId]` | `evolution/runs/[runId]/page.tsx` | Run detail with tabs: Overview, Elo, Lineage, Variants, Logs |
 | `/admin/evolution/experiments` | `evolution/experiments/page.tsx` | Experiment list |
@@ -529,6 +531,7 @@ The admin UI is a Next.js App Router application. All pages are under `src/app/a
 | Route | Method | File | Purpose |
 |-------|--------|------|---------|
 | `/api/evolution/run` | POST | `src/app/api/evolution/run/route.ts` | Trigger evolution pipeline run. Admin-only. Accepts `{ targetRunId?: string }`, returns `RunnerResult`. `maxDuration=300`. |
+| `/api/evolution/prompt-editor` | POST | `src/app/api/evolution/prompt-editor/route.ts` | Prompt-editor single-call rewrite harness. Admin-only + host-gated (public host → 404); env-gated by `EVOLUTION_PROMPT_EDITOR_ENABLED`. Accepts `{ unit, sourceText, title?, configs[] }`, returns `PromptEditorRunResult`. `maxDuration=300`. Calls `runPromptEditor` (`evolution/src/lib/promptEditor/`). See [prompt_editor.md](./prompt_editor.md). |
 
 Additional files:
 
