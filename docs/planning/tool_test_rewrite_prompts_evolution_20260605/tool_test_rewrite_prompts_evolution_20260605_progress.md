@@ -29,20 +29,25 @@
 ### Work Done
 - `/plan-review`: 3 iterations → CONSENSUS 5/5/5 (Security/Architecture/Testing). Caught the false "no DB writes" premise, wrong `callLLM`/`calculateLLMCost` signatures, dead `LLMRefusalError` branch, redundant transport, and `setText=null`. All fixed + re-verified against source. See planning doc "Review & Discussion".
 
-## Phase 1: Backend rewrite-invocation harness
+## Phase 1: Backend single-call harness
 ### Work Done
-[Pending]
+- `evolution/src/lib/playground/`: `types.ts`, `buildPlaygroundPrompt.ts`, `runPlaygroundConfig.ts`, `runPlayground.ts` + 3 unit test files (23 tests). Single `callLLM` per config; cost via `onUsage.estimatedCostUsd`; temperature clamp; display-only validation; error→status taxonomy; pre-flight $0.50 cap + `Promise.allSettled`.
+- `src/app/api/evolution/playground/route.ts`: `maxDuration=300`, `EVOLUTION_PLAYGROUND_ENABLED` gate, `requireAdmin`, Zod (configs≤10, model∈getEvolutionModelIds, prompt-shape-matches-unit), 402/403/400 mapping.
 
 ### Issues Encountered
-[Pending]
-
-### User Clarifications
-[Pending]
+- callLLM takes `null` (not `undefined`) for setText/responseObj/responseObjName (validateStreamingArgs throws) — applied.
 
 ## Phase 2: Playground admin UI
 ### Work Done
-[Pending]
+- `src/app/admin/evolution/prompt-playground/page.tsx` + `loading.tsx`: unit toggle, shared source, editable config cards (preset/preamble+instructions or directive/model/temp), parallel Run all → fetch route, responsive results grid with status chips, per-config cost, format chips, `SideBySideWordDiff` vs source, copy.
+- Linked from sidebar **Overview** group (`EvolutionSidebar.tsx`) + a card on `evolution-dashboard/page.tsx`.
 
-## Phase 3: Docs + polish
+### Issues Encountered
+- design-system ESLint: replaced arbitrary `text-[10px]/[11px]` with `text-xs`, h1→text-4xl, non-heading label → div; tactic record indexing → `getTacticDef()`.
+
+## Phase 3: Docs + tests + checks
 ### Work Done
-[Pending]
+- Integration test (real DB): ephemerality (zero evolution_* rows, scoped) + failure isolation — 2 passed.
+- E2E `@evolution` (route-mocked): side-by-side outputs+cost, display-only format chip, temp disabled for o3-mini — 3 passed. Host-isolation 404 for page+route — 2 passed.
+- Docs: filled `prompt_playground.md`; updated `visualization.md`, `reference.md`, `cost_optimization.md`.
+- **Full check trio GREEN:** lint + typecheck + build all exit 0; build manifest includes the page + route; 23 playground unit + 2 integration pass.

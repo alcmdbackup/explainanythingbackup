@@ -504,6 +504,7 @@ The admin UI is a Next.js App Router application. All pages are under `src/app/a
 | Route | Page File | Purpose |
 |-------|-----------|---------|
 | `/admin/evolution-dashboard` | `evolution-dashboard/page.tsx` | Aggregate metrics dashboard; auto-refresh every 15 seconds |
+| `/admin/evolution/prompt-playground` | `evolution/prompt-playground/page.tsx` | Prompt Playground — single-call rewrite testbed (article + paragraph), parallel configs, side-by-side outputs + cost. Backend: `evolution/src/lib/playground/*` + `/api/evolution/playground`. See [prompt_playground.md](./prompt_playground.md). |
 | `/admin/evolution/runs` | `evolution/runs/page.tsx` | Runs list with status filtering (pending, running, completed, failed) |
 | `/admin/evolution/runs/[runId]` | `evolution/runs/[runId]/page.tsx` | Run detail with tabs: Overview, Elo, Lineage, Variants, Logs |
 | `/admin/evolution/experiments` | `evolution/experiments/page.tsx` | Experiment list |
@@ -529,6 +530,7 @@ The admin UI is a Next.js App Router application. All pages are under `src/app/a
 | Route | Method | File | Purpose |
 |-------|--------|------|---------|
 | `/api/evolution/run` | POST | `src/app/api/evolution/run/route.ts` | Trigger evolution pipeline run. Admin-only. Accepts `{ targetRunId?: string }`, returns `RunnerResult`. `maxDuration=300`. |
+| `/api/evolution/playground` | POST | `src/app/api/evolution/playground/route.ts` | Prompt-playground single-call rewrite harness. Admin-only + host-gated (public host → 404); env-gated by `EVOLUTION_PLAYGROUND_ENABLED`. Accepts `{ unit, sourceText, title?, configs[] }`, returns `PlaygroundRunResult`. `maxDuration=300`. Calls `runPlayground` (`evolution/src/lib/playground/`). See [prompt_playground.md](./prompt_playground.md). |
 
 Additional files:
 
