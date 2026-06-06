@@ -33,13 +33,15 @@ function PassDetails({ pass }: { pass: RejudgeResult['passes'][number] }): JSX.E
   const dir = pass.direction;
   return (
     <div className="mt-2 space-y-1">
+      {/* Model output (incl. any reasoning the judge produced) is shown by default; the prompt
+          sent is collapsed since it is long and less interesting. */}
+      <div>
+        <div className="text-xs text-[var(--text-muted)] mb-0.5">Model output ({dir})</div>
+        <pre data-testid="rejudge-pass-output" className="whitespace-pre-wrap break-words text-xs bg-[var(--surface-secondary)] rounded p-2 font-mono">{pass.rawResponse || '(empty)'}</pre>
+      </div>
       <details>
-        <summary className="cursor-pointer text-xs text-[var(--text-muted)]">Prompt ({dir})</summary>
+        <summary className="cursor-pointer text-xs text-[var(--text-muted)]">Prompt sent ({dir})</summary>
         <pre data-testid="rejudge-pass-prompt" className="mt-1 whitespace-pre-wrap break-words text-xs bg-[var(--surface-secondary)] rounded p-2 font-mono">{pass.prompt}</pre>
-      </details>
-      <details>
-        <summary className="cursor-pointer text-xs text-[var(--text-muted)]">Model output ({dir})</summary>
-        <pre data-testid="rejudge-pass-output" className="mt-1 whitespace-pre-wrap break-words text-xs bg-[var(--surface-secondary)] rounded p-2 font-mono">{pass.rawResponse || '(empty)'}</pre>
       </details>
     </div>
   );

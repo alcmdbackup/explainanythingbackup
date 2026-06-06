@@ -424,11 +424,20 @@ function buildSandboxComparisonPrompt(
     : mode === 'paragraph'
       ? PARAGRAPH_SANDBOX_RUBRIC
       : ARTICLE_SANDBOX_RUBRIC;
+  // Verdict instruction:
+  //  - explainReasoning → ask for a rationale, then a strict final verdict line.
+  //  - custom override (without the reasoning toggle) → the operator's prompt controls behavior
+  //    (it may ask for an explanation), so we must NOT force verdict-only; just require a
+  //    parseable trailing line. Paired with the reasoning-tolerant parser in the caller.
+  //  - default (preset rubric, no reasoning) → cheap verdict-only.
   const verdict = explainReasoning
     ? 'First, briefly explain your reasoning in 2-4 sentences. Then, on a final separate line, ' +
       'respond with exactly one of: "Your answer: A", "Your answer: B", or "Your answer: TIE".'
-    : 'Respond with ONLY one of these exact answers: "A" if Text A is better, "B" if Text B is ' +
-      'better, or "TIE" if they are equally good.';
+    : override
+      ? 'You may include reasoning. End your response with a final line containing exactly one ' +
+        'of: "Your answer: A", "Your answer: B", or "Your answer: TIE".'
+      : 'Respond with ONLY one of these exact answers: "A" if Text A is better, "B" if Text B is ' +
+        'better, or "TIE" if they are equally good.';
   return `${rubric}
 
 ## Text A

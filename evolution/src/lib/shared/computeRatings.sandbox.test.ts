@@ -30,6 +30,15 @@ describe('buildComparisonPrompt — sandbox override path', () => {
     expect(prompt).not.toContain('## Evaluation Criteria');
   });
 
+  it('override path allows reasoning — it is NOT forced verdict-only', () => {
+    const p = buildComparisonPrompt('A', 'B', 'article', 'Explain WHY the winner is better, then give your verdict.');
+    expect(p).toContain('Explain WHY the winner is better');
+    // The hard "respond with ONLY a letter" instruction must not override the custom prompt.
+    expect(p).not.toContain('Respond with ONLY one of these exact answers');
+    expect(p).toContain('You may include reasoning');
+    expect(p.trimEnd().endsWith('Your answer:')).toBe(true);
+  });
+
   it('renders texts in caller order so forward/reverse passes swap them', () => {
     const override = 'Pick the better one.';
     const forward = buildComparisonPrompt('ONE', 'TWO', 'article', override);

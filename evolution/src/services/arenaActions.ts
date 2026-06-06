@@ -613,7 +613,11 @@ export const rejudgeComparisonAction = adminAction(
       }
     }
 
-    const parser = explainReasoning ? parseVerdictFromReasoning : parseWinner;
+    // A custom prompt may elicit free-form output (e.g. an explanation) just like the reasoning
+    // toggle, so use the reasoning-tolerant parser in both cases; parseWinner only for the
+    // strict verdict-only default.
+    const wantsFreeform = explainReasoning || customPrompt != null;
+    const parser = wantsFreeform ? parseVerdictFromReasoning : parseWinner;
     const norm = (s: string | null): 'A' | 'B' | 'TIE' | null =>
       s === 'A' || s === 'B' || s === 'TIE' ? s : null;
 

@@ -163,6 +163,24 @@ describe('rejudgeComparisonAction', () => {
     expect(res.data!.passes[1]!.direction).toBe('reverse');
   });
 
+  it('threads a custom prompt: not verdict-only + reasoning-tolerant verdict parse', async () => {
+    mockCallLLM.mockResolvedValue('Text A explains the mechanism more clearly.\nYour answer: A');
+    const { mock } = dbWithBothVariants();
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const res = await rejudgeComparisonAction({
+      comparisonId: CMP, judgeModel: 'qwen-2.5-7b-instruct',
+      customPrompt: 'Explain why the winning text is better, then give your verdict.',
+    });
+
+    expect(res.success).toBe(true);
+    const prompt = res.data!.passes[0]!.prompt;
+    expect(prompt).toContain('Explain why the winning text is better');   // override threaded
+    expect(prompt).not.toContain('Respond with ONLY');                    // not forced verdict-only
+    // Reasoning-tolerant parser reads the trailing "Your answer: A" past the explanation.
+    expect(res.data!.passes[0]!.parsedWinner).toBe('A');
+  });
+
   it('rejects an invalid judgeModel BEFORE any callLLM call', async () => {
     const { mock } = dbWithBothVariants();
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
