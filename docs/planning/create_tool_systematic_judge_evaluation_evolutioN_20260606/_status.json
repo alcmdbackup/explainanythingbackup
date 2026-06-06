@@ -1,7 +1,10 @@
 {
   "branch": "feat/create_tool_systematic_judge_evaluation_evolutioN_20260606",
   "created_at": "2026-06-06T15:41:43Z",
-  "prerequisites": {},
+  "prerequisites": {
+    "testing_overview_read": "2026-06-06T21:12:01Z",
+    "testing_setup_read": "2026-06-06T21:12:02Z"
+  },
   "relevantDocs": [
     "docs/research/judge_agreement_summary_tables.md",
     "docs/research/judging_accuracy_20260412.md",
