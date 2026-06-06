@@ -40,14 +40,15 @@ Judge matches (pairwise LLM comparisons that drive Elo ratings) are written to `
 - [ ] Implement test-content exclusion via the **nested join** `evolution_runs.evolution_strategies.is_test_content = false` (the comparisons table has no `is_test_content` column).
 - [ ] Add `getComparisonDetailAction({ comparisonId })` returning the comparison row + both variants' `variant_content` (batch `.in('id', [entry_a, entry_b])`) + run/prompt context; render a "Deleted variant [uuid]" placeholder when a variant is missing (entry FKs were dropped).
 - [ ] Build `/admin/evolution/matches/page.tsx` (`'use client'`) with `EntityListPage<ArenaComparison>`: columns Created, Run, Prompt, Entry A preview, Entry B preview, Winner (badge), Confidence (%); filters run-id (text), winner (select), min-confidence (text), "Hide test content" (checkbox, default on); `getRowHref → /admin/evolution/matches/[comparisonId]`.
-- [ ] **Add the sidebar nav link** in `src/components/admin/EvolutionSidebar.tsx` 'Results' group (after Arena): `{ href: '/admin/evolution/matches', label: 'Match Viewer', icon: '⚖️', testId: 'evolution-sidebar-nav-matches', description: 'Judge match history and re-run comparisons' }` (auto-active via `startsWith`).
-- [ ] **Link the match viewer from the evolution admin dashboard** — add a quick-link card on `/admin/evolution-dashboard` (verify a quick-links section still exists; if it was removed, the sidebar link is the canonical surface and note that in docs).
+- [ ] **Add a new `Tools` nav group** to `src/components/admin/EvolutionSidebar.tsx` `navGroups` (after the `Results` group). Match Viewer is a *tool*, not an entity, so it gets its own section rather than going under `Entities`/`Results`: `{ label: 'Tools', items: [{ href: '/admin/evolution/matches', label: 'Match Viewer', icon: '⚖️', testId: 'evolution-sidebar-nav-matches', description: 'Judge match history and re-run comparisons' }] }`. Active-state + `activeOverrides` are auto-derived from `navGroups` (`startsWith`), so no extra wiring.
+- [ ] **Link the match viewer from the evolution admin dashboard** — add a quick-link card on `/admin/evolution-dashboard` (the `Overview › Dashboard` nav target). Verify a quick-links/card section exists; if not, add a small one. Sidebar `Tools` link is the canonical nav surface.
+- [ ] **Deep-link every match-history surface to the viewer.** Extend `getVariantMatchHistoryAction` + the `VariantMatchEntry` interface (`evolution/src/services/variantDetailActions.ts:403,:76`) with `comparisonId` (from `c.id`), and add an "Open in Match Viewer" link (→ `/admin/evolution/matches/[comparisonId]`) per row in `evolution/src/components/evolution/variant/VariantMatchHistory.tsx` (the variant detail "Matches" tab — the only rendered match-history list today). Any future arena-comparisons list already carries `ArenaComparison.id` and links natively.
 
 ### Phase 2: Realtime re-judge sandbox (display-only)
 - [ ] Add optional `customPromptOverride?: string` param to `buildComparisonPrompt` + `compareWithBiasMitigation` (`evolution/src/lib/shared/computeRatings.ts`); when set, use it directly instead of the built-in rubric. Preserve `## Text A` / `## Text B` / `Your answer:`. Add a unit test asserting all existing callers are byte-for-byte unchanged when the param is omitted.
-- [ ] Add `rejudgeComparisonAction({ comparisonId, judgeModel, mode?, customPrompt? }) => { winner, confidence, turns, costUsd }` in `arenaActions.ts`: validate (UUID + model in `MODEL_REGISTRY`), fetch both texts, build a `callLLM` closure over `src/lib/services/llms.ts:callLLM` for the chosen model, call `compareWithBiasMitigation`. **Do NOT write to `evolution_arena_comparisons`, do NOT call rank/merge agents, and do NOT pass `db`/`runId` to any evolution LLM client** (avoids `evolution_metrics` cost writes). Compute cost via `calculateLLMCost`.
+- [ ] Add `rejudgeComparisonAction({ comparisonId, judgeModel, mode?, customPrompt?, temperature? }) => { winner, confidence, turns, costUsd }` in `arenaActions.ts`: validate (UUID + model in `MODEL_REGISTRY`), fetch both texts, build a `callLLM` closure over `src/lib/services/llms.ts:callLLM` for the chosen model **passing `temperature`**, call `compareWithBiasMitigation`. **Do NOT write to `evolution_arena_comparisons`, do NOT call rank/merge agents, and do NOT pass `db`/`runId` to any evolution LLM client** (avoids `evolution_metrics` cost writes). Compute cost via `calculateLLMCost`.
 - [ ] Build `/admin/evolution/matches/[comparisonId]/page.tsx` (mirror variant detail): tabs for Metadata, Stored comparison (side-by-side texts via `SideBySideWordDiff`/`VariantContentSection` + stored winner/confidence), and a Re-judge sandbox.
-- [ ] Re-judge sandbox UI: model picker from `getModelOptions()` (default `DEFAULT_JUDGE_MODEL`, exclude/flag reasoning models); preset toggle (`article`/`paragraph`) + collapsible custom-prompt textarea; "Re-judge" button → `rejudgeComparisonAction`; render result next to the stored result with cost + a clear "not persisted" marker. Document that judge calls are forced `temperature=0`.
+- [ ] Re-judge sandbox UI: model picker from `getModelOptions()` (default `DEFAULT_JUDGE_MODEL`, exclude/flag reasoning models); preset toggle (`article`/`paragraph`) + collapsible custom-prompt textarea; **temperature slider** (default `0`, range `0…model maxTemperature`; disabled/hidden when the model has no `maxTemperature` since `clampTemperature` returns undefined); "Re-judge" button → `rejudgeComparisonAction`; render each result as a stacked card next to the stored result, labeled with model + temp + prompt, with cost + a clear "not persisted" marker. Note in the UI that `temp > 0` makes the 2-pass reversal non-deterministic (intended for experimentation).
 
 ### Phase 3: Polish, dashboard link & docs
 - [ ] Loading / error / empty states; disable re-judge while in flight; show latency; breadcrumb on detail page.
@@ -62,7 +63,7 @@ Judge matches (pairwise LLM comparisons that drive Elo ratings) are written to `
 - [ ] Match-list/detail component unit tests (render rows, winner/confidence formatting, model picker default `qwen-2.5-7b-instruct`, preset toggle + custom-prompt textarea, "not persisted" marker).
 
 ### Integration Tests
-- [ ] `src/__tests__/integration/match-viewer.integration.test.ts` — against real Supabase: seed a run + two variants + a comparison row, assert `getRecentMatchesAction`/`getMatchDetailAction` return them; assert filter-by-run-id isolates rows. Auto-skip when evolution tables not migrated (existing pattern). Include `afterAll` cleanup via evolution test helpers.
+- [ ] `src/__tests__/integration/match-viewer.integration.test.ts` — against real Supabase: seed a run + two variants + a comparison row, assert `getRecentMatchesAction`/`getComparisonDetailAction` return them; assert filter-by-run-id isolates rows. Auto-skip when evolution tables not migrated (existing pattern). Include `afterAll` cleanup via evolution test helpers.
 
 ### E2E Tests
 - [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-matches.spec.ts` (`{ tag: '@evolution' }`) — admin navigates to `/admin/evolution/matches`, `resetFilters()`, sees seeded match, filters by run id, opens detail (both texts visible), runs a realtime re-judge with a mocked LLM route and sees a result rendered. Use `evolution-test-data-factory` (requires `afterAll` cleanup per ESLint `require-test-cleanup`).
@@ -81,9 +82,79 @@ Judge matches (pairwise LLM comparisons that drive Elo ratings) are written to `
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
 - [ ] `evolution/docs/visualization.md` — document the new `/admin/evolution/matches` page + match detail + re-judge sandbox.
-- [ ] `evolution/docs/reference.md` — add new server actions (`getRecentMatchesAction`, `getMatchDetailAction`, `rejudgeComparisonAction`) and component/route files.
+- [ ] `evolution/docs/reference.md` — add new server actions (`getRecentMatchesAction`, `getComparisonDetailAction`, `rejudgeComparisonAction`) and component/route files.
 - [ ] `evolution/docs/arena.md` — note the viewer as a reader of `evolution_arena_comparisons`.
 - [ ] `evolution/docs/rating_and_comparison.md` — note that realtime re-judge reuses `compareWithBiasMitigation` / `buildComparisonPrompt` display-only.
+
+## Wireframes (ASCII)
+
+> Two screens. Detail page uses a single-scroll layout (stored verdict + sandbox visible together) with stacked re-judge result cards. Match Viewer sits in a new **Tools** nav group (it is a tool, not an entity).
+
+### Screen 1 — Match list (`/admin/evolution/matches`)
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Evolution                                                           abel ▾     │
+├───────────────┬──────────────────────────────────────────────────────────────┤
+│ OVERVIEW      │  Match Viewer                                                  │
+│  Dashboard    │  Inspect recent judge matches · re-run judging in realtime     │
+│  Start Exp.   │ ┌────────────────────────────────────────────────────────────┐│
+│ ENTITIES      │ │ Run ID [______________]   Winner [Any ▾]   Min conf [____]  ││
+│  Experiments  │ │ ☑ Hide test content                              [ Apply ]  ││
+│  Prompts      │ └────────────────────────────────────────────────────────────┘│
+│  Strategies   │  ┌──────────┬───────┬──────────┬──────────┬────────┬────────┐ │
+│  Tactics      │  │ Created  │ Run   │ Text A    │ Text B   │ Winner │ Conf.  │ │
+│  Criteria     │  ├──────────┼───────┼──────────┼──────────┼────────┼────────┤ │
+│  Runs         │  │ 14:32:01 │ a1f3… │ Photosyn…│ A plant… │  ▣ A   │ 1.00   │ │
+│  Invocations  │  │ 14:31:58 │ a1f3… │ The mito…│ Mitochon…│  ▣ B   │ 0.70   │ │
+│  Variants     │  │ 14:31:55 │ a1f3… │ Gravity …│ Gravity …│  DRAW  │ 0.50   │ │
+│ RESULTS       │  │ 14:30:40 │ 9d22… │ Tectonic…│ Plates … │  ▣ A   │ 0.70   │ │
+│  Arena        │  │ …        │       │          │          │        │        │ │
+│ TOOLS         │  └──────────┴───────┴──────────┴──────────┴────────┴────────┘ │
+│ ▶ Match Viewer│  ‹ Prev    Page 1 / 7    Next ›                 200 of 1,394   │
+└───────────────┴──────────────────────────────────────────────────────────────┘
+   • Row click → detail.  • Run/Text cells truncate; full UUID on hover.
+   • Winner = A / B / DRAW badge; confidence right-aligned.
+```
+
+### Screen 2 — Match detail + re-judge sandbox (`/admin/evolution/matches/[id]`)
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Matches  ›  c7f9cd7f                                                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Match c7f9cd7f…    Run a1f3…   Prompt "Explain photosynthesis"   14:32:01      │
+│ Stored result:   ▣ WINNER A     confidence 0.50     status complete            │
+├───────────────────────────────────┬──────────────────────────────────────────┤
+│ ▣ TEXT A   elo 1243 ±40   3b9e…   │   TEXT B   elo 1190 ±55   7c21…           │
+│ ──────────────────────────────────│ ─────────────────────────────────────────│
+│ Photosynthesis is the process by  │ A plant makes food from sunlight. The     │
+│ which green plants convert light  │ leaves capture light and combine water    │
+│ energy into chemical energy …  ▾  │ and carbon dioxide to build sugars …  ▾   │
+├───────────────────────────────────┴──────────────────────────────────────────┤
+│ ⚖  RE-JUDGE SANDBOX                                          ⓘ not persisted   │
+│  Model [ qwen-2.5-7b-instruct ▾]   Rubric ( •Article ○Paragraph )             │
+│  Temperature  0.0  ▮▯▯▯▯▯▯▯▯▯  (max 2.0 · 0 = deterministic 2-pass)            │
+│  ▸ Custom judge prompt (optional)                                              │
+│    ┌────────────────────────────────────────────────────────────────────────┐ │
+│    │ default Article rubric — expand to override (keep ## Text A / ## Text B │ │
+│    │ and the "Your answer:" line so the parser still works)                  │ │
+│    └────────────────────────────────────────────────────────────────────────┘ │
+│  Est. ~$0.0009                                                [ ▶ Re-judge ]   │
+│  ┌────────────────────────────────────────────────────────────────────────┐   │
+│  │ gpt-4.1-mini · temp 0.0 · Article    ▣ WINNER B   conf 0.70  2t  $0.0011│   │
+│  │ Stored A (0.50)  →  Re-judge B (0.70)        ⚠ disagrees with stored    │   │
+│  ├────────────────────────────────────────────────────────────────────────┤   │
+│  │ qwen-2.5-7b · temp 1.0 · Article     ▣ WINNER A   conf 0.50  2t  $0.0008│   │
+│  │ Stored A (0.50)  →  Re-judge A (0.50)        ✓ agrees with stored       │   │
+│  └────────────────────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────────────┘
+   • Each re-judge appends a result card (model + temp + prompt labeled) so you
+     can fan out several models/temperatures/prompts against one stored pair.
+   • "not persisted" = nothing written to comparisons or ratings.
+   • Reached directly, or via the "Open in Match Viewer" link on every match-
+     history row (variant detail → Matches tab).
+```
 
 ## Review & Discussion
 [This section is populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration]
