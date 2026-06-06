@@ -11,12 +11,11 @@ import {
 } from './settings';
 
 describe('buildPromptVariantHash', () => {
-  it('is deterministic and distinguishes mode + custom prompt', () => {
-    expect(buildPromptVariantHash('article')).toBe(buildPromptVariantHash('article'));
-    expect(buildPromptVariantHash('article')).not.toBe(buildPromptVariantHash('paragraph'));
-    expect(buildPromptVariantHash('article')).not.toBe(
-      buildPromptVariantHash('article', 'custom rubric'),
-    );
+  it('is deterministic; builtin collapses; custom prompt distinguishes', () => {
+    expect(buildPromptVariantHash()).toBe(buildPromptVariantHash());
+    expect(buildPromptVariantHash()).toBe(buildPromptVariantHash('   ')); // blank → builtin
+    expect(buildPromptVariantHash()).not.toBe(buildPromptVariantHash('custom rubric'));
+    expect(buildPromptVariantHash('custom rubric')).toBe(buildPromptVariantHash('custom rubric'));
   });
 });
 

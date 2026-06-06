@@ -114,8 +114,9 @@ describe('createCallLLMJudge (E2E stub)', () => {
   });
 
   it('returns a deterministic canned verdict under E2E_TEST_MODE without a provider call', async () => {
-    process.env.E2E_TEST_MODE = 'true';
-    delete process.env.NODE_ENV;
+    const env = process.env as Record<string, string | undefined>;
+    env.E2E_TEST_MODE = 'true';
+    delete env.NODE_ENV;
     const judge = createCallLLMJudge({ judgeModel: 'qwen-2.5-7b-instruct' });
     const out = await judge('## Text A\nx\n## Text B\ny\nYour answer:');
     expect(out.text).toContain('Your answer: A');
@@ -123,9 +124,10 @@ describe('createCallLLMJudge (E2E stub)', () => {
   });
 
   it('throws when E2E_TEST_MODE is set in production without CI', () => {
-    process.env.E2E_TEST_MODE = 'true';
-    process.env.NODE_ENV = 'production';
-    delete process.env.CI;
+    const env = process.env as Record<string, string | undefined>;
+    env.E2E_TEST_MODE = 'true';
+    env.NODE_ENV = 'production';
+    delete env.CI;
     expect(() => createCallLLMJudge({ judgeModel: 'qwen-2.5-7b-instruct' })).toThrow(
       /must not be enabled in production/,
     );
