@@ -25,11 +25,17 @@
 - **Phase 4:** server actions `judgeEvalActions.ts` (cap enforced before any LLM call) + Judge Lab page `/admin/evolution/judge-lab` (Screen 1: sweep launcher + per-kind leaderboard) + sidebar "Tools" nav.
 - **Tests:** 35 core unit + 3 action unit (38 total, all green) + integration test (auto-skips until migration deployed).
 
-### Blocked / remaining (needs user action or follow-up)
-- **APPLY MIGRATION to dev Supabase** — required for local UI review + `db:types` + integration/E2E to run. Needs interactive `supabase login` (I can't auth). Commands: `npx supabase login` → `npx supabase link --project-ref ifubinffdbyewoezcidz` → `npx supabase db push` → `npm run db:types`.
-- **Docker unavailable** → `migration:verify` not run locally (`MIGRATION_VERIFY_SKIP=true` or rely on CI).
-- **E2E spec** `admin-evolution-judge-lab.spec.ts` — not written (needs running server+DB).
-- **UI Screens 2–4** (eval-run detail, pair-bank manager, test-set manager) — Screen 1 built; bank-seed + test-set-create available via CLI meanwhile.
+### Now also done (second pass, static-verified)
+- **UI Screens 2–4**: `/judge-lab/runs/[evalRunId]` (per-kind aggregates + per-pair table), `/judge-lab/pair-banks` (list + seed-from-topic), `/judge-lab/test-sets` (list + create) + `seedPairBankAction`. All 4 judge-lab routes build.
+- **E2E spec** `admin-evolution-judge-lab.spec.ts` (@evolution, seeds a completed run, asserts leaderboard + drill-down; auto-skips until migration deployed) + E2E factory `judge_eval_pair_bank` cleanup wiring.
+- **Docs**: new `docs/feature_deep_dives/judge_evaluation.md` + pointers in `evolution/docs/data_model.md` and `reference.md`.
+- **Final checks green**: tsc clean · full `npm run lint` exit 0 · `npm run build` compiles all routes · 38 judge-eval unit tests pass · `check:stale-specs` ✓.
+
+### Blocked / deferred to merge (per user: "take care of migration on merge to main")
+- **Migration applies via CI on merge to main** (deploy-migrations job → staging, then `db:types` auto-regen). NOT applied locally.
+- **Local UI review + integration/E2E execution** therefore activate post-merge (or after a manual `supabase login` + `db push`). The integration + E2E specs auto-skip until the `judge_eval_*` tables exist.
+- **Docker unavailable** → `migration:verify` not run locally; CI's `migration-verify-test` job covers it.
+- **`database.types.ts`** hand-augmented for the new tables; CI regenerates from staging post-deploy (`.gitattributes` auto-resolves).
 
 ## Phase 1: Eval engine + settings override
 ### Work Done
