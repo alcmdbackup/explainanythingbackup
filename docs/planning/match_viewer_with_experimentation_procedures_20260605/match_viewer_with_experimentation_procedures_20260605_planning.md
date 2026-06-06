@@ -95,10 +95,10 @@ Judge matches (pairwise LLM comparisons that drive Elo ratings) are written to `
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `evolution/docs/visualization.md` — document the new `/admin/evolution/matches` page + match detail + re-judge sandbox.
-- [ ] `evolution/docs/reference.md` — add new server actions (`getRecentMatchesAction`, `getComparisonDetailAction`, `rejudgeComparisonAction`) and component/route files.
-- [ ] `evolution/docs/arena.md` — note the viewer as a reader of `evolution_arena_comparisons`.
-- [ ] `evolution/docs/rating_and_comparison.md` — note that realtime re-judge reuses `compareWithBiasMitigation` / `buildComparisonPrompt` display-only.
+- [x] `evolution/docs/visualization.md` — document the new `/admin/evolution/matches` page + match detail + re-judge sandbox.
+- [x] `evolution/docs/reference.md` — add new server actions (`getRecentMatchesAction`, `getComparisonDetailAction`, `rejudgeComparisonAction`) and component/route files.
+- [x] `evolution/docs/arena.md` — note the viewer as a reader of `evolution_arena_comparisons`.
+- [x] `evolution/docs/rating_and_comparison.md` — note that realtime re-judge reuses `compareWithBiasMitigation` / `buildComparisonPrompt` display-only.
 
 ## Wireframes (ASCII)
 

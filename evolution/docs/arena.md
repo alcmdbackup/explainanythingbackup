@@ -155,6 +155,8 @@ Stores pairwise comparison results from pipeline runs.
 
 The `entry_a` and `entry_b` columns reference `evolution_variants.id` (previously `evolution_arena_entries.id`), but the DB foreign key constraints were dropped in migration `20260409000001` to allow in-run writes before variants are persisted. Referential integrity is enforced at the application layer via `VariantEntity.ts`. Comparisons link back to the originating run via `run_id`, allowing you to trace which runs contributed to an entry's rating.
 
+> **Match Viewer** (`/admin/evolution/matches`, match_viewer_with_experimentation_procedures_20260605) is the read surface for this table: `getRecentMatchesAction` lists recent comparisons (filterable by run id, winner, confidence, and article/paragraph type via the embedded `evolution_prompts.prompt_kind`), and the detail page re-judges a stored pair display-only — see [Rating & Comparison](./rating_and_comparison.md#match-viewer-re-judge-sandbox).
+
 ## Arena entries vs evolution_variants
 
 Arena entries and pipeline variants live in the **same table** (`evolution_variants`). The `synced_to_arena` boolean flag distinguishes them:
