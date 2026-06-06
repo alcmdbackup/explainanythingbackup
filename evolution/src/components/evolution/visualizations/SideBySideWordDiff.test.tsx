@@ -13,6 +13,17 @@ describe('SideBySideWordDiff', () => {
     expect(screen.getByTestId('sxs-variant')).toBeInTheDocument();
   });
 
+  it('defaults to Parent/This variant labels but accepts overrides (Match Viewer peer texts)', () => {
+    const { rerender } = render(<SideBySideWordDiff parent="a" variant="b" />);
+    expect(screen.getByText('Parent')).toBeInTheDocument();
+    expect(screen.getByText('This variant')).toBeInTheDocument();
+
+    rerender(<SideBySideWordDiff parent="a" variant="b" leftLabel="Text A · elo 1243" rightLabel="Text B · elo 1190" />);
+    expect(screen.getByText('Text A · elo 1243')).toBeInTheDocument();
+    expect(screen.getByText('Text B · elo 1190')).toBeInTheDocument();
+    expect(screen.queryByText('Parent')).not.toBeInTheDocument();
+  });
+
   it('shows removed words only on the parent side and added words only on the variant side', () => {
     render(<SideBySideWordDiff parent="alpha removedword omega" variant="alpha addedword omega" />);
     const parentCol = screen.getByTestId('sxs-parent');
