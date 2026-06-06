@@ -16,12 +16,17 @@ interface SideBySideWordDiffProps {
   variant: string;
   /** Per-column visible character budget before truncation. */
   previewLength?: number;
+  /** Left column header (default 'Parent'). Used by the Match Viewer to label peer texts
+   *  (e.g. 'Text A') rather than a parent/child relationship. */
+  leftLabel?: string;
+  /** Right column header (default 'This variant'). */
+  rightLabel?: string;
 }
 
 const PRE_CLASS =
   'whitespace-pre-wrap text-sm leading-relaxed font-mono p-4 bg-[var(--surface-secondary)] rounded-book max-h-[500px] overflow-y-auto';
 
-export function SideBySideWordDiff({ parent, variant, previewLength = 600 }: SideBySideWordDiffProps): JSX.Element {
+export function SideBySideWordDiff({ parent, variant, previewLength = 600, leftLabel = 'Parent', rightLabel = 'This variant' }: SideBySideWordDiffProps): JSX.Element {
   const parts = useMemo(() => diffWordsWithSpace(parent, variant), [parent, variant]);
   const [expanded, setExpanded] = useState(false);
 
@@ -60,11 +65,11 @@ export function SideBySideWordDiff({ parent, variant, previewLength = 600 }: Sid
     <div data-testid="sxs-diff">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
-          <div className="text-xs font-ui text-[var(--text-muted)] mb-1">Parent</div>
+          <div className="text-xs font-ui text-[var(--text-muted)] mb-1">{leftLabel}</div>
           <pre data-testid="sxs-parent" className={PRE_CLASS}>{renderColumn('parent')}</pre>
         </div>
         <div>
-          <div className="text-xs font-ui text-[var(--text-muted)] mb-1">This variant</div>
+          <div className="text-xs font-ui text-[var(--text-muted)] mb-1">{rightLabel}</div>
           <pre data-testid="sxs-variant" className={PRE_CLASS}>{renderColumn('variant')}</pre>
         </div>
       </div>

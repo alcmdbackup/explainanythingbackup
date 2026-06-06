@@ -8,6 +8,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
+import { SideBySideWordDiff } from '@evolution/components/evolution/visualizations/SideBySideWordDiff';
 import { formatDate } from '@evolution/lib/utils/formatters';
 import {
   getComparisonDetailAction,
@@ -75,6 +76,9 @@ export default function MatchDetailPage(): JSX.Element {
   const [detail, setDetail] = useState<ComparisonDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Text comparison view: word-diff (default) vs raw side-by-side.
+  const [view, setView] = useState<'diff' | 'sideBySide'>('diff');
 
   // Sandbox controls.
   const [model, setModel] = useState(DEFAULT_JUDGE_MODEL);
@@ -161,27 +165,67 @@ export default function MatchDetailPage(): JSX.Element {
         </div>
       </div>
 
-      {/* Side-by-side texts */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4" data-testid="match-texts">
-        {(['a', 'b'] as const).map((side) => {
-          const content = side === 'a' ? detail.entry_a_content : detail.entry_b_content;
-          const elo = side === 'a' ? detail.entry_a_elo : detail.entry_b_elo;
-          const id = side === 'a' ? detail.entry_a : detail.entry_b;
-          return (
-            <div key={side} className={SECTION}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-semibold text-sm">Text {side.toUpperCase()}</span>
-                <span className="font-mono text-xs text-[var(--text-muted)]" title={id}>
-                  {elo != null ? `elo ${Math.round(elo)}` : 'elo —'} · {id.substring(0, 8)}
-                </span>
+      {/* Text comparison — word diff (default) or raw side-by-side */}
+      {(() => {
+        const aId = detail.entry_a.substring(0, 8);
+        const bId = detail.entry_b.substring(0, 8);
+        const aElo = detail.entry_a_elo != null ? `elo ${Math.round(detail.entry_a_elo)}` : 'elo —';
+        const bElo = detail.entry_b_elo != null ? `elo ${Math.round(detail.entry_b_elo)}` : 'elo —';
+        // Word diff needs both texts; if either variant was deleted, fall back to raw panels.
+        const canDiff = detail.entry_a_content != null && detail.entry_b_content != null;
+        const activeView = canDiff ? view : 'sideBySide';
+        const tabBtn = (v: 'diff' | 'sideBySide', label: string) => (
+          <button
+            data-testid={`match-view-${v}`}
+            onClick={() => setView(v)}
+            disabled={v === 'diff' && !canDiff}
+            className={`px-2 py-1 text-xs rounded ${activeView === v
+              ? 'bg-[var(--accent-gold)] text-[var(--surface-base)] font-semibold'
+              : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'} disabled:opacity-40`}
+          >
+            {label}
+          </button>
+        );
+        return (
+          <div className={SECTION} data-testid="match-texts">
+            <div className="flex items-center justify-between mb-3">
+              <span className="font-semibold text-sm">
+                Text A <span className="font-mono text-xs text-[var(--text-muted)]" title={detail.entry_a}>({aElo} · {aId})</span>
+                {' vs '}
+                Text B <span className="font-mono text-xs text-[var(--text-muted)]" title={detail.entry_b}>({bElo} · {bId})</span>
+              </span>
+              <div className="flex items-center gap-1">
+                {tabBtn('diff', 'Word diff')}
+                {tabBtn('sideBySide', 'Side by side')}
               </div>
-              {content != null
-                ? <pre className="whitespace-pre-wrap break-words text-xs max-h-72 overflow-y-auto">{content}</pre>
-                : <p className="text-xs text-[var(--status-error)]">Deleted variant {id.substring(0, 8)} — content unavailable</p>}
             </div>
-          );
-        })}
-      </div>
+
+            {activeView === 'diff' ? (
+              <SideBySideWordDiff
+                parent={detail.entry_a_content ?? ''}
+                variant={detail.entry_b_content ?? ''}
+                leftLabel={`Text A · ${aElo}`}
+                rightLabel={`Text B · ${bElo}`}
+              />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {(['a', 'b'] as const).map((side) => {
+                  const content = side === 'a' ? detail.entry_a_content : detail.entry_b_content;
+                  const id = side === 'a' ? detail.entry_a : detail.entry_b;
+                  return (
+                    <div key={side}>
+                      <div className="text-xs text-[var(--text-muted)] mb-1">Text {side.toUpperCase()}</div>
+                      {content != null
+                        ? <pre className="whitespace-pre-wrap break-words text-xs max-h-72 overflow-y-auto bg-[var(--surface-secondary)] rounded p-2">{content}</pre>
+                        : <p className="text-xs text-[var(--status-error)]">Deleted variant {id.substring(0, 8)} — content unavailable</p>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Re-judge sandbox */}
       <div className={SECTION}>
