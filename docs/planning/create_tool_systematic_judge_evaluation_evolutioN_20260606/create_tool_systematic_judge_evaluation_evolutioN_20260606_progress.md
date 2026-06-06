@@ -17,9 +17,23 @@
 - Surface = **script + DB tables + a Judge Lab admin page** (interactive single-match re-judge stays in Match Viewer).
 - Ground truth = **mu/Elo gap only** (replicate history); accuracy/implied-beta on large-gap pairs only.
 
+## Execution (post plan-review 5/5/5)
+### Done — committed, statically verified (tsc clean · lint clean · build compiles route · 38 unit tests pass)
+- **Phase 1:** migration `20260606000001_judge_eval_tables.sql` (5 tables + RLS-locked leaderboard VIEW; idempotency-lint ✓); `database.types.ts` hand-augmented (CI regenerates post-deploy); Zod schemas.
+- **Phase 2:** engine `runJudgeEval.ts` (inlined 2-pass mirroring rejudge, injected JudgeFn, E2E stub+prod guard, `evolution_judge_eval` call_source, mandatory concurrency cap), `metrics.ts` (decisive/agreement/position-bias/accuracy/implied-beta, per-kind), `testSet.ts` (seeded freeze + orphan check), `settings.ts` (settings-key + hard cost ceiling + JUDGE_EVAL_ENABLED), `cost.ts`, `persist.ts` (load/freeze/upsert), `seed.ts` (FR2 pull), `executeSweep.ts` (orchestrator, cap-gated).
+- **Phase 3:** CLI `evolution/scripts/judge-eval.ts` (`seed` / `create-test-set` / `sweep --dry-run`, shared cap guard).
+- **Phase 4:** server actions `judgeEvalActions.ts` (cap enforced before any LLM call) + Judge Lab page `/admin/evolution/judge-lab` (Screen 1: sweep launcher + per-kind leaderboard) + sidebar "Tools" nav.
+- **Tests:** 35 core unit + 3 action unit (38 total, all green) + integration test (auto-skips until migration deployed).
+
+### Blocked / remaining (needs user action or follow-up)
+- **APPLY MIGRATION to dev Supabase** — required for local UI review + `db:types` + integration/E2E to run. Needs interactive `supabase login` (I can't auth). Commands: `npx supabase login` → `npx supabase link --project-ref ifubinffdbyewoezcidz` → `npx supabase db push` → `npm run db:types`.
+- **Docker unavailable** → `migration:verify` not run locally (`MIGRATION_VERIFY_SKIP=true` or rely on CI).
+- **E2E spec** `admin-evolution-judge-lab.spec.ts` — not written (needs running server+DB).
+- **UI Screens 2–4** (eval-run detail, pair-bank manager, test-set manager) — Screen 1 built; bank-seed + test-set-create available via CLI meanwhile.
+
 ## Phase 1: Eval engine + settings override
 ### Work Done
-_(pending /research)_
+See "Execution" above.
 
 ## Phase 2: Structured logging + storage
 ### Work Done
