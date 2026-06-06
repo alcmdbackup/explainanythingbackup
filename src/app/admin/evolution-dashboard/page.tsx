@@ -143,7 +143,7 @@ export default function EvolutionDashboardPage(): JSX.Element {
       <Link
         href="/admin/evolution/prompt-playground"
         data-testid="dashboard-prompt-playground-link"
-        className="block p-4 rounded-book border border-[var(--border-default)] bg-[var(--surface-secondary)] hover:bg-[var(--surface-elevated)] transition-colors"
+        className="block p-4 rounded-book border border-[var(--border-default)] bg-[var(--surface-secondary)] paper-texture shadow-warm-sm hover:bg-[var(--surface-elevated)] hover:border-[var(--accent-gold)]/40 transition-colors"
       >
         <div className="flex items-center gap-2">
           <span aria-hidden>🎛️</span>

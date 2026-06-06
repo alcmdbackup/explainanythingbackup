@@ -4,10 +4,12 @@
 
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { toast } from 'sonner';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
 import { SideBySideWordDiff } from '@evolution/components/evolution/visualizations/SideBySideWordDiff';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { getModelOptions, getModelMaxTemperature } from '@/config/modelRegistry';
 import { getTacticDef, GENERATE_TACTIC_NAMES } from '@evolution/lib/core/tactics';
 import { PARAGRAPH_REWRITE_DIRECTIVES } from '@evolution/lib/core/agents/paragraphRecombine/buildParagraphRewritePrompt';
@@ -50,8 +52,18 @@ const STATUS_STYLES: Record<string, { label: string; color: string }> = {
   error: { label: '✖ error', color: 'var(--status-error)' },
 };
 
-const inputCls = 'w-full px-2 py-1.5 text-sm font-ui rounded-page border border-[var(--border-default)] bg-[var(--surface-primary)] text-[var(--text-primary)]';
-const labelCls = 'block text-xs font-ui text-[var(--text-muted)] mb-1';
+const inputCls = 'w-full px-3 py-2 text-sm font-ui rounded-page border border-[var(--border-default)] bg-[var(--surface-input)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] transition-colors focus:border-[var(--accent-gold)] focus:outline-none';
+const labelCls = 'block text-xs font-ui font-medium uppercase tracking-wide text-[var(--text-muted)] mb-1';
+const subCardCls = 'rounded-book border border-[var(--border-default)] bg-[var(--surface-secondary)] paper-texture shadow-warm-sm';
+
+/** A soft tinted status pill (matches the variant-detail badge treatment). */
+function chipStyle(color: string): CSSProperties {
+  return {
+    color,
+    backgroundColor: `color-mix(in srgb, ${color} 14%, transparent)`,
+    borderColor: `color-mix(in srgb, ${color} 35%, transparent)`,
+  };
+}
 
 export default function PromptPlaygroundPage(): JSX.Element {
   const [unit, setUnit] = useState<RewriteUnit>('article');
@@ -143,232 +155,249 @@ export default function PromptPlaygroundPage(): JSX.Element {
   }, [unit]);
 
   return (
-    <div className="max-w-7xl mx-auto p-6 space-y-6">
+    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
       <EvolutionBreadcrumb items={[{ label: 'Prompt Playground' }]} />
 
-      <header>
-        <h1 className="font-display text-4xl text-[var(--text-primary)]">Prompt Playground</h1>
-        <p className="font-ui text-sm text-[var(--text-muted)] mt-1">
+      <header className="space-y-1">
+        <h1 className="font-display text-4xl font-bold text-[var(--text-primary)]">Prompt Playground</h1>
+        <p className="font-body text-base text-[var(--text-secondary)] max-w-3xl">
           Customize a rewrite prompt + model + temperature and compare raw model outputs side-by-side.
           Single LLM call per config — no ranking, no recombine, no pipeline run.
         </p>
       </header>
 
-      {/* Unit toggle */}
-      <div className="flex gap-2" role="tablist" aria-label="Rewrite unit">
-        {(['article', 'paragraph'] as RewriteUnit[]).map((u) => (
-          <button
-            key={u}
-            role="tab"
-            aria-selected={unit === u}
-            data-testid={`playground-unit-${u}`}
-            onClick={() => switchUnit(u)}
-            className={`px-3 py-1.5 text-sm font-ui rounded-page border transition-colors ${
-              unit === u
-                ? 'bg-[var(--accent-gold)] text-[var(--surface-primary)] border-[var(--accent-gold)]'
-                : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]'
-            }`}
-          >
-            {u === 'article' ? 'Whole article' : 'Paragraph'}
-          </button>
-        ))}
-      </div>
-
-      {/* Shared source */}
-      <div>
-        {unit === 'paragraph' && (
-          <input
-            data-testid="playground-title"
-            className={`${inputCls} mb-2`}
-            placeholder="Article title (optional context for the paragraph rewrite)"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-        )}
-        <label className={labelCls}>{unit === 'article' ? 'Source article (shared by all configs)' : 'Source paragraph (shared by all configs)'}</label>
-        <textarea
-          data-testid="playground-source"
-          className={`${inputCls} font-mono min-h-[140px]`}
-          placeholder={unit === 'article' ? '# Title\n\nPaste the article to rewrite…' : 'Paste a single paragraph to rewrite…'}
-          value={sourceText}
-          onChange={(e) => setSourceText(e.target.value)}
-        />
-      </div>
-
-      {/* Config cards */}
-      <div className="flex items-center justify-between">
-        <div className="font-ui text-sm text-[var(--text-secondary)]">Configs ({configs.length}/{MAX_CONFIGS})</div>
-        <button
-          data-testid="playground-add-config"
-          onClick={addConfig}
-          disabled={configs.length >= MAX_CONFIGS}
-          className="px-2 py-1 text-xs font-ui border border-[var(--border-default)] rounded-page hover:bg-[var(--surface-elevated)] disabled:opacity-40"
-        >
-          + Add config
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {configs.map((c, i) => (
-          <div key={c.id} data-testid="playground-config-card" className="p-3 rounded-page border border-[var(--border-default)] bg-[var(--surface-primary)] space-y-2">
-            <div className="flex items-center gap-2">
-              <input
-                aria-label="label"
-                data-testid={`playground-label-${i}`}
-                className={`${inputCls} flex-1`}
-                value={c.label}
-                onChange={(e) => updateConfig(c.id, { label: e.target.value })}
-              />
-              <button
-                data-testid={`playground-remove-${i}`}
-                onClick={() => removeConfig(c.id)}
-                disabled={configs.length <= 1}
-                className="text-xs text-[var(--status-error)] hover:underline disabled:opacity-30"
-                aria-label="remove config"
+      {/* Builder */}
+      <Card>
+        <CardContent className="p-6 space-y-5">
+          {/* Unit toggle */}
+          <div className="flex items-center gap-2" role="tablist" aria-label="Rewrite unit">
+            <span className="text-xs font-ui font-medium uppercase tracking-wide text-[var(--text-muted)] mr-1">Unit</span>
+            {(['article', 'paragraph'] as RewriteUnit[]).map((u) => (
+              <Button
+                key={u}
+                type="button"
+                role="tab"
+                aria-selected={unit === u}
+                size="sm"
+                variant={unit === u ? 'default' : 'outline'}
+                data-testid={`playground-unit-${u}`}
+                onClick={() => switchUnit(u)}
               >
-                🗑
-              </button>
-            </div>
-
-            <div>
-              <label className={labelCls}>Preset</label>
-              <select
-                data-testid={`playground-preset-${i}`}
-                className={inputCls}
-                defaultValue=""
-                onChange={(e) => applyPreset(c.id, e.target.value)}
-              >
-                <option value="">Load a preset…</option>
-                {presetOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
-
-            {unit === 'article' ? (
-              <>
-                <div>
-                  <label className={labelCls}>Preamble (role)</label>
-                  <textarea data-testid={`playground-preamble-${i}`} className={`${inputCls} min-h-[48px]`} value={c.preamble} onChange={(e) => updateConfig(c.id, { preamble: e.target.value })} />
-                </div>
-                <div>
-                  <label className={labelCls}>Instructions</label>
-                  <textarea data-testid={`playground-instructions-${i}`} className={`${inputCls} min-h-[80px]`} value={c.instructions} onChange={(e) => updateConfig(c.id, { instructions: e.target.value })} />
-                </div>
-                <p className="text-xs font-ui text-[var(--text-muted)]">ⓘ FORMAT_RULES auto-appended</p>
-              </>
-            ) : (
-              <div>
-                <label className={labelCls}>Directive</label>
-                <textarea data-testid={`playground-directive-${i}`} className={`${inputCls} min-h-[80px]`} value={c.directive} onChange={(e) => updateConfig(c.id, { directive: e.target.value })} />
-                <p className="text-xs font-ui text-[var(--text-muted)] mt-1">ⓘ preserve-meaning + ±20% length scaffolding auto-wrapped</p>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className={labelCls}>Model</label>
-                <select data-testid={`playground-model-${i}`} className={inputCls} value={c.model} onChange={(e) => updateConfig(c.id, { model: e.target.value })}>
-                  {MODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className={labelCls}>Temperature{!tempSupported(c.model) && ' (n/a)'}</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="2"
-                  data-testid={`playground-temp-${i}`}
-                  className={inputCls}
-                  value={c.temperature}
-                  disabled={!tempSupported(c.model)}
-                  onChange={(e) => updateConfig(c.id, { temperature: Number(e.target.value) })}
-                />
-              </div>
-            </div>
+                {u === 'article' ? 'Whole article' : 'Paragraph'}
+              </Button>
+            ))}
           </div>
-        ))}
-      </div>
 
-      <div className="flex items-center gap-3">
-        <button
-          data-testid="playground-run"
-          onClick={run}
-          disabled={!canRun}
-          className="px-4 py-2 font-ui text-sm font-medium bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page hover:opacity-90 disabled:opacity-50"
-        >
-          {running ? 'Running…' : `▶ Run all ${configs.length}`}
-        </button>
-        {result && (
-          <span data-testid="playground-total-cost" className="font-mono text-xs text-[var(--text-muted)]">
-            total ${result.totalCostUsd.toFixed(4)}
-          </span>
-        )}
-      </div>
+          {/* Shared source */}
+          <div>
+            {unit === 'paragraph' && (
+              <input
+                data-testid="playground-title"
+                className={`${inputCls} mb-2`}
+                placeholder="Article title (optional context for the paragraph rewrite)"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
+            )}
+            <label className={labelCls}>{unit === 'article' ? 'Source article — shared by all configs' : 'Source paragraph — shared by all configs'}</label>
+            <textarea
+              data-testid="playground-source"
+              className={`${inputCls} font-mono leading-relaxed min-h-[140px] resize-y`}
+              placeholder={unit === 'article' ? '# Title\n\nPaste the article to rewrite…' : 'Paste a single paragraph to rewrite…'}
+              value={sourceText}
+              onChange={(e) => setSourceText(e.target.value)}
+            />
+          </div>
+
+          {/* Config cards */}
+          <div className="flex items-center justify-between border-t border-[var(--border-default)] pt-4">
+            <h2 className="font-display text-2xl text-[var(--text-primary)]">
+              Configs <span className="font-ui text-sm font-normal text-[var(--text-muted)]">({configs.length}/{MAX_CONFIGS})</span>
+            </h2>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-testid="playground-add-config"
+              onClick={addConfig}
+              disabled={configs.length >= MAX_CONFIGS}
+            >
+              + Add config
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {configs.map((c, i) => (
+              <div key={c.id} data-testid="playground-config-card" className={`${subCardCls} p-4 space-y-3`}>
+                <div className="flex items-center gap-2">
+                  <input
+                    aria-label="label"
+                    data-testid={`playground-label-${i}`}
+                    className={`${inputCls} flex-1 font-medium`}
+                    value={c.label}
+                    onChange={(e) => updateConfig(c.id, { label: e.target.value })}
+                  />
+                  <button
+                    data-testid={`playground-remove-${i}`}
+                    onClick={() => removeConfig(c.id)}
+                    disabled={configs.length <= 1}
+                    className="text-sm text-[var(--text-muted)] hover:text-[var(--status-error)] disabled:opacity-30 transition-colors"
+                    aria-label="remove config"
+                    title="Remove config"
+                  >
+                    🗑
+                  </button>
+                </div>
+
+                <div>
+                  <label className={labelCls}>Preset</label>
+                  <select
+                    data-testid={`playground-preset-${i}`}
+                    className={inputCls}
+                    defaultValue=""
+                    onChange={(e) => applyPreset(c.id, e.target.value)}
+                  >
+                    <option value="">Load a preset…</option>
+                    {presetOptions.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {unit === 'article' ? (
+                  <>
+                    <div>
+                      <label className={labelCls}>Preamble (role)</label>
+                      <textarea data-testid={`playground-preamble-${i}`} className={`${inputCls} min-h-[48px] resize-y`} value={c.preamble} onChange={(e) => updateConfig(c.id, { preamble: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Instructions</label>
+                      <textarea data-testid={`playground-instructions-${i}`} className={`${inputCls} min-h-[80px] resize-y`} value={c.instructions} onChange={(e) => updateConfig(c.id, { instructions: e.target.value })} />
+                    </div>
+                    <p className="text-xs font-ui text-[var(--text-muted)]">ⓘ FORMAT_RULES auto-appended</p>
+                  </>
+                ) : (
+                  <div>
+                    <label className={labelCls}>Directive</label>
+                    <textarea data-testid={`playground-directive-${i}`} className={`${inputCls} min-h-[80px] resize-y`} value={c.directive} onChange={(e) => updateConfig(c.id, { directive: e.target.value })} />
+                    <p className="text-xs font-ui text-[var(--text-muted)] mt-1">ⓘ preserve-meaning + ±20% length scaffolding auto-wrapped</p>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className={labelCls}>Model</label>
+                    <select data-testid={`playground-model-${i}`} className={inputCls} value={c.model} onChange={(e) => updateConfig(c.id, { model: e.target.value })}>
+                      {MODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Temperature{!tempSupported(c.model) && ' (n/a)'}</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="2"
+                      data-testid={`playground-temp-${i}`}
+                      className={`${inputCls} font-mono disabled:opacity-50`}
+                      value={c.temperature}
+                      disabled={!tempSupported(c.model)}
+                      onChange={(e) => updateConfig(c.id, { temperature: Number(e.target.value) })}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Run */}
+          <div className="flex items-center gap-4 border-t border-[var(--border-default)] pt-4">
+            <Button
+              type="button"
+              variant="default"
+              size="lg"
+              data-testid="playground-run"
+              onClick={run}
+              disabled={!canRun}
+            >
+              {running ? 'Running…' : `▶ Run all ${configs.length}`}
+            </Button>
+            {result && (
+              <span data-testid="playground-total-cost" className="font-mono text-sm text-[var(--text-muted)]">
+                total ${result.totalCostUsd.toFixed(4)}
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Results */}
       {result && (
-        <div data-testid="playground-results" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {result.configs.map((r: PlaygroundConfigResult, i: number) => {
-            const st = STATUS_STYLES[r.status] ?? STATUS_STYLES.error!;
-            return (
-              <div key={i} data-testid="playground-result-panel" className="rounded-page border border-[var(--border-default)] bg-[var(--surface-primary)] overflow-hidden flex flex-col">
-                <div className="p-2 border-b border-[var(--border-default)] space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-ui text-sm text-[var(--text-primary)] truncate">{r.label}</span>
-                    <span data-testid={`playground-status-${i}`} className="text-xs font-ui px-1.5 py-0.5 rounded" style={{ color: st.color, border: `1px solid ${st.color}` }}>{st.label}</span>
+        <section className="space-y-3">
+          <h2 className="font-display text-2xl text-[var(--text-primary)]">Results</h2>
+          <div data-testid="playground-results" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {result.configs.map((r: PlaygroundConfigResult, i: number) => {
+              const st = STATUS_STYLES[r.status] ?? STATUS_STYLES.error!;
+              return (
+                <div key={i} data-testid="playground-result-panel" className={`${subCardCls} overflow-hidden flex flex-col`}>
+                  <div className="p-3 border-b border-[var(--border-default)] space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-ui text-sm font-medium text-[var(--text-primary)] truncate">{r.label}</span>
+                      <span data-testid={`playground-status-${i}`} className="text-xs font-ui font-medium px-2 py-0.5 rounded-page border shadow-warm-sm shrink-0" style={chipStyle(st.color)}>{st.label}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs font-mono text-[var(--text-muted)]">
+                      <span>{r.model}{r.temperatureUsed != null ? ` · t=${r.temperatureUsed}` : ''}</span>
+                      <span data-testid={`playground-cost-${i}`}>${r.costUsd.toFixed(4)} · {r.durationMs}ms</span>
+                    </div>
+                    {!r.formatValid && r.formatIssues && r.formatIssues.length > 0 && (
+                      <div data-testid={`playground-format-chip-${i}`} className="text-xs font-ui" style={{ color: 'var(--status-warning)' }}>
+                        ⚠ would-drop: {r.formatIssues.join(', ')}
+                      </div>
+                    )}
+                    {r.looksLikeRefusal && <div className="text-xs font-ui text-[var(--text-muted)]">↪ output looks like a refusal</div>}
+                    {r.errorMsg && <div className="text-xs font-ui text-[var(--status-error)] truncate" title={r.errorMsg}>{r.errorMsg}</div>}
                   </div>
-                  <div className="flex items-center justify-between text-xs font-mono text-[var(--text-muted)]">
-                    <span>{r.model}{r.temperatureUsed != null ? ` · t=${r.temperatureUsed}` : ''}</span>
-                    <span data-testid={`playground-cost-${i}`}>${r.costUsd.toFixed(4)} · {r.durationMs}ms</span>
-                  </div>
-                  {!r.formatValid && r.formatIssues && r.formatIssues.length > 0 && (
-                    <div data-testid={`playground-format-chip-${i}`} className="text-xs font-ui" style={{ color: 'var(--status-warning)' }}>
-                      ⚠ would-drop: {r.formatIssues.join(', ')}
+                  <pre data-testid={`playground-output-${i}`} className="whitespace-pre-wrap text-xs font-mono leading-relaxed p-3 max-h-[360px] overflow-y-auto text-[var(--text-primary)] bg-[var(--surface-primary)]">{r.output ?? '—'}</pre>
+                  {r.output && (
+                    <div className="p-2 border-t border-[var(--border-default)] flex items-center gap-4">
+                      <button className="text-xs font-ui text-[var(--text-secondary)] hover:text-[var(--accent-gold)] transition-colors" onClick={() => { navigator.clipboard?.writeText(r.output ?? ''); toast.success('Copied'); }}>⧉ copy</button>
+                      <button
+                        data-testid={`playground-diff-toggle-${i}`}
+                        className={`text-xs font-ui transition-colors ${diffIndex === i ? 'text-[var(--accent-gold)] font-medium' : 'text-[var(--text-secondary)] hover:text-[var(--accent-gold)]'}`}
+                        onClick={() => setDiffIndex((cur) => (cur === i ? null : i))}
+                      >
+                        ⇄ Diff vs parent
+                      </button>
                     </div>
                   )}
-                  {r.looksLikeRefusal && <div className="text-xs font-ui text-[var(--text-muted)]">↪ output looks like a refusal</div>}
-                  {r.errorMsg && <div className="text-xs font-ui text-[var(--status-error)] truncate" title={r.errorMsg}>{r.errorMsg}</div>}
                 </div>
-                <pre data-testid={`playground-output-${i}`} className="whitespace-pre-wrap text-xs font-mono p-3 max-h-[360px] overflow-y-auto text-[var(--text-primary)]">{r.output ?? '—'}</pre>
-                {r.output && (
-                  <div className="p-2 border-t border-[var(--border-default)] flex items-center gap-3">
-                    <button className="text-xs font-ui text-[var(--text-secondary)] hover:underline" onClick={() => { navigator.clipboard?.writeText(r.output ?? ''); toast.success('Copied'); }}>⧉ copy</button>
-                    <button
-                      data-testid={`playground-diff-toggle-${i}`}
-                      className={`text-xs font-ui hover:underline ${diffIndex === i ? 'text-[var(--accent-gold)]' : 'text-[var(--text-secondary)]'}`}
-                      onClick={() => setDiffIndex((cur) => (cur === i ? null : i))}
-                    >
-                      ⇄ Diff vs parent
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       {/* Full-width "Diff vs parent" view — patterned after the variant-detail Diff tab
           (Parent left / This output right, removals struck red, additions green). Rendered
           full-width below the grid so the side-by-side isn't cramped inside a result card. */}
       {result && diffIndex != null && result.configs[diffIndex]?.output && (
-        <div data-testid="playground-diff-panel" className="rounded-page border border-[var(--accent-gold)]/40 bg-[var(--surface-primary)] p-4 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="font-ui text-sm text-[var(--text-primary)]">
-              Diff vs parent · <span className="font-mono">{result.configs[diffIndex]!.label}</span>
+        <Card data-testid="playground-diff-panel" className="border-[var(--accent-gold)]/40">
+          <CardContent className="p-5 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="font-display text-xl text-[var(--text-primary)]">
+                Diff vs parent · <span className="font-mono text-base text-[var(--text-secondary)]">{result.configs[diffIndex]!.label}</span>
+              </div>
+              <button
+                data-testid="playground-diff-close"
+                className="text-xs font-ui text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                onClick={() => setDiffIndex(null)}
+              >
+                ✕ close
+              </button>
             </div>
-            <button
-              data-testid="playground-diff-close"
-              className="text-xs font-ui text-[var(--text-muted)] hover:underline"
-              onClick={() => setDiffIndex(null)}
-            >
-              ✕ close
-            </button>
-          </div>
-          <SideBySideWordDiff parent={sourceText} variant={result.configs[diffIndex]!.output!} />
-        </div>
+            <SideBySideWordDiff parent={sourceText} variant={result.configs[diffIndex]!.output!} />
+          </CardContent>
+        </Card>
       )}
     </div>
   );
