@@ -4,7 +4,7 @@
 // (match_viewer_with_experimentation_procedures_20260605)
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
@@ -88,7 +88,9 @@ export default function MatchDetailPage(): JSX.Element {
   const [showCustom, setShowCustom] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
   const [rejudging, setRejudging] = useState(false);
-  const [results, setResults] = useState<RejudgeResult[]>([]);
+  // Stable id per result so prepending new cards doesn't reshuffle React keys.
+  const resultIdRef = useRef(0);
+  const [results, setResults] = useState<{ id: number; result: RejudgeResult }[]>([]);
 
   const maxTemp = getModelMaxTemperature(model);
   const tempSupported = maxTemp != null;
@@ -125,7 +127,7 @@ export default function MatchDetailPage(): JSX.Element {
       customPrompt: showCustom && customPrompt.trim() ? customPrompt : undefined,
     });
     if (res.success && res.data) {
-      setResults((prev) => [res.data!, ...prev]);
+      setResults((prev) => [{ id: resultIdRef.current++, result: res.data! }, ...prev]);
     } else if (!res.success) {
       toast.error(res.error?.message ?? 'Re-judge failed');
     }
@@ -320,7 +322,7 @@ export default function MatchDetailPage(): JSX.Element {
 
         {results.length > 0 && (
           <div className="mt-4 space-y-3">
-            {results.map((r, i) => <ResultCard key={results.length - i} result={r} stored={stored} />)}
+            {results.map((r) => <ResultCard key={r.id} result={r.result} stored={stored} />)}
           </div>
         )}
       </div>

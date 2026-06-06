@@ -9,10 +9,8 @@ import {
   buildComparisonPrompt,
   parseWinner,
   parseVerdictFromReasoning,
-  run2PassReversal,
   aggregateWinners,
   type ComparisonMode,
-  type ComparisonResult,
 } from '@evolution/lib/shared/computeRatings';
 import { callLLM, type CallLLMOptions } from '@/lib/services/llms';
 import { getEvolutionModelIds, getModelMaxTemperature } from '@/config/modelRegistry';
@@ -629,7 +627,6 @@ export const rejudgeComparisonAction = adminAction(
     }
 
     let costUsd = 0;
-    const captured = new Map<string, string>();
     const judge = async (prompt: string): Promise<string> => {
       if (isE2E) {
         // Constant canned verdict → deterministic aggregate (forward A + reverse A→flipped B
@@ -642,30 +639,27 @@ export const rejudgeComparisonAction = adminAction(
       };
       return callLLM(prompt, 'match_viewer_rejudge', ctx.adminUserId, judgeModel, false, null, null, null, false, opts);
     };
-    const wrapped = async (prompt: string): Promise<string> => {
-      const r = await judge(prompt);
-      captured.set(prompt, r);
-      return r;
-    };
 
-    let agg: ComparisonResult;
+    // 2-pass A/B reversal (mirrors run2PassReversal) — capture each pass's raw response BY
+    // DIRECTION rather than via a prompt-keyed map, so identical-content variants
+    // (forwardPrompt === reversePrompt) don't collide in the displayed output.
+    let forwardResponse: string;
+    let reverseResponse: string;
     try {
-      agg = await run2PassReversal<string | null, ComparisonResult>({
-        buildPrompts: () => ({ forward: forwardPrompt, reverse: reversePrompt }),
-        callLLM: wrapped,
-        parseResponse: parser,
-        aggregate: aggregateWinners,
-      });
+      [forwardResponse, reverseResponse] = await Promise.all([judge(forwardPrompt), judge(reversePrompt)]);
     } catch (e) {
       if (e instanceof GlobalBudgetExceededError || e instanceof LLMKillSwitchError) {
         throw new Error(`Re-judge unavailable: ${e.message}`);
       }
       throw e;
     }
+    const forwardParsed = parser(forwardResponse);
+    const reverseParsed = parser(reverseResponse);
+    const agg = aggregateWinners(forwardParsed, reverseParsed);
 
     const passes: RejudgePass[] = [
-      { direction: 'forward', prompt: forwardPrompt, rawResponse: captured.get(forwardPrompt) ?? '', parsedWinner: norm(parser(captured.get(forwardPrompt) ?? '')) },
-      { direction: 'reverse', prompt: reversePrompt, rawResponse: captured.get(reversePrompt) ?? '', parsedWinner: norm(parser(captured.get(reversePrompt) ?? '')) },
+      { direction: 'forward', prompt: forwardPrompt, rawResponse: forwardResponse, parsedWinner: norm(forwardParsed) },
+      { direction: 'reverse', prompt: reversePrompt, rawResponse: reverseResponse, parsedWinner: norm(reverseParsed) },
     ];
 
     return {
