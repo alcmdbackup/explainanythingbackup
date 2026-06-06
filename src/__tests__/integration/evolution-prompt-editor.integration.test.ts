@@ -1,4 +1,4 @@
-// Integration test for the prompt-playground harness ephemerality: running N configs writes NO
+// Integration test for the prompt-editor harness ephemerality: running N configs writes NO
 // evolution-pipeline rows (no invocations / variants / metrics / arena comparisons). callLLM is
 // mocked (firing onUsage) so no real LLM spend or llmCallTracking write occurs; the point here is
 // to prove the harness itself never touches the evolution tables. Row-absence is scoped by a
@@ -13,12 +13,12 @@ import { createTestSupabaseClient } from '@/testing/utils/integration-helpers';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { evolutionTablesExist } from '@evolution/testing/evolution-test-helpers';
 import { callLLM } from '@/lib/services/llms';
-import { runPlayground } from '@evolution/lib/playground/runPlayground';
-import type { PlaygroundRunInput } from '@evolution/lib/playground/types';
+import { runPromptEditor } from '@evolution/lib/promptEditor/runPromptEditor';
+import type { PromptEditorRunInput } from '@evolution/lib/promptEditor/types';
 
 const mockCallLLM = callLLM as jest.MockedFunction<typeof callLLM>;
 
-describe('Prompt playground integration — ephemerality', () => {
+describe('Prompt editor integration — ephemerality', () => {
   let supabase: SupabaseClient;
   let tablesExist = false;
 
@@ -53,7 +53,7 @@ describe('Prompt playground integration — ephemerality', () => {
 
     const sinceIso = new Date(Date.now() - 1000).toISOString();
 
-    const input: PlaygroundRunInput = {
+    const input: PromptEditorRunInput = {
       unit: 'article',
       sourceText: '# Source\n\nA body paragraph with two sentences. Here is the second.',
       configs: [
@@ -63,7 +63,7 @@ describe('Prompt playground integration — ephemerality', () => {
       ],
     };
 
-    const result = await runPlayground(input);
+    const result = await runPromptEditor(input);
 
     // Per-config output + cost.
     expect(result.configs).toHaveLength(3);
@@ -88,7 +88,7 @@ describe('Prompt playground integration — ephemerality', () => {
         return '# Ok\n\nOne. Two.';
       });
 
-    const input: PlaygroundRunInput = {
+    const input: PromptEditorRunInput = {
       unit: 'article',
       sourceText: 'src',
       configs: [
@@ -96,7 +96,7 @@ describe('Prompt playground integration — ephemerality', () => {
         { label: 'B', prompt: { preamble: 'p', instructions: 'i' }, model: 'gpt-4.1-nano' },
       ],
     };
-    const result = await runPlayground(input);
+    const result = await runPromptEditor(input);
     expect(result.configs[0]!.status).toBe('error');
     expect(result.configs[1]!.status).toBe('success');
   });

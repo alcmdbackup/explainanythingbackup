@@ -1,4 +1,4 @@
-// Loading skeleton for the prompt-playground page.
+// Loading skeleton for the prompt-editor page.
 export default function Loading(): JSX.Element {
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6">

@@ -141,13 +141,13 @@ export default function EvolutionDashboardPage(): JSX.Element {
       <EvolutionBreadcrumb items={[{ label: 'Evolution Dashboard' }]} />
       <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">Evolution Dashboard</h1>
       <Link
-        href="/admin/evolution/prompt-playground"
-        data-testid="dashboard-prompt-playground-link"
+        href="/admin/evolution/prompt-editor"
+        data-testid="dashboard-prompt-editor-link"
         className="block p-4 rounded-book border border-[var(--border-default)] bg-[var(--surface-secondary)] paper-texture shadow-warm-sm hover:bg-[var(--surface-elevated)] hover:border-[var(--accent-gold)]/40 transition-colors"
       >
         <div className="flex items-center gap-2">
           <span aria-hidden>🎛️</span>
-          <span className="text-sm font-ui font-medium text-[var(--text-primary)]">Prompt Playground</span>
+          <span className="text-sm font-ui font-medium text-[var(--text-primary)]">Prompt Editor</span>
           <span className="ml-auto text-sm text-[var(--accent-gold)]">Open →</span>
         </div>
         <p className="text-xs font-ui text-[var(--text-muted)] mt-1">

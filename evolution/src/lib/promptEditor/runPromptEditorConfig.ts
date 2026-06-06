@@ -1,4 +1,4 @@
-// Runs ONE playground config: builds the rewrite prompt, makes a single callLLM, captures cost
+// Runs ONE prompt editor config: builds the rewrite prompt, makes a single callLLM, captures cost
 // via the onUsage callback, and runs display-only format validation. No agent orchestration,
 // no evolution-pipeline DB rows. callLLM still records one llmCallTracking row + consumes the
 // shared 'evolution' budget (by design — desirable for cost auditing).
@@ -9,16 +9,16 @@ import { getModelMaxTemperature } from '@/config/modelRegistry';
 import { GlobalBudgetExceededError, LLMKillSwitchError } from '@/lib/errors/serviceError';
 import { validateFormat } from '@evolution/lib/shared/enforceVariantFormat';
 import { validateParagraphRewrite } from '@evolution/lib/shared/paragraphSlots';
-import { buildPlaygroundPrompt } from './buildPlaygroundPrompt';
-import type { PlaygroundConfig, PlaygroundConfigResult, RewriteUnit } from './types';
+import { buildPromptEditorPrompt } from './buildPromptEditorPrompt';
+import type { PromptEditorConfig, PromptEditorConfigResult, RewriteUnit } from './types';
 
 /** call_source label — the `evolution_` prefix routes spend to the shared evolution budget
  *  category and engages the LLM semaphore (see llms.ts). */
-export const PLAYGROUND_CALL_SOURCE = 'evolution_playground';
+export const PROMPT_EDITOR_CALL_SOURCE = 'evolution_prompt_editor';
 
 /** Resolve the temperature to send: omit (null) when the model reports null/undefined max
  *  temperature; otherwise clamp the requested value to the model's ceiling. */
-export function resolvePlaygroundTemperature(model: string, requested?: number): number | null {
+export function resolvePromptEditorTemperature(model: string, requested?: number): number | null {
   const max = getModelMaxTemperature(model);
   if (max === null || max === undefined) return null;
   if (requested === undefined) return null;
@@ -42,14 +42,14 @@ function isAbortOrTimeout(err: unknown): boolean {
  * Run a single config and return a structured result. Never throws — all errors map to a typed
  * status so a failing config does not break siblings under Promise.allSettled.
  */
-export async function runPlaygroundConfig(
+export async function runPromptEditorConfig(
   unit: RewriteUnit,
   sourceText: string,
-  config: PlaygroundConfig,
+  config: PromptEditorConfig,
   title = '',
-): Promise<PlaygroundConfigResult> {
+): Promise<PromptEditorConfigResult> {
   const startMs = Date.now();
-  const temperatureUsed = resolvePlaygroundTemperature(config.model, config.temperature);
+  const temperatureUsed = resolvePromptEditorTemperature(config.model, config.temperature);
   const base = {
     label: config.label,
     model: config.model,
@@ -66,13 +66,13 @@ export async function runPlaygroundConfig(
     };
   }
 
-  const prompt = buildPlaygroundPrompt(unit, sourceText, config.prompt, title);
+  const prompt = buildPromptEditorPrompt(unit, sourceText, config.prompt, title);
 
   let costUsd = 0;
   try {
     const text = await callLLM(
       prompt,
-      PLAYGROUND_CALL_SOURCE,
+      PROMPT_EDITOR_CALL_SOURCE,
       ANONYMOUS_USER_UUID,
       model,
       false,
@@ -111,7 +111,7 @@ export async function runPlaygroundConfig(
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    let status: PlaygroundConfigResult['status'] = 'error';
+    let status: PromptEditorConfigResult['status'] = 'error';
     if (err instanceof GlobalBudgetExceededError) status = 'budget';
     else if (err instanceof LLMKillSwitchError) status = 'killed';
     else if (isAbortOrTimeout(err)) status = 'timeout';

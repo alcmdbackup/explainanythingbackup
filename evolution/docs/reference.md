@@ -504,7 +504,7 @@ The admin UI is a Next.js App Router application. All pages are under `src/app/a
 | Route | Page File | Purpose |
 |-------|-----------|---------|
 | `/admin/evolution-dashboard` | `evolution-dashboard/page.tsx` | Aggregate metrics dashboard; auto-refresh every 15 seconds |
-| `/admin/evolution/prompt-playground` | `evolution/prompt-playground/page.tsx` | Prompt Playground — single-call rewrite testbed (article + paragraph), parallel configs, side-by-side outputs + cost. Backend: `evolution/src/lib/playground/*` + `/api/evolution/playground`. See [prompt_playground.md](./prompt_playground.md). |
+| `/admin/evolution/prompt-editor` | `evolution/prompt-editor/page.tsx` | Prompt Editor — single-call rewrite testbed (article + paragraph), parallel configs, side-by-side outputs + cost. Backend: `evolution/src/lib/promptEditor/*` + `/api/evolution/prompt-editor`. See [prompt_editor.md](./prompt_editor.md). |
 | `/admin/evolution/runs` | `evolution/runs/page.tsx` | Runs list with status filtering (pending, running, completed, failed) |
 | `/admin/evolution/runs/[runId]` | `evolution/runs/[runId]/page.tsx` | Run detail with tabs: Overview, Elo, Lineage, Variants, Logs |
 | `/admin/evolution/experiments` | `evolution/experiments/page.tsx` | Experiment list |
@@ -530,7 +530,7 @@ The admin UI is a Next.js App Router application. All pages are under `src/app/a
 | Route | Method | File | Purpose |
 |-------|--------|------|---------|
 | `/api/evolution/run` | POST | `src/app/api/evolution/run/route.ts` | Trigger evolution pipeline run. Admin-only. Accepts `{ targetRunId?: string }`, returns `RunnerResult`. `maxDuration=300`. |
-| `/api/evolution/playground` | POST | `src/app/api/evolution/playground/route.ts` | Prompt-playground single-call rewrite harness. Admin-only + host-gated (public host → 404); env-gated by `EVOLUTION_PLAYGROUND_ENABLED`. Accepts `{ unit, sourceText, title?, configs[] }`, returns `PlaygroundRunResult`. `maxDuration=300`. Calls `runPlayground` (`evolution/src/lib/playground/`). See [prompt_playground.md](./prompt_playground.md). |
+| `/api/evolution/prompt-editor` | POST | `src/app/api/evolution/prompt-editor/route.ts` | Prompt-editor single-call rewrite harness. Admin-only + host-gated (public host → 404); env-gated by `EVOLUTION_PROMPT_EDITOR_ENABLED`. Accepts `{ unit, sourceText, title?, configs[] }`, returns `PromptEditorRunResult`. `maxDuration=300`. Calls `runPromptEditor` (`evolution/src/lib/promptEditor/`). See [prompt_editor.md](./prompt_editor.md). |
 
 Additional files:
 

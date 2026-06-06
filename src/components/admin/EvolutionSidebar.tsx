@@ -33,7 +33,7 @@ const navGroups: NavGroup[] = [
   {
     label: 'Tools',
     items: [
-      { href: '/admin/evolution/prompt-playground', label: 'Prompt Playground', icon: '🎛️', testId: 'evolution-sidebar-nav-prompt-playground', description: 'Test rewrite prompts live' },
+      { href: '/admin/evolution/prompt-editor', label: 'Prompt Editor', icon: '🎛️', testId: 'evolution-sidebar-nav-prompt-editor', description: 'Test rewrite prompts live' },
     ],
   },
 ];

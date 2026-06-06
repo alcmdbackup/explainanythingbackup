@@ -1,12 +1,12 @@
-// Unit tests for buildPlaygroundPrompt: verifies article + paragraph prompt assembly and that
+// Unit tests for buildPromptEditorPrompt: verifies article + paragraph prompt assembly and that
 // editable parts pass through verbatim while the format scaffolding is preserved.
 
-import { buildPlaygroundPrompt } from './buildPlaygroundPrompt';
+import { buildPromptEditorPrompt } from './buildPromptEditorPrompt';
 
-describe('buildPlaygroundPrompt', () => {
+describe('buildPromptEditorPrompt', () => {
   describe('article unit', () => {
     it('includes preamble, source text, instructions, and FORMAT_RULES', () => {
-      const prompt = buildPlaygroundPrompt('article', 'The original article body.', {
+      const prompt = buildPromptEditorPrompt('article', 'The original article body.', {
         preamble: 'You are an expert editor.',
         instructions: 'Restructure aggressively.',
       });
@@ -21,14 +21,14 @@ describe('buildPlaygroundPrompt', () => {
     it('passes fully custom preamble/instructions through verbatim', () => {
       const preamble = 'CUSTOM-PREAMBLE-xyz';
       const instructions = 'CUSTOM-INSTRUCTIONS-123 rewrite as a narrative.';
-      const prompt = buildPlaygroundPrompt('article', 'src', { preamble, instructions });
+      const prompt = buildPromptEditorPrompt('article', 'src', { preamble, instructions });
       expect(prompt).toContain(preamble);
       expect(prompt).toContain(instructions);
     });
 
     it('throws when given a paragraph spec', () => {
       expect(() =>
-        buildPlaygroundPrompt('article', 'src', { directive: 'x' }),
+        buildPromptEditorPrompt('article', 'src', { directive: 'x' }),
       ).toThrow(/ArticlePromptSpec/);
     });
   });
@@ -36,7 +36,7 @@ describe('buildPlaygroundPrompt', () => {
   describe('paragraph unit', () => {
     it('wraps the directive and source paragraph in the rewrite scaffolding', () => {
       const para = 'A single source paragraph that should be rewritten in place.';
-      const prompt = buildPlaygroundPrompt('paragraph', para, { directive: 'Tighten and simplify.' }, 'My Title');
+      const prompt = buildPromptEditorPrompt('paragraph', para, { directive: 'Tighten and simplify.' }, 'My Title');
       expect(prompt).toContain(para);
       expect(prompt).toContain('Tighten and simplify.');
       expect(prompt).toContain('APPROACH FOR THIS REWRITE');
@@ -47,7 +47,7 @@ describe('buildPlaygroundPrompt', () => {
 
     it('throws when given an article spec', () => {
       expect(() =>
-        buildPlaygroundPrompt('paragraph', 'src', { preamble: 'a', instructions: 'b' }),
+        buildPromptEditorPrompt('paragraph', 'src', { preamble: 'a', instructions: 'b' }),
       ).toThrow(/ParagraphPromptSpec/);
     });
   });

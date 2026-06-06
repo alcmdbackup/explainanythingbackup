@@ -1,8 +1,8 @@
-// Type contracts for the prompt-playground tool: a single-call rewrite harness that runs N
+// Type contracts for the prompt-editor tool: a single-call rewrite harness that runs N
 // {prompt, model, temperature} configs over one shared source input and returns raw outputs +
 // per-config cost. No agent orchestration, no evolution-pipeline DB rows.
 
-/** Which rewrite unit a playground run operates on. */
+/** Which rewrite unit a prompt editor run operates on. */
 export type RewriteUnit = 'article' | 'paragraph';
 
 /** Editable prompt for the whole-article rewrite (mirrors a generate-tactic's two parts;
@@ -21,7 +21,7 @@ export interface ParagraphPromptSpec {
 export type PromptSpec = ArticlePromptSpec | ParagraphPromptSpec;
 
 /** One column in the comparison: a prompt + model + temperature to run against the shared input. */
-export interface PlaygroundConfig {
+export interface PromptEditorConfig {
   label: string;
   prompt: PromptSpec;
   model: string;
@@ -30,26 +30,26 @@ export interface PlaygroundConfig {
   temperature?: number;
 }
 
-/** A playground run: one shared source input + N configs. */
-export interface PlaygroundRunInput {
+/** A prompt editor run: one shared source input + N configs. */
+export interface PromptEditorRunInput {
   unit: RewriteUnit;
   /** The article (unit='article') or paragraph (unit='paragraph') every config rewrites. */
   sourceText: string;
   /** Optional article title used only for paragraph-mode prompt context. */
   title?: string;
-  configs: PlaygroundConfig[];
+  configs: PromptEditorConfig[];
 }
 
 /** Per-config execution outcome. A model refusal is NOT an error — it returns as text with
  *  status 'success' (and an optional looksLikeRefusal display hint). */
-export type PlaygroundConfigStatus =
+export type PromptEditorConfigStatus =
   | 'success'
   | 'budget'
   | 'killed'
   | 'timeout'
   | 'error';
 
-export interface PlaygroundConfigResult {
+export interface PromptEditorConfigResult {
   label: string;
   output: string | null;
   /** Per-call cost from the LLM usage callback (usage.estimatedCostUsd); 0 when no call ran. */
@@ -58,7 +58,7 @@ export interface PlaygroundConfigResult {
   /** Temperature actually sent (after clamp); null when the model does not support temperature. */
   temperatureUsed: number | null;
   durationMs: number;
-  status: PlaygroundConfigStatus;
+  status: PromptEditorConfigStatus;
   /** Display-only format check (never blocks output). */
   formatValid: boolean;
   formatIssues?: string[];
@@ -67,7 +67,7 @@ export interface PlaygroundConfigResult {
   errorMsg?: string;
 }
 
-export interface PlaygroundRunResult {
-  configs: PlaygroundConfigResult[];
+export interface PromptEditorRunResult {
+  configs: PromptEditorConfigResult[];
   totalCostUsd: number;
 }

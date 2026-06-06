@@ -1,4 +1,4 @@
-// POST endpoint for the prompt-playground: runs N single-call rewrite configs over one shared
+// POST endpoint for the prompt-editor: runs N single-call rewrite configs over one shared
 // input and returns raw outputs + per-config cost. Admin-only; host-gated to the evolution host
 // by middleware (public host → 404). maxDuration=300 gives headroom for slow models.
 
@@ -8,11 +8,11 @@ import { requireAdmin } from '@/lib/services/adminAuth';
 import { logger } from '@/lib/server_utilities';
 import { getEvolutionModelIds } from '@/config/modelRegistry';
 import {
-  runPlayground,
-  PlaygroundCostCapError,
-  PLAYGROUND_MAX_CONFIGS,
-} from '@evolution/lib/playground/runPlayground';
-import type { PlaygroundRunInput } from '@evolution/lib/playground/types';
+  runPromptEditor,
+  PromptEditorCostCapError,
+  PROMPT_EDITOR_MAX_CONFIGS,
+} from '@evolution/lib/promptEditor/runPromptEditor';
+import type { PromptEditorRunInput } from '@evolution/lib/promptEditor/types';
 
 export const maxDuration = 300;
 
@@ -36,7 +36,7 @@ const bodySchema = z.object({
   unit: z.enum(['article', 'paragraph']),
   sourceText: z.string().min(1).max(200_000),
   title: z.string().max(500).optional(),
-  configs: z.array(configSchema).min(1).max(PLAYGROUND_MAX_CONFIGS),
+  configs: z.array(configSchema).min(1).max(PROMPT_EDITOR_MAX_CONFIGS),
 }).strict().superRefine((data, ctx) => {
   // The prompt shape must match the unit.
   data.configs.forEach((c, i) => {
@@ -52,8 +52,8 @@ const bodySchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    if (process.env.EVOLUTION_PLAYGROUND_ENABLED === '0') {
-      return NextResponse.json({ error: 'Prompt playground is disabled' }, { status: 403 });
+    if (process.env.EVOLUTION_PROMPT_EDITOR_ENABLED === '0') {
+      return NextResponse.json({ error: 'Prompt editor is disabled' }, { status: 403 });
     }
 
     await requireAdmin();
@@ -70,17 +70,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid request body', issues: parsed.error.issues }, { status: 400 });
     }
 
-    const result = await runPlayground(parsed.data as PlaygroundRunInput);
+    const result = await runPromptEditor(parsed.data as PromptEditorRunInput);
     return NextResponse.json(result);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     if (msg.startsWith('Unauthorized')) {
       return NextResponse.json({ error: msg }, { status: 403 });
     }
-    if (error instanceof PlaygroundCostCapError) {
+    if (error instanceof PromptEditorCostCapError) {
       return NextResponse.json({ error: msg, estimatedUsd: error.estimatedUsd, capUsd: error.capUsd }, { status: 402 });
     }
-    logger.error('Prompt playground API error', { error: msg, stack: error instanceof Error ? error.stack : undefined });
+    logger.error('Prompt editor API error', { error: msg, stack: error instanceof Error ? error.stack : undefined });
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

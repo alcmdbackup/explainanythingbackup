@@ -425,16 +425,16 @@ Note that the evolution pipeline's `llm-client.ts` imports `getModelPricing` fro
 
 ---
 
-## Prompt Playground spend (tool_test_rewrite_prompts_evolution_20260605)
+## Prompt Editor spend (tool_test_rewrite_prompts_evolution_20260605)
 
-The Prompt Playground (`/admin/evolution/prompt-playground`) runs single `callLLM` rewrites with
-`call_source='evolution_playground'`. The `evolution_` prefix routes its spend into the **shared
+The Prompt Editor (`/admin/evolution/prompt-editor`) runs single `callLLM` rewrites with
+`call_source='evolution_prompt_editor'`. The `evolution_` prefix routes its spend into the **shared
 daily `evolution` budget category** (same cap as real pipeline runs) and engages the LLM semaphore.
 It records `llmCallTracking` rows like any app LLM call but writes **no** evolution-pipeline cost
-metrics (no run/invocation). A per-run **pre-flight cap** (`PLAYGROUND_PER_RUN_CAP_USD = $0.50`,
-`evolution/src/lib/playground/runPlayground.ts`) estimates Σ `calculateLLMCost(model, prompt.length/4,
+metrics (no run/invocation). A per-run **pre-flight cap** (`PROMPT_EDITOR_PER_RUN_CAP_USD = $0.50`,
+`evolution/src/lib/promptEditor/runPromptEditor.ts`) estimates Σ `calculateLLMCost(model, prompt.length/4,
 cappedOutputTokens)` and rejects (HTTP 402) before any call; the global `LLMSpendingGate` is the hard
-backstop. Disable entirely via `EVOLUTION_PLAYGROUND_ENABLED='0'`. See [prompt_playground.md](./prompt_playground.md).
+backstop. Disable entirely via `EVOLUTION_PROMPT_EDITOR_ENABLED='0'`. See [prompt_editor.md](./prompt_editor.md).
 
 ## Layer 2: Global LLM Spending Gate
 
