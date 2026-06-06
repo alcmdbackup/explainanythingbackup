@@ -74,6 +74,9 @@ export interface VariantRelative {
 }
 
 export interface VariantMatchEntry {
+  /** Comparison row id (evolution_arena_comparisons.id) — used to deep-link the row to the
+   *  Match Viewer (match_viewer_with_experimentation_procedures_20260605). */
+  comparisonId: string;
   opponentId: string;
   opponentElo: number | null;
   /** Opponent's Elo-scale rating uncertainty. Optional for legacy rows. */
@@ -438,6 +441,7 @@ export const getVariantMatchHistoryAction = adminAction('getVariantMatchHistoryA
       (c.entry_b === variantId && c.winner === 'b');
     const oppUncertainty = opp ? liftUncertainty(opp) : undefined;
     return {
+      comparisonId: c.id,
       opponentId,
       opponentElo: opp?.elo_score ?? null,
       ...(oppUncertainty != null ? { opponentUncertainty: oppUncertainty } : {}),
@@ -528,9 +532,10 @@ export const getVariantFullChainAction = adminAction('getVariantFullChainAction'
     depth: number;
   };
   // RPC return shape rewritten in migration 20260508000002 (Phase 1.18).
+  const rpcArgs = { target_variant_id: variantId };
   const rpcResult = await supabase.rpc(
     'get_variant_full_chain' as never,
-    { target_variant_id: variantId } as never,
+    rpcArgs as never,
   ) as unknown as { data: ChainRpcRow[] | null; error: { message: string } | null };
   if (rpcResult.error) throw rpcResult.error;
 

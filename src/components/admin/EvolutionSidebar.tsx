@@ -30,9 +30,13 @@ const navGroups: NavGroup[] = [
       { href: '/admin/evolution/arena', label: 'Arena', icon: '🏟️', testId: 'evolution-sidebar-nav-arena', description: 'Best evolved content' },
     ],
   },
+  // Tools: utilities that are not entity-list pages. Match Viewer
+  // (match_viewer_with_experimentation_procedures_20260605) browses judge matches and
+  // re-runs judging in a display-only sandbox; Prompt Editor tests rewrite prompts live.
   {
     label: 'Tools',
     items: [
+      { href: '/admin/evolution/matches', label: 'Match Viewer', icon: '⚖️', testId: 'evolution-sidebar-nav-matches', description: 'Judge match history and re-run comparisons' },
       { href: '/admin/evolution/prompt-editor', label: 'Prompt Editor', icon: '🎛️', testId: 'evolution-sidebar-nav-prompt-editor', description: 'Test rewrite prompts live' },
     ],
   },
