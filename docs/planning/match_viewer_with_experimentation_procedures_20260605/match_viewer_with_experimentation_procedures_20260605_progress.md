@@ -51,6 +51,24 @@
 - Temperature IS changeable (verified): the temp=0 forcing is only in the evolution ranking
   client, which re-judge bypasses. 2-pass reversal kept (no single-pass toggle).
 
+## Phase 2.5: Match type filter + column + Match ID link (follow-up request)
+### Work Done
+- `getRecentMatchesAction`: added `kind` (article/paragraph) derived from
+  `evolution_prompts.prompt_kind` — left-join embed `evolution_prompts(prompt_kind)` for the
+  label (keeps null-prompt rows), `evolution_prompts!inner(prompt_kind)` + `.eq` when filtering.
+  `MatchKind` type + `kind` on `MatchListItem`.
+- List page: "Type" filter (All/Article/Paragraph) + "Type" badge column; **Match ID** is now
+  the clickable link (8-char, full UUID on hover) instead of the Created date.
+- Tests: unit kind-filter + embed-string assertions (8/8); integration article-includes/
+  paragraph-excludes against real DB (4/4); E2E re-run 2/2.
+
+### Issues Encountered
+- Verified the PostgREST embed syntax with a throwaway integration check before building:
+  the FK on `prompt_id` is legacy-named `..._topic_id_fkey` → `evolution_prompts`, but
+  `evolution_prompts(prompt_kind)` / `evolution_prompts!inner(prompt_kind)` both resolve.
+- Staging data: only 0.56% of comparison rows have a null `prompt_id`, so prompt_kind is a
+  reliable signal; those rows show a "—" type and appear only under "All types".
+
 ## Phase 3: Tests, checks
 ### Work Done
 - Unit: `computeRatings.sandbox.test.ts` (override path + reasoning parser), 
