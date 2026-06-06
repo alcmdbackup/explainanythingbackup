@@ -8,7 +8,6 @@ const navGroups: NavGroup[] = [
     label: 'Overview',
     items: [
       { href: '/admin/evolution-dashboard', label: 'Dashboard', icon: '📊', testId: 'evolution-sidebar-nav-overview', description: 'At-a-glance metrics and trends' },
-      { href: '/admin/evolution/prompt-playground', label: 'Prompt Playground', icon: '🎛️', testId: 'evolution-sidebar-nav-prompt-playground', description: 'Test rewrite prompts live' },
       { href: '/admin/evolution/start-experiment', label: 'Start Experiment', icon: '🧪', testId: 'evolution-sidebar-nav-start-experiment', description: 'Launch a new experiment' },
     ],
   },
@@ -29,6 +28,12 @@ const navGroups: NavGroup[] = [
     label: 'Results',
     items: [
       { href: '/admin/evolution/arena', label: 'Arena', icon: '🏟️', testId: 'evolution-sidebar-nav-arena', description: 'Best evolved content' },
+    ],
+  },
+  {
+    label: 'Tools',
+    items: [
+      { href: '/admin/evolution/prompt-playground', label: 'Prompt Playground', icon: '🎛️', testId: 'evolution-sidebar-nav-prompt-playground', description: 'Test rewrite prompts live' },
     ],
   },
 ];

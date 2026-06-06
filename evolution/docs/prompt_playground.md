@@ -120,7 +120,7 @@ migration ⇒ rollback = flip the flag or revert the PR.
 - `evolution/src/lib/playground/runPlayground.ts` — pre-flight cost cap + `Promise.allSettled`.
 - `src/app/api/evolution/playground/route.ts` — admin/host-gated route, `maxDuration=300`.
 - `src/app/admin/evolution/prompt-playground/page.tsx` (+ `loading.tsx`) — the UI.
-- Discovery: `src/components/admin/EvolutionSidebar.tsx` (Overview group) + a card on
+- Discovery: `src/components/admin/EvolutionSidebar.tsx` (Tools group) + a card on
   `src/app/admin/evolution-dashboard/page.tsx`.
 
 ## Tests
