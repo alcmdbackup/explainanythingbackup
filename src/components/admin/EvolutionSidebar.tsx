@@ -38,6 +38,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: '/admin/evolution/matches', label: 'Match Viewer', icon: '⚖️', testId: 'evolution-sidebar-nav-matches', description: 'Judge match history and re-run comparisons' },
       { href: '/admin/evolution/prompt-editor', label: 'Prompt Editor', icon: '🎛️', testId: 'evolution-sidebar-nav-prompt-editor', description: 'Test rewrite prompts live' },
+      { href: '/admin/evolution/judge-lab', label: 'Judge Lab', icon: '🧮', testId: 'evolution-sidebar-nav-judge-lab', description: 'Systematic judge-settings evaluation on a test set' },
     ],
   },
 ];
