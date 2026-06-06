@@ -1,11 +1,17 @@
-// Prompt Playground: customize a rewrite prompt + model + temperature and compare raw model
+// Prompt Editor: customize a rewrite prompt + model + temperature and compare raw model
 // outputs side-by-side across N configs over one shared source input. Single LLM call per config
-// (no agent orchestration / no evolution-pipeline rows). See evolution/docs/prompt_playground.md.
+// (no agent orchestration / no evolution-pipeline rows). See evolution/docs/prompt_editor.md.
 
 'use client';
 
-import { useCallback, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { toast } from 'sonner';
+import {
+  listRewriteSourcesAction,
+  getRewriteSourceTextAction,
+  type RewriteSourceItem,
+  type RewriteSourceMode,
+} from '@evolution/services/promptEditorActions';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
 import { SideBySideWordDiff } from '@evolution/components/evolution/visualizations/SideBySideWordDiff';
 import { Card, CardContent } from '@/components/ui/card';
@@ -13,7 +19,7 @@ import { Button } from '@/components/ui/button';
 import { getModelOptions, getModelMaxTemperature } from '@/config/modelRegistry';
 import { getTacticDef, GENERATE_TACTIC_NAMES } from '@evolution/lib/core/tactics';
 import { PARAGRAPH_REWRITE_DIRECTIVES } from '@evolution/lib/core/agents/paragraphRecombine/buildParagraphRewritePrompt';
-import type { RewriteUnit, PlaygroundRunResult, PlaygroundConfigResult } from '@evolution/lib/playground/types';
+import type { RewriteUnit, PromptEditorRunResult, PromptEditorConfigResult } from '@evolution/lib/promptEditor/types';
 
 const MODEL_OPTIONS = getModelOptions();
 const DEFAULT_MODEL = MODEL_OPTIONS.some((m) => m.value === 'gpt-4.1-nano') ? 'gpt-4.1-nano' : MODEL_OPTIONS[0]!.value;
@@ -65,16 +71,51 @@ function chipStyle(color: string): CSSProperties {
   };
 }
 
-export default function PromptPlaygroundPage(): JSX.Element {
+export default function PromptEditorPage(): JSX.Element {
   const [unit, setUnit] = useState<RewriteUnit>('article');
   const [sourceText, setSourceText] = useState('');
   const [title, setTitle] = useState('');
   const nextId = useRef(2);
   const [configs, setConfigs] = useState<ConfigState[]>([newConfig(1, 'article')]);
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<PlaygroundRunResult | null>(null);
+  const [result, setResult] = useState<PromptEditorRunResult | null>(null);
   // Index of the result whose full-width "Diff vs parent" view is open (one at a time), or null.
   const [diffIndex, setDiffIndex] = useState<number | null>(null);
+  // "Load recent…" picker: lists recently rewritten content to pre-populate the source.
+  const [loadMode, setLoadMode] = useState<RewriteSourceMode>('rewritten');
+  const [recentItems, setRecentItems] = useState<RewriteSourceItem[]>([]);
+  const [loadingRecent, setLoadingRecent] = useState(false);
+
+  const loadRecentList = useCallback(async (u: RewriteUnit, m: RewriteSourceMode) => {
+    setLoadingRecent(true);
+    try {
+      const res = await listRewriteSourcesAction({ unit: u, mode: m, limit: 25 });
+      setRecentItems(res.success && res.data ? res.data.items : []);
+    } catch {
+      setRecentItems([]);
+    } finally {
+      setLoadingRecent(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadRecentList(unit, loadMode); }, [unit, loadMode, loadRecentList]);
+
+  const pickRecent = useCallback(async (id: string) => {
+    const item = recentItems.find((i) => i.id === id);
+    if (!item) return;
+    try {
+      const res = await getRewriteSourceTextAction({ id: item.id, source: item.source });
+      if (res.success && res.data) {
+        setSourceText(res.data.text);
+        if (unit === 'paragraph' && res.data.title) setTitle(res.data.title);
+        toast.success('Loaded source');
+      } else {
+        toast.error('Could not load source');
+      }
+    } catch {
+      toast.error('Could not load source');
+    }
+  }, [recentItems, unit]);
 
   const switchUnit = useCallback((u: RewriteUnit) => {
     setUnit(u);
@@ -129,7 +170,7 @@ export default function PromptPlaygroundPage(): JSX.Element {
             : { directive: c.directive },
         })),
       };
-      const res = await fetch('/api/evolution/playground', {
+      const res = await fetch('/api/evolution/prompt-editor', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -139,7 +180,7 @@ export default function PromptPlaygroundPage(): JSX.Element {
         toast.error(json?.error ?? `Run failed (${res.status})`);
         return;
       }
-      setResult(json as PlaygroundRunResult);
+      setResult(json as PromptEditorRunResult);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Run failed');
     } finally {
@@ -156,10 +197,10 @@ export default function PromptPlaygroundPage(): JSX.Element {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
-      <EvolutionBreadcrumb items={[{ label: 'Prompt Playground' }]} />
+      <EvolutionBreadcrumb items={[{ label: 'Prompt Editor' }]} />
 
       <header className="space-y-1">
-        <h1 className="font-display text-4xl font-bold text-[var(--text-primary)]">Prompt Playground</h1>
+        <h1 className="font-display text-4xl font-bold text-[var(--text-primary)]">Prompt Editor</h1>
         <p className="font-body text-base text-[var(--text-secondary)] max-w-3xl">
           Customize a rewrite prompt + model + temperature and compare raw model outputs side-by-side.
           Single LLM call per config — no ranking, no recombine, no pipeline run.
@@ -180,7 +221,7 @@ export default function PromptPlaygroundPage(): JSX.Element {
                 aria-selected={unit === u}
                 size="sm"
                 variant={unit === u ? 'default' : 'outline'}
-                data-testid={`playground-unit-${u}`}
+                data-testid={`prompt-editor-unit-${u}`}
                 onClick={() => switchUnit(u)}
               >
                 {u === 'article' ? 'Whole article' : 'Paragraph'}
@@ -192,16 +233,49 @@ export default function PromptPlaygroundPage(): JSX.Element {
           <div>
             {unit === 'paragraph' && (
               <input
-                data-testid="playground-title"
+                data-testid="prompt-editor-title"
                 className={`${inputCls} mb-2`}
                 placeholder="Article title (optional context for the paragraph rewrite)"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
               />
             )}
-            <label className={labelCls}>{unit === 'article' ? 'Source article — shared by all configs' : 'Source paragraph — shared by all configs'}</label>
+            <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+              <label className={`${labelCls} mb-0`}>{unit === 'article' ? 'Source article — shared by all configs' : 'Source paragraph — shared by all configs'}</label>
+              <div className="flex items-center gap-2" data-testid="prompt-editor-load-recent">
+                <span className="text-xs font-ui text-[var(--text-muted)]">Load recent</span>
+                <div className="inline-flex rounded-page border border-[var(--border-default)] overflow-hidden">
+                  {(['rewritten', 'original'] as RewriteSourceMode[]).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      data-testid={`prompt-editor-load-mode-${m}`}
+                      onClick={() => setLoadMode(m)}
+                      className={`px-2 py-1 text-xs font-ui transition-colors ${
+                        loadMode === m
+                          ? 'bg-[var(--accent-gold)] text-[var(--surface-primary)]'
+                          : 'text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]'
+                      }`}
+                    >
+                      {m === 'rewritten' ? 'Rewritten' : 'Originals'}
+                    </button>
+                  ))}
+                </div>
+                <select
+                  data-testid="prompt-editor-recent-select"
+                  className="px-2 py-1 text-xs font-ui rounded-page border border-[var(--border-default)] bg-[var(--surface-input)] text-[var(--text-primary)] max-w-[18rem] focus:border-[var(--accent-gold)] focus:outline-none"
+                  value=""
+                  onChange={(e) => { void pickRecent(e.target.value); e.target.value = ''; }}
+                >
+                  <option value="">{loadingRecent ? 'Loading…' : recentItems.length ? 'Pick a source…' : 'None found'}</option>
+                  {recentItems.map((it) => (
+                    <option key={it.id} value={it.id}>{it.preview}{it.meta ? ` — ${it.meta}` : ''}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
             <textarea
-              data-testid="playground-source"
+              data-testid="prompt-editor-source"
               className={`${inputCls} font-mono leading-relaxed min-h-[140px] resize-y`}
               placeholder={unit === 'article' ? '# Title\n\nPaste the article to rewrite…' : 'Paste a single paragraph to rewrite…'}
               value={sourceText}
@@ -218,7 +292,7 @@ export default function PromptPlaygroundPage(): JSX.Element {
               type="button"
               variant="outline"
               size="sm"
-              data-testid="playground-add-config"
+              data-testid="prompt-editor-add-config"
               onClick={addConfig}
               disabled={configs.length >= MAX_CONFIGS}
             >
@@ -228,17 +302,17 @@ export default function PromptPlaygroundPage(): JSX.Element {
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {configs.map((c, i) => (
-              <div key={c.id} data-testid="playground-config-card" className={`${subCardCls} p-4 space-y-3`}>
+              <div key={c.id} data-testid="prompt-editor-config-card" className={`${subCardCls} p-4 space-y-3`}>
                 <div className="flex items-center gap-2">
                   <input
                     aria-label="label"
-                    data-testid={`playground-label-${i}`}
+                    data-testid={`prompt-editor-label-${i}`}
                     className={`${inputCls} flex-1 font-medium`}
                     value={c.label}
                     onChange={(e) => updateConfig(c.id, { label: e.target.value })}
                   />
                   <button
-                    data-testid={`playground-remove-${i}`}
+                    data-testid={`prompt-editor-remove-${i}`}
                     onClick={() => removeConfig(c.id)}
                     disabled={configs.length <= 1}
                     className="text-sm text-[var(--text-muted)] hover:text-[var(--status-error)] disabled:opacity-30 transition-colors"
@@ -252,7 +326,7 @@ export default function PromptPlaygroundPage(): JSX.Element {
                 <div>
                   <label className={labelCls}>Preset</label>
                   <select
-                    data-testid={`playground-preset-${i}`}
+                    data-testid={`prompt-editor-preset-${i}`}
                     className={inputCls}
                     defaultValue=""
                     onChange={(e) => applyPreset(c.id, e.target.value)}
@@ -268,18 +342,18 @@ export default function PromptPlaygroundPage(): JSX.Element {
                   <>
                     <div>
                       <label className={labelCls}>Preamble (role)</label>
-                      <textarea data-testid={`playground-preamble-${i}`} className={`${inputCls} min-h-[48px] resize-y`} value={c.preamble} onChange={(e) => updateConfig(c.id, { preamble: e.target.value })} />
+                      <textarea data-testid={`prompt-editor-preamble-${i}`} className={`${inputCls} min-h-[48px] resize-y`} value={c.preamble} onChange={(e) => updateConfig(c.id, { preamble: e.target.value })} />
                     </div>
                     <div>
                       <label className={labelCls}>Instructions</label>
-                      <textarea data-testid={`playground-instructions-${i}`} className={`${inputCls} min-h-[80px] resize-y`} value={c.instructions} onChange={(e) => updateConfig(c.id, { instructions: e.target.value })} />
+                      <textarea data-testid={`prompt-editor-instructions-${i}`} className={`${inputCls} min-h-[80px] resize-y`} value={c.instructions} onChange={(e) => updateConfig(c.id, { instructions: e.target.value })} />
                     </div>
                     <p className="text-xs font-ui text-[var(--text-muted)]">ⓘ FORMAT_RULES auto-appended</p>
                   </>
                 ) : (
                   <div>
                     <label className={labelCls}>Directive</label>
-                    <textarea data-testid={`playground-directive-${i}`} className={`${inputCls} min-h-[80px] resize-y`} value={c.directive} onChange={(e) => updateConfig(c.id, { directive: e.target.value })} />
+                    <textarea data-testid={`prompt-editor-directive-${i}`} className={`${inputCls} min-h-[80px] resize-y`} value={c.directive} onChange={(e) => updateConfig(c.id, { directive: e.target.value })} />
                     <p className="text-xs font-ui text-[var(--text-muted)] mt-1">ⓘ preserve-meaning + ±20% length scaffolding auto-wrapped</p>
                   </div>
                 )}
@@ -287,7 +361,7 @@ export default function PromptPlaygroundPage(): JSX.Element {
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className={labelCls}>Model</label>
-                    <select data-testid={`playground-model-${i}`} className={inputCls} value={c.model} onChange={(e) => updateConfig(c.id, { model: e.target.value })}>
+                    <select data-testid={`prompt-editor-model-${i}`} className={inputCls} value={c.model} onChange={(e) => updateConfig(c.id, { model: e.target.value })}>
                       {MODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
                     </select>
                   </div>
@@ -298,7 +372,7 @@ export default function PromptPlaygroundPage(): JSX.Element {
                       step="0.1"
                       min="0"
                       max="2"
-                      data-testid={`playground-temp-${i}`}
+                      data-testid={`prompt-editor-temp-${i}`}
                       className={`${inputCls} font-mono disabled:opacity-50`}
                       value={c.temperature}
                       disabled={!tempSupported(c.model)}
@@ -316,14 +390,14 @@ export default function PromptPlaygroundPage(): JSX.Element {
               type="button"
               variant="default"
               size="lg"
-              data-testid="playground-run"
+              data-testid="prompt-editor-run"
               onClick={run}
               disabled={!canRun}
             >
               {running ? 'Running…' : `▶ Run all ${configs.length}`}
             </Button>
             {result && (
-              <span data-testid="playground-total-cost" className="font-mono text-sm text-[var(--text-muted)]">
+              <span data-testid="prompt-editor-total-cost" className="font-mono text-sm text-[var(--text-muted)]">
                 total ${result.totalCostUsd.toFixed(4)}
               </span>
             )}
@@ -335,34 +409,34 @@ export default function PromptPlaygroundPage(): JSX.Element {
       {result && (
         <section className="space-y-3">
           <h2 className="font-display text-2xl text-[var(--text-primary)]">Results</h2>
-          <div data-testid="playground-results" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {result.configs.map((r: PlaygroundConfigResult, i: number) => {
+          <div data-testid="prompt-editor-results" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {result.configs.map((r: PromptEditorConfigResult, i: number) => {
               const st = STATUS_STYLES[r.status] ?? STATUS_STYLES.error!;
               return (
-                <div key={i} data-testid="playground-result-panel" className={`${subCardCls} overflow-hidden flex flex-col`}>
+                <div key={i} data-testid="prompt-editor-result-panel" className={`${subCardCls} overflow-hidden flex flex-col`}>
                   <div className="p-3 border-b border-[var(--border-default)] space-y-1.5">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-ui text-sm font-medium text-[var(--text-primary)] truncate">{r.label}</span>
-                      <span data-testid={`playground-status-${i}`} className="text-xs font-ui font-medium px-2 py-0.5 rounded-page border shadow-warm-sm shrink-0" style={chipStyle(st.color)}>{st.label}</span>
+                      <span data-testid={`prompt-editor-status-${i}`} className="text-xs font-ui font-medium px-2 py-0.5 rounded-page border shadow-warm-sm shrink-0" style={chipStyle(st.color)}>{st.label}</span>
                     </div>
                     <div className="flex items-center justify-between text-xs font-mono text-[var(--text-muted)]">
                       <span>{r.model}{r.temperatureUsed != null ? ` · t=${r.temperatureUsed}` : ''}</span>
-                      <span data-testid={`playground-cost-${i}`}>${r.costUsd.toFixed(4)} · {r.durationMs}ms</span>
+                      <span data-testid={`prompt-editor-cost-${i}`}>${r.costUsd.toFixed(4)} · {r.durationMs}ms</span>
                     </div>
                     {!r.formatValid && r.formatIssues && r.formatIssues.length > 0 && (
-                      <div data-testid={`playground-format-chip-${i}`} className="text-xs font-ui" style={{ color: 'var(--status-warning)' }}>
+                      <div data-testid={`prompt-editor-format-chip-${i}`} className="text-xs font-ui" style={{ color: 'var(--status-warning)' }}>
                         ⚠ would-drop: {r.formatIssues.join(', ')}
                       </div>
                     )}
                     {r.looksLikeRefusal && <div className="text-xs font-ui text-[var(--text-muted)]">↪ output looks like a refusal</div>}
                     {r.errorMsg && <div className="text-xs font-ui text-[var(--status-error)] truncate" title={r.errorMsg}>{r.errorMsg}</div>}
                   </div>
-                  <pre data-testid={`playground-output-${i}`} className="whitespace-pre-wrap text-xs font-mono leading-relaxed p-3 max-h-[360px] overflow-y-auto text-[var(--text-primary)] bg-[var(--surface-primary)]">{r.output ?? '—'}</pre>
+                  <pre data-testid={`prompt-editor-output-${i}`} className="whitespace-pre-wrap text-xs font-mono leading-relaxed p-3 max-h-[360px] overflow-y-auto text-[var(--text-primary)] bg-[var(--surface-primary)]">{r.output ?? '—'}</pre>
                   {r.output && (
                     <div className="p-2 border-t border-[var(--border-default)] flex items-center gap-4">
                       <button className="text-xs font-ui text-[var(--text-secondary)] hover:text-[var(--accent-gold)] transition-colors" onClick={() => { navigator.clipboard?.writeText(r.output ?? ''); toast.success('Copied'); }}>⧉ copy</button>
                       <button
-                        data-testid={`playground-diff-toggle-${i}`}
+                        data-testid={`prompt-editor-diff-toggle-${i}`}
                         className={`text-xs font-ui transition-colors ${diffIndex === i ? 'text-[var(--accent-gold)] font-medium' : 'text-[var(--text-secondary)] hover:text-[var(--accent-gold)]'}`}
                         onClick={() => setDiffIndex((cur) => (cur === i ? null : i))}
                       >
@@ -381,14 +455,14 @@ export default function PromptPlaygroundPage(): JSX.Element {
           (Parent left / This output right, removals struck red, additions green). Rendered
           full-width below the grid so the side-by-side isn't cramped inside a result card. */}
       {result && diffIndex != null && result.configs[diffIndex]?.output && (
-        <Card data-testid="playground-diff-panel" className="border-[var(--accent-gold)]/40">
+        <Card data-testid="prompt-editor-diff-panel" className="border-[var(--accent-gold)]/40">
           <CardContent className="p-5 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <div className="font-display text-xl text-[var(--text-primary)]">
                 Diff vs parent · <span className="font-mono text-base text-[var(--text-secondary)]">{result.configs[diffIndex]!.label}</span>
               </div>
               <button
-                data-testid="playground-diff-close"
+                data-testid="prompt-editor-diff-close"
                 className="text-xs font-ui text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                 onClick={() => setDiffIndex(null)}
               >

@@ -1,4 +1,4 @@
-// E2E for the Prompt Playground admin page. The backend (POST /api/evolution/playground) is
+// E2E for the Prompt Editor admin page. The backend (POST /api/evolution/prompt-editor) is
 // route-mocked with a deterministic result — real models would be slow/costly/nondeterministic.
 // Verifies: navigation from the sidebar, parallel side-by-side results with cost, display-only
 // format chips (output still shown), and temperature disabled for a null-maxTemperature model.
@@ -22,60 +22,71 @@ const MOCK_RESULT = {
   totalCostUsd: 0.0032,
 };
 
-adminTest.describe('Prompt Playground', { tag: '@evolution' }, () => {
+adminTest.describe('Prompt Editor', { tag: '@evolution' }, () => {
   adminTest('navigates from the sidebar and renders the builder', async ({ adminPage }) => {
     await safeGoto(adminPage, '/admin/evolution-dashboard');
-    await adminPage.getByTestId('evolution-sidebar-nav-prompt-playground').click();
-    await expect(adminPage).toHaveURL(/\/admin\/evolution\/prompt-playground/);
+    await adminPage.getByTestId('evolution-sidebar-nav-prompt-editor').click();
+    await expect(adminPage).toHaveURL(/\/admin\/evolution\/prompt-editor/);
     // Hydration proof: the source textarea + run button are present and interactive.
-    await expect(adminPage.getByTestId('playground-source')).toBeVisible();
-    await expect(adminPage.getByTestId('playground-run')).toBeVisible();
+    await expect(adminPage.getByTestId('prompt-editor-source')).toBeVisible();
+    await expect(adminPage.getByTestId('prompt-editor-run')).toBeVisible();
+  });
+
+  adminTest('renders the "Load recent" picker with an originals/rewritten toggle', async ({ adminPage }) => {
+    await safeGoto(adminPage, '/admin/evolution/prompt-editor');
+    await expect(adminPage.getByTestId('prompt-editor-load-recent')).toBeVisible();
+    await expect(adminPage.getByTestId('prompt-editor-load-mode-rewritten')).toBeVisible();
+    await expect(adminPage.getByTestId('prompt-editor-load-mode-original')).toBeVisible();
+    await expect(adminPage.getByTestId('prompt-editor-recent-select')).toBeVisible();
+    // Toggling the mode re-queries without error and keeps the picker present.
+    await adminPage.getByTestId('prompt-editor-load-mode-original').click();
+    await expect(adminPage.getByTestId('prompt-editor-recent-select')).toBeVisible();
   });
 
   adminTest('runs configs in parallel and shows side-by-side outputs with cost', async ({ adminPage }) => {
-    await adminPage.route('**/api/evolution/playground', async (route) => {
+    await adminPage.route('**/api/evolution/prompt-editor', async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MOCK_RESULT) });
     });
 
-    await safeGoto(adminPage, '/admin/evolution/prompt-playground');
-    await expect(adminPage.getByTestId('playground-source')).toBeVisible();
+    await safeGoto(adminPage, '/admin/evolution/prompt-editor');
+    await expect(adminPage.getByTestId('prompt-editor-source')).toBeVisible();
 
-    await adminPage.getByTestId('playground-source').fill('# Source\n\nA paragraph with two sentences. And a second.');
-    await adminPage.getByTestId('playground-add-config').click(); // 2 cards
+    await adminPage.getByTestId('prompt-editor-source').fill('# Source\n\nA paragraph with two sentences. And a second.');
+    await adminPage.getByTestId('prompt-editor-add-config').click(); // 2 cards
 
-    await adminPage.getByTestId('playground-run').click();
+    await adminPage.getByTestId('prompt-editor-run').click();
 
     // Two result panels render with output + cost.
-    const panels = adminPage.getByTestId('playground-result-panel');
+    const panels = adminPage.getByTestId('prompt-editor-result-panel');
     await expect(panels).toHaveCount(2);
-    await expect(adminPage.getByTestId('playground-output-0')).toContainText('Rewritten A');
-    await expect(adminPage.getByTestId('playground-output-1')).toContainText('Rewritten B');
-    await expect(adminPage.getByTestId('playground-cost-0')).toContainText('$0.0021');
-    await expect(adminPage.getByTestId('playground-total-cost')).toContainText('$0.0032');
+    await expect(adminPage.getByTestId('prompt-editor-output-0')).toContainText('Rewritten A');
+    await expect(adminPage.getByTestId('prompt-editor-output-1')).toContainText('Rewritten B');
+    await expect(adminPage.getByTestId('prompt-editor-cost-0')).toContainText('$0.0021');
+    await expect(adminPage.getByTestId('prompt-editor-total-cost')).toContainText('$0.0032');
 
     // Display-only validation: the format chip renders while the (invalid) output is STILL shown.
-    await expect(adminPage.getByTestId('playground-format-chip-1')).toContainText('would-drop');
-    await expect(adminPage.getByTestId('playground-output-1')).toContainText('- a bullet');
+    await expect(adminPage.getByTestId('prompt-editor-format-chip-1')).toContainText('would-drop');
+    await expect(adminPage.getByTestId('prompt-editor-output-1')).toContainText('- a bullet');
 
     // "Diff vs parent" opens a full-width side-by-side (Parent | This output) patterned after
     // the variant-detail diff tab.
-    await adminPage.getByTestId('playground-diff-toggle-0').click();
-    const diffPanel = adminPage.getByTestId('playground-diff-panel');
+    await adminPage.getByTestId('prompt-editor-diff-toggle-0').click();
+    const diffPanel = adminPage.getByTestId('prompt-editor-diff-panel');
     await expect(diffPanel).toBeVisible();
     await expect(diffPanel).toContainText('Diff vs parent');
     await expect(diffPanel.getByTestId('sxs-parent')).toContainText('Source'); // parent = shared source
     await expect(diffPanel.getByTestId('sxs-variant')).toContainText('Rewritten A');
-    await adminPage.getByTestId('playground-diff-close').click();
+    await adminPage.getByTestId('prompt-editor-diff-close').click();
     await expect(diffPanel).toHaveCount(0);
   });
 
   adminTest('disables the temperature input for a null-maxTemperature model (o3-mini)', async ({ adminPage }) => {
-    await safeGoto(adminPage, '/admin/evolution/prompt-playground');
-    await expect(adminPage.getByTestId('playground-source')).toBeVisible();
+    await safeGoto(adminPage, '/admin/evolution/prompt-editor');
+    await expect(adminPage.getByTestId('prompt-editor-source')).toBeVisible();
 
-    const temp = adminPage.getByTestId('playground-temp-0');
+    const temp = adminPage.getByTestId('prompt-editor-temp-0');
     await expect(temp).toBeEnabled(); // default model supports temperature
-    await adminPage.getByTestId('playground-model-0').selectOption('o3-mini');
+    await adminPage.getByTestId('prompt-editor-model-0').selectOption('o3-mini');
     await expect(temp).toBeDisabled();
   });
 });

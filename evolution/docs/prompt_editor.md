@@ -1,10 +1,10 @@
-# Prompt Playground
+# Prompt Editor
 
-<!-- Deep dive for the evolution admin rewrite-prompt playground (project tool_test_rewrite_prompts_evolution_20260605). -->
+<!-- Deep dive for the evolution admin rewrite-prompt editor (project tool_test_rewrite_prompts_evolution_20260605). -->
 
 ## Overview
 
-An admin tool at `/admin/evolution/prompt-playground` that lets a researcher customize a rewrite
+An admin tool at `/admin/evolution/prompt-editor` that lets a researcher customize a rewrite
 prompt + model + temperature and compare the **raw model outputs** of multiple configs **side by
 side**, with per-config cost. It is a *prompt* testbed, not the agent: each config is a **single
 LLM call** — no ranking, no recombine, no pool, no full generate→rank→evolve run.
@@ -29,21 +29,21 @@ full-recombine families, persisted sessions, fully-raw whole-prompt override.
 The harness writes **no** evolution-pipeline rows (`evolution_agent_invocations`,
 `evolution_variants`, `evolution_metrics`, `evolution_arena_comparisons`). It does NOT call
 `Agent.run()`/`Agent.execute()` at all. However, it calls the app's `callLLM`, which — like every
-app LLM call — records one `llmCallTracking` row (`call_source='evolution_playground'`) and draws
+app LLM call — records one `llmCallTracking` row (`call_source='evolution_prompt_editor'`) and draws
 on the shared daily `evolution` spend budget via `LLMSpendingGate`. This is desirable for cost
 auditing. The integration test asserts the zero-pipeline-rows invariant.
 
 ## Architecture
 
 ```
-UI (page.tsx) ──POST /api/evolution/playground──► route.ts (requireAdmin + Zod + enabled gate)
+UI (page.tsx) ──POST /api/evolution/prompt-editor──► route.ts (requireAdmin + Zod + enabled gate)
                                                        │
                                                        ▼
-                                                  runPlayground()  [pre-flight cost cap, Promise.allSettled]
+                                                  runPromptEditor()  [pre-flight cost cap, Promise.allSettled]
                                                        │  per config
                                                        ▼
-                                                  runPlaygroundConfig()
-                                                       ├─ buildPlaygroundPrompt(unit, source, spec)
+                                                  runPromptEditorConfig()
+                                                       ├─ buildPromptEditorPrompt(unit, source, spec)
                                                        ├─ callLLM(...) → string, cost via onUsage
                                                        └─ validateFormat / validateParagraphRewrite (display-only)
 ```
@@ -58,29 +58,29 @@ debug, options)` returns `Promise<string>`. Key points the harness depends on:
 - Token usage + cost arrive via `options.onUsage(usage: LLMUsageMetadata)`; `usage.estimatedCostUsd`
   is the per-call cost. The harness captures it in a closure (mirrors
   `claimAndExecuteRun.ts:218-233`).
-- `userId = ANONYMOUS_USER_UUID`; `call_source='evolution_playground'`.
+- `userId = ANONYMOUS_USER_UUID`; `call_source='evolution_prompt_editor'`.
 
 ## API & data shapes
 
-`evolution/src/lib/playground/types.ts`:
+`evolution/src/lib/promptEditor/types.ts`:
 
 ```ts
 type RewriteUnit = 'article' | 'paragraph';
 // PromptSpec (article)   = { preamble, instructions }
 // PromptSpec (paragraph) = { directive }
-interface PlaygroundRunInput { unit, sourceText, title?, configs: PlaygroundConfig[] }
-interface PlaygroundConfigResult {
+interface PromptEditorRunInput { unit, sourceText, title?, configs: PromptEditorConfig[] }
+interface PromptEditorConfigResult {
   label; output: string | null; costUsd; model; temperatureUsed: number | null; durationMs;
   status: 'success' | 'budget' | 'killed' | 'timeout' | 'error';  // refusals are 'success'
   formatValid; formatIssues?; looksLikeRefusal?; errorMsg?;
 }
-interface PlaygroundRunResult { configs: PlaygroundConfigResult[]; totalCostUsd }
+interface PromptEditorRunResult { configs: PromptEditorConfigResult[]; totalCostUsd }
 ```
 
-**Route** `POST /api/evolution/playground` (`maxDuration=300`): env gate
-`EVOLUTION_PLAYGROUND_ENABLED!=='0'` (else 403) → `requireAdmin()` (else 403) → Zod
+**Route** `POST /api/evolution/prompt-editor` (`maxDuration=300`): env gate
+`EVOLUTION_PROMPT_EDITOR_ENABLED!=='0'` (else 403) → `requireAdmin()` (else 403) → Zod
 (`unit`, non-empty `sourceText`, `configs` 1–10, each `model ∈ getEvolutionModelIds()`, prompt
-shape matches unit) → `runPlayground` → JSON. Public host → 404 (middleware; no middleware change,
+shape matches unit) → `runPromptEditor` → JSON. Public host → 404 (middleware; no middleware change,
 since `EVOLUTION_PREFIXES` already covers `/api/evolution` + `/admin/evolution`).
 
 ## Model & temperature
@@ -100,35 +100,56 @@ display hint.
 
 ## Cost guardrails
 
-- **Pre-flight per-run cap** (`PLAYGROUND_PER_RUN_CAP_USD = $0.50`, hardcoded v1): Σ over configs of
+- **Pre-flight per-run cap** (`PROMPT_EDITOR_PER_RUN_CAP_USD = $0.50`, hardcoded v1): Σ over configs of
   `calculateLLMCost(model, prompt.length/4, cappedOutputTokens)`. Over the cap ⇒
-  `PlaygroundCostCapError` → HTTP 402, before any LLM call.
+  `PromptEditorCostCapError` → HTTP 402, before any LLM call.
 - **Global backstop:** `LLMSpendingGate` enforces the daily/monthly `evolution` caps + kill switch
-  at `callLLM`. Note playground spend shares the daily `evolution` budget with real pipeline runs.
+  at `callLLM`. Note prompt editor spend shares the daily `evolution` budget with real pipeline runs.
 
 ## Kill-switch / rollback
 
-`EVOLUTION_PLAYGROUND_ENABLED='0'` ⇒ the route returns 403 and the sidebar nav item hides. No
+`EVOLUTION_PROMPT_EDITOR_ENABLED='0'` ⇒ the route returns 403 and the sidebar nav item hides. No
 migration ⇒ rollback = flip the flag or revert the PR.
 
+## "Load recent…" picker
+
+Next to the source field, a **Load recent** control pre-populates the source from real content the
+pipeline has handled. A toggle switches between **Rewritten** (the model's outputs) and **Originals**
+(the source that was fed into a rewrite), for the current unit:
+
+| Unit · Mode | Source rows |
+|---|---|
+| article · rewritten | `evolution_variants` `variant_kind='article'` (non-discarded) |
+| article · original | `evolution_explanations` (the seed articles fed into runs) |
+| paragraph · rewritten | `evolution_variants` `variant_kind='paragraph'`, `agent_name='paragraph_rewrite'` |
+| paragraph · original | `evolution_variants` `variant_kind='paragraph'`, `agent_name='paragraph_original'` (the isolated source paragraph) |
+
+Server actions (`evolution/src/services/promptEditorActions.ts`):
+- `listRewriteSourcesAction({ unit, mode, limit })` → lightweight `{ id, source, preview, meta, createdAt }[]`
+  (no full text; test-marker rows excluded via an `ilike` heuristic — the strict strategy-join filter
+  can't be applied to `paragraph_original` rows, which have no `run_id`).
+- `getRewriteSourceTextAction({ id, source })` → `{ text, title }`, called when an item is picked; fills
+  the source textarea (and the title in paragraph mode).
+
 ## Key Files
-- `evolution/src/lib/playground/types.ts` — contracts.
-- `evolution/src/lib/playground/buildPlaygroundPrompt.ts` — reuses `buildEvolutionPrompt` /
+- `evolution/src/lib/promptEditor/types.ts` — contracts.
+- `evolution/src/services/promptEditorActions.ts` — "Load recent" picker actions (list + get-text).
+- `evolution/src/lib/promptEditor/buildPromptEditorPrompt.ts` — reuses `buildEvolutionPrompt` /
   `buildParagraphRewritePrompt`.
-- `evolution/src/lib/playground/runPlaygroundConfig.ts` — one `callLLM`, cost via `onUsage`,
+- `evolution/src/lib/promptEditor/runPromptEditorConfig.ts` — one `callLLM`, cost via `onUsage`,
   temperature clamp, display-only validation, error→status.
-- `evolution/src/lib/playground/runPlayground.ts` — pre-flight cost cap + `Promise.allSettled`.
-- `src/app/api/evolution/playground/route.ts` — admin/host-gated route, `maxDuration=300`.
-- `src/app/admin/evolution/prompt-playground/page.tsx` (+ `loading.tsx`) — the UI.
+- `evolution/src/lib/promptEditor/runPromptEditor.ts` — pre-flight cost cap + `Promise.allSettled`.
+- `src/app/api/evolution/prompt-editor/route.ts` — admin/host-gated route, `maxDuration=300`.
+- `src/app/admin/evolution/prompt-editor/page.tsx` (+ `loading.tsx`) — the UI.
 - Discovery: `src/components/admin/EvolutionSidebar.tsx` (Tools group) + a card on
   `src/app/admin/evolution-dashboard/page.tsx`.
 
 ## Tests
-- Unit: `buildPlaygroundPrompt.test.ts`, `runPlaygroundConfig.test.ts`, `runPlayground.test.ts`
+- Unit: `buildPromptEditorPrompt.test.ts`, `runPromptEditorConfig.test.ts`, `runPromptEditor.test.ts`
   (mock `@/lib/services/llms`, fire `onUsage`).
-- Integration: `src/__tests__/integration/evolution-prompt-playground.integration.test.ts`
+- Integration: `src/__tests__/integration/evolution-prompt-editor.integration.test.ts`
   (ephemerality: zero evolution_* rows, scoped by `created_at`).
-- E2E: `src/__tests__/e2e/specs/09-admin/admin-evolution-prompt-playground.spec.ts` (`@evolution`,
+- E2E: `src/__tests__/e2e/specs/09-admin/admin-evolution-prompt-editor.spec.ts` (`@evolution`,
   route-mocked) + host-404 assertions in `00-host-isolation/host-isolation.spec.ts`.
 
 ## Related
