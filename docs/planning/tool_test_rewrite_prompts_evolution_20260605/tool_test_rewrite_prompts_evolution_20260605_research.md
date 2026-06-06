@@ -68,5 +68,48 @@ Open questions for /research + /plan:
 - evolution/docs/minicomputer_deployment.md
 - evolution/docs/curriculum.md
 
-## Code Files Read
-- (to be populated during /research — start with the reuse targets listed above)
+## Code Files Read (verified during multi-agent research)
+- `src/components/admin/EvolutionSidebar.tsx` — nav lives here (NOT layout.tsx). Groups: **Overview** (Dashboard, Start Experiment), **Entities**, **Results** (Arena). `BaseSidebar` + `NavGroup` items: `{ href, label, icon, testId, description }`. `SidebarSwitcher.tsx` renders this for any `/admin/evolution*` path.
+- `evolution/src/lib/core/agents/generateFromPreviousArticle.ts` — `GenerateFromPreviousInput` (parentText, tactic, initialPool/Ratings/MatchCounts, cache, parentVariantId, `llm?`, `customPrompt?: {preamble, instructions}`). `execute()` (NOT `.run()`) is the standalone entry. customPrompt path → `buildEvolutionPrompt(preamble,'Original Text',parentText,instructions)` (line 205). Marker tactics (`criteria_driven*`) REQUIRE customPrompt (guard at line 197).
+- `evolution/src/lib/core/Agent.ts` — `run()` is the wrapper that writes the invocation row + builds the scoped LLM client; `execute()` is the pure rewrite. Bypassing `run()` = no DB writes.
+- `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts` — `if (db && runId)` gate (line 233) means **db=null/runId=undefined skips ALL `writeMetricMax` analytics writes**. `PER_CALL_TIMEOUT_MS=60_000` (line 36), backoff `[1s,2s,4s]` → worst-case ~67s/call. `RawLLMProvider.complete()` should return `{text, usage}` for token-based cost.
+- `evolution/src/lib/pipeline/infra/trackBudget.ts` — `createCostTracker(budgetUsd)`, `createAgentCostScope(shared)` (per-config isolation, `getOwnSpent()`), `RESERVE_MARGIN=1.3`, synchronous `reserve()`.
+- `evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts` + `buildParagraphRewritePrompt.ts` + `evolution/src/lib/shared/paragraphSlots.ts` — `extractParagraphsWithRanges()`, `validateParagraphRewrite()` (drop reasons: length_under/over, no_bullets/lists/tables/h1, zero_sentences), `paragraphRewriteTemperature(index,M,maxTemp)` ladder (index-0=0.7, rest 1.2–2.0, `undefined` when maxTemp null), `PARAGRAPH_REWRITE_DIRECTIVES`, `assembleRecombinedArticle()`. All pure → call directly.
+- `evolution/src/lib/pipeline/loop/buildPrompts.ts` — `buildEvolutionPrompt()` (pure) assembles preamble → Original Text → instructions → FORMAT_RULES.
+- `evolution/src/lib/core/tactics/index.ts` + `generateTactics.ts` — `ALL_SYSTEM_TACTICS` / `getTacticDef(name)` → `{label,category,preamble,instructions}` for the 24 tactics; marker tactics excluded.
+- `src/config/modelRegistry.ts` — `getModelMaxTemperature(modelId)` returns `number|null` (null e.g. o3-mini → temperature unsupported). `src/config/llmPricing.ts` — `calculateLLMCost`.
+- `evolution/src/lib/pipeline/loop/rankNewVariant.ts` — asserts `costTracker.getOwnSpent` exists → must wrap a standalone tracker in `createAgentCostScope` before ranking.
+- `evolution/src/lib/shared/enforceVariantFormat.ts` — `FORMAT_VALIDATION_MODE` (reject|warn|off) read at module init; `_reloadValidationModeForTesting()` is test-only.
+- `src/app/api/evolution/run/route.ts` — `export const maxDuration = 300` pattern for long LLM work.
+- `evolution/src/services/adminAction.ts` — `adminAction(name, handler)` factory (requireAdmin + host gate + ActionResult typing).
+- `evolution/src/testing/evolution-test-helpers.ts` / `v2MockLlm.ts` — `createV2MockLlm`, mock context/cost-tracker factories for tests.
+
+## Workflow Research Findings (20 agents, 5 rounds)
+Distilled load-bearing conclusions (full transcript: workflow `wf_2eddf879-dd1`):
+
+**Invocation path (chosen): call `Agent.execute()` directly, never `.run()`.** `.run()` writes the invocation row + builds the scoped client; `execute()` is the pure rewrite. Build a minimal `AgentContext`: `{ db: null, runId: undefined, iteration: 0, costTracker: <AgentCostScope over a standalone V2CostTracker>, defaultModel, config (EvolutionConfig), logger: <no-op EntityLogger>, invocationId: <uuid>, rawProvider }`. With `db=null` the LLM client's `if (db && runId)` gate skips every metric write — **zero analytics pollution** (no invocation/variant/metric/arena rows).
+
+**Prompt override.** GFPA: pass `customPrompt: {preamble, instructions}` (with any non-marker tactic label) → goes straight through `buildEvolutionPrompt` preserving FORMAT_RULES. Paragraph: `buildParagraphRewritePrompt` is pure but directives are a fixed constant — overriding paragraph micro-prompts needs an added `directivesOverride` input (decision below).
+
+**Temperature.** Gate on `getModelMaxTemperature(model)`: `null` → disable the input (model rejects temperature, e.g. o3-mini). Else clamp `Math.min(userTemp, maxTemp)` before reserve/call. Ranking calls always force temperature 0. Paragraph rewrites apply the per-index ladder.
+
+**Cost.** Standalone `createCostTracker(budgetUsd)` wrapped per-config in `createAgentCostScope`; read per-config spend via `getOwnSpent()`, phase split via `getPhaseCosts()`. `RawLLMProvider.complete()` must return `{text, usage}` for token-accurate cost.
+
+**Runtime/timeout.** Per-call hard timeout 60s + up to 7s backoff. Many parallel configs × paragraph fan-out (M rewrites × N slots) = large concurrent call count. Recommendation: expose via an **API route** at `src/app/api/evolution/playground/route.ts` with `export const maxDuration = 300` (a bare server action would inherit a shorter default). Use `Promise.allSettled` so one config's failure doesn't kill siblings.
+
+**Guardrails.** Global `LLMSpendingGate` still fires at `callLLM`. Add a per-dispatch USD cap and a parallel-config cap (default 5, max 10). Surface `LLMRefusalError` / `BudgetExceededError` / timeout / format-drop reasons per config.
+
+**Recommended decision defaults (from synthesis — confirm in /plan):**
+- Persistence: **ephemeral** (no DB). 
+- Transport: **API route** with `maxDuration=300`.
+- Parallel configs: default **5**, max **10**.
+- Prompt-override scope v1: **GFPA full prompt override**; paragraph directive override deferred to a follow-up.
+- Temperature: hide/disable when `maxTemperature` null; clamp otherwise.
+- Format validation: inherit production `FORMAT_VALIDATION_MODE`; optionally show would-be-dropped outputs.
+- Nav: add to the **Overview** sidebar group (researcher tool) + a card on `/admin/evolution-dashboard`.
+
+**Top open questions for the user (carried into _planning.md):**
+1. Paragraph-recombine: full-article input (agent extracts slots) vs isolated single-paragraph testing?
+2. Allow overriding paragraph-rewrite *directives*, or only the article-level GFPA prompt?
+3. Per-dispatch cost cap value + whether researcher-adjustable.
+4. Ephemeral confirmed, or do you want saved/shareable playground sessions (adds a table + migration)?

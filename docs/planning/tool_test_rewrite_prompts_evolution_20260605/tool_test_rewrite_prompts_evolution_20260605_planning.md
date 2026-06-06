@@ -17,37 +17,53 @@ Scope (set at /initialize):
 Researchers iterating on the evolution rewrite prompts have no fast feedback loop: the only way to see what a tweaked prompt/temperature/model produces is to author a strategy, enqueue a run, wait for the full generate→rank→evolve pipeline, then dig through invocation detail. There is no way to A/B several `{prompt, temperature, model}` configurations against the same source text in one view. This makes prompt engineering slow and indirect. The tool should provide an on-demand, side-by-side rewrite harness that invokes only the rewrite LLM call(s) and surfaces raw outputs + cost.
 
 ## Options Considered
-- [ ] **Option A: Ephemeral playground (no DB persistence)**: New admin page + server action that builds a minimal agent context (standalone `V2CostTracker`, no `run_id`/claim), runs `Agent.execute()` per config in parallel, returns outputs+cost to the client. No migrations, no run/invocation rows — keeps analytics clean. Outputs live only in the browser session.
-- [ ] **Option B: Persisted playground sessions**: Add `evolution_playground_sessions` / `_outputs` tables so configurations + outputs are saved and shareable. More work (migrations, RLS, CRUD), but enables history and comparison over time.
-- [ ] **Option C: Reuse runs/experiments machinery**: Model each config as a 1-iteration run. Heaviest reuse but pollutes run/variant/invocation analytics and arena, and inherits claim/heartbeat overhead — poor fit for a fast playground.
+- [x] **Option A: Ephemeral playground (no DB persistence) — CHOSEN (v1)**: API route + harness that builds a minimal `AgentContext` (`db=null`, standalone `V2CostTracker` wrapped per-config in `AgentCostScope`, no `run_id`/claim), runs `Agent.execute()` per config via `Promise.allSettled`, returns outputs+cost to the client. No migrations, no run/invocation/variant/metric rows — `if (db && runId)` gate keeps analytics clean. Outputs live only in the browser session. **Confirmed feasible by 20-agent research.**
+- [ ] **Option B: Persisted playground sessions**: Add `evolution_playground_sessions` / `_outputs` tables so configs + outputs are saved/shareable. Adds migrations + RLS + CRUD. Deferred — revisit if history/sharing is wanted.
+- [ ] **Option C: Reuse runs/experiments machinery**: Model each config as a 1-iteration run. Heaviest reuse but pollutes run/variant/invocation/arena analytics and inherits claim/heartbeat overhead — rejected (poor fit).
 
-(Leaning Option A for v1; revisit B if persistence is wanted. Confirm during /research.)
+### Design decisions (defaults from multi-agent research — adjust in /plan-review)
+- Transport: **API route** `src/app/api/evolution/playground/route.ts` with `export const maxDuration = 300` (server-action default timeout too short for paragraph fan-out).
+- Invocation: `Agent.execute()` directly (never `.run()`); `db=null` ⇒ no analytics writes.
+- Parallel-config cap: default **5**, hard max **10**; `Promise.allSettled` (fail-safe, per-config errors isolated).
+- Temperature: disable input when `getModelMaxTemperature(model)===null`; clamp `Math.min(userTemp,maxTemp)` otherwise.
+- Spend: per-dispatch USD cap + global `LLMSpendingGate`; surface `LLMRefusalError`/`BudgetExceededError`/timeout/format-drop per config.
+- Format validation: inherit production `FORMAT_VALIDATION_MODE`.
+- Prompt override v1: GFPA full `customPrompt:{preamble,instructions}`; paragraph-directive override deferred.
+
+### Open questions (resolve in /plan-review or with user)
+- [ ] Paragraph-recombine input: full-article (agent extracts slots) vs isolated single-paragraph test mode?
+- [ ] Expose paragraph-rewrite *directive* override, or only article-level GFPA prompt?
+- [ ] Per-dispatch cost cap value; researcher-adjustable or hardcoded?
+- [ ] Stay ephemeral, or add saved/shareable sessions (Option B, needs migration)?
 
 ## Phased Execution Plan
+(File-by-file plan from 20-agent research. Per CLAUDE.md: after each code block run lint+tsc+build+tests.)
 
 ### Phase 1: Backend rewrite-invocation harness
-- [ ] Add a standalone "single rewrite" execution path that runs one rewrite config (tactic or paragraph) via `Agent.execute()` against supplied source text with an injected `EvolutionLLMClient` + standalone `V2CostTracker`, returning `{ outputText, costUsd, model, temperature, durationMs, formatValid, error? }`.
-- [ ] Enforce guardrails: respect global `LLMSpendingGate`, a per-dispatch cost cap, and a max-parallel-configs limit.
-- [ ] Server action(s) under `evolution/src/services/` wrapped in `adminAction` (`requireAdmin` + host gate) that accept N configs and run them with `Promise.allSettled`.
+- [ ] `evolution/src/lib/playground/types.ts` — `PlaygroundRewriteConfig { family: 'generate'|'paragraph'; sourceText; promptOverride?: {preamble,instructions}; tactic?; model; temperature?; label }`, `PlaygroundRunInput { configs[]; perDispatchCapUsd? }`, `PlaygroundRunResult { configs: Array<{label, output|null, costUsd, phaseCosts, model, temperatureUsed, durationMs, status: 'success'|'format_rejected'|'refused'|'budget'|'timeout'|'error', formatValid, dropReasons?, errorMsg?}>; totalCostUsd }`.
+- [ ] `evolution/src/lib/playground/createPlaygroundLLMProvider.ts` — `RawLLMProvider` wrapping the app `callLLM`/SDK, returning `{text, usage}` for token-accurate cost.
+- [ ] `evolution/src/lib/playground/runPlaygroundInvocation.ts` — core harness. Builds standalone `V2CostTracker` (per-dispatch cap), per-config `AgentCostScope`, minimal `AgentContext` (`db:null`, no-op logger, `defaultModel`, EvolutionConfig). Dispatches `generate` → `GenerateFromPreviousArticleAgent.execute()` (with `customPrompt` when overridden); `paragraph` → `ParagraphRecombineAgent.execute()`. Clamps temperature via `getModelMaxTemperature`. Catches `LLMRefusalError`/`BudgetExceededError`/timeout → per-config status. No `.run()`, no DB writes.
+- [ ] `evolution/src/services/playgroundActions.ts` — `runPromptPlaygroundAction` via `adminAction` (requireAdmin + host gate). Validates input with Zod (cap parallel configs at 10), enforces global `LLMSpendingGate`, calls harness with `Promise.allSettled`, returns `ActionResult<PlaygroundRunResult>`. Optional `estimatePlaygroundCostAction` (reuse `evolution/src/lib/pipeline/infra/estimateCosts.ts`).
+- [ ] `src/app/api/evolution/playground/route.ts` — `export const maxDuration = 300`; admin POST delegating to the action/harness (avoids the short server-action timeout for paragraph fan-out).
 
 ### Phase 2: Playground admin UI
-- [ ] New route `src/app/admin/evolution/prompt-playground/page.tsx` (+ `loading.tsx`).
-- [ ] **Link the tool from the evolution admin dashboard** — add a nav entry in the evolution sidebar (`src/app/admin/evolution/layout.tsx`) AND a card/link on `/admin/evolution-dashboard` so the playground is discoverable. (Required.)
-- [ ] Source input (article textarea / paragraph), family selector (generate-tactic | paragraph-recombine), and a repeatable "config card" (prompt text override, tactic/directive, model dropdown from `modelRegistry`, temperature slider validated vs model `maxTemperature`).
-- [ ] "Run all" dispatches configs in parallel; render results side by side with raw output, format-valid badge, cost, duration, and `SideBySideWordDiff` vs source.
+- [ ] `src/app/admin/evolution/prompt-playground/page.tsx` (`'use client'`) + `loading.tsx` (`TableSkeleton`).
+- [ ] **Link from dashboard (required):** add nav item to the **Overview** group in `src/components/admin/EvolutionSidebar.tsx` (`{ href:'/admin/evolution/prompt-playground', label:'Prompt Playground', icon:'🎛️', testId:'evolution-sidebar-nav-prompt-playground', description:'Test rewrite prompts live' }`) AND a card/link on `src/app/admin/evolution-dashboard/page.tsx`.
+- [ ] Config builder: family selector (generate | paragraph), source textarea, repeatable config card (tactic dropdown from `ALL_SYSTEM_TACTICS` / editable `customPrompt`, model dropdown from `modelRegistry`, temperature input disabled when `maxTemperature===null`, per-config label). Cap add-config at 10.
+- [ ] "Run all" → POST the route; render results side by side: raw output, format-valid badge, per-config cost + phase split, duration, status/drop-reason chips, and `SideBySideWordDiff`/`TextDiff` vs source. Reuse `MetricGrid`, `StatusBadge`, `EvolutionBreadcrumb`, Sonner toasts.
 
-### Phase 3: Docs + polish
-- [ ] Fill in `evolution/docs/prompt_playground.md` deep dive.
-- [ ] Update `evolution/docs/visualization.md` (admin page inventory) and `evolution/docs/reference.md` (route + server action inventory).
+### Phase 3: Docs + tests + polish
+- [ ] Fill `evolution/docs/prompt_playground.md` (Overview, Architecture/dispatch flow, API shapes, Parallelism+timeouts, Model/temperature constraints, Cost+guardrails, Examples).
+- [ ] Update `evolution/docs/visualization.md` (admin page inventory — add playground as an admin tool) and `evolution/docs/reference.md` (route + `playgroundActions.ts` inventory).
 
 ## Testing
 
 ### Unit Tests
-- [ ] `evolution/src/services/<playgroundActions>.test.ts` — config validation, parallel dispatch shaping, cost-cap + max-config guardrails (mock LLM via `createV2MockLlm`).
-- [ ] Harness unit test — `Agent.execute()` invoked with overridden prompt/temperature/model produces expected output shape; format-valid flag set correctly.
+- [ ] `evolution/src/lib/playground/runPlaygroundInvocation.test.ts` — `Agent.execute()` invoked with overridden prompt/temperature/model (mock via `createV2MockLlm`); asserts output shape, format-valid flag, GFPA `customPrompt` bypasses `buildPromptForTactic`, per-config `AgentCostScope` isolation, temperature clamp (o3-mini `maxTemperature=null` ⇒ temperature omitted), one config's `LLMRefusalError` does not block siblings.
+- [ ] `evolution/src/services/playgroundActions.test.ts` — Zod validation, parallel-config cap (≤10), per-dispatch cost-cap + `LLMSpendingGate` guardrails, `ActionResult` shaping.
 
 ### Integration Tests
-- [ ] `src/__tests__/integration/<evolution-prompt-playground>.integration.test.ts` — real-DB-free or service-role path verifying a rewrite dispatch returns output+cost without creating run/invocation rows (assert analytics tables untouched).
+- [ ] `src/__tests__/integration/evolution-prompt-playground.integration.test.ts` — 3 parallel `{prompt,temp,model}` configs return per-config output+cost; **assert NO run/invocation/variant/metric rows written** (db=null path); paragraph path extracts slots → per-slot rewrites → validation drops → recombine; budget exhaustion aborts a config gracefully.
 
 ### E2E Tests
 - [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-prompt-playground.spec.ts` (`@evolution`) — load page on evolution host, add 2 configs, run, assert two output panels render with cost; assert 404 on public host.
