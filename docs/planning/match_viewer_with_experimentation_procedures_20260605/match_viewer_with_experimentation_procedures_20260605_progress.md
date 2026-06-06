@@ -63,4 +63,8 @@
 - Checks: lint + tsc + `npm run build` all green; unit suites for touched areas pass.
 
 ### Issues Encountered
-- [E2E run result recorded at commit time.]
+- E2E iterated twice on test-only bugs (app UI was correct): (1) `createTestPrompt()`'s fixed
+  default text collided with the `uq_arena_topic_prompt` unique constraint → seed with a
+  `randomUUID()` prompt; (2) for a text filter, `EntityListPage` puts `data-testid` on the
+  `<input>` itself (only checkboxes wrap a label) → selector `[data-testid="filter-runId"]`,
+  not `… input`. Final: `2 passed (31.1s)` against the live dev server.

@@ -3,6 +3,7 @@
 // in rejudgeComparisonAction — the LLM call cannot be browser-mocked since it runs in a
 // Server Action). (match_viewer_with_experimentation_procedures_20260605)
 
+import { randomUUID } from 'crypto';
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { EvolutionListPage } from '../../helpers/pages/admin/EvolutionListPage';
 import {
@@ -20,7 +21,9 @@ adminTest.describe('Evolution Match Viewer', { tag: '@evolution' }, () => {
   let comparisonId: string;
 
   adminTest.beforeAll(async () => {
-    const prompt = await createTestPrompt();
+    // Unique prompt text — evolution_prompts has a unique constraint (uq_arena_topic_prompt),
+    // and createTestPrompt()'s default text is a fixed string that collides across runs.
+    const prompt = await createTestPrompt({ prompt: `[TEST_EVO] match viewer prompt ${randomUUID()}` });
     const run = await createTestRun({ promptId: prompt.id });
     runId = run.id;
     const a = await createTestVariant({ runId, promptId: prompt.id, variant_content: '[TEST_EVO] Photosynthesis text A' });
@@ -44,8 +47,9 @@ adminTest.describe('Evolution Match Viewer', { tag: '@evolution' }, () => {
     const detailLink = adminPage.locator(`a[href="/admin/evolution/matches/${comparisonId}"]`);
     await expect(detailLink.first()).toBeVisible({ timeout: 15000 });
 
-    // Filter by run id and confirm the row is still present (isolation).
-    await adminPage.locator('[data-testid="filter-runId"] input').fill(runId);
+    // Filter by run id and confirm the row is still present (isolation). For a text filter,
+    // EntityListPage puts the testid on the <input> itself (only checkboxes wrap a label).
+    await adminPage.locator('[data-testid="filter-runId"]').fill(runId);
     await expect(detailLink.first()).toBeVisible({ timeout: 15000 });
   });
 
