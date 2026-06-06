@@ -140,6 +140,20 @@ export default function EvolutionDashboardPage(): JSX.Element {
     <div className="space-y-6">
       <EvolutionBreadcrumb items={[{ label: 'Evolution Dashboard' }]} />
       <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">Evolution Dashboard</h1>
+      <Link
+        href="/admin/evolution/prompt-playground"
+        data-testid="dashboard-prompt-playground-link"
+        className="block p-4 rounded-book border border-[var(--border-default)] bg-[var(--surface-secondary)] hover:bg-[var(--surface-elevated)] transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <span aria-hidden>🎛️</span>
+          <span className="text-sm font-ui font-medium text-[var(--text-primary)]">Prompt Playground</span>
+          <span className="ml-auto text-sm text-[var(--accent-gold)]">Open →</span>
+        </div>
+        <p className="text-xs font-ui text-[var(--text-muted)] mt-1">
+          Customize rewrite prompts + model + temperature and compare raw model outputs side-by-side, on demand.
+        </p>
+      </Link>
       <AutoRefreshProvider isActive intervalMs={15000}>
         {/* U2 (use_playwright_find_bugs_ux_issues_20260422): RefreshIndicator
             shows "Updated Xs ago" with a manual refresh button so users know
