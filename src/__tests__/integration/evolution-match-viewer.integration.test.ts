@@ -77,7 +77,9 @@ describe('Match Viewer integration', () => {
     expect(res.success).toBe(true);
     const ids = res.data!.items.map(i => i.id);
     expect(ids).toContain(comparisonIds[0]);
-    expect(res.data!.items.find(i => i.id === comparisonIds[0])!.entry_a_preview).toContain('match-viewer text A');
+    const seeded = res.data!.items.find(i => i.id === comparisonIds[0])!;
+    expect(seeded.entry_a_preview).toContain('match-viewer text A');
+    expect(seeded.kind).toBe('article'); // createTestPrompt defaults prompt_kind='article'
 
     // A different (random) run id must not return our comparison.
     const other = await getRecentMatchesAction({ runId: '00000000-0000-4000-8000-000000000000', filterTestContent: false });
@@ -91,6 +93,17 @@ describe('Match Viewer integration', () => {
     const res = await getRecentMatchesAction({ runId, filterTestContent: true });
     expect(res.success).toBe(true);
     expect(res.data!.items.map(i => i.id)).not.toContain(comparisonIds[0]);
+  });
+
+  it('filters by match kind (article includes, paragraph excludes the article match)', async () => {
+    if (!tablesExist) return;
+    const article = await getRecentMatchesAction({ runId, kind: 'article', filterTestContent: false });
+    expect(article.success).toBe(true);
+    expect(article.data!.items.map(i => i.id)).toContain(comparisonIds[0]);
+
+    const paragraph = await getRecentMatchesAction({ runId, kind: 'paragraph', filterTestContent: false });
+    expect(paragraph.success).toBe(true);
+    expect(paragraph.data!.items.map(i => i.id)).not.toContain(comparisonIds[0]);
   });
 
   it('joins both variants’ content in the detail action', async () => {

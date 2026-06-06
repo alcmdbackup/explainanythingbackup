@@ -44,6 +44,7 @@ const mockCallLLM = callLLM as jest.Mock;
 const compRow = {
   id: CMP, prompt_id: RUN, entry_a: VA, entry_b: VB,
   winner: 'a', confidence: 1, run_id: RUN, status: 'complete', created_at: '2026-06-01T00:00:00Z',
+  evolution_prompts: { prompt_kind: 'article' },
 };
 
 beforeEach(() => jest.clearAllMocks());
@@ -65,11 +66,12 @@ describe('getRecentMatchesAction', () => {
     expect(res.data!.total).toBe(1);
     expect(res.data!.items[0]!.entry_a_preview).toBe('Photosynthesis content here');
     expect(res.data!.items[0]!.entry_b_preview).toBe('A plant content here');
+    expect(res.data!.items[0]!.kind).toBe('article');
     expect(compBuilder!.eq).toHaveBeenCalledWith('run_id', RUN);
     expect(compBuilder!.range).toHaveBeenCalledWith(0, 49);
   });
 
-  it('applies the two-level !inner test-content embed when filterTestContent is on', async () => {
+  it('applies the two-level !inner test-content embed (+ left-join prompt embed) when filterTestContent is on', async () => {
     let compBuilder: Record<string, jest.Mock> | undefined;
     const mock = createTableAwareMock([
       (b) => { compBuilder = b; b.then = jest.fn((r) => r({ data: [], error: null, count: 0 })); },
@@ -79,10 +81,23 @@ describe('getRecentMatchesAction', () => {
     const res = await getRecentMatchesAction({ filterTestContent: true });
     expect(res.success).toBe(true);
     expect(compBuilder!.select).toHaveBeenCalledWith(
-      '*, evolution_runs!inner(evolution_strategies!inner(is_test_content))',
+      '*, evolution_prompts(prompt_kind), evolution_runs!inner(evolution_strategies!inner(is_test_content))',
       { count: 'exact' },
     );
     expect(compBuilder!.eq).toHaveBeenCalledWith('evolution_runs.evolution_strategies.is_test_content', false);
+  });
+
+  it('uses the inner prompt embed + prompt_kind filter when kind is set', async () => {
+    let compBuilder: Record<string, jest.Mock> | undefined;
+    const mock = createTableAwareMock([
+      (b) => { compBuilder = b; b.then = jest.fn((r) => r({ data: [], error: null, count: 0 })); },
+    ]);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const res = await getRecentMatchesAction({ kind: 'paragraph' });
+    expect(res.success).toBe(true);
+    expect(compBuilder!.select).toHaveBeenCalledWith('*, evolution_prompts!inner(prompt_kind)', { count: 'exact' });
+    expect(compBuilder!.eq).toHaveBeenCalledWith('evolution_prompts.prompt_kind', 'paragraph');
   });
 
   it('rejects an invalid runId', async () => {

@@ -369,14 +369,21 @@ function previewContent(content: string | null | undefined, max = 80): string | 
   return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
 }
 
+/** Match kind: 'paragraph' = per-paragraph rewrite match; 'article' = whole-variant match.
+ *  Derived from the comparison's prompt (`evolution_prompts.prompt_kind`); null when the row
+ *  has no prompt (rare — ~0.5% of in-run rows have a null prompt_id). */
+export type MatchKind = 'article' | 'paragraph';
+
 export interface MatchListItem extends ArenaComparison {
   entry_a_preview: string | null;
   entry_b_preview: string | null;
+  kind: MatchKind | null;
 }
 
 /** List recent judge matches. Unlike getArenaComparisonsAction (prompt_id only), this filters
- *  by run_id (the Match Viewer's primary axis) plus winner/min-confidence, with pagination and
- *  an optional test-content exclusion. */
+ *  by run_id (the Match Viewer's primary axis) plus winner/min-confidence/kind, with pagination
+ *  and an optional test-content exclusion. Match kind (article vs paragraph) comes from the
+ *  comparison's prompt_kind via an embedded join. */
 export const getRecentMatchesAction = adminAction(
   'getRecentMatches',
   async (
@@ -385,6 +392,7 @@ export const getRecentMatchesAction = adminAction(
       topicId?: string;
       winner?: 'a' | 'b' | 'draw';
       minConfidence?: number;
+      kind?: MatchKind;
       filterTestContent?: boolean;
       limit?: number;
       offset?: number;
@@ -396,13 +404,19 @@ export const getRecentMatchesAction = adminAction(
     if (input.runId && !validateUuid(input.runId)) throw new Error('Invalid runId');
     if (input.topicId && !validateUuid(input.topicId)) throw new Error('Invalid topicId');
 
-    // Test-content exclusion requires a two-level !inner embed because the comparisons table
-    // has no is_test_content column; it lives on evolution_strategies (via the run). NOTE: the
-    // !inner join drops comparisons with a null run_id (pure-arena rows) while the filter is on
-    // — acceptable for an admin "recent run matches" view; uncheck the filter to see them.
-    const selectExpr = input.filterTestContent
-      ? '*, evolution_runs!inner(evolution_strategies!inner(is_test_content))'
-      : '*';
+    // prompt_kind embed gives the article/paragraph label. Left join for the label (keeps
+    // null-prompt rows); !inner when filtering by kind so non-matching rows are dropped.
+    const promptEmbed = input.kind
+      ? 'evolution_prompts!inner(prompt_kind)'
+      : 'evolution_prompts(prompt_kind)';
+    // Test-content exclusion needs a two-level !inner embed (the column lives on
+    // evolution_strategies via the run). NOTE: while on, this drops null-run_id rows; uncheck
+    // to see them.
+    const parts = ['*', promptEmbed];
+    if (input.filterTestContent) {
+      parts.push('evolution_runs!inner(evolution_strategies!inner(is_test_content))');
+    }
+    const selectExpr = parts.join(', ');
 
     let query = ctx.supabase
       .from('evolution_arena_comparisons')
@@ -413,6 +427,7 @@ export const getRecentMatchesAction = adminAction(
     if (input.topicId) query = query.eq('prompt_id', input.topicId);
     if (input.winner) query = query.eq('winner', input.winner);
     if (input.minConfidence != null) query = query.gte('confidence', input.minConfidence);
+    if (input.kind) query = query.eq('evolution_prompts.prompt_kind', input.kind);
     if (input.filterTestContent) {
       query = query.eq('evolution_runs.evolution_strategies.is_test_content', false);
     }
@@ -421,7 +436,9 @@ export const getRecentMatchesAction = adminAction(
 
     const { data, error, count } = await query;
     if (error) throw error;
-    const rows = (data ?? []) as unknown as ArenaComparison[];
+    const rows = (data ?? []) as unknown as Array<
+      ArenaComparison & { evolution_prompts?: { prompt_kind?: string } | null }
+    >;
 
     // Batch-fetch variant content for previews (entry_a/entry_b are variant ids).
     const variantIds = [...new Set(rows.flatMap(r => [r.entry_a, r.entry_b]).filter(Boolean))];
@@ -435,19 +452,26 @@ export const getRecentMatchesAction = adminAction(
       for (const v of variants ?? []) contentById.set(v.id as string, v.variant_content as string);
     }
 
-    const items: MatchListItem[] = rows.map(r => ({
-      id: r.id,
-      prompt_id: r.prompt_id,
-      entry_a: r.entry_a,
-      entry_b: r.entry_b,
-      winner: r.winner,
-      confidence: r.confidence,
-      run_id: r.run_id,
-      status: r.status,
-      created_at: r.created_at,
-      entry_a_preview: previewContent(contentById.get(r.entry_a)),
-      entry_b_preview: previewContent(contentById.get(r.entry_b)),
-    }));
+    const items: MatchListItem[] = rows.map(r => {
+      const pk = r.evolution_prompts && !Array.isArray(r.evolution_prompts)
+        ? r.evolution_prompts.prompt_kind
+        : null;
+      const kind: MatchKind | null = pk === 'paragraph' ? 'paragraph' : pk === 'article' ? 'article' : null;
+      return {
+        id: r.id,
+        prompt_id: r.prompt_id,
+        entry_a: r.entry_a,
+        entry_b: r.entry_b,
+        winner: r.winner,
+        confidence: r.confidence,
+        run_id: r.run_id,
+        status: r.status,
+        created_at: r.created_at,
+        kind,
+        entry_a_preview: previewContent(contentById.get(r.entry_a)),
+        entry_b_preview: previewContent(contentById.get(r.entry_b)),
+      };
+    });
 
     return { items, total: count ?? 0 };
   },

@@ -6,7 +6,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { EntityListPage, EvolutionBreadcrumb, type ColumnDef, type FilterDef } from '@evolution/components/evolution';
-import { getRecentMatchesAction, type MatchListItem } from '@evolution/services/arenaActions';
+import { getRecentMatchesAction, type MatchListItem, type MatchKind } from '@evolution/services/arenaActions';
 import { toast } from 'sonner';
 import { formatDate } from '@evolution/lib/utils/formatters';
 
@@ -19,8 +19,32 @@ function WinnerBadge({ winner }: { winner: 'a' | 'b' | 'draw' }): JSX.Element {
   return <span className="text-xs font-semibold" style={{ color }}>{label}</span>;
 }
 
+function KindBadge({ kind }: { kind: MatchKind | null }): JSX.Element {
+  if (!kind) return <span className="text-[var(--text-muted)]">—</span>;
+  const isPara = kind === 'paragraph';
+  return (
+    <span
+      className="text-xs font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
+      style={{
+        color: isPara ? 'var(--accent-gold)' : 'var(--text-secondary)',
+        border: '1px solid var(--border-default)',
+      }}
+    >
+      {isPara ? 'Paragraph' : 'Article'}
+    </span>
+  );
+}
+
 const FILTERS: FilterDef[] = [
   { key: 'runId', label: 'Run ID', type: 'text', placeholder: 'Filter by run UUID' },
+  {
+    key: 'kind', label: 'Type', type: 'select',
+    options: [
+      { value: '', label: 'All types' },
+      { value: 'article', label: 'Article' },
+      { value: 'paragraph', label: 'Paragraph' },
+    ],
+  },
   {
     key: 'winner', label: 'Winner', type: 'select',
     options: [
@@ -35,7 +59,10 @@ const FILTERS: FilterDef[] = [
 ];
 
 const COLUMNS: ColumnDef<MatchListItem>[] = [
-  { key: 'created_at', header: 'Created', render: (m) => formatDate(m.created_at) },
+  // Match ID is the clickable link (clearer than the date); full UUID on hover.
+  { key: 'id', header: 'Match ID', render: (m) => <span className="font-mono text-xs" title={m.id}>{m.id.substring(0, 8)}</span> },
+  { key: 'kind', header: 'Type', skipLink: true, render: (m) => <KindBadge kind={m.kind} /> },
+  { key: 'created_at', header: 'Created', skipLink: true, render: (m) => formatDate(m.created_at) },
   {
     key: 'run_id', header: 'Run', skipLink: true,
     render: (m) => m.run_id
@@ -62,6 +89,7 @@ export default function MatchesListPage(): JSX.Element {
   const [page, setPage] = useState(1);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({
     runId: '',
+    kind: '',
     winner: '',
     minConfidence: '',
     filterTestContent: 'true',
@@ -72,6 +100,7 @@ export default function MatchesListPage(): JSX.Element {
     const minConf = parseFloat(filterValues.minConfidence ?? '');
     const result = await getRecentMatchesAction({
       runId: filterValues.runId?.trim() || undefined,
+      kind: (filterValues.kind as MatchKind) || undefined,
       winner: (filterValues.winner as 'a' | 'b' | 'draw') || undefined,
       minConfidence: Number.isFinite(minConf) ? minConf : undefined,
       filterTestContent: filterValues.filterTestContent === 'true',
@@ -85,7 +114,7 @@ export default function MatchesListPage(): JSX.Element {
       toast.error(result.error?.message ?? 'Failed to load matches');
     }
     setLoading(false);
-  }, [filterValues.runId, filterValues.winner, filterValues.minConfidence, filterValues.filterTestContent, page]);
+  }, [filterValues.runId, filterValues.kind, filterValues.winner, filterValues.minConfidence, filterValues.filterTestContent, page]);
 
   useEffect(() => { fetchMatches(); }, [fetchMatches]);
 
