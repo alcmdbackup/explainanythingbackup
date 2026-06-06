@@ -17,6 +17,9 @@ Create a new tool that helps systematically evaluate judge performance. The "jud
 1. **Scope** = the **arena pairwise judge only** (`compareWithBiasMitigation`). The separate score-based `contentQualityCompare`/`contentQualityEval` judge is OUT of scope.
 2. **Surface** = **script + DB tables + a Judge Lab admin page** (`/admin/evolution/judge-lab`). Interactive single-match re-judge stays in the existing Match Viewer; Judge Lab is the batch/sweep + persisted-results + leaderboard surface.
 3. **Ground truth** = **mu/Elo gap only** (replicate history). Large-gap pairs get accuracy + implied-beta; close pairs are tie-acceptable (accuracy/beta skipped).
+4. **Source the bank from the "Federal Reserve 2" arena topic** (`a546b7e9-f066-403d-9589-f5e0d2c9fa4f`) — pull **ALL** its recorded comparisons, not hand-picked pairs: ~6,972 article + ~1,889 paragraph distinct pairs (texts present). Real arena history, not synthetic.
+5. **Article vs paragraph are FIRST-CLASS and filterable separately** everywhere — pair tagging, sweep selection, comparison_mode, metrics, and leaderboard. Each pair carries `pair_kind ∈ {article, paragraph}`; the judge auto-uses `mode='article'`/`'paragraph'` accordingly.
+6. **Seed full bank, sample on sweep.** Storing ~8,861 pairs is cheap; a full-grid sweep (~1.4M calls) is not. Sweeps take a `--kind` filter + a `--sample` (count or stratified-by-baseline-confidence) so cost is bounded; the full bank stays queryable.
 
 ## Problem
 Judge decisiveness directly affects ranking signal: low-confidence/TIE-heavy verdicts don't move Elo, wasting LLM spend and slowing convergence (a recent baseline measured only ~2.4% decisive). The just-merged **Match Viewer (#1168, commit `23230ece`)** made judging *inspectable* and gave a one-match-at-a-time re-judge sandbox (model / temperature / custom prompt / reasoning) — but it **persists nothing and does no aggregate measurement**. There is no repeatable way to run a fixed bank of A/B pairs through the judge under varying settings, log every match + the exact settings, and compare decisiveness/agreement/cost across settings to pick a better default. The historical judge analyses (`docs/research/judge_agreement_summary_tables.md`, `judging_accuracy_20260412.md`; scripts on unmerged branch `feat/estimate_match_noise_evolution_20260411`) did this once, ad-hoc. This project turns that methodology into a reusable tool with structured, retrievable storage, built on the Match Viewer's re-judge primitive.
@@ -31,23 +34,31 @@ Judge decisiveness directly affects ranking signal: low-confidence/TIE-heavy ver
 ### Phase 0: Methodology recovery + pair-bank seed (no app code)
 - [ ] Recover the lost scripts for reference via per-file git (NEVER whole-dir, per CLAUDE.md): `git show 58fc7bff:evolution/scripts/judge-agreement-test.ts`, `git show 56023ed1:evolution/scripts/beta-analysis.ts`, `…:beta-sigma-impact.ts`. Capture exact agreement %, modal-winner, implied-beta formulas into `_research.md` (mostly done).
 - [ ] Read `docs/planning/match_viewer_with_experimentation_procedures_20260605/` (on main) to align with #1168's contracts; confirm `rejudgeComparisonAction` signature + `buildComparisonPrompt` arity on rebased `838d2956` (re-verify cited line numbers).
-- [ ] Define the seed pair-bank from run `140f7bce` — A `4d3ced31` / B `2f25e2b0` / C `39d3275f`; **fix the D==B UUID labeling**; gap_kind ∈ {large, close}; expected_winner only for large-gap. Confirm the 3 texts are still fetchable (`npm run query:staging`/`query:prod`); snapshot text into the bank so it's reproducible if the run is purged.
+- [ ] **Seed the bank from Federal Reserve 2 (`a546b7e9`), ALL pairs, split by kind** (data confirmed in `_research.md`). Seed script (Phase 3 CLI, `--seed-from-topic`) pulls: (a) article pairs = distinct `(entry_a,entry_b)` from `evolution_arena_comparisons WHERE prompt_id=a546b7e9`; (b) paragraph pairs = distinct pairs from `prompt_kind='paragraph'` comparisons whose `run_id ∈` FR2 runs. For each pair store `pair_kind`, both `variant_content` snapshots, the variants' `mu`/`sigma` (→ Elo gap = ground truth, large-gap only), and the recorded baseline confidence as a reference column. Skip the ~33 pairs whose variants were deleted. One pair-bank row with mixed kinds (filterable) OR two banks — implementation detail; `pair_kind` is the load-bearing tag either way.
 
 ### Phase 1: Schema + storage (idempotent migration + Zod + types)
-- [ ] Migration `supabase/migrations/<next-ts>_judge_eval_tables.sql` (idempotent, deny_all + service_role_all RLS, mirrors `20260524000003`): `judge_eval_pair_banks`, `judge_eval_runs` (UNIQUE(settings_key, pair_bank_id)), `judge_eval_calls` (UNIQUE(eval_run_id,pair_label,repeat_index), `decisive GENERATED ALWAYS AS (confidence > 0.6) STORED`), + VIEW `judge_eval_settings_leaderboard`. Indexes: calls(eval_run_id), calls(eval_run_id, decisive).
+- [ ] Migration `supabase/migrations/<next-ts>_judge_eval_tables.sql` (idempotent, deny_all + service_role_all RLS, mirrors `20260524000003`):
+  - `judge_eval_pair_banks` — pairs JSONB array of `{label, pair_kind:'article'|'paragraph', variant_a_id, variant_b_id, text_a, text_b, mu_a, mu_b, sigma_a, sigma_b, expected_winner?, gap_kind, baseline_confidence}`; `source_topic_id`; name UNIQUE.
+  - `judge_eval_runs` — settings tuple + `kind_filter TEXT CHECK ∈ ('article','paragraph','both')`, `sample_spec JSONB` (how pairs were sampled); UNIQUE(settings_key, pair_bank_id) where settings_key includes kind_filter + sample_spec hash.
+  - `judge_eval_calls` — one per (run × pair × repeat); **denormalized `pair_kind`** + `comparison_mode` (so the leaderboard slices by kind without joining the bank JSONB); `decisive GENERATED ALWAYS AS (confidence > 0.6) STORED`; UNIQUE(eval_run_id, pair_label, repeat_index).
+  - VIEW `judge_eval_settings_leaderboard` — GROUP BY (run settings, **pair_kind**) so every settings row has an article line AND a paragraph line; the UI can show both or filter to one. Indexes: calls(eval_run_id), calls(eval_run_id, pair_kind, decisive).
 - [ ] `npm run lint:migrations` (idempotency lint) + `npm run db:types` to regen `src/lib/database.types.ts`.
-- [ ] Zod schemas in `evolution/src/lib/schemas.ts` (or a `judgeEval` schema module): `judgeEvalPairBankSchema`, `judgeEvalRunSchema`, `judgeEvalCallSchema` — reuse the reasoning-effort enum (`schemas.ts:828-840`), `z.enum(['A','B','TIE'])` winners, confidence literal-union {0,0.3,0.5,0.7,1.0}.
+- [ ] Zod schemas in `evolution/src/lib/schemas.ts` (or a `judgeEval` schema module): `judgeEvalPairBankSchema` (incl. `pair_kind` enum), `judgeEvalRunSchema` (incl. `kind_filter`), `judgeEvalCallSchema` (incl. `pair_kind` + `comparison_mode`) — reuse the reasoning-effort enum (`schemas.ts:828-840`), `z.enum(['A','B','TIE'])` winners, `z.enum(['article','paragraph'])` kinds, confidence literal-union {0,0.3,0.5,0.7,1.0}.
 
 ### Phase 2: Eval engine (settings sweep over the pair-bank)
-- [ ] `evolution/src/lib/judgeEval/runJudgeEval.ts` — for each (pair × repeat) drive `run2PassReversal` DIRECTLY (bypass cache, like `rejudgeComparisonAction`) via a sandbox `callLLM` (plain `callLLM`, NOT `createEvolutionLLMClient`, so temperature is honored and nothing writes to ratings/metrics). Thread `{judgeModel, temperature, reasoningEffort, comparisonMode, customPromptOverride}`. Capture per-pass `{prompt, rawResponse, parsedWinner}`; parse via `parseVerdictFromReasoning` when reasoning on, else `parseWinner`; aggregate via `aggregateWinners`. Per-call budget/kill catch; `call_source='judge_eval'`.
-- [ ] `evolution/src/lib/judgeEval/metrics.ts` — pure reducer over a repeat array → {decisive_rate (conf>0.6), self_consistency, avg_confidence, position_bias_rate, accuracy_vs_truth (large-gap only), med_wall_ms, med_fwd_ms, avg_output_tokens, avg_reasoning_tokens, avg_cost_usd, cost_per_decisive, implied_beta (large-gap only)}. Formulas per `_research.md`.
-- [ ] `evolution/src/lib/judgeEval/persist.ts` — upsert run by settings_key (idempotent re-run), bulk-insert calls; compute `prompt_variant_hash = sha256(mode + (customPrompt ?? builtin-template))`.
+- [ ] `evolution/src/lib/judgeEval/selectPairs.ts` — given a bank + `kind_filter ('article'|'paragraph'|'both')` + `sample_spec`, return the working pair set. Sampling modes: `all`, `count:N` (random, seeded), `stratified:N` (balanced across baseline-confidence buckets so each sweep mixes decisive + forced-tie pairs). Deterministic via a seed so re-runs are reproducible.
+- [ ] `evolution/src/lib/judgeEval/runJudgeEval.ts` — for each selected (pair × repeat) drive `run2PassReversal` DIRECTLY (bypass cache, like `rejudgeComparisonAction`) via a sandbox `callLLM` (plain `callLLM`, NOT `createEvolutionLLMClient`, so temperature is honored and nothing writes to ratings/metrics). **`comparisonMode` is derived from the pair's `pair_kind`** (article→'article', paragraph→'paragraph'); thread `{judgeModel, temperature, reasoningEffort, customPromptOverride}`. Capture per-pass `{prompt, rawResponse, parsedWinner}`; parse via `parseVerdictFromReasoning` when reasoning on, else `parseWinner`; aggregate via `aggregateWinners`. Per-call budget/kill catch; concurrency cap + retry; `call_source='judge_eval'`.
+- [ ] `evolution/src/lib/judgeEval/metrics.ts` — pure reducer over a repeat array → {decisive_rate (conf>0.6), self_consistency, avg_confidence, position_bias_rate, accuracy_vs_truth (large-gap only), med_wall_ms, med_fwd_ms, avg_output_tokens, avg_reasoning_tokens, avg_cost_usd, cost_per_decisive, implied_beta (large-gap only)} — **computed per `pair_kind` as well as overall**, so article and paragraph decisiveness are reported separately. Formulas per `_research.md`.
+- [ ] `evolution/src/lib/judgeEval/persist.ts` — upsert run by settings_key (incl. kind_filter + sample_spec hash) for idempotent re-run; bulk-insert calls with denormalized `pair_kind` + `comparison_mode`; compute `prompt_variant_hash = sha256(mode + (customPrompt ?? builtin-template))`.
 
-### Phase 3: CLI driver
-- [ ] `evolution/scripts/judge-eval.ts` (`npx tsx`, dotenv + service-role client, mirrors `test-judge-models-v2.ts` + `debugProposerApproverFailures.ts` patterns). Flags: `--pair-bank <name>`, `--models <list>`, `--temperatures 0,0.3,0.7,1.0`, `--reasoning none,low`, `--prompt-variant <name|file>`, `--repeats 10`, `--dry-run` (pre-flight cost estimate, no spend), `--output <json>`. Concurrency cap + retry/backoff. Prints the historical summary table layout + writes rows + optional JSON artifact.
+### Phase 3: CLI driver (+ seed command)
+- [ ] `evolution/scripts/judge-eval.ts` (`npx tsx`, dotenv + service-role client, mirrors `test-judge-models-v2.ts` + `debugProposerApproverFailures.ts` patterns).
+  - `--seed-from-topic <prompt_id>` (default `a546b7e9` = Federal Reserve 2) — builds/refreshes the pair-bank by pulling ALL article + paragraph pairs (per the Phase 0 recipe), tagging `pair_kind`, snapshotting texts + mu/sigma + baseline confidence.
+  - Sweep flags: `--pair-bank <name>`, `--kind article|paragraph|both` (default both), `--sample all|count:N|stratified:N` (default `stratified:40` to bound cost), `--models <list>`, `--temperatures 0,0.3,0.7,1.0`, `--reasoning none,low`, `--prompt-variant <name|file>`, `--repeats 10`, `--dry-run` (pre-flight cost estimate, no spend), `--output <json>`.
+  - Concurrency cap + retry/backoff. Prints the historical summary table **with separate Article and Paragraph blocks** + writes rows + optional JSON artifact.
 
 ### Phase 4: Judge Lab admin page
-- [ ] `/admin/evolution/judge-lab` under the existing "Tools" sidebar group (added by #1168). Server actions in a new `evolution/src/services/judgeEvalActions.ts` (wrapped in `adminAction`): `listPairBanksAction`, `createEvalRunAction` (launch a sweep — reuse the engine; guard cost), `getEvalLeaderboardAction` (reads the VIEW), `getEvalRunDetailAction`. UI: pick pair-bank + settings grid → launch; decisive-rate leaderboard table (best settings first) with CI-free point estimates; drill into a run's per-pair/per-repeat results; deep-link each stored comparison to the existing Match Viewer. Dashboard "Tools" discoverability link.
+- [ ] `/admin/evolution/judge-lab` under the existing "Tools" sidebar group (added by #1168). Server actions in a new `evolution/src/services/judgeEvalActions.ts` (wrapped in `adminAction`): `listPairBanksAction`, `createEvalRunAction` (launch a sweep — reuse the engine; guard cost), `getEvalLeaderboardAction({kind})` (reads the VIEW, sliceable by kind), `getEvalRunDetailAction`. UI: pick pair-bank + **Kind toggle (Article / Paragraph / Both)** + **Sample selector** + settings grid → launch; decisive-rate leaderboard with an **Article | Paragraph | Both** segmented filter (each settings row shows its article + paragraph decisiveness side by side); drill into a run's per-pair/per-repeat results (also kind-filterable); deep-link each stored comparison to the existing Match Viewer. Dashboard "Tools" discoverability link.
 
 ## Testing
 
@@ -63,7 +74,7 @@ Judge decisiveness directly affects ranking signal: low-confidence/TIE-heavy ver
 - [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-judge-lab.spec.ts` (`{ tag: '@evolution' }`, `adminTest`). Seed a pair-bank + a completed eval_run; navigate to `/admin/evolution/judge-lab`, `resetFilters()`, assert leaderboard rows render and drill-down works. Re-judge/sweep LLM calls use `E2E_TEST_MODE` server-side stub (not browser-mockable); `safeGoto` for chained nav; stable `data-testid`s; no fixed sleeps.
 
 ### Manual Verification
-- [ ] On local server: seed the 140f7bce pair-bank, run `judge-eval.ts --dry-run` then a small real sweep ({qwen-2.5-7b, gpt-4.1-nano} × {0,1.0} × 5 reps), confirm decisive_rate reproduces the historical pattern (qwen 100% / nano ~0% on close pair), confirm rows persisted + leaderboard ranks qwen first, confirm nothing written to `evolution_arena_comparisons`.
+- [ ] On local server: `judge-eval.ts --seed-from-topic a546b7e9` (Federal Reserve 2), confirm the bank lands ~6,972 article + ~1,889 paragraph pairs. Then `--dry-run` a sweep, then a small real sweep (`--kind both --sample stratified:10 --models qwen-2.5-7b,gpt-4.1-nano --temperatures 0,1.0 --repeats 5`). Confirm: article and paragraph decisive_rate reported separately; qwen ≫ nano on close pairs; recorded baseline-confidence reference column present; rows persisted + leaderboard kind-filterable; nothing written to `evolution_arena_comparisons`.
 
 ## Verification
 
@@ -86,15 +97,17 @@ The following docs were identified as relevant and may need updates:
 
 ## Pair Selection (starting bank)
 
-Pairs are chosen along one axis — **Elo-gap size** — to bracket judge difficulty, not sampled randomly:
-- **Large-gap pair (~400 Elo / 25 mu):** clear winner; sanity floor; the only tier with usable ground truth (accuracy + implied-β computed here).
-- **Close pair (~1–2 Elo):** the discriminating test — weak judges collapse to position-bias TIEs here (nano 0% decisive vs qwen/mini/deepseek 100%). No real ground truth → `gap_kind='close'`, **tie-acceptable** (measure decisiveness + position-bias, not accuracy).
+**Source = ALL recorded comparisons from the "Federal Reserve 2" arena topic** (`a546b7e9-f066-403d-9589-f5e0d2c9fa4f`), pulled directly from `evolution_arena_comparisons` and split by kind (live counts confirmed on staging 2026-06-06 — see `_research.md`):
+- **Article: 6,972 distinct pairs** (texts present). Baseline judge avg conf 0.789; 4,156 decisive, 2,768 forced-tie (~40% — many genuinely close pairs).
+- **Paragraph: 1,889 distinct pairs** (all texts present), from 273 slot-topics across 19 runs.
 
-**Sourcing:** pull from a *completed* run (pipeline has already assigned Elo/mu — the noisy ground-truth proxy) via `npm run query:staging -- "...ORDER BY mu DESC"`; pick top-vs-mid for the large gap and two adjacent near-equal variants for the close pair. **Snapshot texts into the bank** for reproducibility if the run is purged.
+This replaces the original "2 hand-picked pairs from 140f7bce" plan with a realistic bank drawn from real arena history. Each pair stores `pair_kind`, both `variant_content` snapshots, mu/sigma (→ Elo-gap ground truth), `gap_kind` (large/close, derived from the mu gap), and the **recorded baseline confidence** (free reference: the production judge's own verdict on that pair).
 
-**Start with run `140f7bce`** for parity with the historical tables — first numbers are directly comparable to `judge_agreement_summary_tables.md`; the harness is validated when it reproduces qwen 100% / nano 0% on the close pair. Fix the historical **D==B UUID labeling bug** while seeding. Keep the starting bank small (2 anchor pairs, 3 distinct texts) to control cost, then optionally add a **medium-gap (~80 Elo)** tier + a **known-tie** pair the historical bank lacked.
+**Ground truth (mu/Elo gap, per decision #3):** large-gap pairs get accuracy + implied-β; close pairs (`gap_kind='close'`) are tie-acceptable (decisiveness + position-bias only). Elo ground truth is judge-derived (mildly circular) so it's trusted only at the large gap.
 
-**Caveat:** Elo ground truth is itself judge-derived (mildly circular) — robust for the large gap, which is why accuracy/implied-β are restricted to large/medium tiers.
+**Storing all is cheap; sweeping all is not** (~8,861 pairs × grid × reps × 2 ≈ 1.4M calls). So the bank holds everything, and **sweeps select via `--kind` + `--sample`**: default `stratified:40` (40 pairs balanced across baseline-confidence buckets, separately per kind) keeps a default sweep affordable while covering both decisive and forced-tie regions. Run `--sample all` deliberately for a full bank pass.
+
+**Article vs paragraph stay separable end-to-end** (decision #5): a pair's `pair_kind` auto-selects `comparison_mode` ('article' 5-criteria rubric vs 'paragraph' TIE-discouraging rubric), and every metric + leaderboard row is sliceable Article / Paragraph / Both.
 
 ## Wireframes (ASCII)
 
@@ -109,29 +122,31 @@ Pairs are chosen along one axis — **Elo-gap size** — to bracket judge diffic
 │ OVERVIEW      │  Judge Lab                                                          │
 │  Dashboard    │  Systematically evaluate judge settings on a fixed pair-bank        │
 │  Start Exp.   │ ┌── New sweep ────────────────────────────────────────────────────┐ │
-│ ENTITIES      │ │ Pair-bank [ 140f7bce · Federal Reserve (3 pairs) ▾ ]   [ Manage ]│ │
-│  Experiments  │ │ Models    ☑ qwen-2.5-7b  ☑ gpt-4.1-nano  ☐ gpt-4.1-mini         │ │
-│  Prompts      │ │           ☐ deepseek-chat  ☐ gpt-oss-20b  ☐ qwen3-8b            │ │
-│  Strategies   │ │ Temps     ☑0  ☑0.3  ☑0.7  ☑1.0     Reasoning ☑none ☐low ☐med   │ │
-│  Tactics      │ │ Prompt    ( •Article  ○Paragraph  ○Custom… )      Repeats [ 10 ] │ │
+│ ENTITIES      │ │ Pair-bank [ Federal Reserve 2 · 6 972 art / 1 889 para ▾][Manage]│ │
+│  Experiments  │ │ Kind   ( ○Article  ○Paragraph  •Both )   Sample [ stratified 40▾]│ │
+│  Prompts      │ │ Models ☑ qwen-2.5-7b  ☑ gpt-4.1-nano  ☐ gpt-4.1-mini ☐ deepseek │ │
+│  Strategies   │ │ Temps  ☑0  ☑0.3  ☑0.7  ☑1.0          Reasoning ☑none ☐low ☐med │ │
+│  Tactics      │ │ Prompt ( •Baseline rubric  ○Custom override… )    Repeats [ 10 ] │ │
 │  Criteria     │ │ ───────────────────────────────────────────────────────────────│ │
-│  Runs         │ │ Grid: 2 models × 4 temps × 1 reasoning × 1 prompt = 8 cells      │ │
-│  Variants     │ │ Est. 8 cells × 3 pairs × 10 reps × 2 calls = 480 calls ≈ $0.18  │ │
-│  Invocations  │ │                                   [ Dry-run ]   [ ▶ Launch sweep ]│ │
-│ RESULTS       │ └─────────────────────────────────────────────────────────────────┘ │
-│  Arena        │  Settings leaderboard          sort: Decisive ▾   ☑ Hide test banks │
-│ TOOLS         │ ┌──────────────┬────┬─────┬───────┬──────┬─────┬──────┬──────┬──────┐│
-│  Match Viewer │ │ Model        │Temp│Reas.│Prompt │Decis.│Agree│AvgCnf│PosBi.│$/dec ││
-│ ▶ Judge Lab   │ ├──────────────┼────┼─────┼───────┼──────┼─────┼──────┼──────┼──────┤│
-│               │ │ qwen-2.5-7b  │ 0  │none │article│100%  │100% │ 1.00 │  0%  │.00027││
-│               │ │ deepseek-chat│ 0  │none │article│100%  │100% │ 1.00 │  0%  │.00189││
-│               │ │ gpt-4.1-mini │ 0  │none │article│100%  │100% │ 1.00 │  0%  │.00272││
-│               │ │ gpt-4.1-nano │ 0  │none │article│ 45%  │ 60% │ 0.72 │ 50%  │.00060││
-│               │ │ gpt-4.1-nano │1.0 │none │article│  0%  │100% │ 0.50 │100%  │  ∞   ││
-│               │ └──────────────┴────┴─────┴───────┴──────┴─────┴──────┴──────┴──────┘│
+│  Runs         │ │ Grid 2 models×4 temps = 8 cells · 40 art + 40 para pairs sampled │ │
+│  Variants     │ │ Est. 8 × 80 pairs × 10 reps × 2 calls = 12 800 calls ≈ $1.90    │ │
+│  Invocations  │ │ ⓘ Article pairs judged with the Article rubric, paragraph with   │ │
+│ RESULTS       │ │   the Paragraph (TIE-discouraging) rubric — auto by pair kind.   │ │
+│  Arena        │ │                                   [ Dry-run ]   [ ▶ Launch sweep ]│ │
+│ TOOLS         │ └─────────────────────────────────────────────────────────────────┘ │
+│  Match Viewer │  Settings leaderboard      View ( •Both  ○Article  ○Paragraph )      │
+│ ▶ Judge Lab   │ ┌──────────────┬────┬─────┬───────────────┬───────────────┬───────┐ │
+│               │ │ Model        │Temp│Reas.│ Article decis.│ Paragr. decis.│ $/dec │ │
+│               │ ├──────────────┼────┼─────┼───────────────┼───────────────┼───────┤ │
+│               │ │ qwen-2.5-7b  │ 0  │none │ 100%  conf1.00│  98%  conf0.97│.00027 │ │
+│               │ │ deepseek-chat│ 0  │none │ 100%  conf1.00│  99%  conf0.99│.00189 │ │
+│               │ │ gpt-4.1-nano │ 0  │none │  45%  conf0.72│  20%  conf0.58│.00060 │ │
+│               │ │ gpt-4.1-nano │1.0 │none │   0%  conf0.50│  35%  conf0.66│  ∞/.. │ │
+│               │ └──────────────┴────┴─────┴───────────────┴───────────────┴───────┘ │
 │               │  Row click → eval-run detail.   42 settings · ‹Prev  1/3  Next›      │
 └───────────────┴────────────────────────────────────────────────────────────────────┘
-  • Decis. = decisive_rate (confidence > 0.6, live-metric parity).  PosBi. = position-bias rate.
+  • Decis. = decisive_rate (confidence > 0.6).  Article & Paragraph columns are independent.
+  • View toggle collapses to a single decis./agree/conf/posbias/$ block for the chosen kind.
   • $/dec = cost per decisive comparison; "∞" = 0 decisive.  • Best decisive first; ties → cost.
 ```
 
@@ -171,24 +186,28 @@ Pairs are chosen along one axis — **Elo-gap size** — to bracket judge diffic
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────┐
-│ Judge Lab  ›  Pair-banks                                            [ + New bank ]  │
+│ Judge Lab  ›  Pair-banks                              [ Seed from arena topic… ]    │
 ├──────────────────────────────────────────────────────────────────────────────────┤
-│  Bank: 140f7bce · Federal Reserve            source run 140f7bce   3 pairs          │
-│ ┌──────────┬───────────────────┬───────────────────┬──────────┬─────────┬─────────┐│
-│ │ Label    │ Variant A         │ Variant B         │ gap_kind │ Δ Elo   │ truth   ││
-│ ├──────────┼───────────────────┼───────────────────┼──────────┼─────────┼─────────┤│
-│ │ large    │ 4d3ced31 (mu43.9) │ 2f25e2b0 (mu18.7) │ large    │  404    │ A wins  ││
-│ │ close    │ 39d3275f (mu18.75)│ 2f25e2b0 (mu18.66)│ close    │  1.4    │ tie-ok  ││
-│ │ medium † │ —  (add via query)│ —                 │ medium   │  ~80    │ A wins  ││
-│ └──────────┴───────────────────┴───────────────────┴──────────┴─────────┴─────────┘│
-│  † optional medium-gap tier the historical bank lacked.                              │
-│  ┌─ Add pair ──────────────────────────────────────────────────────────────────┐   │
-│  │ Source [ query staging ORDER BY mu DESC ▾ ]   Variant A [____]  B [____]      │   │
-│  │ Texts are snapshotted into the bank on save (reproducible if the run is purged)│   │
-│  │                                                          [ Preview ] [ Save ]  │   │
-│  └────────────────────────────────────────────────────────────────────────────┘    │
+│  Bank: Federal Reserve 2   source topic a546b7e9   8 861 pairs   seeded 06-06 15:40 │
+│   Kind ( •Both  ○Article 6 972  ○Paragraph 1 889 )   Gap ( •All ○large ○close )     │
+│ ┌──────────────┬──────┬───────────────────┬───────────────────┬──────┬─────┬──────┐│
+│ │ Label        │ kind │ Variant A         │ Variant B         │ gap  │ ΔElo│ base ││
+│ ├──────────────┼──────┼───────────────────┼───────────────────┼──────┼─────┼──────┤│
+│ │ art#0001     │ art  │ 4d3ced31 (mu43.9) │ 2f25e2b0 (mu18.7) │large │ 404 │ 1.00 ││
+│ │ art#0002     │ art  │ 9a1c… (mu31.2)    │ 71be… (mu29.8)    │close │  22 │ 0.50 ││
+│ │ [para]V8a..P3│ para │ R2 slot (mu26.1)  │ R5 slot (mu24.9)  │close │  19 │ 0.50 ││
+│ │ [para]V8a..P7│ para │ R1 slot (mu33.0)  │ orig    (mu18.4)  │large │ 233 │ 1.00 ││
+│ │ …            │      │                   │                   │      │     │      ││
+│ └──────────────┴──────┴───────────────────┴───────────────────┴──────┴─────┴──────┘│
+│  ‹Prev  1/178  Next›   • base = production judge's recorded confidence on this pair. │
+│  ┌─ Seed from arena topic ──────────────────────────────────────────────────────┐  │
+│  │ Topic [ Federal Reserve 2 (a546b7e9) ▾ ]   ☑ articles   ☑ paragraphs          │  │
+│  │ Pulls ALL distinct comparison pairs, snapshots texts + mu/sigma + baseline conf │  │
+│  │ Skips pairs whose variants were deleted (~33).            [ Preview ] [ Seed ]  │  │
+│  └─────────────────────────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────────────────────┘
-  • expected_winner stored only for large/medium (mu-gap ground truth); close = tie-acceptable.
+  • One bank, mixed kinds, filterable.  expected_winner/accuracy only on large-gap; close=tie-ok.
+  • Texts snapshotted on seed (reproducible if the source run is purged).
 ```
 
 ## Review & Discussion
