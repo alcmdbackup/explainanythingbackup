@@ -108,8 +108,8 @@ display hint.
 
 ## Kill-switch / rollback
 
-`EVOLUTION_PROMPT_EDITOR_ENABLED='0'` ⇒ the route returns 403 and the sidebar nav item hides. No
-migration ⇒ rollback = flip the flag or revert the PR.
+`EVOLUTION_PROMPT_EDITOR_ENABLED='0'` ⇒ the route returns 403 (the page surfaces the error on Run; the
+static sidebar nav item is unaffected). No migration ⇒ rollback = flip the flag or revert the PR.
 
 ## "Load recent…" picker
 

@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button';
 import { getModelOptions, getModelMaxTemperature } from '@/config/modelRegistry';
 import { getTacticDef, GENERATE_TACTIC_NAMES } from '@evolution/lib/core/tactics';
 import { PARAGRAPH_REWRITE_DIRECTIVES } from '@evolution/lib/core/agents/paragraphRecombine/buildParagraphRewritePrompt';
-import type { RewriteUnit, PromptEditorRunResult, PromptEditorConfigResult } from '@evolution/lib/promptEditor/types';
+import type { RewriteUnit, PromptEditorRunResult, PromptEditorConfigResult, PromptEditorConfigStatus } from '@evolution/lib/promptEditor/types';
 
 const MODEL_OPTIONS = getModelOptions();
 const DEFAULT_MODEL = MODEL_OPTIONS.some((m) => m.value === 'gpt-4.1-nano') ? 'gpt-4.1-nano' : MODEL_OPTIONS[0]!.value;
@@ -50,7 +50,7 @@ function newConfig(id: number, unit: RewriteUnit): ConfigState {
   return { id, label: `config ${id}`, preamble: '', instructions: '', directive: PARAGRAPH_REWRITE_DIRECTIVES[0]!, model: DEFAULT_MODEL, temperature: 0.7 };
 }
 
-const STATUS_STYLES: Record<string, { label: string; color: string }> = {
+const STATUS_STYLES: Record<PromptEditorConfigStatus, { label: string; color: string }> = {
   success: { label: '✓ success', color: 'var(--status-success)' },
   budget: { label: '💲 budget', color: 'var(--status-warning)' },
   killed: { label: '🛑 killed', color: 'var(--status-error)' },

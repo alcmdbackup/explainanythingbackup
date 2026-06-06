@@ -4,7 +4,7 @@
 // shared 'evolution' budget (by design — desirable for cost auditing).
 
 import { callLLM, ANONYMOUS_USER_UUID, type LLMUsageMetadata } from '@/lib/services/llms';
-import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
+import { allowedLLMModelSchema, type AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { getModelMaxTemperature } from '@/config/modelRegistry';
 import { GlobalBudgetExceededError, LLMKillSwitchError } from '@/lib/errors/serviceError';
 import { validateFormat } from '@evolution/lib/shared/enforceVariantFormat';
@@ -56,13 +56,18 @@ export async function runPromptEditorConfig(
     temperatureUsed,
   };
 
-  let model;
+  let model: AllowedLLMModelType;
   try {
     model = allowedLLMModelSchema.parse(config.model);
   } catch {
     return {
-      ...base, output: null, costUsd: 0, durationMs: Date.now() - startMs,
-      status: 'error', formatValid: false, errorMsg: `Unsupported model: ${config.model}`,
+      ...base,
+      output: null,
+      costUsd: 0,
+      durationMs: Date.now() - startMs,
+      status: 'error',
+      formatValid: false,
+      errorMsg: `Unsupported model: ${config.model}`,
     };
   }
 
@@ -90,13 +95,13 @@ export async function runPromptEditorConfig(
     let formatValid: boolean;
     let formatIssues: string[] | undefined;
     if (unit === 'article') {
-      const r = validateFormat(text);
-      formatValid = r.valid;
-      formatIssues = r.issues.length > 0 ? r.issues : undefined;
+      const result = validateFormat(text);
+      formatValid = result.valid;
+      formatIssues = result.issues.length > 0 ? result.issues : undefined;
     } else {
-      const r = validateParagraphRewrite(text, sourceText.length);
-      formatValid = r.valid;
-      formatIssues = r.valid ? undefined : [r.dropReason ?? 'invalid'];
+      const result = validateParagraphRewrite(text, sourceText.length);
+      formatValid = result.valid;
+      formatIssues = result.valid ? undefined : [result.dropReason ?? 'invalid'];
     }
 
     return {
@@ -116,8 +121,13 @@ export async function runPromptEditorConfig(
     else if (err instanceof LLMKillSwitchError) status = 'killed';
     else if (isAbortOrTimeout(err)) status = 'timeout';
     return {
-      ...base, output: null, costUsd, durationMs: Date.now() - startMs,
-      status, formatValid: false, errorMsg,
+      ...base,
+      output: null,
+      costUsd,
+      durationMs: Date.now() - startMs,
+      status,
+      formatValid: false,
+      errorMsg,
     };
   }
 }
