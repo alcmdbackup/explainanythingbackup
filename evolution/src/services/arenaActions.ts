@@ -4,7 +4,20 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid, applyTestContentColumnFilter } from './shared';
-import { _INTERNAL_ELO_SIGMA_SCALE } from '@evolution/lib/shared/computeRatings';
+import {
+  _INTERNAL_ELO_SIGMA_SCALE,
+  buildComparisonPrompt,
+  parseWinner,
+  parseVerdictFromReasoning,
+  run2PassReversal,
+  aggregateWinners,
+  type ComparisonMode,
+  type ComparisonResult,
+} from '@evolution/lib/shared/computeRatings';
+import { callLLM, type CallLLMOptions } from '@/lib/services/llms';
+import { getEvolutionModelIds, getModelMaxTemperature } from '@/config/modelRegistry';
+import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
+import { GlobalBudgetExceededError, LLMKillSwitchError } from '@/lib/errors/serviceError';
 import { z } from 'zod';
 
 /** Transform raw DB row (with mu/sigma) to ArenaEntry (with elo/uncertainty). */
@@ -342,6 +355,301 @@ export const getArenaComparisonsAction = adminAction(
       .limit(Math.min(Math.max(input.limit ?? 100, 1), 200));
     if (error) throw error;
     return (data ?? []) as ArenaComparison[];
+  },
+);
+
+// ─── Match Viewer (match_viewer_with_experimentation_procedures_20260605) ──────
+// Read-only browse of recent judge matches + a DISPLAY-ONLY re-judge sandbox. None of
+// these actions write to evolution_arena_comparisons or mutate ratings.
+
+/** One char of preview content, single-lined and truncated. */
+function previewContent(content: string | null | undefined, max = 80): string | null {
+  if (!content) return null;
+  const oneLine = content.replace(/\s+/g, ' ').trim();
+  return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
+}
+
+export interface MatchListItem extends ArenaComparison {
+  entry_a_preview: string | null;
+  entry_b_preview: string | null;
+}
+
+/** List recent judge matches. Unlike getArenaComparisonsAction (prompt_id only), this filters
+ *  by run_id (the Match Viewer's primary axis) plus winner/min-confidence, with pagination and
+ *  an optional test-content exclusion. */
+export const getRecentMatchesAction = adminAction(
+  'getRecentMatches',
+  async (
+    input: {
+      runId?: string;
+      topicId?: string;
+      winner?: 'a' | 'b' | 'draw';
+      minConfidence?: number;
+      filterTestContent?: boolean;
+      limit?: number;
+      offset?: number;
+    },
+    ctx: AdminContext,
+  ): Promise<{ items: MatchListItem[]; total: number }> => {
+    const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
+    const offset = Math.max(input.offset ?? 0, 0);
+    if (input.runId && !validateUuid(input.runId)) throw new Error('Invalid runId');
+    if (input.topicId && !validateUuid(input.topicId)) throw new Error('Invalid topicId');
+
+    // Test-content exclusion requires a two-level !inner embed because the comparisons table
+    // has no is_test_content column; it lives on evolution_strategies (via the run). NOTE: the
+    // !inner join drops comparisons with a null run_id (pure-arena rows) while the filter is on
+    // — acceptable for an admin "recent run matches" view; uncheck the filter to see them.
+    const selectExpr = input.filterTestContent
+      ? '*, evolution_runs!inner(evolution_strategies!inner(is_test_content))'
+      : '*';
+
+    let query = ctx.supabase
+      .from('evolution_arena_comparisons')
+      .select(selectExpr, { count: 'exact' })
+      .order('created_at', { ascending: false });
+
+    if (input.runId) query = query.eq('run_id', input.runId);
+    if (input.topicId) query = query.eq('prompt_id', input.topicId);
+    if (input.winner) query = query.eq('winner', input.winner);
+    if (input.minConfidence != null) query = query.gte('confidence', input.minConfidence);
+    if (input.filterTestContent) {
+      query = query.eq('evolution_runs.evolution_strategies.is_test_content', false);
+    }
+
+    query = query.range(offset, offset + limit - 1);
+
+    const { data, error, count } = await query;
+    if (error) throw error;
+    const rows = (data ?? []) as unknown as ArenaComparison[];
+
+    // Batch-fetch variant content for previews (entry_a/entry_b are variant ids).
+    const variantIds = [...new Set(rows.flatMap(r => [r.entry_a, r.entry_b]).filter(Boolean))];
+    const contentById = new Map<string, string>();
+    if (variantIds.length > 0) {
+      const { data: variants, error: vErr } = await ctx.supabase
+        .from('evolution_variants')
+        .select('id, variant_content')
+        .in('id', variantIds);
+      if (vErr) throw vErr;
+      for (const v of variants ?? []) contentById.set(v.id as string, v.variant_content as string);
+    }
+
+    const items: MatchListItem[] = rows.map(r => ({
+      id: r.id,
+      prompt_id: r.prompt_id,
+      entry_a: r.entry_a,
+      entry_b: r.entry_b,
+      winner: r.winner,
+      confidence: r.confidence,
+      run_id: r.run_id,
+      status: r.status,
+      created_at: r.created_at,
+      entry_a_preview: previewContent(contentById.get(r.entry_a)),
+      entry_b_preview: previewContent(contentById.get(r.entry_b)),
+    }));
+
+    return { items, total: count ?? 0 };
+  },
+);
+
+export interface ComparisonDetail extends ArenaComparison {
+  entry_a_content: string | null;
+  entry_b_content: string | null;
+  entry_a_elo: number | null;
+  entry_b_elo: number | null;
+}
+
+/** Fetch a single comparison + both variants' full content/elo for the detail view. Missing
+ *  variants (entry FKs were dropped; a variant can be deleted) come back as null content. */
+export const getComparisonDetailAction = adminAction(
+  'getComparisonDetail',
+  async (input: { comparisonId: string }, ctx: AdminContext): Promise<ComparisonDetail> => {
+    if (!validateUuid(input.comparisonId)) throw new Error('Invalid comparisonId');
+    const { data: row, error } = await ctx.supabase
+      .from('evolution_arena_comparisons')
+      .select('*')
+      .eq('id', input.comparisonId)
+      .single();
+    if (error) throw error;
+    if (!row) throw new Error(`Comparison not found: ${input.comparisonId}`);
+    const c = row as ArenaComparison;
+
+    const { data: variants, error: vErr } = await ctx.supabase
+      .from('evolution_variants')
+      .select('id, variant_content, elo_score')
+      .in('id', [c.entry_a, c.entry_b]);
+    if (vErr) throw vErr;
+    const byId = new Map((variants ?? []).map(v => [v.id as string, v]));
+    const a = byId.get(c.entry_a);
+    const b = byId.get(c.entry_b);
+
+    return {
+      ...c,
+      entry_a_content: (a?.variant_content as string | undefined) ?? null,
+      entry_b_content: (b?.variant_content as string | undefined) ?? null,
+      entry_a_elo: (a?.elo_score as number | undefined) ?? null,
+      entry_b_elo: (b?.elo_score as number | undefined) ?? null,
+    };
+  },
+);
+
+export interface RejudgePass {
+  direction: 'forward' | 'reverse';
+  prompt: string;
+  rawResponse: string;
+  parsedWinner: 'A' | 'B' | 'TIE' | null;
+}
+
+export interface RejudgeResult {
+  winner: 'A' | 'B' | 'TIE';
+  confidence: number;
+  turns: number;
+  costUsd: number;
+  judgeModel: string;
+  temperature: number | null;
+  explainReasoning: boolean;
+  /** The two reversal passes, each with the exact prompt sent + raw model response. */
+  passes: RejudgePass[];
+}
+
+const MAX_VARIANT_CHARS = 12_000;
+const MAX_CUSTOM_PROMPT_CHARS = 4_000;
+
+const rejudgeSchema = z.object({
+  comparisonId: z.string(),
+  judgeModel: z.string(),
+  mode: z.enum(['article', 'paragraph']).optional(),
+  customPrompt: z.string().optional(),
+  temperature: z.number().optional(),
+  explainReasoning: z.boolean().optional(),
+});
+
+/** DISPLAY-ONLY re-judge: re-run the 2-pass judge for a stored comparison with a chosen model,
+ *  temperature, optional rubric override, and optional reasoning output. Writes NOTHING to
+ *  evolution_arena_comparisons and never mutates ratings. Uses the plain callLLM path (NOT the
+ *  evolution LLM client), so it incurs no evolution_metrics cost write — only the standard
+ *  per-call llmCallTracking audit row. Returns each pass's exact prompt + raw response. */
+export const rejudgeComparisonAction = adminAction(
+  'rejudgeComparison',
+  async (input: z.input<typeof rejudgeSchema>, ctx: AdminContext): Promise<RejudgeResult> => {
+    const parsed = rejudgeSchema.parse(input);
+    if (!validateUuid(parsed.comparisonId)) throw new Error('Invalid comparisonId');
+
+    // Validate model against the picker's allowed set (== allowedLLMModelSchema enum).
+    if (!getEvolutionModelIds().includes(parsed.judgeModel)) {
+      throw new Error(`Invalid judgeModel: ${parsed.judgeModel}`);
+    }
+    const judgeModel = parsed.judgeModel as AllowedLLMModelType;
+    const mode: ComparisonMode = parsed.mode ?? 'article';
+    const explainReasoning = parsed.explainReasoning ?? false;
+
+    // Custom prompt: rubric/instructions only. Reject over-long; treat blank as absent.
+    const customPrompt = parsed.customPrompt?.trim() || undefined;
+    if (customPrompt && customPrompt.length > MAX_CUSTOM_PROMPT_CHARS) {
+      throw new Error(`Custom prompt too long (max ${MAX_CUSTOM_PROMPT_CHARS} chars)`);
+    }
+
+    // Temperature: honor only when the model supports it; clamp to [0, max].
+    const maxTemp = getModelMaxTemperature(judgeModel);
+    let temperature: number | undefined;
+    if (parsed.temperature != null && maxTemp != null) {
+      temperature = Math.min(Math.max(parsed.temperature, 0), maxTemp);
+    }
+
+    // Fetch the comparison + both variant texts.
+    const { data: row, error } = await ctx.supabase
+      .from('evolution_arena_comparisons')
+      .select('entry_a, entry_b')
+      .eq('id', parsed.comparisonId)
+      .single();
+    if (error) throw error;
+    if (!row) throw new Error(`Comparison not found: ${parsed.comparisonId}`);
+
+    const { data: variants, error: vErr } = await ctx.supabase
+      .from('evolution_variants')
+      .select('id, variant_content')
+      .in('id', [row.entry_a as string, row.entry_b as string]);
+    if (vErr) throw vErr;
+    const byId = new Map((variants ?? []).map(v => [v.id as string, v.variant_content as string]));
+    const rawA = byId.get(row.entry_a as string);
+    const rawB = byId.get(row.entry_b as string);
+    if (rawA == null || rawB == null) {
+      throw new Error('Cannot re-judge: one or both variants no longer exist');
+    }
+    const textA = rawA.slice(0, MAX_VARIANT_CHARS);
+    const textB = rawB.slice(0, MAX_VARIANT_CHARS);
+
+    const forwardPrompt = buildComparisonPrompt(textA, textB, mode, customPrompt, explainReasoning);
+    const reversePrompt = buildComparisonPrompt(textB, textA, mode, customPrompt, explainReasoning);
+    // Defensive: a valid prompt must carry both text markers + a verdict cue before we spend.
+    for (const p of [forwardPrompt, reversePrompt]) {
+      if (!p.includes('## Text A') || !p.includes('## Text B') || !/your answer/i.test(p)) {
+        throw new Error('Invalid judge prompt (missing Text A/Text B/verdict instruction)');
+      }
+    }
+
+    const parser = explainReasoning ? parseVerdictFromReasoning : parseWinner;
+    const norm = (s: string | null): 'A' | 'B' | 'TIE' | null =>
+      s === 'A' || s === 'B' || s === 'TIE' ? s : null;
+
+    // E2E stub: deterministic canned response, no provider call. Mirror the repo's prod guard
+    // (returnExplanation/route.ts) so a misconfigured prod server can never serve canned verdicts.
+    const isE2E = process.env.E2E_TEST_MODE === 'true';
+    if (isE2E && process.env.NODE_ENV === 'production' && !process.env.CI) {
+      throw new Error('E2E_TEST_MODE must not be enabled in production');
+    }
+
+    let costUsd = 0;
+    const captured = new Map<string, string>();
+    const judge = async (prompt: string): Promise<string> => {
+      if (isE2E) {
+        // Constant canned verdict → deterministic aggregate (forward A + reverse A→flipped B
+        // ⇒ TIE @0.5). The E2E asserts the result card renders, not a specific winner.
+        return 'Stubbed reasoning for E2E.\nYour answer: A';
+      }
+      const opts: CallLLMOptions = {
+        ...(temperature != null ? { temperature } : {}),
+        onUsage: (u) => { costUsd += u.estimatedCostUsd; },
+      };
+      return callLLM(prompt, 'match_viewer_rejudge', ctx.adminUserId, judgeModel, false, null, null, null, false, opts);
+    };
+    const wrapped = async (prompt: string): Promise<string> => {
+      const r = await judge(prompt);
+      captured.set(prompt, r);
+      return r;
+    };
+
+    let agg: ComparisonResult;
+    try {
+      agg = await run2PassReversal<string | null, ComparisonResult>({
+        buildPrompts: () => ({ forward: forwardPrompt, reverse: reversePrompt }),
+        callLLM: wrapped,
+        parseResponse: parser,
+        aggregate: aggregateWinners,
+      });
+    } catch (e) {
+      if (e instanceof GlobalBudgetExceededError || e instanceof LLMKillSwitchError) {
+        throw new Error(`Re-judge unavailable: ${e.message}`);
+      }
+      throw e;
+    }
+
+    const passes: RejudgePass[] = [
+      { direction: 'forward', prompt: forwardPrompt, rawResponse: captured.get(forwardPrompt) ?? '', parsedWinner: norm(parser(captured.get(forwardPrompt) ?? '')) },
+      { direction: 'reverse', prompt: reversePrompt, rawResponse: captured.get(reversePrompt) ?? '', parsedWinner: norm(parser(captured.get(reversePrompt) ?? '')) },
+    ];
+
+    return {
+      winner: agg.winner,
+      confidence: agg.confidence,
+      turns: agg.turns,
+      costUsd,
+      judgeModel,
+      temperature: temperature ?? null,
+      explainReasoning,
+      passes,
+    };
   },
 );
 

@@ -317,8 +317,26 @@ export interface ComparisonResult {
 export type ComparisonMode = 'article' | 'paragraph';
 
 /** Build a prompt asking the LLM to compare two texts.
- *  `mode` defaults to 'article' so every existing caller is byte-for-byte unchanged. */
-export function buildComparisonPrompt(textA: string, textB: string, mode: ComparisonMode = 'article'): string {
+ *  `mode` defaults to 'article' so every existing caller is byte-for-byte unchanged.
+ *
+ *  Match Viewer sandbox extension (match_viewer_with_experimentation_procedures_20260605):
+ *  `customPromptOverride` and `explainReasoning` are optional trailing params used ONLY by
+ *  the admin re-judge sandbox. When either is set, the prompt is built via the sandbox path,
+ *  which still renders `## Text A`<textA> / `## Text B`<textB> in the caller-supplied order
+ *  (so the 2-pass reversal's forward/reverse framing — and flipWinner/aggregateWinners — stay
+ *  valid) and a trailing verdict instruction. The override replaces ONLY the rubric block;
+ *  the texts are never baked into it. When BOTH are omitted (every pipeline caller) the
+ *  original templates below are returned byte-for-byte. */
+export function buildComparisonPrompt(
+  textA: string,
+  textB: string,
+  mode: ComparisonMode = 'article',
+  customPromptOverride?: string,
+  explainReasoning = false,
+): string {
+  if (customPromptOverride !== undefined || explainReasoning) {
+    return buildSandboxComparisonPrompt(textA, textB, mode, customPromptOverride, explainReasoning);
+  }
   if (mode === 'paragraph') {
     // Paragraph-level rubric. Static framing/criteria/instructions come FIRST and the
     // variable texts come LAST so the instruction block is a stable, cacheable prefix
@@ -373,6 +391,70 @@ Respond with ONLY one of these exact answers:
 - "TIE" if they are equally good
 
 Your answer:`;
+}
+
+// ─── Match Viewer re-judge sandbox (display-only) ───────────────────
+// Used only by rejudgeComparisonAction. Default pipeline judging never reaches this path.
+
+const ARTICLE_SANDBOX_RUBRIC =
+  'You are an expert writing evaluator. Compare the two text variations (Text A and Text B) ' +
+  'and decide which is better, considering clarity and readability, structure and flow, ' +
+  'engagement and impact, grammar and style, and overall effectiveness.';
+
+const PARAGRAPH_SANDBOX_RUBRIC =
+  'You are an expert writing evaluator. You will be shown two versions (Text A and Text B) of ' +
+  'the SAME single paragraph. Decide which is the stronger paragraph, considering clarity and ' +
+  'concision, sentence fluency, fidelity to the original meaning, and usefulness of added detail.';
+
+/** Build the sandbox comparison prompt. The rubric block is either the operator's override
+ *  (rubric/instructions only — never the texts) or a preset; the two texts are always rendered
+ *  here in the caller-supplied order so forward/reverse passes swap them. When `explainReasoning`
+ *  is on, the model is asked to explain first and end with a strict `Your answer:` line, which
+ *  the reasoning-tolerant `parseVerdictFromReasoning` scanner then reads. */
+function buildSandboxComparisonPrompt(
+  textA: string,
+  textB: string,
+  mode: ComparisonMode,
+  customPromptOverride: string | undefined,
+  explainReasoning: boolean,
+): string {
+  const override = customPromptOverride?.trim();
+  const rubric = override
+    ? override
+    : mode === 'paragraph'
+      ? PARAGRAPH_SANDBOX_RUBRIC
+      : ARTICLE_SANDBOX_RUBRIC;
+  const verdict = explainReasoning
+    ? 'First, briefly explain your reasoning in 2-4 sentences. Then, on a final separate line, ' +
+      'respond with exactly one of: "Your answer: A", "Your answer: B", or "Your answer: TIE".'
+    : 'Respond with ONLY one of these exact answers: "A" if Text A is better, "B" if Text B is ' +
+      'better, or "TIE" if they are equally good.';
+  return `${rubric}
+
+## Text A
+${textA}
+
+## Text B
+${textB}
+
+## Instructions
+${verdict}
+
+Your answer:`;
+}
+
+/** Reasoning-tolerant verdict parser for the re-judge sandbox. Unlike `parseWinner` (which is
+ *  tuned for a single-token reply and is anchored-to-start / bare-substring for TIE/DRAW/EQUAL),
+ *  this scans for the LAST verdict marker so a response that explains its reasoning first and
+ *  ends with "Your answer: B" parses correctly. Returns null when no marker is present. */
+const VERDICT_MARKER_RE = /(?:your answer|verdict|winner)\s*:?\s*\*{0,2}\s*(A|B|TIE)\b/gi;
+export function parseVerdictFromReasoning(response: string): 'A' | 'B' | 'TIE' | null {
+  let last: 'A' | 'B' | 'TIE' | null = null;
+  for (const m of response.matchAll(VERDICT_MARKER_RE)) {
+    const v = m[1]!.toUpperCase();
+    if (v === 'A' || v === 'B' || v === 'TIE') last = v;
+  }
+  return last;
 }
 
 /** Parse an LLM response into a winner label (A, B, TIE) or null if unparseable.
