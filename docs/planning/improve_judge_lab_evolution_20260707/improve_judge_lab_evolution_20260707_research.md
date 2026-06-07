@@ -8,7 +8,7 @@ a model-communication error that occurs when selecting `deepseek-v4-flash` or
 `google/gemini-2.5-flash-lite` as the judge model, and (2) add the ability to edit a test set and view
 its contents from the test-sets menu.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1174)
 - Trying to use deepseek-v4-flash or google/gemini-2.5-flash-lite results in an error 'error communication with AI model'.
 - Want to add the ability to edit test sets and view their contents, from the test sets menu
 
