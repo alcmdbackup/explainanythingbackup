@@ -594,6 +594,7 @@ on if not called out explicitly.
 
 ## Cross-References
 
+- [Judge Evaluation (Judge Lab)](../../docs/feature_deep_dives/judge_evaluation.md) -- the systematic judge-evaluation tool reuses this comparison primitive (buildComparisonPrompt / 2-pass reversal / aggregateWinners) display-only to measure decisiveness across judge settings.
 - [Architecture](./architecture.md) -- pipeline structure and the generate-rank-evolve loop
 - [Agents](./agents/overview.md) -- how generated variants enter the ranking pool
 - [Data Model](./data_model.md) -- persistence of ratings, matches, and match counts

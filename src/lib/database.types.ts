@@ -13,6 +13,237 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      judge_eval_pair_banks: {
+        Row: {
+          id: string
+          name: string
+          description: string | null
+          source_topic_id: string | null
+          pairs: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          description?: string | null
+          source_topic_id?: string | null
+          pairs?: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          description?: string | null
+          source_topic_id?: string | null
+          pairs?: Json
+          created_at?: string
+        }
+        Relationships: []
+      }
+      judge_eval_test_sets: {
+        Row: {
+          id: string
+          pair_bank_id: string
+          name: string
+          description: string | null
+          strategy: string
+          seed: number
+          size_article: number
+          size_paragraph: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          pair_bank_id: string
+          name: string
+          description?: string | null
+          strategy: string
+          seed?: number
+          size_article?: number
+          size_paragraph?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          pair_bank_id?: string
+          name?: string
+          description?: string | null
+          strategy?: string
+          seed?: number
+          size_article?: number
+          size_paragraph?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "judge_eval_test_sets_pair_bank_id_fkey"
+            columns: ["pair_bank_id"]
+            isOneToOne: false
+            referencedRelation: "judge_eval_pair_banks"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      judge_eval_test_set_members: {
+        Row: {
+          test_set_id: string
+          pair_label: string
+          pair_kind: string
+        }
+        Insert: {
+          test_set_id: string
+          pair_label: string
+          pair_kind: string
+        }
+        Update: {
+          test_set_id?: string
+          pair_label?: string
+          pair_kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "judge_eval_test_set_members_test_set_id_fkey"
+            columns: ["test_set_id"]
+            isOneToOne: false
+            referencedRelation: "judge_eval_test_sets"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      judge_eval_runs: {
+        Row: {
+          id: string
+          test_set_id: string
+          judge_model: string
+          temperature: number
+          reasoning_effort: string | null
+          kind_filter: string
+          prompt_variant: string | null
+          prompt_variant_hash: string
+          repeats: number
+          settings_key: string
+          notes: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          test_set_id: string
+          judge_model: string
+          temperature?: number
+          reasoning_effort?: string | null
+          kind_filter?: string
+          prompt_variant?: string | null
+          prompt_variant_hash: string
+          repeats?: number
+          settings_key: string
+          notes?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          test_set_id?: string
+          judge_model?: string
+          temperature?: number
+          reasoning_effort?: string | null
+          kind_filter?: string
+          prompt_variant?: string | null
+          prompt_variant_hash?: string
+          repeats?: number
+          settings_key?: string
+          notes?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "judge_eval_runs_test_set_id_fkey"
+            columns: ["test_set_id"]
+            isOneToOne: false
+            referencedRelation: "judge_eval_test_sets"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      judge_eval_calls: {
+        Row: {
+          id: string
+          eval_run_id: string
+          pair_label: string
+          pair_kind: string
+          comparison_mode: string
+          repeat_index: number
+          forward_winner: string | null
+          reverse_winner: string | null
+          winner: string
+          confidence: number
+          decisive: boolean
+          wall_ms: number | null
+          fwd_ms: number | null
+          rev_ms: number | null
+          prompt_tokens: number | null
+          output_tokens: number | null
+          reasoning_tokens: number | null
+          cost_usd: number | null
+          forward_raw: string | null
+          reverse_raw: string | null
+          error: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          eval_run_id: string
+          pair_label: string
+          pair_kind: string
+          comparison_mode: string
+          repeat_index: number
+          forward_winner?: string | null
+          reverse_winner?: string | null
+          winner: string
+          confidence: number
+          wall_ms?: number | null
+          fwd_ms?: number | null
+          rev_ms?: number | null
+          prompt_tokens?: number | null
+          output_tokens?: number | null
+          reasoning_tokens?: number | null
+          cost_usd?: number | null
+          forward_raw?: string | null
+          reverse_raw?: string | null
+          error?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          eval_run_id?: string
+          pair_label?: string
+          pair_kind?: string
+          comparison_mode?: string
+          repeat_index?: number
+          forward_winner?: string | null
+          reverse_winner?: string | null
+          winner?: string
+          confidence?: number
+          wall_ms?: number | null
+          fwd_ms?: number | null
+          rev_ms?: number | null
+          prompt_tokens?: number | null
+          output_tokens?: number | null
+          reasoning_tokens?: number | null
+          cost_usd?: number | null
+          forward_raw?: string | null
+          reverse_raw?: string | null
+          error?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "judge_eval_calls_eval_run_id_fkey"
+            columns: ["eval_run_id"]
+            isOneToOne: false
+            referencedRelation: "judge_eval_runs"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       _backup_agent_metrics_pre_elo_fix: {
         Row: {
           id: string | null
@@ -1621,6 +1852,28 @@ export type Database = {
       }
     }
     Views: {
+      judge_eval_settings_leaderboard: {
+        Row: {
+          test_set_id: string | null
+          eval_run_id: string | null
+          judge_model: string | null
+          temperature: number | null
+          reasoning_effort: string | null
+          kind_filter: string | null
+          prompt_variant_hash: string | null
+          repeats: number | null
+          pair_kind: string | null
+          n_calls: number | null
+          decisive_rate: number | null
+          avg_confidence: number | null
+          med_wall_ms: number | null
+          avg_output_tokens: number | null
+          avg_reasoning_tokens: number | null
+          total_cost_usd: number | null
+          cost_per_decisive_usd: number | null
+        }
+        Relationships: []
+      }
       daily_llm_costs: {
         Row: {
           date: string | null

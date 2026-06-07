@@ -416,3 +416,5 @@ Set openskill beta to 0 (or near-zero) in our ranking code. This correctly model
 | `evolution/scripts/judge-agreement-test.ts` | Empirical judge agreement test — 4 models × 4 temperatures × 10 comparisons × 2 variant pairs |
 | `evolution/scripts/beta-analysis.ts` | Compute implied beta from observed judge agreement rates |
 | `evolution/scripts/beta-sigma-impact.ts` | Simulate comparisons-to-converge at different beta values using real osRate() |
+
+> **Now a repeatable tool:** this research's methodology (agreement %, decisive rate, implied beta over fixed pairs × settings) is generalized into the Judge Lab tool — see [Judge Evaluation deep dive](../feature_deep_dives/judge_evaluation.md) and `evolution/scripts/judge-eval.ts`.

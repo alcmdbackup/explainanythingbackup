@@ -62,7 +62,8 @@ type EvolutionEntityType =
   | 'comparison'
   | 'explanation'
   | 'metric'
-  | 'tactic';
+  | 'tactic'
+  | 'judge_eval_pair_bank';
 
 /**
  * Registers an evolution entity ID for cleanup.
@@ -485,6 +486,8 @@ export async function createTestTactic(options?: CreateTestTacticOptions): Promi
 
 /** FK-safe deletion order for evolution tables */
 const FK_SAFE_DELETION_ORDER: { type: EvolutionEntityType; table: string }[] = [
+  // judge_eval: deleting the pair-bank cascades test_sets→members and runs→calls.
+  { type: 'judge_eval_pair_bank', table: 'judge_eval_pair_banks' },
   { type: 'comparison', table: 'evolution_arena_comparisons' },
   { type: 'invocation', table: 'evolution_agent_invocations' },
   { type: 'log', table: 'evolution_logs' },

@@ -323,6 +323,17 @@ tables). Loader singleton lives in `evolution/src/lib/pipeline/infra/costCalibra
 
 ---
 
+### Judge-evaluation tables (`20260606000001`)
+
+Five tables backing the Judge Lab tool (`docs/feature_deep_dives/judge_evaluation.md`), separate
+from `evolution_arena_comparisons` (which is the in-run match log and drops judge settings + raw
+passes): `judge_eval_pair_banks` (full candidate pairs from a topic, `pairs` JSONB),
+`judge_eval_test_sets` (frozen sample def), `judge_eval_test_set_members` (frozen membership,
+PK `(test_set_id, pair_label)`), `judge_eval_runs` (one per settings tuple, UNIQUE `settings_key`),
+`judge_eval_calls` (per-(run × pair × repeat) verdict; `decisive` GENERATED `(confidence > 0.6)`).
+Plus VIEW `judge_eval_settings_leaderboard` (best settings by decisive rate, scoped to a test set,
+split by `pair_kind`; RLS-locked to `service_role`). All tables: deny-all + `service_role_all` RLS.
+
 ## Entity Relationships
 
 For a visual diagram, see [`entities.md`](./entities.md) and [`entity_diagram.png`](./entity_diagram.png).

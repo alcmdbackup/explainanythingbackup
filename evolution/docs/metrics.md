@@ -436,6 +436,7 @@ A shared tab component that reads all metrics for an entity and displays them in
 
 ## Related Documentation
 
+- [Judge Evaluation (Judge Lab)](../../docs/feature_deep_dives/judge_evaluation.md) — judge-eval reuses the live `decisive_rate` definition (`confidence > 0.6`, `finalization.ts`) and adds per-(settings × pair-kind) metrics (agreement, position-bias, implied-beta) in its own `judge_eval_*` tables, separate from the EAV `evolution_metrics`.
 - [Strategies & Experiments](./strategies_and_experiments.md) — how metrics feed into strategy comparison and bootstrap CIs
 - [Data Model](./data_model.md) — full database schema
 - [Entities](./entities.md) — entity relationships and the metrics table's polymorphic design
