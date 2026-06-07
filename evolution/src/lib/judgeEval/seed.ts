@@ -153,10 +153,23 @@ export interface SeedResult {
 /** Pull all article + paragraph pairs from an arena topic into a (upserted) pair-bank. */
 export async function seedPairBankFromTopic(
   db: Db,
-  opts: { topicId: string; bankName: string; includeArticles?: boolean; includeParagraphs?: boolean },
+  opts: {
+    topicId: string;
+    bankName: string;
+    includeArticles?: boolean;
+    includeParagraphs?: boolean;
+    /** Per-kind caps on stored pairs. The whole bank's texts live inline in one JSONB row,
+     *  so an unbounded seed (FR2 has ~7k article pairs × ~12KB) overflows the PostgREST
+     *  upsert payload. Default-cap so the row stays well within limits; test sets sample
+     *  from the bank anyway, so a few hundred representative pairs per kind is plenty. */
+    maxArticle?: number;
+    maxParagraph?: number;
+  },
 ): Promise<SeedResult> {
   const includeArticles = opts.includeArticles ?? true;
   const includeParagraphs = opts.includeParagraphs ?? true;
+  const maxArticle = opts.maxArticle ?? 400;
+  const maxParagraph = opts.maxParagraph ?? 1500;
 
   const articleRaw = includeArticles ? await fetchArticleComparisons(db, opts.topicId) : [];
   let paragraphRaw: RawComparison[] = [];
@@ -183,8 +196,11 @@ export async function seedPairBankFromTopic(
   }
   const variants = await fetchVariantInfo(db, [...allVariantIds]);
 
-  const articlePairs = buildPairs(articleDedup, 'article', variants, 'art');
-  const paragraphPairs = buildPairs(paragraphDedup, 'paragraph', variants, 'para');
+  const allArticlePairs = buildPairs(articleDedup, 'article', variants, 'art');
+  const allParagraphPairs = buildPairs(paragraphDedup, 'paragraph', variants, 'para');
+  // Cap per kind to keep the inline-text JSONB within the upsert payload ceiling.
+  const articlePairs = maxArticle > 0 ? allArticlePairs.slice(0, maxArticle) : allArticlePairs;
+  const paragraphPairs = maxParagraph > 0 ? allParagraphPairs.slice(0, maxParagraph) : allParagraphPairs;
   const skipped =
     articleDedup.size + paragraphDedup.size - articlePairs.length - paragraphPairs.length;
 

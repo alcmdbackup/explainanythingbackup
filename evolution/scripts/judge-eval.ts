@@ -56,8 +56,14 @@ async function main(): Promise<void> {
   if (cmd === 'seed') {
     const topic = flag(args, 'topic') ?? FEDERAL_RESERVE_2_TOPIC;
     const bank = flag(args, 'bank') ?? 'Federal Reserve 2';
-    const r = await seedPairBankFromTopic(db, { topicId: topic, bankName: bank });
-    console.log(`Seeded bank "${bank}" (${r.bankId}): ${r.articlePairs} article + ${r.paragraphPairs} paragraph pairs (${r.skipped} skipped, deleted variants).`);
+    const r = await seedPairBankFromTopic(db, {
+      topicId: topic,
+      bankName: bank,
+      // 0 = uncapped (risks overflowing the single-row JSONB upsert on large topics).
+      maxArticle: num(flag(args, 'max-article'), 400),
+      maxParagraph: num(flag(args, 'max-paragraph'), 1500),
+    });
+    console.log(`Seeded bank "${bank}" (${r.bankId}): ${r.articlePairs} article + ${r.paragraphPairs} paragraph pairs (${r.skipped} skipped: deleted variants or per-kind cap).`);
     return;
   }
 
