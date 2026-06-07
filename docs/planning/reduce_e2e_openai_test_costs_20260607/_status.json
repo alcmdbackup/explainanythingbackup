@@ -1,0 +1,15 @@
+{
+  "branch": "fix/reduce_e2e_openai_test_costs_20260607",
+  "created_at": "2026-06-07T22:02:41Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/docs_overall/llm_provider_limits.md",
+    "docs/docs_overall/environments.md",
+    "docs/docs_overall/testing_overview.md",
+    "docs/feature_deep_dives/search_generation_pipeline.md",
+    "docs/feature_deep_dives/realtime_streaming.md",
+    "docs/feature_deep_dives/request_tracing_observability.md",
+    "docs/feature_deep_dives/judge_evaluation.md",
+    "docs/feature_deep_dives/metrics_analytics.md"
+  ]
+}
