@@ -88,4 +88,45 @@ describe('generateSeedArticle', () => {
     expect(result.title).toBe('Test Title');
     expect(result.content).toContain('Test content');
   });
+
+  describe('E2E_TEST_MODE seed mock', () => {
+    const origEnv = process.env.E2E_TEST_MODE;
+    const origNodeEnv = process.env.NODE_ENV;
+    const origCI = process.env.CI;
+
+    afterEach(() => {
+      process.env.E2E_TEST_MODE = origEnv;
+      process.env.NODE_ENV = origNodeEnv;
+      process.env.CI = origCI;
+    });
+
+    it('returns a deterministic [TEST_EVO] article and makes ZERO LLM calls when E2E_TEST_MODE=true', async () => {
+      process.env.E2E_TEST_MODE = 'true';
+      // llm throws if called — proves the mock short-circuits before any LLM call.
+      const llm = { complete: jest.fn<Promise<string>, [prompt: string, label: string]>(async () => { throw new Error('LLM must not be called in E2E mode'); }) };
+      const result = await generateSeedArticle('quantum computing', llm);
+      expect(llm.complete).not.toHaveBeenCalled();
+      expect(result.title).toContain('[TEST_EVO]');
+      expect(result.title).toContain('quantum computing');
+      expect(result.content).toContain('# [TEST_EVO]');
+    });
+
+    it('THROWS in a real production runtime (NODE_ENV=production, not CI) so the mock can never run in prod', async () => {
+      process.env.E2E_TEST_MODE = 'true';
+      process.env.NODE_ENV = 'production';
+      delete process.env.CI;
+      const llm = makeMockLlm();
+      await expect(generateSeedArticle('topic', llm)).rejects.toThrow(/cannot be enabled in production/);
+    });
+
+    it('still mocks (does not throw) under production+CI (trusted CI runner)', async () => {
+      process.env.E2E_TEST_MODE = 'true';
+      process.env.NODE_ENV = 'production';
+      process.env.CI = 'true';
+      const llm = { complete: jest.fn<Promise<string>, [prompt: string, label: string]>(async () => { throw new Error('LLM must not be called'); }) };
+      const result = await generateSeedArticle('topic', llm);
+      expect(result.title).toContain('[TEST_EVO]');
+      expect(llm.complete).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -84,12 +84,42 @@ function unwrapText(r: RawProviderResponse): string {
   return typeof r === 'string' ? r : r.text;
 }
 
+/**
+ * Build a deterministic, format-valid seed article for E2E test runs. Returns the same
+ * `SeedResult` shape as the real path, `[TEST_EVO]`-prefixed so existing prefix-based
+ * cleanup collects it. No LLM call.
+ */
+function buildMockSeedArticle(promptText: string): SeedResult {
+  const title = `[TEST_EVO] ${promptText.slice(0, 80)}`.trim();
+  const content = `# ${title}
+
+## Overview
+
+This is a **deterministic** seed article generated for end-to-end testing. It exists so the evolution pipeline can run without spending real LLM tokens on seed generation.
+
+## Details
+
+The content is intentionally simple but **format-valid**: it uses section headers and complete paragraphs of two or more sentences. This keeps downstream format validation satisfied during tests.`;
+  return { title, content };
+}
+
 export async function generateSeedArticle(
   promptText: string,
   llm: { complete(prompt: string, label: AgentName, opts?: { model?: string }): Promise<RawProviderResponse> },
   logger?: EntityLogger,
   model?: string,
 ): Promise<SeedResult> {
+  // E2E test mode: short-circuit before any LLM call so PR-CI evolution specs don't burn
+  // real OpenAI quota on seed generation. Hard-guarded against a real production runtime
+  // (mirrors returnExplanation/route.ts:17-19) — the mock must never run in prod; CI is trusted.
+  if (process.env.E2E_TEST_MODE === 'true') {
+    if (process.env.NODE_ENV === 'production' && !process.env.CI) {
+      throw new Error('E2E_TEST_MODE seed mock cannot be enabled in production');
+    }
+    logger?.info('Seed article: returning deterministic E2E mock (no LLM call)', { phaseName: 'seed_setup' });
+    return buildMockSeedArticle(promptText);
+  }
+
   const opts = model ? { model } : undefined;
   logger?.debug('Starting seed title generation', { phaseName: 'seed_setup', model });
   let title = await withTimeout(

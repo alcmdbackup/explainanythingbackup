@@ -74,6 +74,21 @@ describe('modelRegistry', () => {
       const deserialized = JSON.parse(serialized);
       expect(deserialized.model).toBe('google/gemini-2.5-flash-lite');
     });
+
+    it('google/gemini-2.5-flash (nightly real-AI smoke model) resolves to OpenRouter with finite pricing', () => {
+      // Routing
+      expect(isOpenRouterModel('google/gemini-2.5-flash')).toBe(true);
+      expect(getOpenRouterApiModelId('google/gemini-2.5-flash')).toBe('google/gemini-2.5-flash');
+      // Membership in the allowed-models list (drives callLLM validation + TEST_LLM_MODEL override)
+      expect(getEvolutionModelIds()).toContain('google/gemini-2.5-flash');
+      // Finite pricing so calculateLLMCost never produces NaN/undefined
+      const info = getModelInfo('google/gemini-2.5-flash');
+      expect(Number.isFinite(info.inputPer1M)).toBe(true);
+      expect(Number.isFinite(info.outputPer1M)).toBe(true);
+      // Invariant: a non-reasoning model must not declare a default reasoning effort
+      expect(info.supportsReasoning).toBe(false);
+      expect(info.defaultReasoningEffort).toBeUndefined();
+    });
   });
 
   describe('getModelInfo', () => {

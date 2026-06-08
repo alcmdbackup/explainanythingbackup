@@ -41,7 +41,7 @@ jest.mock('./llmSpendingGate', () => ({
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
-import { callLLM, callLLMModel, callOpenAIModel, isAnthropicModel, isLocalModel, isOpenRouterModel, DEFAULT_MODEL, LIGHTER_MODEL, saveLlmCallTracking, __resetTrackingFailureCount, __getTrackingFailureCount, type LLMUsageMetadata } from './llms';
+import { callLLM, callLLMModel, callOpenAIModel, isAnthropicModel, isLocalModel, isOpenRouterModel, DEFAULT_MODEL, LIGHTER_MODEL, saveLlmCallTracking, applyTestLlmModelOverride, __resetTrackingFailureCount, __getTrackingFailureCount, type LLMUsageMetadata } from './llms';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 
@@ -1638,5 +1638,48 @@ describe('llms', () => {
         expect.objectContaining({ message: 'permission denied for table llmCallTracking' }),
       );
     });
+  });
+});
+
+describe('applyTestLlmModelOverride (TEST_LLM_MODEL)', () => {
+  const orig = process.env.TEST_LLM_MODEL;
+  const origNodeEnv = process.env.NODE_ENV;
+  const origCI = process.env.CI;
+
+  afterEach(() => {
+    process.env.TEST_LLM_MODEL = orig;
+    process.env.NODE_ENV = origNodeEnv;
+    process.env.CI = origCI;
+  });
+
+  it('returns the requested model unchanged when TEST_LLM_MODEL is unset', () => {
+    delete process.env.TEST_LLM_MODEL;
+    expect(applyTestLlmModelOverride(DEFAULT_MODEL)).toBe(DEFAULT_MODEL);
+  });
+
+  it('substitutes the override when TEST_LLM_MODEL is a valid model id', () => {
+    process.env.TEST_LLM_MODEL = 'google/gemini-2.5-flash';
+    process.env.NODE_ENV = 'test';
+    expect(applyTestLlmModelOverride(DEFAULT_MODEL)).toBe('google/gemini-2.5-flash');
+  });
+
+  it('is IGNORED in a real production runtime (NODE_ENV=production, not CI)', () => {
+    process.env.TEST_LLM_MODEL = 'google/gemini-2.5-flash';
+    process.env.NODE_ENV = 'production';
+    delete process.env.CI;
+    expect(applyTestLlmModelOverride(DEFAULT_MODEL)).toBe(DEFAULT_MODEL);
+  });
+
+  it('is honored under production+CI (trusted CI runner)', () => {
+    process.env.TEST_LLM_MODEL = 'google/gemini-2.5-flash';
+    process.env.NODE_ENV = 'production';
+    process.env.CI = 'true';
+    expect(applyTestLlmModelOverride(DEFAULT_MODEL)).toBe('google/gemini-2.5-flash');
+  });
+
+  it('throws (fails loudly) when TEST_LLM_MODEL is not an allowed model id', () => {
+    process.env.TEST_LLM_MODEL = 'not-a-real-model';
+    process.env.NODE_ENV = 'test';
+    expect(() => applyTestLlmModelOverride(DEFAULT_MODEL)).toThrow();
   });
 });
