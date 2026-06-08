@@ -14,6 +14,8 @@ import {
   loadPairBankByName,
   loadTestSetByName,
   getOrCreateTestSet,
+  loadTestSetContents,
+  getTestSetPairTexts,
 } from '@evolution/lib/judgeEval/persist';
 import { executeSweep, type SweepOutcome } from '@evolution/lib/judgeEval/executeSweep';
 import { seedPairBankFromTopic } from '@evolution/lib/judgeEval/seed';
@@ -53,6 +55,36 @@ export const getJudgeModelOptionsAction = adminAction('getJudgeModelOptions', as
   void ctx; // admin gate is applied by adminAction; no DB access needed here.
   return getDeployableEvolutionModelIds();
 });
+
+const testSetContentsSchema = z.object({
+  testSetId: z.string().uuid(),
+  kind: kindFilterSchema.default('both'),
+});
+
+/** View a frozen test set's contents: metadata + member pairs (Elo, no snapshot texts) + an
+ *  orphan count (members no longer resolvable against a re-seeded bank). Read-only, no LLM cost. */
+export const getTestSetContentsAction = adminAction(
+  'getTestSetContents',
+  async (input: z.input<typeof testSetContentsSchema>, ctx: AdminContext) => {
+    const parsed = testSetContentsSchema.parse(input);
+    return loadTestSetContents(db(ctx), parsed.testSetId, parsed.kind);
+  },
+);
+
+const pairTextsSchema = z.object({
+  testSetId: z.string().uuid(),
+  pairLabel: z.string().min(1),
+});
+
+/** Lazy per-pair snapshot-text fetch for the contents detail page (kept out of the list to avoid
+ *  shipping a large set's full texts up front). */
+export const getTestSetPairTextsAction = adminAction(
+  'getTestSetPairTexts',
+  async (input: z.input<typeof pairTextsSchema>, ctx: AdminContext) => {
+    const parsed = pairTextsSchema.parse(input);
+    return getTestSetPairTexts(db(ctx), parsed.testSetId, parsed.pairLabel);
+  },
+);
 
 const seedSchema = z.object({
   topicId: z.string().uuid(),

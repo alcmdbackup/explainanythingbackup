@@ -16,6 +16,7 @@ import {
 } from './schemas';
 import { selectTestSetMembers, assertMembersExist } from './testSet';
 import { buildPromptVariantHash, buildSettingsKey } from './settings';
+import { dbToRating, toDisplayElo } from '../shared/computeRatings';
 
 type Db = SupabaseClient<Database>;
 
@@ -172,6 +173,105 @@ export async function loadTestSetPairs(
   );
   const pairs = allPairs.filter((p) => wanted.has(p.label));
   return { testSet: ts as JudgeEvalTestSet, pairs };
+}
+
+/** One member pair for the contents view. Ratings are surfaced as display **Elo** (+ uncertainty),
+ *  NOT the raw OpenSkill mu/sigma stored on the pair — the rest of the admin UI speaks Elo. */
+export interface TestSetContentPair {
+  label: string;
+  pair_kind: JudgeEvalPair['pair_kind'];
+  variant_a_id: string;
+  variant_b_id: string;
+  elo_a: number | null;
+  elo_b: number | null;
+  uncertainty_a: number | null;
+  uncertainty_b: number | null;
+  /** |elo_a - elo_b| — the Elo-gap ground-truth signal; null when either side lacks a rating. */
+  elo_gap: number | null;
+  expected_winner: JudgeEvalPair['expected_winner'];
+  gap_kind: JudgeEvalPair['gap_kind'];
+  baseline_confidence: JudgeEvalPair['baseline_confidence'];
+}
+
+export interface TestSetContents {
+  testSet: JudgeEvalTestSet;
+  /** Member pairs WITHOUT the snapshot texts (see getTestSetPairTexts for lazy per-pair fetch). */
+  pairs: TestSetContentPair[];
+  /** Frozen members for the kind filter. */
+  memberCount: number;
+  /** Members that still resolve against the (possibly re-seeded) bank. */
+  resolvedCount: number;
+  /** memberCount - resolvedCount: frozen members whose label is no longer in the bank. */
+  orphanCount: number;
+}
+
+/**
+ * Load a test set's metadata + member pairs for the contents view, WITHOUT the snapshot texts
+ * (a large set's texts can be megabytes; the detail page fetches them per-row via
+ * getTestSetPairTexts). Also returns member-vs-resolved counts so the UI can warn when the bank
+ * was re-seeded and some frozen members no longer resolve — loadTestSetPairs silently drops those.
+ */
+export async function loadTestSetContents(
+  db: Db,
+  testSetId: string,
+  kindFilter: JudgeKindFilter,
+): Promise<TestSetContents> {
+  const { testSet, pairs: full } = await loadTestSetPairs(db, testSetId, kindFilter);
+
+  let memberQ = db
+    .from('judge_eval_test_set_members')
+    .select('pair_label', { count: 'exact', head: true })
+    .eq('test_set_id', testSetId);
+  if (kindFilter !== 'both') memberQ = memberQ.eq('pair_kind', kindFilter);
+  const { count, error } = await memberQ;
+  if (error) throw error;
+  const memberCount = count ?? 0;
+
+  // Stored mu/sigma are OpenSkill-scale; project to display Elo so the UI never shows raw mu.
+  // mu/sigma are nullable on a pair — render Elo only when both are present.
+  const toElo = (mu: number | null, sigma: number | null): { elo: number; uncertainty: number } | null => {
+    if (mu == null || sigma == null) return null;
+    const r = dbToRating(mu, sigma);
+    return { elo: Math.round(toDisplayElo(r.elo)), uncertainty: Math.round(r.uncertainty) };
+  };
+  const pairs: TestSetContentPair[] = full.map((p) => {
+    const a = toElo(p.mu_a, p.sigma_a);
+    const b = toElo(p.mu_b, p.sigma_b);
+    return {
+      label: p.label,
+      pair_kind: p.pair_kind,
+      variant_a_id: p.variant_a_id,
+      variant_b_id: p.variant_b_id,
+      elo_a: a?.elo ?? null,
+      elo_b: b?.elo ?? null,
+      uncertainty_a: a?.uncertainty ?? null,
+      uncertainty_b: b?.uncertainty ?? null,
+      elo_gap: a && b ? Math.abs(a.elo - b.elo) : null,
+      expected_winner: p.expected_winner,
+      gap_kind: p.gap_kind,
+      baseline_confidence: p.baseline_confidence,
+    };
+  });
+
+  return {
+    testSet,
+    pairs,
+    memberCount,
+    resolvedCount: pairs.length,
+    orphanCount: Math.max(0, memberCount - pairs.length),
+  };
+}
+
+/** Fetch the two snapshot texts for one member pair (lazy row-expand on the contents page). */
+export async function getTestSetPairTexts(
+  db: Db,
+  testSetId: string,
+  pairLabel: string,
+): Promise<{ text_a: string; text_b: string }> {
+  const { pairs } = await loadTestSetPairs(db, testSetId, 'both');
+  const pair = pairs.find((p) => p.label === pairLabel);
+  if (!pair) throw new Error(`Pair not found in test set: ${pairLabel}`);
+  return { text_a: pair.text_a, text_b: pair.text_b };
 }
 
 export interface UpsertRunInput {
