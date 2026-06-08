@@ -14,6 +14,7 @@ import {
 } from '../shared/computeRatings';
 import { callLLM, type CallLLMOptions, type LLMUsageMetadata } from '@/lib/services/llms';
 import { GlobalBudgetExceededError, LLMKillSwitchError } from '@/lib/errors/serviceError';
+import { isTransientError } from '../shared/classifyErrors';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import type {
@@ -26,6 +27,9 @@ import type {
 
 export const JUDGE_EVAL_SYSTEM_USERID = '00000000-0000-4000-8000-000000000001';
 export const DEFAULT_JUDGE_EVAL_CONCURRENCY = 8;
+/** Bounded retry for transient judge-call failures (the provider clients use maxRetries:0). */
+export const MAX_JUDGE_RETRIES = 3;
+const DEFAULT_RETRY_BASE_DELAY_MS = 500;
 
 /** Result of one judge LLM call (one pass). */
 export interface JudgeCallOutput {
@@ -180,7 +184,20 @@ export async function runJudgeEval(
       out.push(...rows);
     }
   }
-  await Promise.all(Array.from({ length: Math.min(limit, pairs.length) }, () => worker()));
+  try {
+    await Promise.all(Array.from({ length: Math.min(limit, pairs.length) }, () => worker()));
+  } catch (e) {
+    // On failure, attach everything completed so far (other pairs in `out`) plus the failing
+    // pair's rows (carried on the thrown error by evaluatePair) so the caller can persist a
+    // real errored run instead of leaving a 0-call orphan. See executeSweep.
+    const pairPartial =
+      e && typeof e === 'object' && 'partialResults' in e && Array.isArray((e as { partialResults: unknown }).partialResults)
+        ? ((e as { partialResults: JudgeEvalCallResult[] }).partialResults)
+        : [];
+    throw Object.assign(e instanceof Error ? e : new Error(String(e)), {
+      partialResults: [...out, ...pairPartial],
+    });
+  }
   return out;
 }
 
@@ -194,42 +211,57 @@ export function createCallLLMJudge(params: {
   reasoningEffort?: JudgeReasoningEffort;
   userId?: string;
   trackingDb?: SupabaseClient<Database>;
+  /** Base backoff in ms (delay = base * 2^attempt). 0 disables sleeping (tests). */
+  retryBaseDelayMs?: number;
 }): JudgeFn {
   const isE2E = process.env.E2E_TEST_MODE === 'true';
   if (isE2E && process.env.NODE_ENV === 'production' && !process.env.CI) {
     throw new Error('E2E_TEST_MODE must not be enabled in production');
   }
   const userId = params.userId ?? JUDGE_EVAL_SYSTEM_USERID;
+  const baseDelayMs = params.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS;
 
   return async (prompt: string): Promise<JudgeCallOutput> => {
     if (isE2E) {
       return { text: 'Stubbed reasoning for E2E.\nYour answer: A', costUsd: 0, promptTokens: 0, outputTokens: 0, reasoningTokens: 0 };
     }
-    let costUsd = 0;
-    let promptTokens = 0;
-    let outputTokens = 0;
-    let reasoningTokens = 0;
-    const opts: CallLLMOptions = {
-      ...(params.temperature != null ? { temperature: params.temperature } : {}),
-      ...(params.reasoningEffort != null ? { reasoningEffort: params.reasoningEffort } : {}),
-      ...(params.trackingDb != null ? { trackingDb: params.trackingDb } : {}),
-      onUsage: (u: LLMUsageMetadata) => {
-        costUsd += u.estimatedCostUsd;
-        promptTokens += u.promptTokens;
-        outputTokens += u.completionTokens;
-        reasoningTokens += u.reasoningTokens;
-      },
-    };
-    let text: string;
-    try {
-      // call_source 'evolution_judge_eval' → inherits the shared LLM semaphore + global gate.
-      text = await callLLM(prompt, 'evolution_judge_eval', userId, params.judgeModel, false, null, null, null, false, opts);
-    } catch (e) {
-      if (e instanceof GlobalBudgetExceededError || e instanceof LLMKillSwitchError) {
-        throw new Error(`Judge eval unavailable: ${e.message}`);
+    // The provider clients are built with maxRetries:0, so a single transient 429/5xx/timeout
+    // would otherwise abort the whole sweep cell. Retry transient failures with bounded backoff.
+    // Each retry re-enters callLLM and so re-checks the global spending gate. Budget/kill-switch
+    // errors are NOT retried. Accumulators are scoped per-attempt so a failed attempt can't
+    // double-count cost/tokens.
+    for (let attempt = 0; ; attempt++) {
+      let costUsd = 0;
+      let promptTokens = 0;
+      let outputTokens = 0;
+      let reasoningTokens = 0;
+      const opts: CallLLMOptions = {
+        ...(params.temperature != null ? { temperature: params.temperature } : {}),
+        ...(params.reasoningEffort != null ? { reasoningEffort: params.reasoningEffort } : {}),
+        ...(params.trackingDb != null ? { trackingDb: params.trackingDb } : {}),
+        onUsage: (u: LLMUsageMetadata) => {
+          costUsd += u.estimatedCostUsd;
+          promptTokens += u.promptTokens;
+          outputTokens += u.completionTokens;
+          reasoningTokens += u.reasoningTokens;
+        },
+      };
+      try {
+        // call_source 'evolution_judge_eval' → inherits the shared LLM semaphore + global gate.
+        const text = await callLLM(prompt, 'evolution_judge_eval', userId, params.judgeModel, false, null, null, null, false, opts);
+        return { text, costUsd, promptTokens, outputTokens, reasoningTokens };
+      } catch (e) {
+        if (e instanceof GlobalBudgetExceededError || e instanceof LLMKillSwitchError) {
+          throw new Error(`Judge eval unavailable: ${e.message}`);
+        }
+        if (attempt < MAX_JUDGE_RETRIES && isTransientError(e)) {
+          if (baseDelayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, baseDelayMs * 2 ** attempt));
+          }
+          continue;
+        }
+        throw e;
       }
-      throw e;
     }
-    return { text, costUsd, promptTokens, outputTokens, reasoningTokens };
   };
 }

@@ -269,6 +269,20 @@ export function getEvolutionModelIds(): string[] {
   return Object.keys(MODEL_REGISTRY).filter(k => MODEL_REGISTRY[k]!.supportsEvolution);
 }
 
+/**
+ * Evolution model IDs minus those that can't run in the current deployment. `provider: 'local'`
+ * models route to `LOCAL_LLM_BASE_URL` (Ollama), which is absent on Vercel — offering them in a
+ * picker just yields a generic connection error. Excludes local models unless that env var is set.
+ * MUST be called server-side: `LOCAL_LLM_BASE_URL` is not a NEXT_PUBLIC var, so on the client it is
+ * always undefined (which would unconditionally drop local models).
+ */
+export function getDeployableEvolutionModelIds(): string[] {
+  const localAvailable = !!process.env.LOCAL_LLM_BASE_URL;
+  return getEvolutionModelIds().filter(
+    k => localAvailable || MODEL_REGISTRY[k]!.provider !== 'local',
+  );
+}
+
 /** Get model options for UI dropdowns: { label: displayName, value: id }. */
 export function getModelOptions(): Array<{ label: string; value: string }> {
   return getEvolutionModelIds().map(id => ({

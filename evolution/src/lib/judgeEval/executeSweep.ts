@@ -5,7 +5,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
-import type { JudgeEvalPair, JudgeKindFilter, JudgeReasoningEffort } from './schemas';
+import type { JudgeEvalPair, JudgeEvalCallResult, JudgeKindFilter, JudgeReasoningEffort } from './schemas';
 import { loadTestSetPairs, upsertRun, replaceCalls } from './persist';
 import { runJudgeEval, createCallLLMJudge } from './runJudgeEval';
 import { estimateSweepCost } from './cost';
@@ -107,19 +107,31 @@ export async function executeSweep(
           trackingDb: opts.trackingDb,
         });
 
-        const results = await runJudgeEval(
-          pairs as JudgeEvalPair[],
-          {
-            judgeModel: model,
-            temperature,
-            reasoningEffort: reasoningEffort ?? undefined,
-            customPromptOverride: grid.promptVariant,
-            explainReasoning: grid.explainReasoning,
-          },
-          grid.repeats,
-          judge,
-          opts.concurrency,
-        );
+        let results: JudgeEvalCallResult[];
+        try {
+          results = await runJudgeEval(
+            pairs as JudgeEvalPair[],
+            {
+              judgeModel: model,
+              temperature,
+              reasoningEffort: reasoningEffort ?? undefined,
+              customPromptOverride: grid.promptVariant,
+              explainReasoning: grid.explainReasoning,
+            },
+            grid.repeats,
+            judge,
+            opts.concurrency,
+          );
+        } catch (e) {
+          // Persist whatever completed (incl. the errored repeat) so a failed cell becomes a
+          // real errored run rather than a 0-call orphan, then re-throw to surface the failure.
+          const partial =
+            e && typeof e === 'object' && 'partialResults' in e && Array.isArray((e as { partialResults: unknown }).partialResults)
+              ? (e as { partialResults: JudgeEvalCallResult[] }).partialResults
+              : [];
+          if (partial.length > 0) await replaceCalls(db, runId, partial);
+          throw e;
+        }
         await replaceCalls(db, runId, results);
 
         cells.push({

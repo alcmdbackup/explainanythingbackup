@@ -2,8 +2,20 @@
 // computeRatings.comparison.test.ts injects a jest.fn callLLM) — NOT createV2MockLlm, since
 // the engine drives the 2-pass directly over the injected fn, not via EvolutionLLMClient.
 
-import { evaluatePair, runJudgeEval, createCallLLMJudge, type JudgeFn, type JudgeCallOutput } from './runJudgeEval';
+import {
+  evaluatePair,
+  runJudgeEval,
+  createCallLLMJudge,
+  MAX_JUDGE_RETRIES,
+  type JudgeFn,
+  type JudgeCallOutput,
+} from './runJudgeEval';
 import type { JudgeEvalPair } from './schemas';
+import { callLLM } from '@/lib/services/llms';
+
+// Mock only the LLM transport so the retry loop's real isTransientError classifier still runs.
+jest.mock('@/lib/services/llms', () => ({ callLLM: jest.fn() }));
+const mockCallLLM = callLLM as jest.MockedFunction<typeof callLLM>;
 
 function pair(overrides: Partial<JudgeEvalPair> = {}): JudgeEvalPair {
   return {
@@ -131,5 +143,44 @@ describe('createCallLLMJudge (E2E stub)', () => {
     expect(() => createCallLLMJudge({ judgeModel: 'qwen-2.5-7b-instruct' })).toThrow(
       /must not be enabled in production/,
     );
+  });
+});
+
+describe('createCallLLMJudge (retry)', () => {
+  const ORIGINAL = { ...process.env };
+  beforeEach(() => mockCallLLM.mockReset());
+  afterEach(() => {
+    process.env = { ...ORIGINAL };
+  });
+
+  // Build a judge that actually reaches callLLM (E2E stub disabled) with zero backoff delay.
+  function judgeOutsideE2E(): JudgeFn {
+    const env = process.env as Record<string, string | undefined>;
+    delete env.E2E_TEST_MODE;
+    delete env.NODE_ENV;
+    return createCallLLMJudge({ judgeModel: 'deepseek-v4-flash', retryBaseDelayMs: 0 });
+  }
+  const PROMPT = '## Text A\nx\n## Text B\ny\nYour answer:';
+
+  it('retries a transient failure then succeeds', async () => {
+    mockCallLLM
+      .mockRejectedValueOnce(new Error('503 service unavailable'))
+      .mockRejectedValueOnce(new Error('rate limit exceeded'))
+      .mockResolvedValueOnce('Your answer: A');
+    const out = await judgeOutsideE2E()(PROMPT);
+    expect(out.text).toBe('Your answer: A');
+    expect(mockCallLLM).toHaveBeenCalledTimes(3);
+  });
+
+  it('does NOT retry a non-transient failure', async () => {
+    mockCallLLM.mockRejectedValue(new Error('invalid judgeModel: nonsense'));
+    await expect(judgeOutsideE2E()(PROMPT)).rejects.toThrow(/invalid judgeModel/);
+    expect(mockCallLLM).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up after MAX_JUDGE_RETRIES transient failures', async () => {
+    mockCallLLM.mockRejectedValue(new Error('gateway timeout 504'));
+    await expect(judgeOutsideE2E()(PROMPT)).rejects.toThrow(/504/);
+    expect(mockCallLLM).toHaveBeenCalledTimes(MAX_JUDGE_RETRIES + 1);
   });
 });

@@ -9,7 +9,7 @@ import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { adminAction, type AdminContext } from './adminAction';
 import type { Database } from '@/lib/database.types';
-import { getEvolutionModelIds } from '@/config/modelRegistry';
+import { getEvolutionModelIds, getDeployableEvolutionModelIds } from '@/config/modelRegistry';
 import {
   loadPairBankByName,
   loadTestSetByName,
@@ -45,6 +45,13 @@ export const listTestSetsAction = adminAction('listTestSets', async (ctx: AdminC
     .order('created_at', { ascending: false });
   if (error) throw error;
   return data ?? [];
+});
+
+/** Judge-model ids for the picker, curated server-side: excludes provider:'local' models when
+ *  LOCAL_LLM_BASE_URL is unset (they'd just yield a connection error on Vercel). */
+export const getJudgeModelOptionsAction = adminAction('getJudgeModelOptions', async (ctx: AdminContext) => {
+  void ctx; // admin gate is applied by adminAction; no DB access needed here.
+  return getDeployableEvolutionModelIds();
 });
 
 const seedSchema = z.object({
@@ -161,7 +168,27 @@ export const getEvalLeaderboardAction = adminAction(
     if (parsed.kind !== 'both') q = q.eq('pair_kind', parsed.kind);
     const { data, error } = await q;
     if (error) throw error;
-    return data ?? [];
+    const rows = data ?? [];
+
+    // The leaderboard view exposes only prompt_variant_hash; enrich each row with the actual
+    // custom-prompt text (judge_eval_runs.prompt_variant) so the UI can show whether a custom
+    // prompt was used and what it was. Batch-fetch by eval_run_id (avoids N+1).
+    const runIds = Array.from(
+      new Set(rows.map((r) => r.eval_run_id).filter((id): id is string => !!id)),
+    );
+    const promptByRun = new Map<string, string | null>();
+    if (runIds.length > 0) {
+      const { data: runs, error: runsErr } = await db(ctx)
+        .from('judge_eval_runs')
+        .select('id, prompt_variant')
+        .in('id', runIds);
+      if (runsErr) throw runsErr;
+      for (const run of runs ?? []) promptByRun.set(run.id, run.prompt_variant ?? null);
+    }
+    return rows.map((r) => {
+      const promptVariant = r.eval_run_id ? promptByRun.get(r.eval_run_id) ?? null : null;
+      return { ...r, prompt_variant: promptVariant, used_custom_prompt: !!promptVariant };
+    });
   },
 );
 

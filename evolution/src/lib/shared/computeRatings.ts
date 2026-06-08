@@ -3,6 +3,7 @@
 
 import { rating as osRating, rate as osRate } from 'openskill';
 import { createHash } from 'crypto';
+import { ARTICLE_SANDBOX_RUBRIC, PARAGRAPH_SANDBOX_RUBRIC } from './judgeRubrics';
 
 // ═══════════════════════════════════════════════════════════════════
 // Rating (OpenSkill / Weng-Lin Bayesian — internal adapter)
@@ -395,16 +396,8 @@ Your answer:`;
 
 // ─── Match Viewer re-judge sandbox (display-only) ───────────────────
 // Used only by rejudgeComparisonAction. Default pipeline judging never reaches this path.
-
-const ARTICLE_SANDBOX_RUBRIC =
-  'You are an expert writing evaluator. Compare the two text variations (Text A and Text B) ' +
-  'and decide which is better, considering clarity and readability, structure and flow, ' +
-  'engagement and impact, grammar and style, and overall effectiveness.';
-
-const PARAGRAPH_SANDBOX_RUBRIC =
-  'You are an expert writing evaluator. You will be shown two versions (Text A and Text B) of ' +
-  'the SAME single paragraph. Decide which is the stronger paragraph, considering clarity and ' +
-  'concision, sentence fluency, fidelity to the original meaning, and usefulness of added detail.';
+// The rubric blocks live in ./judgeRubrics so the client-side Judge Lab page can import them
+// without pulling this module's Node-only deps (crypto/openskill) into the browser bundle.
 
 /** Build the sandbox comparison prompt. The rubric block is either the operator's override
  *  (rubric/instructions only — never the texts) or a preset; the two texts are always rendered

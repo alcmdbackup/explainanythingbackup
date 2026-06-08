@@ -6,6 +6,7 @@ import {
   getModelInfo,
   getModelMaxTemperature,
   getEvolutionModelIds,
+  getDeployableEvolutionModelIds,
   getModelOptions,
   isOpenRouterModel,
   getOpenRouterApiModelId,
@@ -257,6 +258,29 @@ describe('modelRegistry', () => {
     it('routes to openrouter with qwen/qwen-2.5-7b-instruct api model', () => {
       expect(isOpenRouterModel('qwen-2.5-7b-instruct')).toBe(true);
       expect(getOpenRouterApiModelId('qwen-2.5-7b-instruct')).toBe('qwen/qwen-2.5-7b-instruct');
+    });
+  });
+
+  describe('getDeployableEvolutionModelIds', () => {
+    const ORIGINAL = process.env.LOCAL_LLM_BASE_URL;
+    afterEach(() => {
+      if (ORIGINAL === undefined) delete process.env.LOCAL_LLM_BASE_URL;
+      else process.env.LOCAL_LLM_BASE_URL = ORIGINAL;
+    });
+
+    it('excludes provider:local models when LOCAL_LLM_BASE_URL is unset', () => {
+      delete process.env.LOCAL_LLM_BASE_URL;
+      const ids = getDeployableEvolutionModelIds();
+      expect(getEvolutionModelIds()).toContain('LOCAL_qwen2.5:14b'); // present in the raw list
+      expect(ids).not.toContain('LOCAL_qwen2.5:14b'); // but curated out
+      // non-local evolution models still present
+      expect(ids).toContain('deepseek-v4-flash');
+      expect(ids).toContain('google/gemini-2.5-flash-lite');
+    });
+
+    it('includes local models when LOCAL_LLM_BASE_URL is set', () => {
+      process.env.LOCAL_LLM_BASE_URL = 'http://localhost:11434/v1';
+      expect(getDeployableEvolutionModelIds()).toContain('LOCAL_qwen2.5:14b');
     });
   });
 });
