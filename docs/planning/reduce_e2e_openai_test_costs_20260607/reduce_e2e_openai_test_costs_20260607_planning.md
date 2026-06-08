@@ -123,6 +123,10 @@ Critical gaps raised and how they were resolved:
 8. **(Testing) No rollback / spend-check wiring / soft-fail.** → **Resolved:** added a **Rollback Plan** section; spend pre-check is a GH Actions pre-flight step that skips (not reds) the job; cheap-AI job is `continue-on-error`.
 9. **(Testing/Arch) `@prod-ai` tests are net-new, file names unspecified; `environments.md` fix was "may".** → **Resolved:** named the new spec files, marked `environments.md` a MUST-fix, tightened verification commands with the correct `E2E_TEST_MODE` context.
 
+### Iteration 4 — Security 5/5, Architecture 5/5, Testing 5/5 ✅ CONSENSUS REACHED
+All three reviewers verified the iteration-3 clarity fixes against the real code and found **no critical gaps**. Confirmed sound: the port-3010 `prod-ai` webServer/project (precedented by the port-3009 pattern), the `generateSeedArticle` early-return matching the `SeedResult` shape, the `callLLM` + `ctx.config.generationModel` injection seams, the `getOpenRouterApiModelId` empty-model fix (no blast radius), zero-usage mock → `$0`, and the step-output spend-skip wiring (correctly avoiding the `if: failure()`-on-skip trap). The prod guards (`NODE_ENV==='production' && !CI`) and `[TEST]`/`[TEST_EVO]` cleanup keep it prod-safe and data-safe. Plan is execution-ready.
+One non-blocking note (Testing): land the `environments.md:276` factual fix early (Phase 0) so the doc is correct before the behavioral changes merge.
+
 ### Iteration 3 — Security 5/5, Architecture 4/5, Testing 4/5 (re-scoped to plan-quality only)
 Reviewers re-instructed to grade DESIGN soundness, not implementation completeness. Design validated; remaining items were plan-clarity, now resolved:
 1. **`@prod-ai` project-vs-tag ambiguity** → decided: a new Playwright **project** `prod-ai` (`grep:/@prod-ai/`, explicit `retries:2`, chromium device). (Phase 2)
