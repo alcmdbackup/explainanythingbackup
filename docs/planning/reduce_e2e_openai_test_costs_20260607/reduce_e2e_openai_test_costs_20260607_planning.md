@@ -36,10 +36,14 @@ Automated tests burn real OpenAI quota where they don't need to: PR-CI evolution
 - [ ] Result: `admin-evolution-run-pipeline.spec.ts` + `admin-evolution-iterative-editing.spec.ts` complete with no real OpenAI calls on PRs.
 
 ### Phase 2: Deliberate cheap real-AI tier (`@prod-ai` + Gemini Flash 2.5)
+Model decision: **Gemini Flash 2.5** (`google/gemini-2.5-flash` via OpenRouter) — confirmed cheaper than `gpt-4.1-mini` for this workload (the registry/estimate pricing used during research was stale; trust the live provider pricing). Cost is the goal here, not prod-model fidelity, so the cheap model is intentional.
 - [ ] Add an env-driven model override (e.g. `TEST_LLM_MODEL`) honored only in the real-AI test tier; when set, the generation + seed call sites use it instead of `DEFAULT_MODEL`. Default unset (prod behavior unchanged).
 - [ ] Tag ~1–3 tests `@prod-ai` (reuse existing tag): one real search→generate, one real evolution seed run. Ensure mock-dependent specs keep `@skip-prod`.
+- [ ] **The single real generation test must exercise the FULL pipeline** — title gen → content gen → tag eval → heading-standalone-title gen → link extraction → summary — so every real LLM call site gets at least one real exercise per night (a prompt/contract regression in any ancillary call is otherwise invisible until prod). Assert that each stage produced non-empty, schema-valid output (title present, content present, ≥1 tag, headings/links resolved without error).
 - [ ] Update `.github/workflows/e2e-nightly.yml`: run the `@prod-ai` tier **chromium-only** with `TEST_LLM_MODEL=google/gemini-2.5-flash`; run the remaining `@critical`/`@evolution` coverage under `E2E_TEST_MODE=true` (mocked, both browsers OK since cost ≈ 0).
 - [ ] Confirm `[TEST]`/`[TEST_EVO]` prefixes + teardown still apply so real-AI-generated content is cleaned up.
+
+> **Known accepted trade-off:** the `@prod-ai` tier runs on Gemini Flash 2.5, not the prod model (`gpt-4.1-mini`). This smoke verifies "the pipeline works end-to-end with a real LLM," NOT prod-provider/model fidelity. An OpenAI-specific contract change to `gpt-4.1-mini` would not be caught by this tier — accepted because routine real spend stays minimal and the mocked tier + post-deploy smoke cover the prod path. Detection latency for real-integration regressions is up to ~24h (next nightly), surfaced via the existing `[release-health]` auto-issue + Slack alert.
 
 ### Phase 3: Observability + spend guard
 - [ ] Fix `src/lib/services/llms.ts`: when the response/stream omits `model`, fall back to `requestOptions.model` (the requested model) instead of `''`. Kills the `model=''` bucket and fixes cost attribution.
@@ -63,7 +67,7 @@ Automated tests burn real OpenAI quota where they don't need to: PR-CI evolution
 
 ### E2E Tests
 - [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-run-pipeline.spec.ts` — passes under PR-CI with the seed mock (no real OpenAI), both chromium + firefox.
-- [ ] A `@prod-ai`-tagged real-AI spec (one search→generate, one evolution seed) — runs nightly chromium-only on Gemini Flash 2.5 and produces cleaned-up `[TEST]` content.
+- [ ] A `@prod-ai`-tagged real-AI spec (one search→generate, one evolution seed) — runs nightly chromium-only on Gemini Flash 2.5 and produces cleaned-up `[TEST]` content. The generation spec asserts FULL-pipeline output: non-empty title, non-empty content, ≥1 assigned tag, and headings/links resolved without error (proves every real call site executed).
 
 ### Manual Verification
 - [ ] After a nightly dry-run (manual `workflow_dispatch`), query `llmCallTracking` and confirm: only `@prod-ai` rows carry real cost, all on `google/gemini-2.5-flash`; no new `model=''` rows.
