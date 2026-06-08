@@ -1,5 +1,8 @@
 -- Drop the redundant/drift UNIQUE constraint on evolution_strategies.config_hash.
 -- Project: further_investigate_paragraph_recombine_performance_20260531 (GH #1154), Task A / D5.
+-- (Renamed from 20260531000001 → 20260606000002 so the timestamp sorts after the judge-eval
+--  migration 20260606000001 that landed on main during rebase; CI check-migration-order
+--  requires strictly-increasing timestamps vs origin/main.)
 --
 -- WHY: the live staging DB carries TWO unique constraints on config_hash:
 --   1. uq_strategies_config_hash  — the canonical one, defined in
