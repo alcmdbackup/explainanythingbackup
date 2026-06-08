@@ -18,6 +18,16 @@ import {
 type Kind = 'article' | 'paragraph' | 'both';
 const TEMPERATURE_CHOICES = [0, 0.3, 0.7, 1.0];
 
+// Render an untyped ErrorResponse.details for a toast description. `details` is a raw
+// string for LLM/timeout errors and an object for DB errors; truncate long strings so
+// the toast stays readable.
+function formatErrorDetail(details: unknown): string | undefined {
+  if (details == null) return undefined;
+  const text = typeof details === 'string' ? details : JSON.stringify(details);
+  if (!text) return undefined;
+  return text.length > 500 ? `${text.slice(0, 500)}…` : text;
+}
+
 interface TestSetOption {
   id: string;
   name: string;
@@ -127,7 +137,12 @@ export default function JudgeLabPage(): JSX.Element {
     });
     setLaunching(false);
     if (!res.success) {
-      toast.error(res.error?.message ?? 'Sweep failed');
+      // Surface the underlying provider error (res.error.details) — not just the
+      // generic message — so judge-model failures are diagnosable. `details` is
+      // untyped (a raw string for LLM/timeout errors, an object for DB errors),
+      // so render it generically.
+      const detail = formatErrorDetail(res.error?.details);
+      toast.error(res.error?.message ?? 'Sweep failed', detail ? { description: detail } : undefined);
       return;
     }
     const o = res.data!;

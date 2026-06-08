@@ -137,7 +137,9 @@ export const createEvalRunAction = adminAction(
         explainReasoning: parsed.explainReasoning,
         repeats: parsed.repeats,
       },
-      { dryRun: parsed.dryRun, userId: ctx.adminUserId },
+      // trackingDb makes each judge call write an llmCallTracking row (matches the CLI);
+      // without it, even successful Judge Lab sweeps leave no per-call cost/audit trail.
+      { dryRun: parsed.dryRun, userId: ctx.adminUserId, trackingDb: db(ctx) },
     );
   },
 );
