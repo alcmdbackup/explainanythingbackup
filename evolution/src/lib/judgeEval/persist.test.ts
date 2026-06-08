@@ -2,7 +2,12 @@
 // orphan counting) and getTestSetPairTexts (lazy per-pair text fetch). A hand-rolled chainable/
 // awaitable db mock serves the table-specific queries these run (mirrors criteriaActions.test.ts).
 
-import { loadTestSetContents, getTestSetPairTexts } from './persist';
+import {
+  loadTestSetContents,
+  getTestSetPairTexts,
+  updateTestSetMetadata,
+  cloneTestSet,
+} from './persist';
 import type { JudgeEvalPair } from './schemas';
 
 const VA = '00000000-0000-4000-8000-0000000000a1';
@@ -167,5 +172,83 @@ describe('getTestSetPairTexts', () => {
       members: [{ pair_label: 'art#1', pair_kind: 'article' }],
     });
     await expect(getTestSetPairTexts(db, 'ts-1', 'missing')).rejects.toThrow(/Pair not found/);
+  });
+});
+
+describe('updateTestSetMetadata', () => {
+  function updateDb(result: { data: unknown; error: unknown }): never {
+    const b: Record<string, unknown> = {};
+    b.update = () => b;
+    b.eq = () => b;
+    b.select = () => b;
+    b.single = () => Promise.resolve(result);
+    return { from: () => b } as never;
+  }
+
+  it('updates name/description and returns the row', async () => {
+    const updated = { id: 'ts-1', name: 'renamed', description: 'd' };
+    const out = await updateTestSetMetadata(updateDb({ data: updated, error: null }), {
+      testSetId: 'ts-1',
+      name: 'renamed',
+      description: 'd',
+    });
+    expect(out).toEqual(updated);
+  });
+
+  it('maps a 23505 unique-name violation to a friendly error', async () => {
+    const db = updateDb({ data: null, error: { code: '23505', message: 'duplicate key' } });
+    await expect(
+      updateTestSetMetadata(db, { testSetId: 'ts-1', name: 'taken' }),
+    ).rejects.toThrow(/already exists/);
+  });
+});
+
+describe('cloneTestSet', () => {
+  // Differentiates single() (source-by-id + the insert) from maybeSingle() (get-or-create name check).
+  function cloneDb(cfg: { source: Record<string, unknown>; bank: Record<string, unknown>; existingByName: unknown }): never {
+    function builder(table: string) {
+      const eqs: Record<string, unknown> = {};
+      const b: Record<string, unknown> = {
+        select: () => b,
+        eq: (c: string, v: unknown) => {
+          eqs[c] = v;
+          return b;
+        },
+        insert: () => b,
+        single: () =>
+          Promise.resolve(
+            table === 'judge_eval_test_sets'
+              ? { data: cfg.source, error: null }
+              : table === 'judge_eval_pair_banks'
+                ? { data: cfg.bank, error: null }
+                : { data: null, error: null },
+          ),
+        maybeSingle: () =>
+          Promise.resolve(
+            table === 'judge_eval_test_sets' && 'name' in eqs
+              ? { data: cfg.existingByName, error: null }
+              : { data: null, error: null },
+          ),
+        then: (f: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(f),
+      };
+      return b;
+    }
+    return { from: builder } as never;
+  }
+
+  const bank = { id: 'bank-1', name: 'b', description: null, source_topic_id: null, pairs: [pair('art#1')], created_at: 't' };
+  const source = { id: 'ts-1', pair_bank_id: 'bank-1', name: 'src', description: null, strategy: 'stratified_confidence', seed: 1, size_article: 1, size_paragraph: 0 };
+
+  it('throws on name collision (never mutates/aliases the existing set)', async () => {
+    const db = cloneDb({ source, bank, existingByName: { id: 'other', name: 'taken' } });
+    await expect(
+      cloneTestSet(db, { sourceTestSetId: 'ts-1', newName: 'taken' }),
+    ).rejects.toThrow(/already exists/);
+  });
+
+  it('creates a NEW frozen set when the name is free', async () => {
+    const db = cloneDb({ source, bank, existingByName: null });
+    const out = await cloneTestSet(db, { sourceTestSetId: 'ts-1', newName: 'fresh' });
+    expect(out.created).toBe(true);
   });
 });

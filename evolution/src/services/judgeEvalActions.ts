@@ -16,6 +16,8 @@ import {
   getOrCreateTestSet,
   loadTestSetContents,
   getTestSetPairTexts,
+  updateTestSetMetadata,
+  cloneTestSet,
 } from '@evolution/lib/judgeEval/persist';
 import { executeSweep, type SweepOutcome } from '@evolution/lib/judgeEval/executeSweep';
 import { seedPairBankFromTopic } from '@evolution/lib/judgeEval/seed';
@@ -83,6 +85,42 @@ export const getTestSetPairTextsAction = adminAction(
   async (input: z.input<typeof pairTextsSchema>, ctx: AdminContext) => {
     const parsed = pairTextsSchema.parse(input);
     return getTestSetPairTexts(db(ctx), parsed.testSetId, parsed.pairLabel);
+  },
+);
+
+const updateMetaSchema = z.object({
+  testSetId: z.string().uuid(),
+  name: z.string().min(1).max(120).optional(),
+  description: z.string().max(2000).nullable().optional(),
+});
+
+/** Edit test-set METADATA only (name/description). Membership-determining fields (strategy/seed/
+ *  size) are intentionally not accepted — use cloneTestSetAction for a membership change. */
+export const updateTestSetMetaAction = adminAction(
+  'updateTestSetMeta',
+  async (input: z.input<typeof updateMetaSchema>, ctx: AdminContext) => {
+    const parsed = updateMetaSchema.parse(input);
+    return updateTestSetMetadata(db(ctx), parsed);
+  },
+);
+
+const cloneSchema = z.object({
+  sourceTestSetId: z.string().uuid(),
+  newName: z.string().min(1).max(120),
+  sizeArticle: z.number().int().min(0).max(100000).optional(),
+  sizeParagraph: z.number().int().min(0).max(100000).optional(),
+  strategy: testSetStrategySchema.optional(),
+  seed: z.number().int().optional(),
+  description: z.string().max(2000).nullable().optional(),
+});
+
+/** Clone a test set into a NEW frozen set (the only safe membership-change path). Re-samples the
+ *  source's CURRENT bank; preserves the source + its eval runs. Errors on name collision. */
+export const cloneTestSetAction = adminAction(
+  'cloneTestSet',
+  async (input: z.input<typeof cloneSchema>, ctx: AdminContext) => {
+    const parsed = cloneSchema.parse(input);
+    return cloneTestSet(db(ctx), parsed);
   },
 );
 

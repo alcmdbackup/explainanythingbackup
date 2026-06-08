@@ -274,6 +274,115 @@ export async function getTestSetPairTexts(
   return { text_a: pair.text_a, text_b: pair.text_b };
 }
 
+/**
+ * Edit a test set's METADATA only (name/description). Membership is frozen — strategy/seed/size
+ * are intentionally not editable (they determine membership; an in-place change would silently
+ * corrupt comparability for existing runs sharing the same settings_key). Maps a unique-name
+ * violation (23505) to a friendly error since `name` is the createEvalRun/CLI lookup key.
+ */
+export async function updateTestSetMetadata(
+  db: Db,
+  input: { testSetId: string; name?: string; description?: string | null },
+): Promise<JudgeEvalTestSet> {
+  const patch: Record<string, unknown> = {};
+  if (input.name !== undefined) patch.name = input.name;
+  if (input.description !== undefined) patch.description = input.description;
+  if (Object.keys(patch).length === 0) {
+    const { data, error } = await db
+      .from('judge_eval_test_sets')
+      .select('*')
+      .eq('id', input.testSetId)
+      .single();
+    if (error) throw error;
+    return data as JudgeEvalTestSet;
+  }
+  const { data, error } = await db
+    .from('judge_eval_test_sets')
+    .update(patch)
+    .eq('id', input.testSetId)
+    .select('*')
+    .single();
+  if (error) {
+    if ((error as { code?: string }).code === '23505') {
+      throw new Error(
+        `A test set named "${input.name}" already exists — names must be unique. ` +
+          `(Renaming may also break saved CLI --test-set scripts.)`,
+      );
+    }
+    throw error;
+  }
+  return data as JudgeEvalTestSet;
+}
+
+export interface CloneTestSetInput {
+  sourceTestSetId: string;
+  newName: string;
+  sizeArticle?: number;
+  sizeParagraph?: number;
+  strategy?: CreateTestSetInput['strategy'];
+  seed?: number;
+  manualLabels?: string[];
+  description?: string | null;
+}
+
+/**
+ * Clone a test set into a NEW frozen set — the only safe way to change membership/strategy/seed/
+ * size. Re-samples the source's CURRENT pair-bank with the given (or inherited) params, yielding a
+ * new id → new settings_keys, so the source's existing eval runs stay comparable. Throws on name
+ * collision (never mutates an existing set), including the TOCTOU 23505 race.
+ */
+export async function cloneTestSet(
+  db: Db,
+  input: CloneTestSetInput,
+): Promise<{ testSet: JudgeEvalTestSet; created: boolean }> {
+  const { data: src, error: srcErr } = await db
+    .from('judge_eval_test_sets')
+    .select('*')
+    .eq('id', input.sourceTestSetId)
+    .single();
+  if (srcErr) throw srcErr;
+  const source = src as JudgeEvalTestSet;
+
+  const { data: bankRow, error: bErr } = await db
+    .from('judge_eval_pair_banks')
+    .select('*')
+    .eq('id', source.pair_bank_id)
+    .single();
+  if (bErr) throw bErr;
+  const bank: JudgeEvalPairBank = {
+    id: bankRow.id,
+    name: bankRow.name,
+    description: bankRow.description,
+    source_topic_id: bankRow.source_topic_id,
+    pairs: parsePairs(bankRow.pairs),
+    created_at: bankRow.created_at,
+  };
+
+  let result: { testSet: JudgeEvalTestSet; created: boolean };
+  try {
+    result = await getOrCreateTestSet(db, bank, {
+      name: input.newName,
+      description: input.description ?? null,
+      strategy: input.strategy ?? (source.strategy as CreateTestSetInput['strategy']),
+      seed: input.seed ?? source.seed,
+      sizeArticle: input.sizeArticle ?? source.size_article,
+      sizeParagraph: input.sizeParagraph ?? source.size_paragraph,
+      manualLabels: input.manualLabels,
+    });
+  } catch (e) {
+    // TOCTOU: another clone with the same name inserted between get-or-create's check and insert.
+    if ((e as { code?: string }).code === '23505') {
+      throw new Error(`A test set named "${input.newName}" already exists — choose a different name.`);
+    }
+    throw e;
+  }
+  if (!result.created) {
+    // Name already existed: get-or-create returned it UNCHANGED. Clone must never alias/mutate it.
+    throw new Error(`A test set named "${input.newName}" already exists — choose a different name.`);
+  }
+  return result;
+}
+
 export interface UpsertRunInput {
   testSetId: string;
   judgeModel: string;
