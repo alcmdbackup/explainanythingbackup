@@ -228,7 +228,7 @@ Tests use Playwright's `{ tag: '@tagname' }` parameter (not inline in test name 
 |-----|---------|-----------|
 | `@critical` | Core user flows, must-not-break tests (~18 tests) | PRs to `main` (fast feedback, target < 3 min) |
 | `@smoke` | Health checks against live production | Post-deploy smoke tests |
-| `@prod-ai` | Tests requiring real AI (no E2E_TEST_MODE mock) | Nightly only |
+| `@prod-ai` | Tests requiring real AI (no E2E_TEST_MODE mock). The `prod-ai` Playwright project runs these against a **local build on port 3010** (gated by `RUN_PROD_AI=1`) with `E2E_TEST_MODE` unset and `TEST_LLM_MODEL=google/gemini-2.5-flash` (cheap model), via `.github/workflows/e2e-real-ai-smoke.yml`. The single real generation spec (`*.prod-ai.spec.ts`) asserts the full pipeline (title + content + tags). | Nightly (cheap-model smoke); also `workflow_dispatch` |
 | `@skip-prod` | Tests that require mocked APIs and cannot run against production (e.g., AI suggestion tests that mock browser-level routes unavailable in production) | Excluded from nightly and post-deploy via `--grep-invert` CLI flag and `grepInvert` config |
 
 **Syntax**: Always use the parameter form, never embed tags in test name strings:
