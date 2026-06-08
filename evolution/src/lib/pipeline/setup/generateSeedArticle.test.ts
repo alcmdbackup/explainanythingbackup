@@ -94,9 +94,14 @@ describe('generateSeedArticle', () => {
     const origNodeEnv = process.env.NODE_ENV;
     const origCI = process.env.CI;
 
+    // process.env.NODE_ENV is typed read-only by @types/node; cast for test mutation.
+    const setNodeEnv = (v: string | undefined) => {
+      (process.env as Record<string, string | undefined>).NODE_ENV = v;
+    };
+
     afterEach(() => {
       process.env.E2E_TEST_MODE = origEnv;
-      process.env.NODE_ENV = origNodeEnv;
+      setNodeEnv(origNodeEnv);
       process.env.CI = origCI;
     });
 
@@ -113,7 +118,7 @@ describe('generateSeedArticle', () => {
 
     it('THROWS in a real production runtime (NODE_ENV=production, not CI) so the mock can never run in prod', async () => {
       process.env.E2E_TEST_MODE = 'true';
-      process.env.NODE_ENV = 'production';
+      setNodeEnv('production');
       delete process.env.CI;
       const llm = makeMockLlm();
       await expect(generateSeedArticle('topic', llm)).rejects.toThrow(/cannot be enabled in production/);
@@ -121,7 +126,7 @@ describe('generateSeedArticle', () => {
 
     it('still mocks (does not throw) under production+CI (trusted CI runner)', async () => {
       process.env.E2E_TEST_MODE = 'true';
-      process.env.NODE_ENV = 'production';
+      setNodeEnv('production');
       process.env.CI = 'true';
       const llm = { complete: jest.fn<Promise<string>, [prompt: string, label: string]>(async () => { throw new Error('LLM must not be called'); }) };
       const result = await generateSeedArticle('topic', llm);

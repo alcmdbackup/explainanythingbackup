@@ -1646,9 +1646,14 @@ describe('applyTestLlmModelOverride (TEST_LLM_MODEL)', () => {
   const origNodeEnv = process.env.NODE_ENV;
   const origCI = process.env.CI;
 
+  // process.env.NODE_ENV is typed read-only by @types/node; cast for test mutation.
+  const setNodeEnv = (v: string | undefined) => {
+    (process.env as Record<string, string | undefined>).NODE_ENV = v;
+  };
+
   afterEach(() => {
     process.env.TEST_LLM_MODEL = orig;
-    process.env.NODE_ENV = origNodeEnv;
+    setNodeEnv(origNodeEnv);
     process.env.CI = origCI;
   });
 
@@ -1659,27 +1664,27 @@ describe('applyTestLlmModelOverride (TEST_LLM_MODEL)', () => {
 
   it('substitutes the override when TEST_LLM_MODEL is a valid model id', () => {
     process.env.TEST_LLM_MODEL = 'google/gemini-2.5-flash';
-    process.env.NODE_ENV = 'test';
+    setNodeEnv('test');
     expect(applyTestLlmModelOverride(DEFAULT_MODEL)).toBe('google/gemini-2.5-flash');
   });
 
   it('is IGNORED in a real production runtime (NODE_ENV=production, not CI)', () => {
     process.env.TEST_LLM_MODEL = 'google/gemini-2.5-flash';
-    process.env.NODE_ENV = 'production';
+    setNodeEnv('production');
     delete process.env.CI;
     expect(applyTestLlmModelOverride(DEFAULT_MODEL)).toBe(DEFAULT_MODEL);
   });
 
   it('is honored under production+CI (trusted CI runner)', () => {
     process.env.TEST_LLM_MODEL = 'google/gemini-2.5-flash';
-    process.env.NODE_ENV = 'production';
+    setNodeEnv('production');
     process.env.CI = 'true';
     expect(applyTestLlmModelOverride(DEFAULT_MODEL)).toBe('google/gemini-2.5-flash');
   });
 
   it('throws (fails loudly) when TEST_LLM_MODEL is not an allowed model id', () => {
     process.env.TEST_LLM_MODEL = 'not-a-real-model';
-    process.env.NODE_ENV = 'test';
+    setNodeEnv('test');
     expect(() => applyTestLlmModelOverride(DEFAULT_MODEL)).toThrow();
   });
 });

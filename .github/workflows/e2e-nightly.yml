@@ -23,7 +23,12 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        browser: [chromium, firefox]
+        # Chromium-only against deployed prod (reduce_e2e_openai_test_costs_20260607): the
+        # deployed app can't be model-overridden, so this real-AI sweep runs on the prod model
+        # for fidelity — firefox dropped to halve real spend. The cheap-model real-AI smoke runs
+        # separately on a local build in e2e-real-ai-smoke.yml. Per-deploy prod validation is
+        # additionally covered by post-deploy-smoke.yml.
+        browser: [chromium]
         site:
           - name: public
             base_url: https://explainanything.vercel.app
