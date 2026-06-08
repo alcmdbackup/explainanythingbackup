@@ -59,18 +59,47 @@ describe('createEvalRunAction', () => {
 });
 
 describe('getEvalLeaderboardAction', () => {
-  it('queries the leaderboard view scoped to the test set and returns rows', async () => {
+  it('enriches rows with the custom prompt used (from judge_eval_runs.prompt_variant)', async () => {
     const rows = [{ eval_run_id: 'r1', judge_model: 'qwen-2.5-7b-instruct', pair_kind: 'article', decisive_rate: 1 }];
+    const runRows = [{ id: 'r1', prompt_variant: 'CUSTOM RUBRIC TEXT' }];
     const mock = createTableAwareMock([
+      // 1st .from(): the leaderboard view (terminal await on the chain)
       (b) => {
-        // terminal await on the query chain resolves to { data, error }
         b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: rows, error: null }));
+      },
+      // 2nd .from(): judge_eval_runs prompt-variant enrichment (.in('id', runIds))
+      (b) => {
+        b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: runRows, error: null }));
       },
     ]);
     mockCreate.mockResolvedValue(mock as never);
     const res = await getEvalLeaderboardAction({ testSetId: TEST_SET, kind: 'article' });
     expect(res.success).toBe(true);
-    if (res.success) expect(res.data).toEqual(rows);
+    if (res.success) {
+      expect(res.data).toEqual([
+        { ...rows[0], prompt_variant: 'CUSTOM RUBRIC TEXT', used_custom_prompt: true },
+      ]);
+    }
     expect(mock.from).toHaveBeenCalledWith('judge_eval_settings_leaderboard');
+    expect(mock.from).toHaveBeenCalledWith('judge_eval_runs');
+  });
+
+  it('marks rows with no custom prompt as built-in (used_custom_prompt=false)', async () => {
+    const rows = [{ eval_run_id: 'r2', judge_model: 'gpt-4.1-nano', pair_kind: 'paragraph', decisive_rate: 0.5 }];
+    const runRows = [{ id: 'r2', prompt_variant: null }];
+    const mock = createTableAwareMock([
+      (b) => {
+        b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: rows, error: null }));
+      },
+      (b) => {
+        b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: runRows, error: null }));
+      },
+    ]);
+    mockCreate.mockResolvedValue(mock as never);
+    const res = await getEvalLeaderboardAction({ testSetId: TEST_SET, kind: 'paragraph' });
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.data).toEqual([{ ...rows[0], prompt_variant: null, used_custom_prompt: false }]);
+    }
   });
 });

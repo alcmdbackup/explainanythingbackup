@@ -62,6 +62,18 @@ a text-only cache). The LLM call is injected (`JudgeFn`) for unit-testability;
 `E2E_TEST_MODE` stub + prod guard. Writes nothing to ratings/arena/metrics. Parser selection:
 `explainReasoning || customPrompt` → `parseVerdictFromReasoning`, else `parseWinner`.
 
+**Reliability (improve_judge_lab_evolution_20260707).** Provider clients are built `maxRetries:0`,
+so `createCallLLMJudge` wraps `callLLM` in a **bounded retry** (`MAX_JUDGE_RETRIES=3`, exponential
+backoff, reusing `isTransientError`); budget/kill-switch errors are never retried, and each retry
+re-enters the global spending gate. On failure the engine attaches **combined `partialResults`** to
+the thrown error and `executeSweep` persists them via `replaceCalls` so a failed cell becomes a real
+errored run (`judge_eval_calls.error` set; excluded from the decisive-rate VIEW which filters
+`error IS NULL`) rather than a 0-call orphan. The server action now passes `trackingDb` so judge
+calls also write `llmCallTracking` rows. Note: the generic UI string "error communicating with AI
+model" was an **error-masking** artifact — `categorizeError` (`src/lib/errorHandling.ts`) matched
+`'api'` before `'timeout'` and the UI dropped `res.error.details`; both are fixed, so the real
+provider error now surfaces in the sweep-failure toast.
+
 ## Cost safety (`settings.ts`)
 
 Judge-eval has **no per-user cap** (only the guest user is capped), so `assertWithinJudgeEvalCap`
@@ -88,10 +100,29 @@ npx tsx evolution/scripts/judge-eval.ts sweep --test-set fr2-smoke \
 
 Under the evolution "Tools" sidebar group:
 - `/admin/evolution/judge-lab` — sweep launcher (test set + kind + models × temps × reasoning +
-  custom prompt) + per-kind decisive-rate leaderboard scoped to the test set.
+  custom prompt) + per-kind decisive-rate leaderboard scoped to the test set. The judge-model
+  dropdown is curated server-side (`getJudgeModelOptionsAction` → `getDeployableEvolutionModelIds`)
+  to drop `provider:'local'` models when `LOCAL_LLM_BASE_URL` is unset. The **custom-prompt** box is
+  pre-filled with the real default paragraph rubric (`PARAGRAPH_SANDBOX_RUBRIC` from
+  `evolution/src/lib/shared/judgeRubrics.ts`) — editable + submittable directly — with a separate,
+  default-off **Explain reasoning** checkbox (decoupled from the textarea). The leaderboard's
+  **Prompt** column shows whether a custom prompt was used and the text (expandable), enriched from
+  `judge_eval_runs.prompt_variant`.
 - `/admin/evolution/judge-lab/runs/[evalRunId]` — per-kind aggregates + per-pair breakdown.
 - `/admin/evolution/judge-lab/pair-banks` — list + seed-from-topic.
-- `/admin/evolution/judge-lab/test-sets` — list + create (size/strategy/seed → frozen).
+- `/admin/evolution/judge-lab/test-sets` — list + create (size/strategy/seed → frozen), plus
+  **View** / **Edit** / **Clone** row actions.
+- `/admin/evolution/judge-lab/test-sets/[testSetId]` — **view contents**: per-pair table showing
+  **display Elo ± uncertainty** (not raw mu) + Elo-gap, with snapshot texts fetched lazily per row,
+  and an orphan warning when frozen members no longer resolve in a re-seeded bank
+  (`getTestSetContentsAction` / `getTestSetPairTextsAction`).
+
+**Editing a frozen set is metadata-only** (`updateTestSetMetaAction`: name/description; `23505`→
+friendly error). Membership/strategy/seed/size are NOT editable in place — they determine the frozen
+membership and `settings_key` embeds `test_set_id`, so an in-place change would silently break
+cross-run comparability. The only safe membership change is **Clone** (`cloneTestSetAction`): it
+re-samples the source's *current* bank into a NEW set (new id → new `settings_key`s), leaving the
+source and its eval runs intact; it errors on name collision (never aliases an existing set).
 
 Interactive single-match re-judge stays in the Match Viewer (`/admin/evolution/matches`).
 
