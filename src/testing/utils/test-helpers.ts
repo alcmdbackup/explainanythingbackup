@@ -53,6 +53,11 @@ export const waitForAsync = async (callback: () => boolean, timeout = 5000) => {
  * Mock response builders
  */
 
+// Zero usage so mocked LLM calls (integration tests run callLLM against the real dev DB with a
+// mocked OpenAI SDK) record estimated_cost_usd = 0 — keeping the cost dashboard free of mock
+// "phantom" spend. Model attribution is handled by callLLM's apiModel fallback, so no `model`
+// field is hardcoded here (that would mis-record the model). Tests asserting a specific non-zero
+// cost use their own inline `usage` objects, not this shared helper.
 export const createMockOpenAIResponse = (content: string) => ({
   choices: [
     {
@@ -65,9 +70,9 @@ export const createMockOpenAIResponse = (content: string) => ({
     },
   ],
   usage: {
-    prompt_tokens: 100,
-    completion_tokens: 200,
-    total_tokens: 300,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
   },
 });
 

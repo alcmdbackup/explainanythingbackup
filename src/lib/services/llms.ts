@@ -526,7 +526,10 @@ async function callOpenAIModel(
                 if (lastChunk) {
                     usage = lastChunk.usage || {};
                     finishReason = lastChunk.choices[0]?.finish_reason || 'unknown';
-                    modelUsed = lastChunk.model || '';
+                    // Fall back to the model actually sent to the provider (apiModel is already
+                    // the OpenRouter-mapped id) instead of '' when the response omits `model`.
+                    // Prevents the model='' tracking bucket that masked real-vs-mock spend.
+                    modelUsed = lastChunk.model || apiModel;
                 }
 
                 response = accumulatedContent;
@@ -541,7 +544,9 @@ async function callOpenAIModel(
 
                 usage = completion.usage || {};
                 finishReason = completion.choices[0]?.finish_reason || 'unknown';
-                modelUsed = completion.model || '';
+                // Fall back to the provider-mapped model (apiModel) when the response omits
+                // `model` — see streaming branch above; kills the model='' tracking bucket.
+                modelUsed = completion.model || apiModel;
                 response = completion.choices[0]?.message?.content || '';
                 rawApiResponse = JSON.stringify(completion);
             }
@@ -827,6 +832,19 @@ async function callAnthropicModel(
     }
 }
 
+/** Test-only model override. When `TEST_LLM_MODEL` is set, force that model for every LLM
+ *  call so the nightly real-AI smoke can run on a cheap model regardless of the caller's
+ *  requested model. Hard-guarded against a real production runtime (mirrors
+ *  `returnExplanation/route.ts:17-19`) so a stray env var can never repoint prod traffic; CI
+ *  is trusted. Validates the override id against `allowedLLMModelSchema` so a typo fails loudly
+ *  instead of silently running the production model. */
+export function applyTestLlmModelOverride(model: AllowedLLMModelType): AllowedLLMModelType {
+    const override = process.env.TEST_LLM_MODEL;
+    if (!override) return model;
+    if (process.env.NODE_ENV === 'production' && !process.env.CI) return model;
+    return allowedLLMModelSchema.parse(override);
+}
+
 async function callLLMModelRaw(
     prompt: string,
     call_source: string,
@@ -839,8 +857,11 @@ async function callLLMModelRaw(
     debug: boolean = true,
     options?: CallLLMOptions,
 ): Promise<string> {
+    // Apply the test-only model override (no-op in prod / when unset) before cost estimation,
+    // routing, and tracking so every downstream step uses the effective model.
+    const effectiveModel = applyTestLlmModelOverride(model);
     const spendingGate = getSpendingGate();
-    const estimatedCost = calculateLLMCost(model, 1000, 4096, 0);
+    const estimatedCost = calculateLLMCost(effectiveModel, 1000, 4096, 0);
 
     // Per-user cap: enforced only for the demo guest user (Phase 4 of
     // fixes_explainanything_for_public_demo_20260523). $10/day prevents any
@@ -860,13 +881,13 @@ async function callLLMModelRaw(
             const semaphore = getLLMSemaphore();
             await semaphore.acquire();
             try {
-                return await routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, options);
+                return await routeLLMCall(prompt, call_source, userid, effectiveModel, streaming, setText, response_obj, response_obj_name, debug, options);
             } finally {
                 semaphore.release();
             }
         }
 
-        return await routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, options);
+        return await routeLLMCall(prompt, call_source, userid, effectiveModel, streaming, setText, response_obj, response_obj_name, debug, options);
     } finally {
         // B083: surface reconcile failures beyond the log so callers can react (e.g., retry
         // the reconcile or proactively invalidate the cache). We still swallow the throw in

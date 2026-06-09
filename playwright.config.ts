@@ -112,7 +112,7 @@ export default defineConfig({
     // Chromium Critical - fast subset for PR CI (~40 tests tagged @critical)
     {
       name: 'chromium-critical',
-      testMatch: /^(?!.*\.unauth\.spec\.ts$)(?!.*guest-auto-login\.spec\.ts$).*\.spec\.ts$/,
+      testMatch: /^(?!.*\.unauth\.spec\.ts$)(?!.*guest-auto-login\.spec\.ts$)(?!.*\.prod-ai\.spec\.ts$).*\.spec\.ts$/,
       testIgnore: /auth\.setup\.ts/,
       grep: /@critical/,
       use: {
@@ -122,7 +122,7 @@ export default defineConfig({
     // Chromium - full test suite for local and main branch (authenticated via per-worker API auth)
     {
       name: 'chromium',
-      testMatch: /^(?!.*\.unauth\.spec\.ts$)(?!.*guest-auto-login\.spec\.ts$).*\.spec\.ts$/,
+      testMatch: /^(?!.*\.unauth\.spec\.ts$)(?!.*guest-auto-login\.spec\.ts$)(?!.*\.prod-ai\.spec\.ts$).*\.spec\.ts$/,
       testIgnore: /auth\.setup\.ts/,
       use: {
         ...devices['Desktop Chrome'],
@@ -157,10 +157,25 @@ export default defineConfig({
     // Firefox - for nightly runs only (authenticated via per-worker API auth)
     {
       name: 'firefox',
-      testMatch: /^(?!.*\.unauth\.spec\.ts$)(?!.*guest-auto-login\.spec\.ts$).*\.spec\.ts$/,
+      testMatch: /^(?!.*\.unauth\.spec\.ts$)(?!.*guest-auto-login\.spec\.ts$)(?!.*\.prod-ai\.spec\.ts$).*\.spec\.ts$/,
       testIgnore: /auth\.setup\.ts/,
       use: {
         ...devices['Desktop Firefox'],
+      },
+    },
+    // prod-ai — the deliberate cheap real-AI smoke (reduce_e2e_openai_test_costs_20260607).
+    // Points at the SECONDARY webServer on port 3010 which runs WITHOUT E2E_TEST_MODE (so the
+    // real returnExplanation pipeline executes) but WITH TEST_LLM_MODEL=google/gemini-2.5-flash
+    // (so it runs on a cheap model). Chromium-only, explicit retries:2 to absorb real-LLM
+    // non-determinism (assertions are structural, not exact-text). Run by e2e-real-ai-smoke.yml.
+    {
+      name: 'prod-ai',
+      testMatch: /\.prod-ai\.spec\.ts$/,
+      grep: /@prod-ai/,
+      retries: 2,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: 'http://localhost:3010',
       },
     },
   ],
@@ -212,6 +227,23 @@ export default defineConfig({
         timeout: process.env.CI ? 180000 : 120000,
         env: {
           NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
+          ...(process.env.NODE_USE_ENV_PROXY ? { NODE_USE_ENV_PROXY: '1' } : {}),
+        },
+      }] : []),
+      // Tertiary 3010 server — the cheap real-AI smoke (reduce_e2e_openai_test_costs_20260607).
+      // Runs WITHOUT E2E_TEST_MODE (real pipeline) but WITH TEST_LLM_MODEL so every LLM call
+      // uses the cheap model. GATED on RUN_PROD_AI=1 so normal CI/local runs don't pay its build.
+      // `env -u E2E_TEST_MODE` strips the inherited var (Playwright `env:` merges, not replaces).
+      ...(process.env.RUN_PROD_AI === '1' ? [{
+        command: process.env.CI
+          ? 'env -u E2E_TEST_MODE bash -c "npm run build && npm start -- -p 3010"'
+          : 'env -u E2E_TEST_MODE npm run dev -- -p 3010',
+        url: 'http://localhost:3010',
+        reuseExistingServer: !process.env.CI,
+        timeout: process.env.CI ? 180000 : 120000,
+        env: {
+          NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
+          TEST_LLM_MODEL: process.env.TEST_LLM_MODEL || 'google/gemini-2.5-flash',
           ...(process.env.NODE_USE_ENV_PROXY ? { NODE_USE_ENV_PROXY: '1' } : {}),
         },
       }] : []),

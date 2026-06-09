@@ -162,6 +162,15 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     openRouterModelId: 'google/gemini-2.5-flash-lite',
     supportsReasoning: false,
   },
+  // Cheap model for the nightly real-AI smoke (TEST_LLM_MODEL tier). Routed via OpenRouter.
+  // VERIFY pricing against the live OpenRouter rate for google/gemini-2.5-flash before relying
+  // on cost dashboards — these are best-known figures and only affect cost attribution, not routing.
+  'google/gemini-2.5-flash': {
+    id: 'google/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', provider: 'openrouter',
+    inputPer1M: 0.30, outputPer1M: 2.50, maxTemperature: 2.0, supportsEvolution: true,
+    openRouterModelId: 'google/gemini-2.5-flash',
+    supportsReasoning: false,
+  },
   'qwen/qwen3-8b': {
     id: 'qwen/qwen3-8b', displayName: 'Qwen3 8B', provider: 'openrouter',
     inputPer1M: 0.05, outputPer1M: 0.40, maxTemperature: 2.0, supportsEvolution: true,

@@ -1,0 +1,89 @@
+# Deliberate cheap real-AI smoke (reduce_e2e_openai_test_costs_20260607).
+#
+# Runs the @prod-ai Playwright project against a LOCAL build (port 3010) started WITHOUT
+# E2E_TEST_MODE (so the real returnExplanation pipeline executes) but WITH
+# TEST_LLM_MODEL=google/gemini-2.5-flash (so it runs on a cheap model). This is the only place
+# the cheap-model real-AI tier can run — the deployed-prod nightly can't be model-overridden.
+#
+# The job is non-blocking (continue-on-error) so an OpenRouter outage never reds the pipeline.
+# A pre-flight budget check skips the run (not red) when the daily LLM cap is already exhausted.
+name: E2E Real-AI Smoke (cheap model)
+
+on:
+  schedule:
+    - cron: '30 6 * * *'  # 30 min after the deployed-prod nightly to avoid quota contention
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  prod-ai:
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 30
+    continue-on-error: true  # non-blocking: a Gemini/OpenRouter outage must not red the pipeline
+
+    env:
+      RUN_PROD_AI: '1'
+      TEST_LLM_MODEL: google/gemini-2.5-flash
+      NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
+      # Staging environment secrets (dev Supabase + cheap-model provider key)
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+      PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
+      PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+      TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
+      TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+      TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Fail-fast budget gate: if today's spend already exceeds the cap, SKIP (not red) so an
+      # exhausted account never surfaces as an opaque mid-run 429.
+      - name: Pre-flight LLM budget check
+        id: preflight
+        run: npx tsx scripts/check-daily-llm-budget.ts
+
+      - name: Install Playwright (chromium)
+        if: steps.preflight.outputs.skipped != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Run @prod-ai smoke (real AI, cheap model, local build)
+        if: steps.preflight.outputs.skipped != 'true'
+        run: npx playwright test --project=prod-ai
+
+      - name: Upload report
+        if: always() && steps.preflight.outputs.skipped != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-prod-ai
+          path: playwright-report/
+          retention-days: 30
+
+      # A skipped step is NOT a failure, so `if: failure()` would never fire here — gate the
+      # release-health note on the pre-flight's explicit skipped output instead.
+      - name: Open release-health note (budget exhausted)
+        if: steps.preflight.outputs.skipped == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          TITLE="[release-health] Cheap real-AI smoke skipped — daily LLM budget exhausted ${DATE}"
+          gh issue create --title "$TITLE" \
+            --body "The e2e-real-ai-smoke job was skipped because today's LLM spend already exceeded the daily cap (LLM_DAILY_CAP_USD). Top up / investigate provider billing, then re-run via workflow_dispatch. Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            || echo "::warning::Failed to file release-health issue (non-fatal)"

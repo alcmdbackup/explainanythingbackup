@@ -273,7 +273,7 @@ detect-changes → typecheck + lint (parallel)
 - Runs on `main` branch
 - Full E2E test suite (no sharding)
 - **Browser matrix:** Chromium + Firefox
-- `E2E_TEST_MODE=true` for SSE streaming compatibility
+- **No** `E2E_TEST_MODE` — nightly runs real AI against the deployed prod app (hence the `[TEST]` prefix on generated content is critical for cleanup). Chromium-only (firefox dropped 2026-06-07 to halve real spend). The separate `e2e-real-ai-smoke.yml` runs a cheap-model (`TEST_LLM_MODEL=google/gemini-2.5-flash`) `@prod-ai` real-AI smoke against a local build; per-deploy prod validation is covered by `post-deploy-smoke.yml`.
 - **Fail strategy:** Continues on failure (tests all browsers)
 
 ### Post-Deploy Smoke Tests (`post-deploy-smoke.yml`)
