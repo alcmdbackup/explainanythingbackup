@@ -64,6 +64,12 @@ splits into VIEW (read-only) + EDIT (metadata-only) + CLONE (the only safe membe
 > implement the primitive (`selectTestSetMembers` `testSet.ts:99`, `cloneTestSet` `persist.ts:334`);
 > the gaps are the action schema, a curation read-action, and the UI. See the research doc's
 > "Follow-up research: curate membership on clone" for the full findings.
+>
+> **Unit of selection (decided 2026-06-09):** add/remove **existing pre-recorded pairs** (A-vs-B
+> matchups already in the bank, from `evolution_arena_comparisons`). We are NOT constructing novel
+> pairs from individual variants — that would null out `baseline_confidence` and needs a separate
+> variant-universe + pair-construction path (explicitly out of scope here). So curation = choosing a
+> subset of `pair_label`s; each chosen pair keeps its recorded ground truth intact.
 
 ### Phase 5a: Backend — expose manual membership on clone + a curation universe action
 - [ ] Extend `cloneSchema` in `judgeEvalActions.ts` to accept `strategy` (incl. `'manual'`) +
