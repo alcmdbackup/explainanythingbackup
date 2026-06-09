@@ -1,9 +1,12 @@
-// Strategy config utilities: hashing, labeling, and find-or-create by config hash.
+// Strategy config utilities: full-config hashing (v2), labeling, and find-or-create by config hash.
+// The v2 hash covers the ENTIRE validated StrategyConfig after a normalization pass that
+// preserves the pipeline's deliberate equivalences (runtime-default folding, agent-type-gated
+// stripping, set-ordering) while making any other field difference produce a distinct strategy.
 
 import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { StrategyConfig } from '../infra/types';
-import { evolutionStrategyInsertSchema } from '../../schemas';
+import { evolutionStrategyInsertSchema, isEditingAgentType } from '../../schemas';
 
 // ─── Internal helpers ────────────────────────────────────────────
 
@@ -20,100 +23,154 @@ function shortenModel(model: string | null | undefined): string {
     .replace('claude-', 'cl-');
 }
 
-// ─── Public API ──────────────────────────────────────────────────
+/** Runtime defaults the pipeline applies when a paragraph_recombine / proposer_approver
+ *  field is omitted. Folding omitted → default keeps "omitted" and "explicit-default"
+ *  configs as ONE strategy (matches pre-v2 dedup behavior). Sources:
+ *  - includesMirrorApprover ?? true  — proposerApproverCriteriaGenerate.ts:270
+ *  - perInvocationCapUsd 0.05         — ParagraphRecombineAgent.ts:63 (DEFAULT_PER_INVOCATION_CAP_USD)
+ *  - maxDispatches ?? 1               — runIterationLoop.ts:1293 */
+const DEFAULT_PER_INVOCATION_CAP_USD = 0.05;
+const DEFAULT_MAX_DISPATCHES = 1;
 
-/**
- * Canonicalize an iteration config for hashing: strip undefined optional fields
- * so that semantically-equivalent configs produce identical hashes regardless
- * of explicit-vs-omitted form.
- *
- * Reflection: `agentType: 'reflect_and_generate'` is a top-level enum value (Shape A),
- * so the iterCfg.agentType field carries the reflection signal directly. There is no
- * separate `useReflection` boolean to canonicalize. `reflectionTopN` is only meaningful
- * for reflect_and_generate iterations and is stripped for any other agent type.
- */
-function canonicalizeIterationConfig(
-  iterCfg: StrategyConfig['iterationConfigs'][number],
-): Record<string, unknown> {
-  const out: Record<string, unknown> = {
-    agentType: iterCfg.agentType,
-    budgetPercent: iterCfg.budgetPercent,
-  };
-  // Optional fields: include if present (any value, including null).
-  if (iterCfg.sourceMode !== undefined) out.sourceMode = iterCfg.sourceMode;
-  if (iterCfg.qualityCutoff !== undefined) out.qualityCutoff = iterCfg.qualityCutoff;
-  if (iterCfg.generationGuidance !== undefined) out.generationGuidance = iterCfg.generationGuidance;
-  // reflectionTopN only meaningful when the agent IS the reflection wrapper.
-  if (iterCfg.reflectionTopN !== undefined && iterCfg.agentType === 'reflect_and_generate') {
-    out.reflectionTopN = iterCfg.reflectionTopN;
+type IterCfg = StrategyConfig['iterationConfigs'][number];
+type AgentType = IterCfg['agentType'];
+
+const CRITERIA_BASED = new Set<AgentType>([
+  'criteria_and_generate',
+  'single_pass_evaluate_criteria_and_generate',
+  'proposer_approver_criteria_generate',
+]);
+
+/** Per-field validity gates, mirroring the iterationConfigSchema .refine() rules
+ *  (schemas.ts ~L700-800). A field present on an agent type that does NOT accept it
+ *  is a runtime-ignored value and MUST be stripped before hashing so it can't change
+ *  strategy identity. Fields with no entry here (agentType, budgetPercent, and the J3
+ *  budget-floor fractions) are always kept. */
+const FIELD_GATES: Partial<Record<keyof IterCfg, (t: AgentType) => boolean>> = {
+  sourceMode: (t) => t !== 'swiss' && t !== 'debate_and_generate',
+  qualityCutoff: (t) => t !== 'swiss' && t !== 'debate_and_generate',
+  generationGuidance: (t) => t === 'generate',
+  reflectionTopN: (t) => t === 'reflect_and_generate',
+  editingMaxCycles: (t) => isEditingAgentType(t) || t === 'proposer_approver_criteria_generate',
+  editingEligibilityCutoff: (t) => isEditingAgentType(t) || t === 'proposer_approver_criteria_generate',
+  editingProposerSoftCap: (t) => t === 'iterative_editing_rewrite',
+  criteriaIds: (t) => CRITERIA_BASED.has(t),
+  weakestK: (t) => CRITERIA_BASED.has(t),
+  lengthCapRatio: (t) => t === 'proposer_approver_criteria_generate',
+  redundancyJaccardThreshold: (t) =>
+    t === 'single_pass_evaluate_criteria_and_generate' || t === 'proposer_approver_criteria_generate',
+  includesMirrorApprover: (t) => t === 'proposer_approver_criteria_generate',
+  debateJudgeReasoningEffort: (t) => t === 'debate_and_generate',
+  rewritesPerParagraph: (t) => t === 'paragraph_recombine',
+  maxComparisonsPerParagraph: (t) => t === 'paragraph_recombine',
+  maxParagraphsPerInvocation: (t) => t === 'paragraph_recombine',
+  paragraphRewriteModel: (t) => t === 'paragraph_recombine',
+  perInvocationCapUsd: (t) => t === 'paragraph_recombine',
+  maxDispatches: (t) => t === 'paragraph_recombine',
+};
+
+/** Sort generationGuidance by tactic — it is an unordered weighted SET
+ *  (refine enforces unique tactics), so order must not affect the hash. */
+function sortGuidance(g: unknown): unknown {
+  if (!Array.isArray(g)) return g;
+  return [...g].sort((a, b) => {
+    const ta = (a as { tactic?: string })?.tactic ?? '';
+    const tb = (b as { tactic?: string })?.tactic ?? '';
+    return ta < tb ? -1 : ta > tb ? 1 : 0;
+  });
+}
+
+/** Normalize one iteration config: resolve runtime defaults, strip agent-type-ignored
+ *  fields, drop empty criteriaIds, sort set-like arrays. */
+function normalizeIteration(iter: IterCfg): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...iter };
+
+  // D1.1 — runtime-default folding (omitted ≡ explicit-default).
+  if (out.agentType === 'proposer_approver_criteria_generate' && out.includesMirrorApprover === undefined) {
+    out.includesMirrorApprover = true;
   }
-  // criteriaIds + weakestK only meaningful when the agent IS the criteria wrapper.
-  // Decision (committed): SORT criteriaIds before hashing — two strategies referencing
-  // the same set of criteria in different orders are semantically equivalent (the wrapper
-  // evaluates ALL configured criteria regardless of order; weakest-K selection is
-  // deterministic on score).
-  // WIDENED: criteriaIds + weakestK valid for all 3 criteria-based agent types.
-  const isCriteriaBased = iterCfg.agentType === 'criteria_and_generate'
-    || iterCfg.agentType === 'single_pass_evaluate_criteria_and_generate'
-    || iterCfg.agentType === 'proposer_approver_criteria_generate';
-  if (iterCfg.criteriaIds !== undefined && iterCfg.criteriaIds.length > 0 && isCriteriaBased) {
-    out.criteriaIds = [...iterCfg.criteriaIds].sort();
+  if (out.agentType === 'paragraph_recombine') {
+    if (out.maxDispatches === undefined) out.maxDispatches = DEFAULT_MAX_DISPATCHES;
+    if (out.perInvocationCapUsd === undefined) out.perInvocationCapUsd = DEFAULT_PER_INVOCATION_CAP_USD;
   }
-  if (iterCfg.weakestK !== undefined && isCriteriaBased) {
-    out.weakestK = iterCfg.weakestK;
+
+  // D6 — strip fields the runtime ignores for this agent type.
+  for (const key of Object.keys(out) as (keyof IterCfg)[]) {
+    const gate = FIELD_GATES[key];
+    if (gate && out[key] !== undefined && !gate(out.agentType as AgentType)) {
+      delete out[key];
+    }
   }
-  // NEW emit-gates per Phase 5.3:
-  // lengthCapRatio only valid for proposer_approver_criteria_generate.
-  if (iterCfg.lengthCapRatio !== undefined && iterCfg.agentType === 'proposer_approver_criteria_generate') {
-    out.lengthCapRatio = iterCfg.lengthCapRatio;
+
+  // D1.3 — criteriaIds: drop empty (≡ omitted), else sort (order-insensitive set).
+  if (Array.isArray(out.criteriaIds)) {
+    if (out.criteriaIds.length === 0) delete out.criteriaIds;
+    else out.criteriaIds = [...(out.criteriaIds as string[])].sort();
   }
-  // redundancyJaccardThreshold valid for both new criteria-based agents.
-  if (iterCfg.redundancyJaccardThreshold !== undefined
-      && (iterCfg.agentType === 'single_pass_evaluate_criteria_and_generate'
-        || iterCfg.agentType === 'proposer_approver_criteria_generate')) {
-    out.redundancyJaccardThreshold = iterCfg.redundancyJaccardThreshold;
-  }
-  // includesMirrorApprover: emit ONLY when explicitly false (compact hash for default-on strategies).
-  if (iterCfg.includesMirrorApprover === false
-      && iterCfg.agentType === 'proposer_approver_criteria_generate') {
-    out.includesMirrorApprover = false;
-  }
-  // investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 (J1.5):
-  // paragraph_recombine perInvocationCapUsd MUST participate in config_hash so
-  // strategies that differ only in cap do NOT dedupe to the same row.
-  // Pre-existing paragraph_recombine knobs (rewritesPerParagraph etc.) remain
-  // unhashed by deliberate choice — changing that would invalidate existing
-  // strategy hashes on staging/prod.
-  if (iterCfg.perInvocationCapUsd !== undefined && iterCfg.agentType === 'paragraph_recombine') {
-    out.perInvocationCapUsd = iterCfg.perInvocationCapUsd;
-  }
-  // J1.5: maxDispatches MUST also participate in config_hash so a maxDispatches=1
-  // strategy and a maxDispatches=5 strategy don't collide on the upsert.
-  if (iterCfg.maxDispatches !== undefined && iterCfg.agentType === 'paragraph_recombine') {
-    out.maxDispatches = iterCfg.maxDispatches;
-  }
-  // J3 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): per-iteration
-  // budget-floor overrides participate in config_hash. Two strategies that differ only in
-  // these floor knobs must dedupe distinctly.
-  if (iterCfg.parallelFloorFraction !== undefined) out.parallelFloorFraction = iterCfg.parallelFloorFraction;
-  if (iterCfg.parallelFloorAgentMultiple !== undefined) out.parallelFloorAgentMultiple = iterCfg.parallelFloorAgentMultiple;
-  if (iterCfg.sequentialFloorFraction !== undefined) out.sequentialFloorFraction = iterCfg.sequentialFloorFraction;
-  if (iterCfg.sequentialFloorAgentMultiple !== undefined) out.sequentialFloorAgentMultiple = iterCfg.sequentialFloorAgentMultiple;
+
+  // D1.5 — generationGuidance is an unordered weighted set.
+  if (out.generationGuidance !== undefined) out.generationGuidance = sortGuidance(out.generationGuidance);
+
   return out;
 }
 
+/** Normalize the whole config: strip deprecated budget-floor aliases (D1.4), sort
+ *  top-level generationGuidance (D1.5), normalize each iteration. */
+function normalizeConfig(config: StrategyConfig): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...config };
+
+  // D1.4 — preprocessBudgetFloor (schemas.ts:483-486) mirrors minBudgetAfter*Fraction into
+  // these deprecated aliases on every parse, but createStrategyAction hand-builds without them.
+  // Strip the aliases so the parse-path and action-path configs hash identically.
+  delete (out as Record<string, unknown>).budgetBufferAfterParallel;
+  delete (out as Record<string, unknown>).budgetBufferAfterSequential;
+
+  if (out.generationGuidance !== undefined) out.generationGuidance = sortGuidance(out.generationGuidance);
+
+  out.iterationConfigs = config.iterationConfigs.map(normalizeIteration);
+  return out;
+}
+
+/** Deep, stable canonicalization for hashing: sort object keys, drop undefined/null,
+ *  round every numeric leaf to a 0.001 floor via toFixed(3) (recursing into nested
+ *  objects + array elements) so sub-0.001 differences don't create a new strategy.
+ *  Array order is preserved (callers pre-sort order-insensitive arrays). */
+function canonicalize(value: unknown): unknown {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value.toFixed(3) : String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(canonicalize);
+  }
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(obj).sort()) {
+      const cv = canonicalize(obj[key]);
+      if (cv !== undefined) out[key] = cv;
+    }
+    return out;
+  }
+  return value; // string | boolean
+}
+
+// ─── Public API ──────────────────────────────────────────────────
+
+/** Stable JSON string of the fully-normalized + canonicalized config. */
+function stableStringify(config: StrategyConfig): string {
+  return JSON.stringify(canonicalize(normalizeConfig(config)));
+}
+
 /**
- * Generate a stable 12-char hash for a strategy config.
- * Hashes: generationModel, judgeModel, iterationConfigs (canonicalized).
- * Budget floors and other non-core fields are excluded.
+ * Generate a stable hash for a strategy config. v2 hashes the ENTIRE config
+ * (after normalization), so any meaningful field difference yields a distinct
+ * strategy — unlike v1, which hashed only a whitelist and silently deduped
+ * configs that differed in an unhashed field. The `v2:` prefix isolates v2 from
+ * legacy v1 hashes (12 bare hex chars) so they can never collide.
  */
 export function hashStrategyConfig(config: StrategyConfig): string {
-  const normalized = {
-    generationModel: config.generationModel,
-    judgeModel: config.judgeModel,
-    iterationConfigs: config.iterationConfigs.map(canonicalizeIterationConfig),
-  };
-  return createHash('sha256').update(JSON.stringify(normalized)).digest('hex').slice(0, 12);
+  return 'v2:' + createHash('sha256').update(stableStringify(config)).digest('hex').slice(0, 12);
 }
 
 /** Auto-generated label: "Gen: model | Judge: model | 2×gen + 3×swiss". */
@@ -148,6 +205,12 @@ export function labelStrategyConfig(config: StrategyConfig): string {
   return parts.join(' | ');
 }
 
+/** Strip the `v2:` (or any `prefix:`) marker so the bare hex can be sliced for display. */
+function hashHex(hash: string): string {
+  const colon = hash.indexOf(':');
+  return colon >= 0 ? hash.slice(colon + 1) : hash;
+}
+
 /**
  * Find-or-create a strategy row by config hash. Uses INSERT ... ON CONFLICT for race safety.
  * Throws on error (strategy_id is required for all runs).
@@ -158,7 +221,8 @@ export async function upsertStrategy(
 ): Promise<string> {
   const hash = hashStrategyConfig(config);
   const label = labelStrategyConfig(config);
-  const name = `Strategy ${hash.slice(0, 6)} (${config.generationModel.split('-').pop()}, ${config.iterationConfigs.length}it)`;
+  // Strip the `v2:` prefix before slicing so the name reads "Strategy abc123 (...)", not "Strategy v2:abc".
+  const name = `Strategy ${hashHex(hash).slice(0, 6)} (${config.generationModel.split('-').pop()}, ${config.iterationConfigs.length}it)`;
 
   const payload = evolutionStrategyInsertSchema.parse({ name, label, config, config_hash: hash });
   const { data, error } = await db

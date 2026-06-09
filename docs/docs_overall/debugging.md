@@ -35,6 +35,7 @@ useEffect(() => {
 | Production database | query:prod | `npm run query:prod` |
 | UI reproduction | Playwright MCP | `/debug` → headless browser |
 | Systematic workflow | /debug skill | `/debug` in Claude Code |
+| Close-readiness verdict | /safe_to_close | `/safe_to_close` aggregates PR/plan/finalize/migration/release-health signals into GREEN/YELLOW/RED |
 
 ---
 

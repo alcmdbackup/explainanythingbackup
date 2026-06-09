@@ -293,6 +293,35 @@ function weightedAgentCost(
 // ─── Main ─────────────────────────────────────────────────────────
 
 /**
+ * Phase 7 (analyze_effectiveness_paragraph_recombine_20260530): mirror the runtime
+ * eligibility filter at `runIterationLoop.ts:1303-1318` so the wizard preview's
+ * dispatch ceiling matches what the runtime will actually dispatch.
+ *
+ * Returns the eligible-parent count after applying qualityCutoff:
+ * - sourceMode !== 'pool' → poolSize (cutoff doesn't apply for seed-source)
+ * - qualityCutoff undefined → poolSize (no eligibility filter)
+ * - qualityCutoff.mode === 'topN' → min(poolSize, qualityCutoff.value)
+ * - qualityCutoff.mode === 'topPercent' → min(poolSize, max(1, ceil(poolSize * pct/100)))
+ *
+ * The schema enforces topN value >= 1, so no extra max(1, …) for that branch.
+ * topPercent IS bounded with max(1, …) because small percent × small pool can yield 0.
+ */
+export function resolveParagraphRecombineEligibility(input: {
+  sourceMode?: 'seed' | 'pool';
+  qualityCutoff?: { mode: 'topN' | 'topPercent'; value: number };
+  poolSize: number;
+}): number {
+  const { sourceMode, qualityCutoff, poolSize } = input;
+  if (sourceMode !== 'pool' || !qualityCutoff) return poolSize;
+  if (qualityCutoff.mode === 'topN') {
+    return Math.min(poolSize, qualityCutoff.value);
+  }
+  // topPercent — bounded with max(1, …) since small percent × small pool can yield 0.
+  const computed = Math.max(1, Math.ceil((poolSize * qualityCutoff.value) / 100));
+  return Math.min(poolSize, computed);
+}
+
+/**
  * Compute the full iteration plan for a strategy config + context.
  *
  * The runtime dispatches `plan[iterIdx].dispatchCount` agents at iteration start; top-up
@@ -480,6 +509,25 @@ export function projectDispatchPlan(
       const rewriteModel = iterCfg.paragraphRewriteModel ?? config.generationModel;
       const maxDispatchesK = iterCfg.maxDispatches ?? 1;
 
+      // Phase 7 (analyze_effectiveness_paragraph_recombine_20260530): the projector
+      // ceiling MUST mirror the runtime's qualityCutoff filter at
+      // runIterationLoop.ts:1303-1318. Without this, the wizard preview defaults to
+      // poolSize as the eligibility ceiling (e.g. 14) when the runtime actually
+      // filters to qualityCutoff.value (e.g. 5). On the bug-trigger config
+      // (maxDispatches=10, sourceMode='pool', qualityCutoff topN:5, poolSize=14) the
+      // wizard showed expectedTotalDispatch=1 while the runtime dispatched 5.
+      //
+      // Known limitation: this projector's `poolSize` includes arena-pre-loaded
+      // variants from `loadArenaEntries` (via ctx.initialPoolSize). The runtime
+      // filters those out at runIterationLoop.ts:1291 (`pool.filter(v => !v.fromArena)`)
+      // BEFORE applying qualityCutoff. When ctx.initialPoolSize > 0, this projector's
+      // eligibleCount can over-estimate. Documented; not corrected here.
+      const eligibleCount = resolveParagraphRecombineEligibility({
+        sourceMode: iterCfg.sourceMode,
+        qualityCutoff: iterCfg.qualityCutoff,
+        poolSize,
+      });
+
       const paragraphCost = estimateParagraphRecombineCost(
         ctx.seedChars,
         maxParagraphsPerInvocation,
@@ -522,18 +570,19 @@ export function projectDispatchPlan(
         parallelFloorUsd = parallelFloor;
         // Parallel batch: how many fit BEFORE we hit parallel floor (using upperBound for safety).
         const parallelAffordable = Math.max(1, Math.floor((iterBudgetUsd - parallelFloor) / upperPerAgent));
-        const parallelN = Math.min(DISPATCH_SAFETY_CAP, parallelAffordable, maxDispatchesK, poolSize);
+        // Phase 7: use eligibleCount (post-qualityCutoff) not raw poolSize.
+        const parallelN = Math.min(DISPATCH_SAFETY_CAP, parallelAffordable, maxDispatchesK, eligibleCount);
         // Sequential top-up: closed-form gate matches the runtime loop —
         // K_total <= floor((iterBudget - sequentialFloor) / expected.total).
         const totalAffordable = opts.topUpEnabled === false
           ? parallelN
           : Math.max(parallelN, Math.floor((iterBudgetUsd - sequentialFloor) / expectedPerAgent));
-        const finalDispatch = Math.min(totalAffordable, maxDispatchesK, poolSize, DISPATCH_SAFETY_CAP);
+        const finalDispatch = Math.min(totalAffordable, maxDispatchesK, eligibleCount, DISPATCH_SAFETY_CAP);
         dispatchCount = parallelN;
         expectedTotalDispatch = finalDispatch;
         expectedTopUpDispatch = Math.max(0, finalDispatch - parallelN);
         if (finalDispatch === maxDispatchesK) effectiveCap = 'safety_cap';
-        else if (finalDispatch === poolSize) effectiveCap = 'eligibility';
+        else if (finalDispatch === eligibleCount) effectiveCap = 'eligibility';
         else if (finalDispatch === DISPATCH_SAFETY_CAP) effectiveCap = 'safety_cap';
         else effectiveCap = 'budget';
       }

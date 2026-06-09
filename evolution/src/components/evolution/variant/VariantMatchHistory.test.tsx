@@ -21,9 +21,9 @@ jest.mock('@evolution/services/variantDetailActions', () => ({
 }));
 
 const sampleMatches: VariantMatchEntry[] = [
-  { opponentId: 'opp-aaa-111', opponentElo: 1350, won: true, confidence: 0.85 },
-  { opponentId: 'opp-bbb-222', opponentElo: 1400, won: true, confidence: 0.72 },
-  { opponentId: 'opp-ccc-333', opponentElo: 1500, won: false, confidence: 0.60 },
+  { comparisonId: 'cmp-aaa-111', opponentId: 'opp-aaa-111', opponentElo: 1350, won: true, confidence: 0.85 },
+  { comparisonId: 'cmp-bbb-222', opponentId: 'opp-bbb-222', opponentElo: 1400, won: true, confidence: 0.72 },
+  { comparisonId: 'cmp-ccc-333', opponentId: 'opp-ccc-333', opponentElo: 1500, won: false, confidence: 0.60 },
 ];
 
 describe('VariantMatchHistory', () => {
@@ -123,7 +123,7 @@ describe('VariantMatchHistory', () => {
 
   it('shows dash for null opponent Elo', async () => {
     const matchWithNullElo: VariantMatchEntry[] = [
-      { opponentId: 'opp-null-elo', opponentElo: null, won: true, confidence: 0.9 },
+      { comparisonId: 'cmp-null-elo', opponentId: 'opp-null-elo', opponentElo: null, won: true, confidence: 0.9 },
     ];
     mockGetMatchHistory.mockResolvedValue({ success: true, data: matchWithNullElo, error: null });
     render(<VariantMatchHistory variantId="test-id" />);

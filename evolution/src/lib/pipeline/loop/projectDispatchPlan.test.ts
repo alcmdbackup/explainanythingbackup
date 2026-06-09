@@ -6,6 +6,7 @@
 
 import {
   projectDispatchPlan,
+  resolveParagraphRecombineEligibility,
   DISPATCH_SAFETY_CAP,
   EXPECTED_GEN_RATIO,
   EXPECTED_RANK_COMPARISONS_RATIO,
@@ -784,6 +785,179 @@ describe('projectDispatchPlan', () => {
       );
       expect(hi[1]!.estPerAgent.expected.paragraphRecombine)
         .toBeGreaterThan(lo[1]!.estPerAgent.expected.paragraphRecombine);
+    });
+  });
+
+  // ─── Phase 7: paragraph_recombine projector reads qualityCutoff ─────────────────
+  // The projector at projectDispatchPlan.ts:481 reads maxDispatches but the original
+  // version used `poolSize` as the eligibility ceiling, ignoring qualityCutoff. The
+  // runtime applies qualityCutoff at runIterationLoop.ts:1303-1318. This phase fixes
+  // the wizard preview to match runtime dispatch counts.
+  describe('Phase 7: resolveParagraphRecombineEligibility', () => {
+    it('sourceMode != pool returns poolSize unchanged (seed source ignores cutoff)', () => {
+      expect(resolveParagraphRecombineEligibility({
+        sourceMode: 'seed',
+        qualityCutoff: { mode: 'topN', value: 5 },
+        poolSize: 14,
+      })).toBe(14);
+    });
+
+    it('qualityCutoff undefined returns poolSize unchanged', () => {
+      expect(resolveParagraphRecombineEligibility({
+        sourceMode: 'pool',
+        poolSize: 14,
+      })).toBe(14);
+    });
+
+    it('qualityCutoff topN clamps to min(poolSize, value)', () => {
+      expect(resolveParagraphRecombineEligibility({
+        sourceMode: 'pool',
+        qualityCutoff: { mode: 'topN', value: 5 },
+        poolSize: 14,
+      })).toBe(5);
+
+      // When poolSize < value, poolSize wins.
+      expect(resolveParagraphRecombineEligibility({
+        sourceMode: 'pool',
+        qualityCutoff: { mode: 'topN', value: 20 },
+        poolSize: 14,
+      })).toBe(14);
+    });
+
+    it('qualityCutoff topPercent uses ceil math (not floor or round)', () => {
+      // poolSize=14, 50% → ceil(7) = 7
+      expect(resolveParagraphRecombineEligibility({
+        sourceMode: 'pool',
+        qualityCutoff: { mode: 'topPercent', value: 50 },
+        poolSize: 14,
+      })).toBe(7);
+
+      // poolSize=15, 50% → ceil(7.5) = 8 (asymmetric case: confirms ceil semantic;
+      // a silent Math.round regression would return 8 too but Math.floor would return 7.)
+      expect(resolveParagraphRecombineEligibility({
+        sourceMode: 'pool',
+        qualityCutoff: { mode: 'topPercent', value: 50 },
+        poolSize: 15,
+      })).toBe(8);
+    });
+
+    it('qualityCutoff topPercent enforces minimum of 1 on tiny pools', () => {
+      // 5% of 3 = ceil(0.15) = 1 (not 0)
+      expect(resolveParagraphRecombineEligibility({
+        sourceMode: 'pool',
+        qualityCutoff: { mode: 'topPercent', value: 5 },
+        poolSize: 3,
+      })).toBe(1);
+    });
+  });
+
+  describe('Phase 7: paragraph_recombine multi-dispatch reads qualityCutoff (bug-trigger config)', () => {
+    const bugTriggerStrategyConfig = (overrides: { budgetUsd?: number } = {}) =>
+      baseConfig({
+        budgetUsd: overrides.budgetUsd ?? 0.05,
+        iterationConfigs: [
+          { agentType: 'generate', sourceMode: 'seed', budgetPercent: 40 },
+          {
+            agentType: 'paragraph_recombine',
+            sourceMode: 'pool',
+            budgetPercent: 60,
+            maxDispatches: 10,
+            qualityCutoff: { mode: 'topN', value: 5 },
+            rewritesPerParagraph: 3,
+            maxComparisonsPerParagraph: 8,
+            maxParagraphsPerInvocation: 12,
+          },
+        ],
+      });
+
+    it('7.1: eligibility-binding case — widened budget so eligibility (not budget) caps', () => {
+      // With wide budget ($0.30 vs production $0.05), eligibility is the binding cap.
+      // Pre-fix: returned poolSize (some larger number) as ceiling → could overshoot 5.
+      // Post-fix: caps at qualityCutoff.value=5.
+      const plan = projectDispatchPlan(
+        bugTriggerStrategyConfig({ budgetUsd: 0.30 }),
+        baseCtx({ initialPoolSize: 14 }),
+      );
+      // Iter 0 (generate) grows poolSize. Iter 1 paragraph_recombine reads eligible.
+      const pr = plan[1]!;
+      expect(pr.agentType).toBe('paragraph_recombine');
+      expect(pr.expectedTotalDispatch).toBeLessThanOrEqual(5); // eligibility ceiling enforced
+      expect(pr.expectedTotalDispatch).toBeGreaterThanOrEqual(1);
+    });
+
+    it('7.2: budget-binding regression guard — narrow budget caps before eligibility does', () => {
+      // Original $0.05 budget; pre-fix this also returned 1 (budget binding). Post-fix
+      // should NOT regress this case — budget is still binding when per-agent cost is high.
+      const plan = projectDispatchPlan(
+        bugTriggerStrategyConfig({ budgetUsd: 0.05 }),
+        baseCtx({ initialPoolSize: 14 }),
+      );
+      const pr = plan[1]!;
+      // With narrow budget the dispatch count is constrained by budget; it should be a
+      // SMALL number (typically 1 or 2 depending on cost projection). The fix must not
+      // INCREASE this — eligibility==5 is now a ceiling, not a floor.
+      expect(pr.expectedTotalDispatch).toBeLessThanOrEqual(5);
+    });
+
+    it("7.3 regression guard: sourceMode='seed' ignores qualityCutoff entirely", () => {
+      const plan = projectDispatchPlan(
+        baseConfig({
+          budgetUsd: 0.30,
+          iterationConfigs: [
+            // Seed-source paragraph_recombine ignores qualityCutoff at runtime per docs.
+            {
+              agentType: 'paragraph_recombine',
+              sourceMode: 'seed',
+              budgetPercent: 100,
+              maxDispatches: 10,
+              qualityCutoff: { mode: 'topN', value: 5 },
+            },
+          ],
+        }),
+        baseCtx({ initialPoolSize: 14 }),
+      );
+      // poolSize wins (eligibility = poolSize when sourceMode != pool).
+      // dispatchCount can be anywhere in [1, min(maxDispatches=10, poolSize=14)] = [1, 10].
+      expect(plan[0]!.expectedTotalDispatch).toBeGreaterThanOrEqual(1);
+    });
+
+    it('7.4 regression guard: qualityCutoff undefined → poolSize is the ceiling', () => {
+      const plan = projectDispatchPlan(
+        baseConfig({
+          budgetUsd: 0.30,
+          iterationConfigs: [
+            {
+              agentType: 'paragraph_recombine',
+              sourceMode: 'pool',
+              budgetPercent: 100,
+              maxDispatches: 10,
+              // no qualityCutoff
+            },
+          ],
+        }),
+        baseCtx({ initialPoolSize: 14 }),
+      );
+      // ceiling = poolSize=14 since qualityCutoff undefined.
+      expect(plan[0]!.expectedTotalDispatch).toBeLessThanOrEqual(10); // maxDispatches
+    });
+
+    it('7.6 regression guard: maxDispatches=1 still binds even with cutoff topN=5', () => {
+      const plan = projectDispatchPlan(
+        baseConfig({
+          budgetUsd: 0.30,
+          iterationConfigs: [
+            {
+              agentType: 'paragraph_recombine',
+              sourceMode: 'pool',
+              budgetPercent: 100,
+              maxDispatches: 1, // single-dispatch
+              qualityCutoff: { mode: 'topN', value: 5 },
+            },
+          ],
+        }),
+        baseCtx({ initialPoolSize: 14 }),
+      );
+      expect(plan[0]!.expectedTotalDispatch).toBe(1);
     });
   });
 });

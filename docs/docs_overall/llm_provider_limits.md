@@ -9,7 +9,7 @@ Ultimate backstop — provider-level limits cannot be bypassed by any applicatio
 | OpenAI | [platform.openai.com/settings/limits](https://platform.openai.com/settings/limits) | gpt-4.1-mini, gpt-4.1-nano |
 | DeepSeek | [platform.deepseek.com](https://platform.deepseek.com) | deepseek-chat |
 | Anthropic | [console.anthropic.com/settings/limits](https://console.anthropic.com/settings/limits) | claude-3.5-sonnet, claude-3.5-haiku |
-| OpenRouter | [openrouter.ai/activity](https://openrouter.ai/activity) | openai/gpt-oss-20b |
+| OpenRouter | [openrouter.ai/activity](https://openrouter.ai/activity) | openai/gpt-oss-20b, google/gemini-2.5-flash (nightly real-AI smoke), google/gemini-2.5-flash-lite |
 | Local (Ollama) | N/A (self-hosted on minicomputer) | LOCAL_qwen2.5:14b |
 
 ## Recommended Monthly Limits

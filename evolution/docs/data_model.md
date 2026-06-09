@@ -19,7 +19,7 @@ Stores strategy configurations with aggregated performance metrics. Strategies a
 | `label` | TEXT | NOT NULL, default `''` | Short label for UI |
 | `description` | TEXT | | Optional long description |
 | `config` | JSONB | NOT NULL | Full strategy configuration (`StrategyConfig`: generationModel, judgeModel, iterationConfigs[], strategiesPerRound, budgetUsd, generationGuidance). `iterationConfigs` is an ordered array of `{ agentType, budgetPercent, maxAgents?, generationGuidance? }` objects defining the iteration sequence. Per-iteration `generationGuidance` overrides the strategy-level setting for that iteration. See [Strategies](./strategies_and_experiments.md) for field details. |
-| `config_hash` | TEXT | NOT NULL, UNIQUE | SHA-256 hash for dedup |
+| `config_hash` | TEXT | NOT NULL, UNIQUE | Dedup key. **v2 (`v2:<12 hex>` prefix)** hashes the ENTIRE `config` after normalization (see below); v1 (bare 12 hex, legacy rows) hashed only a whitelist. `upsertStrategy` uses `ON CONFLICT (config_hash)`. |
 | `is_predefined` | BOOLEAN | NOT NULL, default `false` | System-provided strategy |
 | `pipeline_type` | TEXT | default `'full'` | `'full'` or `'single'` |
 | `status` | TEXT | NOT NULL, CHECK `('active','archived')` | |
@@ -37,6 +37,19 @@ Stores strategy configurations with aggregated performance metrics. Strategies a
 | `created_at` | TIMESTAMPTZ | NOT NULL, default `now()` | |
 
 > **Note:** `avg_final_elo` uses Welford's online algorithm via the `update_strategy_aggregates` RPC. The `stddev_final_elo` and `avg_elo_per_dollar` columns are reserved for future use.
+
+#### Strategy `config_hash` — v2 full-config hashing
+
+`hashStrategyConfig` (`evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts`) determines strategy identity. As of `further_investigate_paragraph_recombine_performance_20260531` (GH #1154) it hashes the **entire** `StrategyConfig`, not a whitelist — so two configs that differ in *any* meaningful field become distinct strategy rows instead of silently colliding on the `ON CONFLICT (config_hash)` upsert (the old whitelist dropped fields like `rewritesPerParagraph`, `budgetUsd`, `generationTemperature`, the `minBudgetAfter*` floors, etc., causing the later upsert to overwrite the earlier strategy's stored config).
+
+- **Versioning:** v2 hashes are prefixed `v2:` (e.g. `v2:1a2b3c4d5e6f`); legacy rows keep their bare 12-hex v1 hash. The prefix guarantees v1 and v2 never collide. **No backfill** — existing rows are untouched; re-running a pre-v2 config creates a new `v2:` row rather than matching the old one. Rollback is non-destructive (revert the hasher; new upserts resume v1; v2 rows become orphaned history).
+- **Normalization before hashing** (so semantically-identical configs still dedupe):
+  - *Runtime-default folding* — omitted ≡ explicit default for `includesMirrorApprover` (→`true`, proposer/approver only), `maxDispatches` (→`1`) and `perInvocationCapUsd` (→`0.05`) (paragraph_recombine only).
+  - *Agent-type stripping* — a field set on an agent type that ignores it at runtime is dropped (it can't change identity).
+  - *Set ordering* — `criteriaIds` and `generationGuidance` are unordered sets, sorted before hashing; empty `criteriaIds` ≡ omitted.
+  - *Deprecated alias strip* — `budgetBufferAfterParallel`/`budgetBufferAfterSequential` are removed (the parse path mirrors them from `minBudgetAfter*Fraction` via `preprocessBudgetFloor` but the create-action path omits them; stripping prevents a present-vs-absent false-split).
+  - *Number rounding* — every numeric leaf (incl. nested `qualityCutoff.value`, `generationGuidance[].percent`) is canonicalized to a 0.001 floor (`toFixed(3)`), so sub-0.001 differences don't create a new strategy.
+- The derived strategy `name` strips the `v2:` prefix before slicing the hex for display.
 
 > **Test-content filter:** the `evolution_is_test_name(text)` IMMUTABLE Postgres function matches exact lowercase `test`, bracketed `[TEST]`/`[E2E]`/`[TEST_EVO]` substrings, and the timestamp pattern `^.*-\d{10,13}-.*$`. It's called by a BEFORE INSERT/UPDATE-of-name trigger on `evolution_strategies` (since 20260415000001) and on `evolution_prompts` + `evolution_experiments` (since 20260423000001) that sets `is_test_content` via direct NEW mutation (no self-UPDATE, no recursion). The TS helper `isTestContentName` in `evolution/src/services/shared.ts` echoes this logic and is locked to the same fixture table via integration test for anti-drift protection. Admin UI filters via `applyTestContentColumnFilter` (`.eq('is_test_content', false)`) on tables that have the column directly, or via PostgREST embedded `!inner` join (`applyNonTestStrategyFilter`) on tables that join through `evolution_strategies` (e.g. `evolution_runs`).
 
@@ -126,7 +139,7 @@ Text variants produced during a pipeline run. Since migration 20260321000002, th
 | `criteria_set_used` | UUID[] | | Set of `evolution_criteria.id` values evaluated when this variant was produced via any of the 3 criteria-driven agents (`evaluate_criteria_then_generate_from_previous_article`, `single_pass_evaluate_criteria_and_generate`, `proposer_approver_criteria_generate`). NULL/empty otherwise. GIN-indexed. Migration `20260502120002`. |
 | `weakest_criteria_ids` | UUID[] | | Subset of `criteria_set_used` corresponding to the K weakest criteria the wrapper agent targeted with suggestions. NULL/empty otherwise. GIN-indexed. Migration `20260502120002`. |
 | `sentence_verbatim_ratio` | NUMERIC | | Per-variant quality metric: fraction of parent sentences appearing verbatim (Levenshtein ≤ 2 near-match) in child. Range `[0.0, 1.0]`. Universal — populated by all variant-producing agents (vanilla `generate`, `reflect_and_generate`, all 3 criteria-driven, `iterative_editing`, propose/approve). Pre-existing variants stay NULL and are excluded from percentile aggregation. Observational only — no enforcement, no discard. Migration `20260506000002`. (updated_criteria_agent_20260505) |
-| `variant_kind` | TEXT | NOT NULL, default `'article'`, CHECK ∈ (`'article'`, `'paragraph'`) | Whether the row is a full article variant (default — every pre-existing row) or a paragraph snippet introduced by `ParagraphRecombineAgent`. Used by the variants list filter to default-hide paragraph snippets (D13). The extended `sync_to_arena` RPC reads + writes this column from the JSONB payload; ON CONFLICT leaves it untouched so re-syncs don't clobber. Partial index `idx_evolution_variants_paragraph_partition` for paragraph queries. Migration `20260527000001`. (rank_individual_paragraphs_evolution_20260525) |
+| `variant_kind` | TEXT | NOT NULL, default `'article'`, CHECK ∈ (`'article'`, `'paragraph'`) | Whether the row is a full article variant (default — every pre-existing row) or a paragraph snippet introduced by `ParagraphRecombineAgent`. Used by the variants list filter to default-hide paragraph snippets (D13). The extended `sync_to_arena` RPC reads + writes this column from the JSONB payload; ON CONFLICT leaves it untouched so re-syncs don't clobber. Partial index `idx_evolution_variants_paragraph_partition` for paragraph queries. Migration `20260527000001`. (rank_individual_paragraphs_evolution_20260525) **UI semantics (investigate_banner_on_paragraph_rewrite_paragraph_variant_20260531):** `persisted=false` means "discarded" **only** for `variant_kind='article'`. Paragraph variants are always `persisted=false` by design — `sync_to_arena` never sets `persisted` (column DEFAULT false) — but they are surfaced, not discarded. All admin-UI "discarded" treatment (variant-detail banner, VariantsTab ✗, LineageGraph dimming, SnapshotsTab ✗) gates on `isDiscardedGenerateVariant(persisted, variantKind)` in `evolution/src/lib/utils/variantStatus.ts`, and the default list filters keep paragraph variants via `NON_DISCARDED_OR_FILTER` (`persisted.eq.true,variant_kind.neq.article`). `persisted` carries no meaning for paragraph variants. |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 
 ### `evolution_criteria`
@@ -322,6 +335,17 @@ Populated by `evolution/scripts/refreshCostCalibration.ts` (daily cron). RLS: de
 tables). Loader singleton lives in `evolution/src/lib/pipeline/infra/costCalibrationLoader.ts`.
 
 ---
+
+### Judge-evaluation tables (`20260606000001`)
+
+Five tables backing the Judge Lab tool (`docs/feature_deep_dives/judge_evaluation.md`), separate
+from `evolution_arena_comparisons` (which is the in-run match log and drops judge settings + raw
+passes): `judge_eval_pair_banks` (full candidate pairs from a topic, `pairs` JSONB),
+`judge_eval_test_sets` (frozen sample def), `judge_eval_test_set_members` (frozen membership,
+PK `(test_set_id, pair_label)`), `judge_eval_runs` (one per settings tuple, UNIQUE `settings_key`),
+`judge_eval_calls` (per-(run × pair × repeat) verdict; `decisive` GENERATED `(confidence > 0.6)`).
+Plus VIEW `judge_eval_settings_leaderboard` (best settings by decisive rate, scoped to a test set,
+split by `pair_kind`; RLS-locked to `service_role`). All tables: deny-all + `service_role_all` RLS.
 
 ## Entity Relationships
 

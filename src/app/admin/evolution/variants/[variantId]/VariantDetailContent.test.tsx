@@ -14,6 +14,7 @@ jest.mock('@evolution/services/variantDetailActions', () => ({
   getVariantParentsAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
   getVariantChildrenAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
   getVariantLineageChainAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
+  getVariantParentDiffAction: jest.fn().mockResolvedValue({ success: true, data: null }),
 }));
 
 jest.mock('@evolution/services/metricsActions', () => ({
@@ -31,6 +32,7 @@ const mockVariant: VariantFullDetail = {
   agentName: 'mutator',
   matchCount: 8,
   isWinner: true,
+  variantKind: 'article',
   parentVariantId: null,
   parentVariantIds: [],
   parentElo: null,
@@ -70,6 +72,7 @@ describe('VariantDetailContent', () => {
     expect(screen.getByRole('tab', { name: 'Content' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Metrics' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Lineage' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Diff vs parent' })).toBeInTheDocument();
   });
 
   it('renders run cross-link', () => {
@@ -119,5 +122,24 @@ describe('VariantDetailContent', () => {
     const crossLinks = screen.getByTestId('cross-links');
     expect(crossLinks).toHaveTextContent('Produced by');
     expect(crossLinks).toHaveTextContent('cccccccc'); // first 8 chars of UUID
+  });
+
+  it('shows the discarded banner for a discarded ARTICLE variant (persisted=false)', () => {
+    const discardedArticle: VariantFullDetail = { ...mockVariant, persisted: false, variantKind: 'article' };
+    render(<VariantDetailContent variant={discardedArticle} />);
+    expect(screen.getByTestId('variant-discarded-banner')).toBeInTheDocument();
+  });
+
+  it('does NOT show the discarded banner for a PARAGRAPH variant (persisted=false by design, not discarded)', () => {
+    // Paragraph-recombine variants are always persisted=false (sync_to_arena never sets persisted),
+    // but they are surfaced, not discarded — the generate-agent banner must not fire.
+    const paragraph: VariantFullDetail = { ...mockVariant, persisted: false, variantKind: 'paragraph' };
+    render(<VariantDetailContent variant={paragraph} />);
+    expect(screen.queryByTestId('variant-discarded-banner')).not.toBeInTheDocument();
+  });
+
+  it('does NOT show the discarded banner for a surfaced article variant (persisted=true)', () => {
+    render(<VariantDetailContent variant={mockVariant} />);
+    expect(screen.queryByTestId('variant-discarded-banner')).not.toBeInTheDocument();
   });
 });

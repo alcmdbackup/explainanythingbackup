@@ -65,8 +65,13 @@ function categorizeError(error: unknown): ErrorResponse {
   }
 
   const message = error.message.toLowerCase();
-  
-  if (message.includes('api') || message.includes('openai')) {
+
+  // Word-boundary match (\b) so phrases like "OPENROUTER_API_KEY not found" — where `api`
+  // is glued to `_` — fall through to UNKNOWN_ERROR with the raw message intact, instead of
+  // collapsing into the opaque "Error communicating with AI service" string. Standalone
+  // "api"/"openai" tokens (e.g. "Pinecone API key invalid", "OpenAI embedding failed")
+  // still bucket here.
+  if (/\bapi\b/.test(message) || /\bopenai\b/.test(message)) {
     return {
       code: ERROR_CODES.LLM_API_ERROR,
       message: 'Error communicating with AI service',

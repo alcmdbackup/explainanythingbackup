@@ -55,6 +55,9 @@ export interface LineageNode {
   parentId: string | null;
   /** False = discarded by owning generate agent. Defaults true for legacy variants. */
   persisted?: boolean;
+  /** 'article' | 'paragraph'. The discarded styling applies only to article variants;
+   *  paragraph variants are always persisted=false by design and are not discards. */
+  variantKind?: string;
 }
 
 /** V2 lineage data format compatible with LineageGraph component. */
@@ -72,6 +75,8 @@ export interface LineageData {
     revisionAction?: string | null;
     /** False = discarded variant — rendered with reduced opacity / dashed border. */
     persisted?: boolean;
+    /** 'article' | 'paragraph'. Discarded styling applies only to article variants. */
+    variantKind?: string;
   }[];
   /** Parent → child edges. parentIndex captures position in the child's parent_variant_ids
    *  array (0 = canonical primary; 1+ = additional parents).
@@ -245,8 +250,14 @@ export const getEvolutionRunLineageAction = adminAction(
 
     const { data, error } = await ctx.supabase
       .from('evolution_variants')
-      .select('id, generation, agent_name, elo_score, mu, sigma, is_winner, parent_variant_ids, persisted')
+      .select('id, generation, agent_name, elo_score, mu, sigma, is_winner, parent_variant_ids, persisted, variant_kind')
       .eq('run_id', runId)
+      // hide_paragraphs_from_run_variants_tab_evolution_20260603: article-only. paragraph_recombine
+      // slot rewrites carry run_id (via sync_to_arena) but their parent slot-original variant has no
+      // run_id, so including them produces orphan nodes + dangling edges. Article variants only have
+      // article parents (recombined article lineage is parent_variant_ids=[poolParent]), so filtering
+      // to article-only keeps every article edge intact.
+      .eq('variant_kind', 'article')
       .order('generation', { ascending: true });
 
     if (error) throw error;
@@ -269,6 +280,8 @@ export const getEvolutionRunLineageAction = adminAction(
         parentId: parentIds.length > 0 ? parentIds[0]! : null,
         // Default true for legacy rows that pre-date the persisted column.
         persisted: (v as { persisted?: boolean | null }).persisted ?? true,
+        // Default 'article' for legacy rows that pre-date the variant_kind column.
+        variantKind: (v as { variant_kind?: string | null }).variant_kind ?? 'article',
       };
     });
   },

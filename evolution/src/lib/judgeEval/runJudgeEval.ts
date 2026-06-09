@@ -1,0 +1,235 @@
+// Judge-evaluation engine: runs the 2-pass A/B reversal for each (pair × repeat) of a sweep,
+// mirroring rejudgeComparisonAction (arenaActions.ts) — inlined Promise.all 2-pass (NOT
+// run2PassReversal, which discards per-pass raw responses; NOT compareWithBiasMitigation,
+// which has no temperature/customPrompt/reasoning + a text-only cache). The LLM call is
+// injected (JudgeFn) so the engine is unit-testable with a plain fake; createCallLLMJudge()
+// builds the production path over plain callLLM with the E2E stub, prod guard, budget catch,
+// and onUsage cost/token capture. Writes nothing — persistence lives in persist.ts.
+
+import {
+  buildComparisonPrompt,
+  parseWinner,
+  parseVerdictFromReasoning,
+  aggregateWinners,
+} from '../shared/computeRatings';
+import { callLLM, type CallLLMOptions, type LLMUsageMetadata } from '@/lib/services/llms';
+import { GlobalBudgetExceededError, LLMKillSwitchError } from '@/lib/errors/serviceError';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
+import type {
+  JudgeEvalPair,
+  JudgeEvalCallResult,
+  JudgeReasoningEffort,
+  Winner,
+  PairKind,
+} from './schemas';
+
+export const JUDGE_EVAL_SYSTEM_USERID = '00000000-0000-4000-8000-000000000001';
+export const DEFAULT_JUDGE_EVAL_CONCURRENCY = 8;
+
+/** Result of one judge LLM call (one pass). */
+export interface JudgeCallOutput {
+  text: string;
+  costUsd: number;
+  promptTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+}
+export type JudgeFn = (prompt: string) => Promise<JudgeCallOutput>;
+
+export interface JudgeSettings {
+  judgeModel: string;
+  /** Omit to use provider default; honored only for models that support it. */
+  temperature?: number;
+  reasoningEffort?: JudgeReasoningEffort;
+  /** Rubric/instruction override (texts are never baked in). null = built-in rubric. */
+  customPromptOverride?: string | null;
+  /** Whether the judge prompt asks for free-form reasoning before the verdict. */
+  explainReasoning?: boolean;
+}
+
+function norm(s: string | null): Winner | null {
+  return s === 'A' || s === 'B' || s === 'TIE' ? s : null;
+}
+
+function validatePrompt(p: string): void {
+  if (!p.includes('## Text A') || !p.includes('## Text B') || !/your answer/i.test(p)) {
+    throw new Error('Invalid judge prompt (missing Text A/Text B/verdict instruction)');
+  }
+}
+
+/**
+ * Evaluate ONE pair across `repeats` repeats. Each repeat = 2 LLM calls (forward + reverse).
+ * Pure orchestration over the injected JudgeFn — no DB, no provider coupling.
+ */
+export async function evaluatePair(
+  pair: JudgeEvalPair,
+  settings: JudgeSettings,
+  repeats: number,
+  judge: JudgeFn,
+): Promise<JudgeEvalCallResult[]> {
+  const mode: PairKind = pair.pair_kind; // 'article' | 'paragraph' → comparison rubric
+  const wantsFreeform =
+    (settings.explainReasoning ?? false) || settings.customPromptOverride != null;
+  const parser = wantsFreeform ? parseVerdictFromReasoning : parseWinner;
+
+  const forwardPrompt = buildComparisonPrompt(
+    pair.text_a,
+    pair.text_b,
+    mode,
+    settings.customPromptOverride ?? undefined,
+    settings.explainReasoning ?? false,
+  );
+  const reversePrompt = buildComparisonPrompt(
+    pair.text_b,
+    pair.text_a,
+    mode,
+    settings.customPromptOverride ?? undefined,
+    settings.explainReasoning ?? false,
+  );
+  validatePrompt(forwardPrompt);
+  validatePrompt(reversePrompt);
+
+  const results: JudgeEvalCallResult[] = [];
+  for (let i = 0; i < repeats; i++) {
+    const started = Date.now();
+    let fwd: JudgeCallOutput;
+    let rev: JudgeCallOutput;
+    let error: string | null = null;
+    try {
+      [fwd, rev] = await Promise.all([judge(forwardPrompt), judge(reversePrompt)]);
+    } catch (e) {
+      // Surface budget/kill cleanly; record an errored repeat and stop this pair.
+      error = e instanceof Error ? e.message : String(e);
+      results.push(erroredRepeat(pair, mode, i, error));
+      throw Object.assign(new Error(error), { partialResults: results });
+    }
+    const wallMs = Date.now() - started;
+
+    const fParsed = norm(parser(fwd.text));
+    const rParsed = norm(parser(rev.text));
+    const agg = aggregateWinners(fParsed, rParsed);
+
+    results.push({
+      pair_label: pair.label,
+      pair_kind: pair.pair_kind,
+      comparison_mode: mode,
+      repeat_index: i,
+      forward_winner: fParsed,
+      reverse_winner: rParsed,
+      winner: agg.winner,
+      confidence: agg.confidence,
+      wall_ms: wallMs,
+      fwd_ms: null,
+      rev_ms: null,
+      prompt_tokens: fwd.promptTokens + rev.promptTokens,
+      output_tokens: fwd.outputTokens + rev.outputTokens,
+      reasoning_tokens: fwd.reasoningTokens + rev.reasoningTokens,
+      cost_usd: fwd.costUsd + rev.costUsd,
+      forward_raw: fwd.text,
+      reverse_raw: rev.text,
+      error: null,
+    });
+  }
+  return results;
+}
+
+function erroredRepeat(
+  pair: JudgeEvalPair,
+  mode: PairKind,
+  i: number,
+  error: string,
+): JudgeEvalCallResult {
+  return {
+    pair_label: pair.label,
+    pair_kind: pair.pair_kind,
+    comparison_mode: mode,
+    repeat_index: i,
+    forward_winner: null,
+    reverse_winner: null,
+    winner: 'TIE',
+    confidence: 0,
+    wall_ms: null,
+    fwd_ms: null,
+    rev_ms: null,
+    prompt_tokens: null,
+    output_tokens: null,
+    reasoning_tokens: null,
+    cost_usd: null,
+    forward_raw: null,
+    reverse_raw: null,
+    error,
+  };
+}
+
+/** Run every pair (bounded concurrency) and return all per-repeat call results. */
+export async function runJudgeEval(
+  pairs: JudgeEvalPair[],
+  settings: JudgeSettings,
+  repeats: number,
+  judge: JudgeFn,
+  concurrency: number = DEFAULT_JUDGE_EVAL_CONCURRENCY,
+): Promise<JudgeEvalCallResult[]> {
+  const limit = Math.max(1, concurrency);
+  const out: JudgeEvalCallResult[] = [];
+  let idx = 0;
+  async function worker(): Promise<void> {
+    while (idx < pairs.length) {
+      const pair = pairs[idx++]!;
+      const rows = await evaluatePair(pair, settings, repeats, judge);
+      out.push(...rows);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, pairs.length) }, () => worker()));
+  return out;
+}
+
+/**
+ * Build the production JudgeFn over plain callLLM (NOT createEvolutionLLMClient, which pins
+ * ranking temp=0 and writes evolution_metrics). E2E stub + prod guard mirror rejudge.
+ */
+export function createCallLLMJudge(params: {
+  judgeModel: string;
+  temperature?: number;
+  reasoningEffort?: JudgeReasoningEffort;
+  userId?: string;
+  trackingDb?: SupabaseClient<Database>;
+}): JudgeFn {
+  const isE2E = process.env.E2E_TEST_MODE === 'true';
+  if (isE2E && process.env.NODE_ENV === 'production' && !process.env.CI) {
+    throw new Error('E2E_TEST_MODE must not be enabled in production');
+  }
+  const userId = params.userId ?? JUDGE_EVAL_SYSTEM_USERID;
+
+  return async (prompt: string): Promise<JudgeCallOutput> => {
+    if (isE2E) {
+      return { text: 'Stubbed reasoning for E2E.\nYour answer: A', costUsd: 0, promptTokens: 0, outputTokens: 0, reasoningTokens: 0 };
+    }
+    let costUsd = 0;
+    let promptTokens = 0;
+    let outputTokens = 0;
+    let reasoningTokens = 0;
+    const opts: CallLLMOptions = {
+      ...(params.temperature != null ? { temperature: params.temperature } : {}),
+      ...(params.reasoningEffort != null ? { reasoningEffort: params.reasoningEffort } : {}),
+      ...(params.trackingDb != null ? { trackingDb: params.trackingDb } : {}),
+      onUsage: (u: LLMUsageMetadata) => {
+        costUsd += u.estimatedCostUsd;
+        promptTokens += u.promptTokens;
+        outputTokens += u.completionTokens;
+        reasoningTokens += u.reasoningTokens;
+      },
+    };
+    let text: string;
+    try {
+      // call_source 'evolution_judge_eval' → inherits the shared LLM semaphore + global gate.
+      text = await callLLM(prompt, 'evolution_judge_eval', userId, params.judgeModel, false, null, null, null, false, opts);
+    } catch (e) {
+      if (e instanceof GlobalBudgetExceededError || e instanceof LLMKillSwitchError) {
+        throw new Error(`Judge eval unavailable: ${e.message}`);
+      }
+      throw e;
+    }
+    return { text, costUsd, promptTokens, outputTokens, reasoningTokens };
+  };
+}

@@ -41,7 +41,7 @@ jest.mock('./llmSpendingGate', () => ({
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
-import { callLLM, callLLMModel, callOpenAIModel, isAnthropicModel, isLocalModel, isOpenRouterModel, DEFAULT_MODEL, LIGHTER_MODEL, saveLlmCallTracking, __resetTrackingFailureCount, __getTrackingFailureCount, type LLMUsageMetadata } from './llms';
+import { callLLM, callLLMModel, callOpenAIModel, isAnthropicModel, isLocalModel, isOpenRouterModel, DEFAULT_MODEL, LIGHTER_MODEL, saveLlmCallTracking, applyTestLlmModelOverride, __resetTrackingFailureCount, __getTrackingFailureCount, type LLMUsageMetadata } from './llms';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 
@@ -912,8 +912,80 @@ describe('llms', () => {
     it('should not identify other models as OpenRouter', () => {
       expect(isOpenRouterModel('gpt-4.1-mini')).toBe(false);
       expect(isOpenRouterModel('deepseek-chat')).toBe(false);
+      expect(isOpenRouterModel('deepseek-v4-pro')).toBe(false);
+      expect(isOpenRouterModel('deepseek-v4-flash')).toBe(false);
       expect(isOpenRouterModel('claude-sonnet-4-20250514')).toBe(false);
       expect(isOpenRouterModel('LOCAL_qwen2.5:14b')).toBe(false);
+    });
+  });
+
+  describe('DeepSeek V4 model routing', () => {
+    it('should disable thinking for non-reasoning DeepSeek models', async () => {
+      process.env.DEEPSEEK_API_KEY = 'test-deepseek-key';
+
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'DeepSeek response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'deepseek-v4-flash',
+      });
+
+      await callLLM(
+        'Test prompt',
+        'test_source',
+        '00000000-0000-4000-8000-000000000001',
+        'deepseek-v4-flash',
+        false,
+        null,
+        null,
+        null,
+        false,
+      );
+
+      expect(mockCreateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: 'deepseek-v4-flash',
+          thinking: { type: 'disabled' },
+        })
+      );
+    });
+
+    it('should bill cache-hit prompt tokens at the cached rate', async () => {
+      process.env.DEEPSEEK_API_KEY = 'test-deepseek-key';
+
+      // deepseek-v4-flash: input 0.14, cachedInput 0.0028, output 0.28.
+      // 1000 prompt (800 cache-hit) + 500 output:
+      //   (200/1M)*0.14 + (800/1M)*0.0028 + (500/1M)*0.28 = 0.00017024 -> 0.00017
+      // vs all-miss (1000/1M)*0.14 + (500/1M)*0.28 = 0.00028.
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'cached response' }, finish_reason: 'stop' }],
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 500,
+          total_tokens: 1500,
+          prompt_cache_hit_tokens: 800,
+          prompt_cache_miss_tokens: 200,
+        },
+        model: 'deepseek-v4-flash',
+      });
+
+      let captured: LLMUsageMetadata | undefined;
+      await callLLM(
+        'Test prompt',
+        'test_source',
+        '00000000-0000-4000-8000-000000000001',
+        'deepseek-v4-flash',
+        false,
+        null,
+        null,
+        null,
+        false,
+        { onUsage: (u) => { captured = u; } },
+      );
+
+      expect(captured?.cachedPromptTokens).toBe(800);
+      expect(captured?.estimatedCostUsd).toBeCloseTo(0.00017, 6);
+      // Strictly cheaper than billing all prompt tokens at the cache-miss rate.
+      expect(captured!.estimatedCostUsd).toBeLessThan(0.00028);
     });
   });
 
@@ -1566,5 +1638,53 @@ describe('llms', () => {
         expect.objectContaining({ message: 'permission denied for table llmCallTracking' }),
       );
     });
+  });
+});
+
+describe('applyTestLlmModelOverride (TEST_LLM_MODEL)', () => {
+  const orig = process.env.TEST_LLM_MODEL;
+  const origNodeEnv = process.env.NODE_ENV;
+  const origCI = process.env.CI;
+
+  // process.env.NODE_ENV is typed read-only by @types/node; cast for test mutation.
+  const setNodeEnv = (v: string | undefined) => {
+    (process.env as Record<string, string | undefined>).NODE_ENV = v;
+  };
+
+  afterEach(() => {
+    process.env.TEST_LLM_MODEL = orig;
+    setNodeEnv(origNodeEnv);
+    process.env.CI = origCI;
+  });
+
+  it('returns the requested model unchanged when TEST_LLM_MODEL is unset', () => {
+    delete process.env.TEST_LLM_MODEL;
+    expect(applyTestLlmModelOverride(DEFAULT_MODEL)).toBe(DEFAULT_MODEL);
+  });
+
+  it('substitutes the override when TEST_LLM_MODEL is a valid model id', () => {
+    process.env.TEST_LLM_MODEL = 'google/gemini-2.5-flash';
+    setNodeEnv('test');
+    expect(applyTestLlmModelOverride(DEFAULT_MODEL)).toBe('google/gemini-2.5-flash');
+  });
+
+  it('is IGNORED in a real production runtime (NODE_ENV=production, not CI)', () => {
+    process.env.TEST_LLM_MODEL = 'google/gemini-2.5-flash';
+    setNodeEnv('production');
+    delete process.env.CI;
+    expect(applyTestLlmModelOverride(DEFAULT_MODEL)).toBe(DEFAULT_MODEL);
+  });
+
+  it('is honored under production+CI (trusted CI runner)', () => {
+    process.env.TEST_LLM_MODEL = 'google/gemini-2.5-flash';
+    setNodeEnv('production');
+    process.env.CI = 'true';
+    expect(applyTestLlmModelOverride(DEFAULT_MODEL)).toBe('google/gemini-2.5-flash');
+  });
+
+  it('throws (fails loudly) when TEST_LLM_MODEL is not an allowed model id', () => {
+    process.env.TEST_LLM_MODEL = 'not-a-real-model';
+    setNodeEnv('test');
+    expect(() => applyTestLlmModelOverride(DEFAULT_MODEL)).toThrow();
   });
 });

@@ -13,6 +13,7 @@ import { getMetricsForEntities } from '@evolution/lib/metrics/readMetrics';
 import { getListViewMetrics } from '@evolution/lib/metrics/registry';
 import type { MetricRow } from '@evolution/lib/metrics/types';
 import { _INTERNAL_ELO_SIGMA_SCALE } from '@evolution/lib/shared/computeRatings';
+import { NON_DISCARDED_OR_FILTER } from '@evolution/lib/utils/variantStatus';
 import { z } from 'zod';
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -61,6 +62,10 @@ export interface EvolutionVariant {
   sigma?: number | null;
   /** Whether this variant survived the discard rule and is part of the final pool. */
   persisted?: boolean;
+  /** 'article' | 'paragraph'. NOT NULL DEFAULT 'article' in DB. The persisted=false
+   *  "discarded" UI applies only to article variants; paragraph variants are always
+   *  persisted=false by design (sync_to_arena) and are not discards. */
+  variant_kind?: string;
   /** Parent variant IDs for lineage display. parent_variant_ids[0] is the canonical
    *  primary parent; entries 1+ are additional parents (debate's [winner, loser] etc.).
    *  bring_back_debate_agent_20260506 Decision §20. */
@@ -131,6 +136,9 @@ export interface VariantListEntry {
    *  (track_tactic_effectiveness_evolution_20260422) so the variants list can deep-link to
    *  tactic detail. */
   tactic_id?: string | null;
+  /** 'article' | 'paragraph'. NOT NULL DEFAULT 'article'. Threaded for kind-aware display;
+   *  paragraph variants are always persisted=false by design and are not discards. */
+  variant_kind?: string;
 }
 
 const listVariantsInputSchema = z.object({
@@ -452,6 +460,9 @@ export interface SnapshotVariantInfo {
   id: string;
   agentName: string;
   persisted: boolean;
+  /** 'article' | 'paragraph'. Used to suppress the article-only "discarded" styling
+   *  for paragraph variants (which are always persisted=false by design). */
+  variantKind?: string;
 }
 
 export interface RunSnapshotsResult {
@@ -492,10 +503,10 @@ export const getRunSnapshotsAction = adminAction(
     if (variantIds.size > 0) {
       const { data: vRows } = await ctx.supabase
         .from('evolution_variants')
-        .select('id, agent_name, persisted')
+        .select('id, agent_name, persisted, variant_kind')
         .in('id', Array.from(variantIds));
-      for (const v of (vRows ?? []) as Array<{ id: string; agent_name: string; persisted?: boolean | null }>) {
-        variantInfo[v.id] = { id: v.id, agentName: v.agent_name ?? '—', persisted: v.persisted ?? true };
+      for (const v of (vRows ?? []) as Array<{ id: string; agent_name: string; persisted?: boolean | null; variant_kind?: string | null }>) {
+        variantInfo[v.id] = { id: v.id, agentName: v.agent_name ?? '—', persisted: v.persisted ?? true, variantKind: v.variant_kind ?? 'article' };
       }
     }
 
@@ -506,7 +517,7 @@ export const getRunSnapshotsAction = adminAction(
 export const getEvolutionVariantsAction = adminAction(
   'getEvolutionVariantsAction',
   async (
-    args: string | { runId?: string; strategyId?: string; includeDiscarded?: boolean },
+    args: string | { runId?: string; strategyId?: string; includeDiscarded?: boolean; variantKind?: 'article' | 'paragraph' | 'any' },
     ctx: AdminContext,
   ): Promise<EvolutionVariant[]> => {
     // Backward-compat: accept either a bare runId string or an options object.
@@ -515,6 +526,14 @@ export const getEvolutionVariantsAction = adminAction(
     const runId = typeof args === 'string' ? args : args.runId;
     const strategyId = typeof args === 'string' ? undefined : args.strategyId;
     const includeDiscarded = typeof args === 'string' ? false : (args.includeDiscarded ?? false);
+    // hide_paragraphs_from_run_variants_tab_evolution_20260603: default to article-only so the run /
+    // strategy Variants tab hides paragraph_recombine slot rewrites (variant_kind='paragraph'), which
+    // carry run_id via the sync_to_arena RPC and otherwise leak in. Mirrors listVariantsAction's D13
+    // default. Defensive narrowing: any unexpected value collapses to 'article' (closed enum, but the
+    // string-arg form and untyped callers don't go through Zod here).
+    const requestedKind = typeof args === 'string' ? 'article' : (args.variantKind ?? 'article');
+    const variantKind: 'article' | 'paragraph' | 'any' =
+      requestedKind === 'paragraph' || requestedKind === 'any' ? requestedKind : 'article';
     if (runId && strategyId) throw new Error('Specify runId XOR strategyId, not both');
     if (!runId && !strategyId) throw new Error('Must specify runId or strategyId');
     if (runId && !validateUuid(runId)) throw new Error('Invalid runId');
@@ -522,7 +541,7 @@ export const getEvolutionVariantsAction = adminAction(
 
     // When filtering by strategy, embed the evolution_runs !inner join so Postgres/PostgREST
     // filters the variants to those whose parent run has the given strategy_id.
-    const baseFields = 'id, run_id, explanation_id, variant_content, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, persisted, parent_variant_ids';
+    const baseFields = 'id, run_id, explanation_id, variant_content, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, persisted, variant_kind, parent_variant_ids';
     const selectFields = strategyId
       ? `${baseFields}, evolution_runs!inner(strategy_id)`
       : baseFields;
@@ -533,8 +552,18 @@ export const getEvolutionVariantsAction = adminAction(
     if (runId) query = query.eq('run_id', runId);
     if (strategyId) query = query.eq('evolution_runs.strategy_id', strategyId);
     if (!includeDiscarded) {
-      // Default behavior: only show variants that survived to the final pool.
-      query = query.eq('persisted', true);
+      // Default: hide only ARTICLE discards (persisted=false article variants). Paragraph
+      // variants are always persisted=false (sync_to_arena never sets persisted) but are
+      // surfaced, not discarded — so keep them. `.or(...)` form is required: a single-string
+      // `.not('and(...)')` is a 3-arg-signature tsc error. See NON_DISCARDED_OR_FILTER.
+      query = query.or(NON_DISCARDED_OR_FILTER);
+    }
+    // Article-only default (hide_paragraphs_from_run_variants_tab_evolution_20260603). ANDs with the
+    // .or() above on the same `query`, so it applies to both the runId and strategyId !inner branches:
+    // Kind='article' → article non-discards; Kind='paragraph' → all paragraph rows; Kind='any' → no
+    // kind filter. Mirrors listVariantsAction:759-762.
+    if (variantKind !== 'any') {
+      query = query.eq('variant_kind', variantKind);
     }
     // B014-S5: cap variant list at 500 rows. Without a limit, an admin requesting all
     // variants for a strategy with many runs could OOM the action (response size +
@@ -725,8 +754,8 @@ export const listVariantsAction = adminAction(
     // .not.in) that silently failed when the IN list exceeded PostgREST URL limits.
     const wantsEmbed = !!parsed.filterTestContent;
     const baseFields = wantsEmbed
-      ? 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, parent_variant_ids, evolution_runs!inner(evolution_strategies!inner(is_test_content))'
-      : 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, parent_variant_ids';
+      ? 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, variant_kind, parent_variant_ids, evolution_runs!inner(evolution_strategies!inner(is_test_content))'
+      : 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, variant_kind, parent_variant_ids';
 
     let query = supabase
       .from('evolution_variants')
@@ -736,8 +765,11 @@ export const listVariantsAction = adminAction(
     if (parsed.agentName) query = query.eq('agent_name', parsed.agentName);
     if (parsed.isWinner !== undefined) query = query.eq('is_winner', parsed.isWinner);
     if (!parsed.includeDiscarded) {
-      // Default: only show variants that survived to the final pool.
-      query = query.eq('persisted', true);
+      // Default: hide only ARTICLE discards. Paragraph variants are always persisted=false
+      // (sync_to_arena never sets persisted) but are surfaced — keep them, else selecting the
+      // 'paragraph'/'any' Kind filter below returns an empty list. ANDs with the variant_kind
+      // .eq() below: Kind='paragraph' → all paragraph rows; Kind='article' → article non-discards.
+      query = query.or(NON_DISCARDED_OR_FILTER);
     }
     // D13: filter on variant_kind unless 'any' was explicitly requested.
     if (parsed.variantKind !== 'any') {

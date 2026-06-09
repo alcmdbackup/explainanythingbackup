@@ -522,6 +522,16 @@ original frame before aggregation.
 
 ---
 
+## Match Viewer Re-judge Sandbox
+
+The admin **Match Viewer** (`/admin/evolution/matches/[comparisonId]`, match_viewer_with_experimentation_procedures_20260605) lets an operator re-run the judge for a stored comparison **display-only** — to ask "would a different model / temperature / prompt have judged this pair differently?" without launching a new run. `rejudgeComparisonAction` (`evolution/src/services/arenaActions.ts`):
+
+- Drives `run2PassReversal` **directly** (not `compareWithBiasMitigation`, whose comparison-cache hit would skip the LLM calls) so it can capture each pass's exact prompt + raw response, and reuses `buildComparisonPrompt` + `aggregateWinners` so the confidence semantics match production.
+- Builds the `callLLM` closure on the plain `src/lib/services/llms.ts` path (NOT `createEvolutionLLMClient`, which force-pins ranking temperature to 0 and is the only path that writes `evolution_metrics`). It therefore **mutates nothing** — no comparison row, no ratings — the sole side-effect is the standard per-call `llmCallTracking` audit row. Temperature is honored and clamped to the model's `maxTemperature`.
+- Supports an optional `customPromptOverride` and `explainReasoning` on `buildComparisonPrompt` (sandbox-only; the default pipeline path is byte-for-byte unchanged). The override replaces only the rubric block — the two texts are still rendered in per-pass swapped positions so the reversal/`flipWinner` framing stays valid. A custom prompt is NOT forced verdict-only (so it can request an explanation), and any free-form output (custom prompt or reasoning toggle) is parsed with the reasoning-tolerant `parseVerdictFromReasoning`, which scans the **last** verdict marker instead of `parseWinner`'s start-anchored / bare-substring matching (a reasoning paragraph mentioning "equal"/"draw" would false-trigger `parseWinner`).
+
+---
+
 ## How the Pieces Connect
 
 The ranking subsystem sits between generation and selection in the
@@ -584,6 +594,7 @@ on if not called out explicitly.
 
 ## Cross-References
 
+- [Judge Evaluation (Judge Lab)](../../docs/feature_deep_dives/judge_evaluation.md) -- the systematic judge-evaluation tool reuses this comparison primitive (buildComparisonPrompt / 2-pass reversal / aggregateWinners) display-only to measure decisiveness across judge settings.
 - [Architecture](./architecture.md) -- pipeline structure and the generate-rank-evolve loop
 - [Agents](./agents/overview.md) -- how generated variants enter the ranking pool
 - [Data Model](./data_model.md) -- persistence of ratings, matches, and match counts

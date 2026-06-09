@@ -11,6 +11,9 @@ The PR-creation gate prevents Claude from opening PRs with unverified code, whil
 | `.claude/ci-gate.json` | `update-ci-gate.sh` Stop hook | `block-pr-create-without-gate.sh` + `block-push-without-gate.sh` (reactive path) | No (gitignored) |
 | `.claude/ci-gate-override.json` | `/approve-pr` | `block-pr-create-without-gate.sh` (both paths) | **Yes** (audit trail) |
 | `.claude/ci-gate.disabled` | User (manual touch) | `block-pr-create-without-gate.sh` (reactive path only) | No (gitignored) |
+| `.claude/safe-to-close-verdict.json` | `/safe_to_close` Phase 6 | (audit only — no hook consumes it) | No (gitignored) |
+
+`/safe_to_close` reads `push-gate.json`, `test-pass.json`, and `ci-gate.json` (per its Phase 3) to verify that `/finalize` has run on the current commit before declaring a branch safe to close.
 
 ## Two enforcement paths
 

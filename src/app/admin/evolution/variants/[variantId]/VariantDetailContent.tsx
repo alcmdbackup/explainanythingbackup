@@ -7,16 +7,19 @@ import { VariantContentSection } from '@evolution/components/evolution/variant/V
 import { VariantLineageSection } from '@evolution/components/evolution/variant/VariantLineageSection';
 import { VariantMatchHistory } from '@evolution/components/evolution/variant/VariantMatchHistory';
 import { VariantParentBadge } from '@evolution/components/evolution/variant/VariantParentBadge';
+import { VariantParentDiffTab } from '@evolution/components/evolution/variant/VariantParentDiffTab';
 import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 import type { VariantFullDetail } from '@evolution/services/variantDetailActions';
 import { formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
 import { bootstrapDeltaCI } from '@evolution/lib/shared/ratingDelta';
+import { isDiscardedGenerateVariant } from '@evolution/lib/utils/variantStatus';
 
 const TABS = [
   { id: 'content', label: 'Content' },
   { id: 'metrics', label: 'Metrics' },
   { id: 'matches', label: 'Matches' },
   { id: 'lineage', label: 'Lineage' },
+  { id: 'diff', label: 'Diff vs parent' },
 ];
 
 interface VariantDetailContentProps {
@@ -41,6 +44,8 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
       deltaCi={ci}
       crossRun={!!variant.parentRunId && variant.parentRunId !== variant.runId}
       parentRunId={variant.parentRunId ?? null}
+      // Parentless paragraph variants are the slot's original paragraph, not a seed article.
+      noParentLabel={variant.variantKind === 'paragraph' ? 'Original paragraph' : undefined}
     />
   );
 
@@ -108,7 +113,7 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
         {parentBadge}
       </div>
 
-      {variant.persisted === false && (
+      {isDiscardedGenerateVariant(variant.persisted, variant.variantKind) && (
         <div
           className="rounded-book border border-[var(--status-error)] bg-[var(--status-error)]/10 p-3"
           data-testid="variant-discarded-banner"
@@ -128,6 +133,7 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
         {activeTab === 'content' && <VariantContentSection content={variant.variantContent} />}
         {activeTab === 'matches' && <VariantMatchHistory variantId={variant.id} />}
         {activeTab === 'lineage' && <VariantLineageSection variantId={variant.id} />}
+        {activeTab === 'diff' && <VariantParentDiffTab variantId={variant.id} />}
       </EntityDetailTabs>
     </div>
   );

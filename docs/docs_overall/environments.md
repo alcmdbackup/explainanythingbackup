@@ -76,7 +76,7 @@ Every PR that adds files under `supabase/migrations/**` must pass `scripts/lint-
 | `ALTER TABLE foo ADD COLUMN c` | `ALTER TABLE foo ADD COLUMN IF NOT EXISTS c` (Supabase runs PG 14+) |
 | `ALTER TABLE foo ADD CONSTRAINT c` | preceded by `ALTER TABLE foo DROP CONSTRAINT IF EXISTS c;` in same file (PG has no native `IF NOT EXISTS` for constraints — this was the exact #1073 trip-wire) |
 
-**Warn-only rollout window**: as of 2026-05-24 the job ships with `continue-on-error: true` (warnings annotate the PR but don't block merge). The flag is scheduled to flip to `false` on **2026-05-31** to give the in-flight migration backlog a week to drain.
+**Blocking (as of 2026-05-29)**: the `lint-migrations-idempotent` job is a required check — a non-idempotent newly-added migration fails the PR (`continue-on-error` removed). It scans only newly-added files, so the legacy backlog doesn't trip it. Two sibling gates were added alongside it in `supabase-migrations.yml`: **`check-migration-order`** (blocking timestamp-order + duplicate-version check — replaces the retired `migration-reorder.yml` auto-rename workflow) and **`check-migration-append-only`** (blocks in-place edits to shipped migrations; bypass via a `-- @migration-edit-approved` marker or the `migration-edit-approved` PR label). All three should be marked REQUIRED in branch protection.
 
 **Emergency bypass**: apply the `migration-lint-bypass` PR label to skip the check during a production-down hotfix. The bypass logs a warning annotation and requires a follow-up PR to retrofit guards into the bypassed migration. Note that GitHub branch protection does not cover PR-label add/remove events — bypass is a soft control gated on social convention + CODEOWNERS review of the labeled PR; treat the audit annotation as the binding record.
 
@@ -116,6 +116,8 @@ Production releases (`main → production` merges via `/mainToProd`) should happ
 2. **Failure correlation gets harder**. When a deploy fails, fewer recent migrations means easier diagnosis. After 2.5 months frozen, the smoke_test_and_nightly_e2e_failing_20260523 investigation had to bisect across 73 migration commits to find the trip-wire.
 
 The 2-week cadence is a *default*, not a hard rule — relax it only when there is genuinely nothing merge-ready on `main` that should ship. When a release does fire, run `/mainToProd` and pay attention to the post-merge verification banner if it surfaces (it only fires when the release includes migrations).
+
+> **Tip:** `/safe_to_close` Phase 4-5 surface the leading indicators that the 62-day drift would have produced on day-1: un-promoted migrations (`git diff origin/production..origin/main -- 'supabase/migrations/*.sql'`), un-released-commits age vs the 17-day observed-cadence-max threshold, nightly E2E status (RED at ≥2 consecutive failing nights), and open `release-health` issues older than 12h. Running it before declaring work done catches release-process stalls before they accumulate.
 
 ---
 
@@ -271,7 +273,7 @@ detect-changes → typecheck + lint (parallel)
 - Runs on `main` branch
 - Full E2E test suite (no sharding)
 - **Browser matrix:** Chromium + Firefox
-- `E2E_TEST_MODE=true` for SSE streaming compatibility
+- **No** `E2E_TEST_MODE` — nightly runs real AI against the deployed prod app (hence the `[TEST]` prefix on generated content is critical for cleanup). Chromium-only (firefox dropped 2026-06-07 to halve real spend). The separate `e2e-real-ai-smoke.yml` runs a cheap-model (`TEST_LLM_MODEL=google/gemini-2.5-flash`) `@prod-ai` real-AI smoke against a local build; per-deploy prod validation is covered by `post-deploy-smoke.yml`.
 - **Fail strategy:** Continues on failure (tests all browsers)
 
 ### Post-Deploy Smoke Tests (`post-deploy-smoke.yml`)

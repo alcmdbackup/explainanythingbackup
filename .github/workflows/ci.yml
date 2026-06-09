@@ -124,8 +124,9 @@ jobs:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       - name: Repair remote-only migration history
         # When staging's supabase_migrations table has rows that don't exist as local
-        # files (e.g. CI auto-renamed timestamps on a previous run, or a hotfix was
-        # applied directly), `supabase db push` aborts with "Remote migration versions
+        # files (e.g. legacy renamed timestamps from the now-retired auto-rename
+        # workflow, deleted migrations, or a hotfix applied directly),
+        # `supabase db push` aborts with "Remote migration versions
         # not found in local migrations directory". Mark each remote-only version as
         # reverted so the push can proceed. The actual schema rows aren't dropped —
         # we're only repairing the migration ledger entry. Ported from the
@@ -262,6 +263,8 @@ jobs:
       - run: bash scripts/test-bypass-safety-hooks.sh
       - run: bash scripts/test-block-pr-create-without-gate.sh
       - run: bash scripts/test-update-ci-gate.sh
+      - run: bash scripts/test-check-migration-order.sh
+      - run: bash scripts/test-check-migration-append-only.sh
 
   # Required-sections lint for skill specs (.claude/commands/*.md). Asserts
   # specific section headers exist in each spec — catches silent deletions

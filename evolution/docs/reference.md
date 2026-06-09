@@ -94,8 +94,8 @@ Server actions and the server-side runner core. All server actions use Next.js `
 | `claimAndExecuteRun.ts` | `claimAndExecuteRun` — server-side runner entry point. Calls `claim_evolution_run` RPC (concurrent limit enforced server-side via advisory lock), starts 30s heartbeat, calls `executePipeline()` internally which orchestrates the full pipeline lifecycle. Handles errors and marks run failed on unrecoverable exceptions. Uses a system UUID (`00000000-0000-4000-8000-000000000001`) for LLM call tracking. Accepts optional `db` (SupabaseClient) and `dryRun` (boolean) options. |
 | `evolutionActions.ts` | Server actions for run management: create new runs, list runs with status/pagination filtering, cancel in-progress runs, retry failed runs, fetch run summaries. |
 | `evolutionVisualizationActions.ts` | Server actions powering the Elo charts and convergence visualizations: `eloHistory` time series, diversity trend data, per-iteration cost breakdowns, rating distribution histograms. |
-| `arenaActions.ts` | Server actions for the arena subsystem: list arena topics, fetch leaderboard rankings for a topic, get arena entry details with comparison history. Arena entries are now `evolution_variants` rows with `synced_to_arena=true` (the `evolution_arena_entries` table was consolidated into `evolution_variants` in migration `20260321000002`). |
-| `variantDetailActions.ts` | Server actions for variant inspection: full variant text with metadata, parent lineage chain, match history (wins/losses/draws), text diffs between parent and child. `getVariantMatchHistoryAction` queries `evolution_arena_comparisons` via `.or('entry_a.eq.<id>,entry_b.eq.<id>')` then batch-fetches opponents from `evolution_variants` (was a stub returning `[]` until fixes_to_evolution_admin_dashboard__20260503). `getVariantFullDetailAction` embeds `evolution_agent_invocations(id, agent_name)` via PostgREST so the variant detail header can render a "Produced by `<agent_name>`" cross-link to the producing invocation. |
+| `arenaActions.ts` | Server actions for the arena subsystem: list arena topics, fetch leaderboard rankings for a topic, get arena entry details with comparison history. Arena entries are now `evolution_variants` rows with `synced_to_arena=true` (the `evolution_arena_entries` table was consolidated into `evolution_variants` in migration `20260321000002`). **Match Viewer actions** (match_viewer_with_experimentation_procedures_20260605): `getRecentMatchesAction({ runId?, topicId?, winner?, minConfidence?, kind?, filterTestContent?, limit?, offset? })` lists recent `evolution_arena_comparisons` with variant-content previews + a `kind` (article/paragraph from `evolution_prompts.prompt_kind`); `getComparisonDetailAction({ comparisonId })` returns a comparison + both variants' content/elo (orphan-safe); `rejudgeComparisonAction({ comparisonId, judgeModel, mode?, customPrompt?, temperature?, explainReasoning? })` re-runs the 2-pass judge **display-only** — drives `run2PassReversal` directly, uses plain `callLLM` (NOT the evolution client), so no `evolution_metrics`/comparison/ratings write (only a per-call `llmCallTracking` audit row); returns each pass's exact prompt + raw response. UI: `src/app/admin/evolution/matches/{page.tsx,[comparisonId]/page.tsx}` + the `Tools` nav group in `EvolutionSidebar.tsx`. |
+| `variantDetailActions.ts` | Server actions for variant inspection: full variant text with metadata, parent lineage chain, match history (wins/losses/draws), text diffs between parent and child. `getVariantMatchHistoryAction` queries `evolution_arena_comparisons` via `.or('entry_a.eq.<id>,entry_b.eq.<id>')` then batch-fetches opponents from `evolution_variants` (was a stub returning `[]` until fixes_to_evolution_admin_dashboard__20260503); `VariantMatchEntry` carries `comparisonId` so the Matches tab deep-links each row to `/admin/evolution/matches/[comparisonId]` (match_viewer_with_experimentation_procedures_20260605). `getVariantFullDetailAction` embeds `evolution_agent_invocations(id, agent_name)` via PostgREST so the variant detail header can render a "Produced by `<agent_name>`" cross-link to the producing invocation. |
 | `experimentActionsV2.ts` | Server actions for experiment management: create experiments with strategy arms, list experiments, fetch experiment detail with per-arm metrics, add/remove runs from experiments. |
 | `strategyRegistryActionsV2.ts` | Server actions for the strategy registry: CRUD operations on strategy configurations, list with filtering, fetch strategy usage statistics (run count, avg Elo). |
 | `invocationActions.ts` | Server actions for LLM invocation auditing: list invocations with model/run filtering, fetch invocation detail (full prompt, response, token counts, cost, latency). |
@@ -107,6 +107,7 @@ Server actions and the server-side runner core. All server actions use Next.js `
 | `tacticPromptActions.ts` | Per-(tactic × prompt) performance aggregation. Returns `{ items, hitCap }` where `hitCap=true` signals the 5000-row query cap was hit and `TacticPromptPerformanceTable` renders a truncation banner (Gap 9 fix). |
 | `tacticStrategyActions.ts` | Per-(tactic × strategy) performance for the strategy detail Tactics tab. Dual-query merge: pre-aggregated `eloAttrDelta:*` rows at `entity_type='strategy'` supply Elo Delta + CI; live `evolution_variants` aggregates supply cost / variant count / winner count / win rate. Tactics with variants but no attribution row sort last with `avgEloDelta=null`. (track_tactic_effectiveness_evolution_20260422 Phase 4) |
 | `criteriaActions.ts` | Criteria registry server actions: `listCriteriaAction`, `getCriteriaDetailAction`, `createCriteriaAction`, `updateCriteriaAction`, `archiveCriteriaAction`, `deleteCriteriaAction`, `getCriteriaForEvaluation` (mid-run dispatch fetch — exported as a non-`'use server'` helper for use from the pipeline), `getCriteriaVariantsAction`, `getCriteriaRunsAction`, plus `validateCriteriaIds(criteriaIds, db)` which `createStrategyAction` calls before persisting any strategy whose iteration configs reference criteria UUIDs. Soft-delete via `deleted_at` (mirrors PromptEntity). (evaluateCriteriaThenGenerateFromPreviousArticle_20260501) |
+| `promptEditorActions.ts` | Prompt Editor "Load recent" picker server actions: `listRewriteSourcesAction({ unit, mode, limit })` lists recently rewritten content (article/paragraph × original/rewritten) from `evolution_variants` + `evolution_explanations` with a lightweight `{ id, source, preview, meta }` shape and an ilike test-content heuristic; `getRewriteSourceTextAction({ id, source })` fetches the full text to pre-populate the editor source. See [prompt_editor.md](./prompt_editor.md). (tool_test_rewrite_prompts_evolution_20260605) |
 
 ### Schemas (`evolution/src/lib/schemas.ts`)
 
@@ -329,6 +330,17 @@ Destructive DDL (`DROP TABLE`, `RENAME COLUMN`, `TRUNCATE`, `DELETE FROM`) is bl
 
 ## CLI Scripts
 
+### `evolution/scripts/judge-eval.ts`
+
+Systematic judge-evaluation CLI (`docs/feature_deep_dives/judge_evaluation.md`). Subcommands:
+`seed --topic <uuid> --bank <name>` (pull all article + paragraph pairs from an arena topic),
+`create-test-set --bank <name> --name <name> --size-article N --size-paragraph M --strategy
+<random|stratified_confidence|stratified_gap|manual> --seed S` (materialize + freeze a sample),
+and `sweep --test-set <name> --models a,b --temperatures 0,1 --reasoning none,low --kind
+<article|paragraph|both> --repeats N [--dry-run] [--prompt-file <path>]`. Shares the hard cost
+ceiling (`assertWithinJudgeEvalCap`) with the server action. Env: `JUDGE_EVAL_ENABLED` (default
+true), `JUDGE_EVAL_MAX_CALLS` (20000), `JUDGE_EVAL_MAX_USD` (5).
+
 ### `evolution/scripts/evolution-runner-v2.ts`
 
 V2 batch runner designed for continuous operation. Polls for pending runs, claims and executes them with configurable parallelism.
@@ -504,6 +516,7 @@ The admin UI is a Next.js App Router application. All pages are under `src/app/a
 | Route | Page File | Purpose |
 |-------|-----------|---------|
 | `/admin/evolution-dashboard` | `evolution-dashboard/page.tsx` | Aggregate metrics dashboard; auto-refresh every 15 seconds |
+| `/admin/evolution/prompt-editor` | `evolution/prompt-editor/page.tsx` | Prompt Editor — single-call rewrite testbed (article + paragraph), parallel configs, side-by-side outputs + cost. Backend: `evolution/src/lib/promptEditor/*` + `/api/evolution/prompt-editor`. See [prompt_editor.md](./prompt_editor.md). |
 | `/admin/evolution/runs` | `evolution/runs/page.tsx` | Runs list with status filtering (pending, running, completed, failed) |
 | `/admin/evolution/runs/[runId]` | `evolution/runs/[runId]/page.tsx` | Run detail with tabs: Overview, Elo, Lineage, Variants, Logs |
 | `/admin/evolution/experiments` | `evolution/experiments/page.tsx` | Experiment list |
@@ -529,6 +542,7 @@ The admin UI is a Next.js App Router application. All pages are under `src/app/a
 | Route | Method | File | Purpose |
 |-------|--------|------|---------|
 | `/api/evolution/run` | POST | `src/app/api/evolution/run/route.ts` | Trigger evolution pipeline run. Admin-only. Accepts `{ targetRunId?: string }`, returns `RunnerResult`. `maxDuration=300`. |
+| `/api/evolution/prompt-editor` | POST | `src/app/api/evolution/prompt-editor/route.ts` | Prompt-editor single-call rewrite harness. Admin-only + host-gated (public host → 404); env-gated by `EVOLUTION_PROMPT_EDITOR_ENABLED`. Accepts `{ unit, sourceText, title?, configs[] }`, returns `PromptEditorRunResult`. `maxDuration=300`. Calls `runPromptEditor` (`evolution/src/lib/promptEditor/`). See [prompt_editor.md](./prompt_editor.md). |
 
 Additional files:
 

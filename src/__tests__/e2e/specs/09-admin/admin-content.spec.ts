@@ -60,8 +60,13 @@ adminTest.describe('Admin Content Management', { tag: '@evolution' }, () => {
       // Search for our test explanation
       await contentPage.search('[TEST] Admin Test Visible');
 
-      // Should find our test explanation
-      const row = contentPage.page.getByRole('row', { name: /Admin Test Visible/i });
+      // Assert on THIS run's seeded row by its unique id, not a text-substring row
+      // match: the search term '[TEST] Admin Test Visible' is a prefix shared by leaked
+      // rows from prior runs (afterAll cleanup is best-effort), so
+      // getByRole('row', { name: /Admin Test Visible/i }) hits a strict-mode violation
+      // when >1 such row exists. The per-row data-testid is unique per explanation.
+      const seededId = parseInt(testExplanations[0]!.id, 10);
+      const row = contentPage.page.getByTestId(`admin-content-row-${seededId}`);
       await expect(row).toBeVisible();
     }
   );
