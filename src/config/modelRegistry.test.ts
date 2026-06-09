@@ -9,6 +9,7 @@ import {
   getModelOptions,
   isOpenRouterModel,
   getOpenRouterApiModelId,
+  modelSupportsJsonSchema,
   type ModelInfo,
   type ModelProvider,
 } from './modelRegistry';
@@ -89,6 +90,23 @@ describe('modelRegistry', () => {
       // Invariant: a non-reasoning model must not declare a default reasoning effort
       expect(info!.supportsReasoning).toBe(false);
       expect(info!.defaultReasoningEffort).toBeUndefined();
+    });
+  });
+
+  describe('modelSupportsJsonSchema', () => {
+    it('is true for the Gemini OpenRouter models (schema-enforced structured output)', () => {
+      expect(modelSupportsJsonSchema('google/gemini-2.5-flash')).toBe(true);
+      expect(modelSupportsJsonSchema('google/gemini-2.5-flash-lite')).toBe(true);
+    });
+
+    it('is false for OpenRouter models not verified for json_schema, and for OpenAI/DeepSeek/unknown', () => {
+      // Unflagged OpenRouter (judge default + gpt-oss) must stay on json_object.
+      expect(modelSupportsJsonSchema('qwen-2.5-7b-instruct')).toBe(false);
+      expect(modelSupportsJsonSchema('gpt-oss-20b')).toBe(false);
+      // Non-OpenRouter providers (the flag is irrelevant; helper returns false).
+      expect(modelSupportsJsonSchema('gpt-4.1-mini')).toBe(false);
+      expect(modelSupportsJsonSchema('deepseek-chat')).toBe(false);
+      expect(modelSupportsJsonSchema('nonexistent-model')).toBe(false);
     });
   });
 

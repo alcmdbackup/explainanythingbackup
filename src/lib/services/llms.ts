@@ -17,7 +17,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 import { calculateLLMCost } from '@/config/llmPricing';
-import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId, getModelMaxTemperature, getModelDefaultReasoningEffort, modelSupportsReasoning, MODEL_REGISTRY } from '@/config/modelRegistry';
+import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId, getModelMaxTemperature, getModelDefaultReasoningEffort, modelSupportsReasoning, modelSupportsJsonSchema, MODEL_REGISTRY } from '@/config/modelRegistry';
 
 /** Clamp temperature to model's max. Returns undefined if model doesn't support temperature or temp not set. */
 function clampTemperature(temperature: number | undefined, model: string): number | undefined {
@@ -470,9 +470,20 @@ async function callOpenAIModel(
         }
 
         if (response_obj && response_obj_name) {
-            if (isDeepSeekModel(validatedModel) || isLocalModel(validatedModel) || isOpenRouterModel(validatedModel)) {
+            if (isOpenRouterModel(validatedModel) && modelSupportsJsonSchema(validatedModel)) {
+                // Flagged OpenRouter model (e.g. Gemini): use schema-enforced json_schema so the
+                // model conforms to the Zod shape (plain json_object does NOT enforce the schema,
+                // which broke title-gen on Gemini — see fix_openrouter_json_schema_structured_output).
+                // Drop `strict` (zodResponseFormat defaults it to true); Gemini-via-OpenRouter rejects
+                // strict mode for some schemas, while non-strict still enforces the field shape.
+                const rf = zodResponseFormat(response_obj, response_obj_name);
+                rf.json_schema.strict = false;
+                requestOptions.response_format = rf;
+            } else if (isDeepSeekModel(validatedModel) || isLocalModel(validatedModel) || isOpenRouterModel(validatedModel)) {
+                // DeepSeek/Local/unflagged-OpenRouter: JSON-forced but not schema-enforced.
                 requestOptions.response_format = { type: 'json_object' };
             } else {
+                // OpenAI: schema-enforced json_schema (strict).
                 requestOptions.response_format = zodResponseFormat(response_obj, response_obj_name);
             }
         }
