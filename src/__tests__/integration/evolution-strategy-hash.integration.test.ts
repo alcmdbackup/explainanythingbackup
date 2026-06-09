@@ -1,5 +1,6 @@
 // Tests the strategy config hash find-or-create (upsertStrategy) against real Supabase DB.
-// Verifies deterministic hashing, iterationConfigs sensitivity, and budget exclusion from hash.
+// Verifies deterministic hashing, iterationConfigs sensitivity, and that budget (a v2
+// full-config field) now produces a DISTINCT strategy (no silent dedup).
 
 import { createTestSupabaseClient } from '@/testing/utils/integration-helpers';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -70,9 +71,13 @@ describe('Evolution Strategy Hash Integration Tests', () => {
     expect(idA).not.toBe(idB);
   });
 
-  it('budget is excluded from hash — same strategy returned', async () => {
+  it('budget is INCLUDED in hash (v2 full-config) — distinct strategy returned', async () => {
     if (!tablesExist) return;
 
+    // v2 hashing covers the entire config, so budgetUsd now produces a distinct
+    // strategy. Pre-v2 these deduped into one row; the whole point of
+    // further_investigate_paragraph_recombine_performance_20260531 (GH #1154) was
+    // to stop that silent collision/overwrite.
     const configNoBudget: StrategyConfig = {
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
@@ -91,6 +96,6 @@ describe('Evolution Strategy Hash Integration Tests', () => {
     const id2 = await upsertStrategy(supabase, configWithBudget);
     if (!createdStrategyIds.includes(id2)) createdStrategyIds.push(id2);
 
-    expect(id1).toBe(id2);
+    expect(id1).not.toBe(id2);
   });
 });

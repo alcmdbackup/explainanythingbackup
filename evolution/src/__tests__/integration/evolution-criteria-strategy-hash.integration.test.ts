@@ -19,10 +19,11 @@ describe('strategy hash integration (criteria-driven)', () => {
     ],
   };
 
-  it('legacy hash is unchanged by adding criteriaIds support to schema', () => {
-    // Snapshot regression: this hash must NOT change as long as canonicalization rules stay stable.
+  it('hash has the v2 format and is deterministic', () => {
+    // v2 re-baseline: the hasher moved from a whitelist to full-config canonicalization,
+    // so the format is now `v2:<12 hex>`. This guard protects the v2 format + determinism.
     const hash = hashStrategyConfig(baseConfig);
-    expect(hash).toMatch(/^[0-9a-f]{12}$/);
+    expect(hash).toMatch(/^v2:[0-9a-f]{12}$/);
     // Re-hashing twice produces identical output (deterministic).
     expect(hashStrategyConfig(baseConfig)).toBe(hash);
   });
