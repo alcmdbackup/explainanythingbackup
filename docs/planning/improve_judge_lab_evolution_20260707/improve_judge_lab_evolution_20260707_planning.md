@@ -78,17 +78,23 @@ splits into VIEW (read-only) + EDIT (metadata-only) + CLONE (the only safe membe
 - [ ] In `cloneTestSet`/`getOrCreateTestSet` (manual path): set the cloned set's
   `size_article`/`size_paragraph` to the **selected counts per kind** (honest metadata, since manual
   ignores `seed`/`size`). Map an `assertMembersExist` failure (label not in bank) to a friendly error.
-- [ ] New `loadBankPairsForCuration(db, testSetId, { kind, search?, limit?, offset? })` in
-  `persist.ts`: returns the source's **bank** pairs (the available universe) projected like
-  `loadTestSetContents` (display Elo, **no `text_a`/`text_b`**) each flagged `isMember` (is it a
-  current member of the source set), plus total counts. Reuses `dbToRating`/`toDisplayElo`. Thin
-  `getBankPairsForCurationAction`.
+- [ ] New `loadBankPairsForCuration(db, testSetId, filters)` in `persist.ts`: returns the source's
+  **bank** pairs (the available universe) projected like `loadTestSetContents` (display Elo, **no
+  `text_a`/`text_b`**), each flagged `isMember` (current member of the source set). Filters (applied
+  server-side over the parsed bank JSONB, then paginated): `kind` (article/paragraph/both),
+  `membership` (all/member/non_member), `gapKind` (all/large/close), `search` (label substring),
+  and **`eloMin`/`eloMax` — a pair passes only when BOTH sides are within the bound(s)**
+  (`elo_a` and `elo_b` each ≥ eloMin and ≤ eloMax; pairs with a null Elo are excluded when an Elo
+  bound is set). Returns `{ pairs (paginated), total (filtered count), memberCount, filteredLabels
+  (all matching labels — labels are tiny, powers "select all (filtered)") }`. Reuses `dbToRating`/
+  `toDisplayElo`. Thin `getBankPairsForCurationAction`.
 
-### Phase 5b: UI — curation picker in a "Clone & curate" flow
-- [ ] On the test-set detail page (or the list's Clone panel), add a curation picker: checkbox list
-  of bank pairs (current members pre-checked), per-kind filter + label search, lazy text expand
-  (reuse `getTestSetPairTextsAction`), a live selected-count, and "Clone with these N pairs" →
-  `cloneTestSetAction({ strategy:'manual', manualLabels, newName, … })`.
+### Phase 5b: UI — curation picker in a "Clone & curate" flow (on the **test-set detail page**)
+- [ ] On `test-sets/[testSetId]`, add a **Clone & curate** picker: checkbox list of bank pairs
+  (current members pre-checked), a filter row — **Kind · Membership · Gap-kind · Elo min/max
+  (both-sides) · label search** — lazy text expand (reuse `getTestSetPairTextsAction`), a live
+  selected-count, "Select all (filtered)" / "Clear" (operate on `filteredLabels`, no text fetch),
+  and "Clone with these N pairs" → `cloneTestSetAction({ strategy:'manual', manualLabels, newName, … })`.
 - [ ] Handle scale: paginate/search the universe (banks can be ~8.8k pairs); "select all (filtered)"
   operates on labels (no text fetch). Show an orphan note for current members no longer in the bank
   (cannot be re-included).
@@ -104,12 +110,13 @@ splits into VIEW (read-only) + EDIT (metadata-only) + CLONE (the only safe membe
 └───────────────────────────────────────────────────────────────────────────────┘
 
 ┌─ Clone & curate ─────────────────────────────────────────────────────────────┐
-│ New name: [ fr2-smoke-curated        ]     Kind: (•) Both ( ) Article ( ) Para │
-│ Search:   [ art#0                  ⌕ ]               Selected: 18 / 20         │
+│ New name: [ fr2-smoke-curated        ]                       Selected: 18 / 20 │
+│ Kind:(•)Both( )Art( )Para   Show:(•)All( )Members( )Non   Gap:(•)Any( )Lg( )Cl │
+│ Elo (both sides):  min [ 1200 ]  max [      ]      Search: [ art#0          ⌕ ] │
 │ ┌──────────────────────────────────────────────────────────────────────────┐ │
-│ │ ☑  art#0001  article   Elo 1420±40  vs  1190±45   gap 230   [view texts]  │ │
+│ │ ☑  art#0001  article   Elo 1420±40  vs  1190±45   gap 230   [view texts]  │ │  ← B side 1190 < min 1200 → would be filtered out
 │ │ ☑  art#0002  article   Elo 1310±50  vs  1305±50   gap   5   [view texts]  │ │
-│ │ ☐  art#0003  article   Elo 1255±60  vs  1240±55   gap  15   [view texts]  │ │  ← was not a member; check to ADD
+│ │ ☐  art#0003  article   Elo 1255±60  vs  1240±55   gap  15   [view texts]  │ │  ← not a member; check to ADD
 │ │ ☑  par#0007  paragraph Elo 1280±70  vs  1180±65   gap 100   [view texts]  │ │
 │ │ ⚠  art#0099  article   (orphaned — no longer in bank · cannot include)    │ │
 │ │ … paginated:  ‹ Prev   1  2  3  …  9   Next ›                              │ │
@@ -119,11 +126,13 @@ splits into VIEW (read-only) + EDIT (metadata-only) + CLONE (the only safe membe
 ```
 
 Notes: current members are pre-checked (☑); unchecking REMOVES, checking an unchecked row ADDS (the
-list is the bank's full universe, not just current members). Kind radio + search filter the visible
-rows; "Select all (filtered)" toggles labels only (no text fetch). Texts load lazily via `[view
-texts]` (`getTestSetPairTextsAction`). Orphaned current members (⚠) are shown read-only — they can't
-be re-included because they're absent from the bank. "Clone with N pairs" submits
-`cloneTestSetAction({ strategy:'manual', manualLabels:<checked>, newName, … })`.
+list is the bank's full universe, not just current members). The filter row (Kind · Show=membership ·
+Gap-kind · **Elo both-sides min/max** · label search) applies server-side + paginates; the **Elo
+filter requires BOTH variants** of a pair to fall within min/max. "Select all (filtered)" toggles
+`filteredLabels` only (no text fetch). Texts load lazily via `[view texts]`
+(`getTestSetPairTextsAction`). Orphaned current members (⚠) are read-only — absent from the bank, so
+cannot be re-included. "Clone with N pairs" submits `cloneTestSetAction({ strategy:'manual',
+manualLabels:<checked>, newName, … })`.
 
 ### Phase 5 Testing
 - [ ] `evolution/src/lib/judgeEval/persist.test.ts` — `cloneTestSet` with `strategy:'manual'` +
