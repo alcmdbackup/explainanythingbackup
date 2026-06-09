@@ -55,6 +55,54 @@ splits into VIEW (read-only) + EDIT (metadata-only) + CLONE (the only safe membe
 - [ ] `cloneTestSetAction({sourceTestSetId, newName, sizeArticle?, sizeParagraph?, strategy?, seed?, manualLabels?, description?})` — load `source.pair_bank_id` and call `getOrCreateTestSet` (which internally calls `selectTestSetMembers`) with the new name → new id → new settings_keys. **Critical edge:** `getOrCreateTestSet` is get-OR-create by name and returns the existing set UNCHANGED with `created:false` on collision — clone MUST treat `created===false` as a name-collision error (or pre-check), else it silently no-ops. Also `try/catch` the insert for `23505` on `name` (TOCTOU backstop — two concurrent clones can both pass a `created===false` pre-check; the UNIQUE constraint is the real guard, consistent with `updateTestSetMetaAction`). Coerce `seed` string→number (BIGINT serializes as string); warn clone re-samples the *current* bank. Expose `description` + `strategy='manual'`+`manualLabels` (omitted from create today).
 - [ ] Migrate `test-sets/page.tsx` to **`EntityListPage` self-managed mode** (precedent: `src/app/admin/evolution/strategies/page.tsx`; there is **no** "RegistryPage" component — that name survives only in a comment) → rowActions View/Edit/Clone (+ optional Delete, hard-blocked when `runs>0` given 4-level `ON DELETE CASCADE`). The existing bespoke inline create form (bank `<select>` + name + sizes + strategy + seed) must be ported into a `FormDialog` `children` slot, not just list-only.
 
+## Phase 5: Clone with curated membership (edit which pairs are in a set)
+
+> **Added 2026-06-09 (post-consensus, post-Phase-1–4).** New request: clone a test set while editing
+> its **membership** (add/remove article/paragraph pairs) — NOT editing the frozen members' text.
+> This is the *safe* membership-edit path: it produces a NEW frozen set (new id → new `settings_key`s),
+> so the source set and its eval runs are untouched. The `manual` strategy + `manualLabels` already
+> implement the primitive (`selectTestSetMembers` `testSet.ts:99`, `cloneTestSet` `persist.ts:334`);
+> the gaps are the action schema, a curation read-action, and the UI. See the research doc's
+> "Follow-up research: curate membership on clone" for the full findings.
+
+### Phase 5a: Backend — expose manual membership on clone + a curation universe action
+- [ ] Extend `cloneSchema` in `judgeEvalActions.ts` to accept `strategy` (incl. `'manual'`) +
+  `manualLabels: z.array(z.string().min(1)).optional()`; when `strategy==='manual'`, require
+  non-empty `manualLabels`. `cloneTestSet` already passes `manualLabels` through.
+- [ ] In `cloneTestSet`/`getOrCreateTestSet` (manual path): set the cloned set's
+  `size_article`/`size_paragraph` to the **selected counts per kind** (honest metadata, since manual
+  ignores `seed`/`size`). Map an `assertMembersExist` failure (label not in bank) to a friendly error.
+- [ ] New `loadBankPairsForCuration(db, testSetId, { kind, search?, limit?, offset? })` in
+  `persist.ts`: returns the source's **bank** pairs (the available universe) projected like
+  `loadTestSetContents` (display Elo, **no `text_a`/`text_b`**) each flagged `isMember` (is it a
+  current member of the source set), plus total counts. Reuses `dbToRating`/`toDisplayElo`. Thin
+  `getBankPairsForCurationAction`.
+
+### Phase 5b: UI — curation picker in a "Clone & curate" flow
+- [ ] On the test-set detail page (or the list's Clone panel), add a curation picker: checkbox list
+  of bank pairs (current members pre-checked), per-kind filter + label search, lazy text expand
+  (reuse `getTestSetPairTextsAction`), a live selected-count, and "Clone with these N pairs" →
+  `cloneTestSetAction({ strategy:'manual', manualLabels, newName, … })`.
+- [ ] Handle scale: paginate/search the universe (banks can be ~8.8k pairs); "select all (filtered)"
+  operates on labels (no text fetch). Show an orphan note for current members no longer in the bank
+  (cannot be re-included).
+
+### Phase 5 Testing
+- [ ] `evolution/src/lib/judgeEval/persist.test.ts` — `cloneTestSet` with `strategy:'manual'` +
+  `manualLabels` produces a set whose members are exactly the chosen labels and whose
+  `size_article`/`size_paragraph` equal the per-kind selected counts; friendly error when a label
+  isn't in the bank. `loadBankPairsForCuration` flags `isMember` correctly and strips texts.
+- [ ] `evolution/src/services/judgeEvalActions.test.ts` — `cloneTestSetAction` rejects empty
+  `manualLabels` when `strategy:'manual'`; passes labels through.
+- [ ] E2E (extend `admin-evolution-judge-lab-test-sets.spec.ts`): open Clone & curate, uncheck one
+  member + check one non-member, clone, and assert the new set's contents page shows the curated
+  membership (count + presence/absence of the toggled labels).
+
+### Phase 5 Verification
+- [ ] Playwright: the curation flow on local server; assert the cloned set's member set differs from
+  the source by exactly the toggled pairs.
+- [ ] `npm run test:unit -- persist judgeEvalActions`
+
 ## Rollback & Safety
 No new feature flags are introduced; all changes are low-risk and **revert-by-PR**:
 - Retry is a bounded loop (`MAX_RETRIES=3`) within the existing cost ceiling + LLM semaphore — cannot run away.

@@ -131,6 +131,66 @@ Risk is **live**: `fr2-smoke` has 20 frozen members + **7 dependent runs** (DB-c
   cross-run comparability, so the design likely needs view + safe-edit (metadata) + optional
   "clone into new test set" rather than mutating a frozen set.
 
+## Follow-up research: curate membership on clone (post-consensus request, 2026-06-09)
+
+**Ask:** "clone AND simultaneously edit the articles/paragraphs in the test set" — clarified to mean
+**edit which pairs are members** (add/remove article/paragraph pairs), NOT edit the frozen members'
+text. Done as part of a **clone** (a new frozen set), so the source set and its eval runs stay intact.
+
+**This is the safe path, and the mechanism already exists.** Editing a frozen set's membership
+*in place* is the forbidden operation (it keeps the same `settings_key`, silently corrupting
+cross-run comparability). Editing membership *while cloning* produces a NEW set → new `settings_key`s
+→ zero impact on the source — exactly what clone is for.
+
+Where the pieces already are:
+- **Membership = pair labels**, stored in `judge_eval_test_set_members (test_set_id, pair_label,
+  pair_kind)`. The article/paragraph **texts live only in the bank** (`judge_eval_pair_banks.pairs`
+  JSONB); members reference pairs by `pair_label`. So "edit membership" = change the set of
+  `pair_label`s, with the bank as the universe of available pairs.
+- **`manual` strategy is the curation primitive.** `selectTestSetMembers(pairs, { strategy:'manual',
+  manualLabels })` (`evolution/src/lib/judgeEval/testSet.ts:99-105`) returns exactly the bank pairs
+  whose label is in `manualLabels` (kind is taken from each pair; mixed article+paragraph is fine).
+  `assertMembersExist` (`testSet.ts:124`) rejects labels not in the bank.
+- **`cloneTestSet` already threads `manualLabels`** (`persist.ts:334`, `CloneTestSetInput.manualLabels`
+  → `getOrCreateTestSet` → `selectTestSetMembers`). The only gap is that `cloneTestSetAction`'s Zod
+  schema (`judgeEvalActions.ts`) doesn't yet accept `strategy:'manual'` + `manualLabels`, and there is
+  no curation UI.
+
+What's actually needed:
+1. **Expose the manual path in the action** — accept `strategy` (incl. `'manual'`) + `manualLabels:
+   string[]` in `cloneSchema`; when manual, set the cloned set's `size_article`/`size_paragraph` to
+   the **selected counts per kind** (honest metadata) and pass `manualLabels` through. Validate
+   non-empty + map a friendly error when labels aren't in the bank (wrap `assertMembersExist`).
+2. **A "universe" read action** for the picker — the curation UI must show *all bank pairs of the
+   chosen kinds* (so the user can ADD pairs that aren't current members), each flagged
+   `isMember` (current membership) + the same Elo projection + text-stripping as `loadTestSetContents`
+   (texts fetched lazily per row via the existing `getTestSetPairTextsAction`). New helper, e.g.
+   `loadBankPairsForCuration(db, testSetId)` returning `{ pairs: Array<{label, pair_kind, elo_a,
+   elo_b, elo_gap, isMember}> }`. The source set's current members are the default selection.
+3. **Curation UI** on the test-set detail (or a "Clone & curate" flow): checkbox list of bank pairs
+   (current members pre-checked), per-kind filter + search, a live selected-count, and a "Clone with
+   these N pairs" button → `cloneTestSetAction({ strategy:'manual', manualLabels, newName, … })`.
+
+Edge cases / caveats to carry into the plan:
+- **Scale.** Banks can be large (FR2 ~8.8k pairs). The universe list MUST strip `text_a`/`text_b`
+  (megabytes otherwise — same reason `loadTestSetContents` does) and needs pagination + label/kind
+  search; texts load lazily per row. A "select all (filtered)" should operate on labels, not fetch
+  texts.
+- **Orphans.** A current member whose label is no longer in the (re-seeded) bank can be *shown* (it's
+  in the members table) but **cannot be re-included** in a manual clone (not in the bank → dropped by
+  `selectTestSetMembers`/`assertMembersExist`). Surface this like the existing orphan warning.
+- **Ground truth is unaffected** — we're changing *which* pairs are included, not their texts, so each
+  included pair keeps its `mu`/`sigma`/`expected_winner`/`baseline_confidence`. (This is why the
+  "edit the texts" interpretation was rejected: editing text would invalidate the rating ground truth.)
+- **Manual ignores `seed`/`size`** — membership is exactly the chosen labels; store the per-kind
+  selected counts as the cloned set's sizes for honest display.
+
+Key files for this follow-up: `evolution/src/lib/judgeEval/testSet.ts` (`selectTestSetMembers` manual
+path, `assertMembersExist`), `evolution/src/lib/judgeEval/persist.ts` (`cloneTestSet`,
+`getOrCreateTestSet`, `loadTestSetContents`/`getTestSetPairTexts` to mirror), `evolution/src/services/
+judgeEvalActions.ts` (`cloneTestSetAction` schema + new universe action), `src/app/admin/evolution/
+judge-lab/test-sets/**` (curation UI).
+
 ## Documents Read
 
 ### Core Workflow Docs
