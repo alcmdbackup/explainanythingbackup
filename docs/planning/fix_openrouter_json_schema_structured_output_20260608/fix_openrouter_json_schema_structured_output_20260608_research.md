@@ -23,11 +23,12 @@ Investigation **substantially de-risks** the change — the blast radius is much
   - **DeepSeek / Local / OpenRouter** → `{ type: 'json_object' }` = JSON-forced, NOT schema-enforced.
 - `modelUsed`/`apiModel` routing already maps OpenRouter ids via `getOpenRouterApiModelId`.
 
-### Who actually makes STRUCTURED (`response_obj`) callLLM calls — exhaustive (3 sites, all `DEFAULT_MODEL`/OpenAI in prod):
+### Who actually makes STRUCTURED (`response_obj`) callLLM calls — exhaustive (4 sites, all `DEFAULT_MODEL`/OpenAI in prod):
 1. `src/lib/services/returnExplanation.ts:44` — `generateTitleFromUserQuery` (`titleQuerySchema`). **This is the one that fails on Gemini.**
-2. `src/lib/services/tagEvaluation.ts:48` — `evaluateTags`.
-3. `src/lib/services/findMatches.ts:133` — `findBestMatchFromList` (`matchFoundFromListSchema`).
-- All three pass `DEFAULT_MODEL` (`gpt-4.1-mini`) → in prod they use the OpenAI structured path and work. They only hit the OpenRouter `json_object` branch when an OpenRouter model is forced (the `@prod-ai` test tier via `TEST_LLM_MODEL`).
+2. `src/lib/services/returnExplanation.ts:94` — `extractLinkCandidates` (`linkCandidatesExtractionSchema`). *(Added after plan-review iter1 — initially missed.)*
+3. `src/lib/services/tagEvaluation.ts:48` — `evaluateTags`.
+4. `src/lib/services/findMatches.ts:133` — `findBestMatchFromList` (`matchFoundFromListSchema`).
+- All four pass `DEFAULT_MODEL` (`gpt-4.1-mini`) → in prod they use the OpenAI structured path and work. They only hit the OpenRouter `json_object` branch when an OpenRouter model is forced (the `@prod-ai` test tier via `TEST_LLM_MODEL`). All four are exercised by one real search→generate (the `@prod-ai` generation spec covers them).
 
 ### Who is NOT affected (key de-risking):
 - **Judge-eval is free-text, not structured.** `computeRatings.ts:286` types the judge callLLM as `(prompt: string) => Promise<string>`; verdicts are parsed by `parseWinner` / `parseVerdictFromReasoning` from free text. It passes **no `response_obj`**, so it never sets `response_format` → switching the structured branch cannot regress the qwen judge. (Requirement #4's concern is largely moot — but we still must NOT flip qwen to json_schema blindly.)

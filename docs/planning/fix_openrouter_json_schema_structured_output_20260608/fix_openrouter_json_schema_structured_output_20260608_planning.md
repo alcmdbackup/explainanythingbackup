@@ -30,14 +30,15 @@ Structured (`response_obj`) callLLM calls only enforce the Zod schema on OpenAI;
 - [ ] Unit test (`modelRegistry.test.ts`): gemini-2.5-flash(+lite) → true; qwen-2.5-7b-instruct / gpt-oss-20b / gpt-4.1-mini / deepseek-chat → false/undefined.
 
 ### Phase 2: Route structured output by capability in llms.ts
-- [ ] In `callOpenAIModel` (`llms.ts:472-478`), when `response_obj && response_obj_name`: if `isOpenRouterModel(validatedModel) && modelSupportsJsonSchema(validatedModel)` → use `zodResponseFormat(response_obj, response_obj_name)` (json_schema); else keep the existing branch (OpenAI → zodResponseFormat; DeepSeek/Local/unflagged OpenRouter → `{ type: 'json_object' }`).
-- [ ] If OpenRouter rejects `strict: true` for Gemini, set the json_schema `strict: false` (zodResponseFormat default is strict; may need a manual `{ type:'json_schema', json_schema:{ name, schema, strict:false } }`). Decide during impl based on a real call.
+- [ ] In `callOpenAIModel` (`llms.ts:472-478`), when `response_obj && response_obj_name`: if `isOpenRouterModel(validatedModel) && modelSupportsJsonSchema(validatedModel)` → use schema-enforced `json_schema`; else keep the existing branch (OpenAI → `zodResponseFormat`; DeepSeek/Local/unflagged OpenRouter → `{ type: 'json_object' }`).
+- [ ] **Strict-mode decision (pre-decided, not deferred):** `zodResponseFormat` hard-codes `strict: true`, and some Gemini-via-OpenRouter schemas reject strict mode. So for the flagged-OpenRouter branch, **build the payload from `zodResponseFormat(...)` but override to `strict: false`** — i.e. `const rf = zodResponseFormat(response_obj, response_obj_name); rf.json_schema.strict = false; requestOptions.response_format = rf;` (keeps the real JSON schema, drops the strict constraint OpenRouter/Gemini may reject). OpenAI branch keeps strict (unchanged). Phase 3 confirms Gemini accepts it; if strict:false still fails, the @prod-ai run surfaces it (non-blocking).
 - [ ] Keep DeepSeek + Local strictly on `json_object` (unchanged).
-- [ ] Unit test (`llms.test.ts`): with a `response_obj`, a flagged OpenRouter model sets `response_format.type === 'json_schema'`; an unflagged OpenRouter model + DeepSeek set `json_object`; OpenAI unchanged (zodResponseFormat).
+- [ ] Unit test (`llms.test.ts`): assert on the **request passed to the mocked OpenAI client** (`mockCreateSpy` / `mockChatCreate` call args, matching the existing `response_format` assertions ~llms.test.ts:1041,1193) — with a `response_obj`: flagged OpenRouter model → `request.response_format.type === 'json_schema'` (and `json_schema.strict === false`); unflagged OpenRouter + DeepSeek → `request.response_format === { type: 'json_object' }`; OpenAI → json_schema (unchanged, strict:true); no `response_obj` → no `response_format` key (judge path).
 
 ### Phase 3: Validate end-to-end on Gemini
-- [ ] Re-run the `@prod-ai` smoke via `gh workflow run e2e-real-ai-smoke.yml` (real Gemini); confirm `real-generation.prod-ai.spec.ts` (title → content → tags) now passes and the evolution-seed spec still passes.
+- [ ] Re-run the `@prod-ai` smoke via `gh workflow run e2e-real-ai-smoke.yml` (real Gemini); confirm `real-generation.prod-ai.spec.ts` now passes — its full-pipeline path exercises ALL FOUR structured sites (title `:44`, link-extraction `:94`, tags, match-selection) — and the evolution-seed spec still passes.
 - [ ] Confirm no regression to judge-eval (free-text; spot-check a judge-eval integration test still green) and evolution structured handling.
+- [ ] Note: the `@prod-ai` generation assertion is structural (non-empty title/content, ≥1 tag), not schema-validating. That is acceptable — a real schema mismatch manifests as the `title1`/parse failure (`returnExplanation.ts:47`) that broke the pre-fix run, so the test does catch the failure mode this project fixes.
 
 ## Testing
 
@@ -69,5 +70,21 @@ Structured (`response_obj`) callLLM calls only enforce the Zod schema on OpenAI;
 - [ ] `docs/docs_overall/llm_provider_limits.md` — note `supportsJsonSchema` for Gemini models if relevant.
 - [ ] `docs/feature_deep_dives/judge_evaluation.md` — only if it documents the structured-output path (judge is free-text; likely no change).
 
+## Rollback Plan
+- [ ] **Both phases are additive/narrow and independently revertable.** Phase 1 (registry flag) is purely additive — reverting removes the `supportsJsonSchema` field/helper. Phase 2 is a single conditional in `callOpenAIModel`.
+- [ ] **Instant disable without a revert:** unset `supportsJsonSchema` on the Gemini entries (or set false) → all OpenRouter structured calls fall back to `json_object` (the prior behavior). No code change to `llms.ts` needed to neutralize.
+- [ ] **Zero prod-path risk:** the 4 structured sites all run on `gpt-4.1-mini` (OpenAI) in prod, which is unchanged (still strict json_schema via zodResponseFormat). The new branch only affects OpenRouter models flagged `supportsJsonSchema` — currently only the `@prod-ai` test tier. Worst case (Gemini rejects the schema) degrades only the non-blocking `@prod-ai` smoke.
+- [ ] **No-regression guard:** DeepSeek/Local/unflagged-OpenRouter and the free-text judge path are provably untouched (unit-tested).
+
 ## Review & Discussion
-[This section is populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration]
+
+### Iteration 1 — Security 5/5, Architecture 5/5, Testing 4/5 (consensus NOT reached)
+Design validated by all three. Resolved items:
+1. **(Architecture) Missed a 4th structured site** — `returnExplanation.ts:94` (`extractLinkCandidates`/`linkCandidatesExtractionSchema`). → Corrected research (3→4 sites); noted all four are covered by the one `@prod-ai` generation spec; Phase 3 references all four.
+2. **(Security+Testing) Strict-mode handling was deferred/ambiguous** — `zodResponseFormat` hard-codes `strict:true` which Gemini-via-OpenRouter may reject. → Pre-decided in Phase 2: build from `zodResponseFormat` then override `json_schema.strict = false` for the flagged-OpenRouter branch (keeps the real schema, drops the risky constraint); OpenAI keeps strict.
+3. **(Testing) Unit-test assertion pattern unspecified** — → Phase 2 now specifies asserting on the mocked OpenAI client's request args (`response_format.type`/`.json_schema.strict`), matching existing `llms.test.ts` patterns (~:1041,:1193).
+4. **(Testing) No Rollback section** — → Added Rollback Plan (flag-unset disables instantly; prod path untouched).
+5. **(Testing) @prod-ai assertion is structural, not schema-validating** — → Documented in Phase 3 that the `title1` parse failure is exactly the failure mode this fixes, so the structural test does catch it.
+
+### Iteration 2 — Security 5/5, Architecture 5/5, Testing 5/5 ✅ CONSENSUS REACHED
+Testing reviewer confirmed all iter-1 items resolved (concrete mock-assertion pattern, Rollback section, pre-decided strict:false override, structural-assertion caveat documented, all 4 structured sites referenced). Security & Architecture held at 5/5 (no critical gaps in iter 1; the iter-1 edits only added clarity and the strict-mode resolution matches Security's own suggestion). Plan is execution-ready.
