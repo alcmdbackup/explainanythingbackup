@@ -87,6 +87,38 @@ splits into VIEW (read-only) + EDIT (metadata-only) + CLONE (the only safe membe
   operates on labels (no text fetch). Show an orphan note for current members no longer in the bank
   (cannot be re-included).
 
+#### Phase 5b wireframe (Clone & curate on the test-set detail page)
+
+```
+┌─ Evolution › Judge Lab › Test Sets › fr2-smoke ──────────────────────────────┐
+│ fr2-smoke — smoke set                                                         │
+│ strategy: stratified_confidence · seed: 1 · members: 20 · resolved: 20        │
+│                                                                               │
+│ [ View contents ]   [ Edit metadata ]   [ Clone ]   [ Clone & curate ▸ ]      │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+┌─ Clone & curate ─────────────────────────────────────────────────────────────┐
+│ New name: [ fr2-smoke-curated        ]     Kind: (•) Both ( ) Article ( ) Para │
+│ Search:   [ art#0                  ⌕ ]               Selected: 18 / 20         │
+│ ┌──────────────────────────────────────────────────────────────────────────┐ │
+│ │ ☑  art#0001  article   Elo 1420±40  vs  1190±45   gap 230   [view texts]  │ │
+│ │ ☑  art#0002  article   Elo 1310±50  vs  1305±50   gap   5   [view texts]  │ │
+│ │ ☐  art#0003  article   Elo 1255±60  vs  1240±55   gap  15   [view texts]  │ │  ← was not a member; check to ADD
+│ │ ☑  par#0007  paragraph Elo 1280±70  vs  1180±65   gap 100   [view texts]  │ │
+│ │ ⚠  art#0099  article   (orphaned — no longer in bank · cannot include)    │ │
+│ │ … paginated:  ‹ Prev   1  2  3  …  9   Next ›                              │ │
+│ └──────────────────────────────────────────────────────────────────────────┘ │
+│ [ Select all (filtered) ]  [ Clear ]          [ Cancel ]  [ Clone with 18 pairs ]│
+└───────────────────────────────────────────────────────────────────────────────┘
+```
+
+Notes: current members are pre-checked (☑); unchecking REMOVES, checking an unchecked row ADDS (the
+list is the bank's full universe, not just current members). Kind radio + search filter the visible
+rows; "Select all (filtered)" toggles labels only (no text fetch). Texts load lazily via `[view
+texts]` (`getTestSetPairTextsAction`). Orphaned current members (⚠) are shown read-only — they can't
+be re-included because they're absent from the bank. "Clone with N pairs" submits
+`cloneTestSetAction({ strategy:'manual', manualLabels:<checked>, newName, … })`.
+
 ### Phase 5 Testing
 - [ ] `evolution/src/lib/judgeEval/persist.test.ts` — `cloneTestSet` with `strategy:'manual'` +
   `manualLabels` produces a set whose members are exactly the chosen labels and whose
@@ -102,6 +134,29 @@ splits into VIEW (read-only) + EDIT (metadata-only) + CLONE (the only safe membe
 - [ ] Playwright: the curation flow on local server; assert the cloned set's member set differs from
   the source by exactly the toggled pairs.
 - [ ] `npm run test:unit -- persist judgeEvalActions`
+
+## Phase 6: Prefill the Match Viewer re-judge custom-prompt box (parity with Judge Lab)
+
+> **Added 2026-06-09.** Phase 2's custom-prompt prefill landed only on the Judge Lab sweep launcher.
+> The **Match Viewer re-judge sandbox** (`src/app/admin/evolution/matches/[comparisonId]/page.tsx`)
+> still starts its custom-prompt box empty (`useState('')`, line 89). Make the two consistent. See the
+> research doc's "Follow-up research: prefill the Match Viewer re-judge custom-prompt box".
+
+- [ ] Prefill `customPrompt` with the **mode-appropriate** default rubric from
+  `evolution/src/lib/shared/judgeRubrics.ts` — `PARAGRAPH_SANDBOX_RUBRIC` when `mode==='paragraph'`,
+  `ARTICLE_SANDBOX_RUBRIC` when `mode==='article'`. Editable + directly submittable.
+- [ ] **Mode-aware refresh**: when `mode` changes, replace the box with that mode's rubric **only if
+  the user hasn't hand-edited it** (auto-fill while the text still equals one of the two presets; a
+  "Reset to default rubric" button covers the edited case — mirrors Judge Lab).
+- [ ] Leave the existing `showCustom` toggle + `explainReasoning` checkbox as-is (Match Viewer already
+  has both; the default re-judge path stays unchanged unless the box is opened + used).
+- [ ] No new server action / schema change (the action already accepts `customPrompt`).
+
+### Phase 6 Testing
+- [ ] E2E (extend `admin-evolution-match-viewer*` spec, or the matches spec): opening the custom box
+  shows the paragraph rubric for a paragraph match; flipping the rubric toggle to article swaps it to
+  the article rubric; editing then toggling does NOT clobber the edit.
+- [ ] Manual: re-judge with the prefilled rubric unchanged reproduces the built-in behavior.
 
 ## Rollback & Safety
 No new feature flags are introduced; all changes are low-risk and **revert-by-PR**:

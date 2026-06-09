@@ -191,6 +191,35 @@ path, `assertMembersExist`), `evolution/src/lib/judgeEval/persist.ts` (`cloneTes
 judgeEvalActions.ts` (`cloneTestSetAction` schema + new universe action), `src/app/admin/evolution/
 judge-lab/test-sets/**` (curation UI).
 
+## Follow-up research: prefill the Match Viewer re-judge custom-prompt box (parity, 2026-06-09)
+
+**Finding:** the custom-prompt prefill we added was on the **Judge Lab** sweep launcher
+(`src/app/admin/evolution/judge-lab/page.tsx`) only. The **Match Viewer re-judge sandbox**
+(`src/app/admin/evolution/matches/[comparisonId]/page.tsx`) — the other place with a "custom judge
+prompt" box — still initializes it **empty** (`const [customPrompt, setCustomPrompt] = useState('')`,
+line 89). So the two surfaces are inconsistent; the user expected the prefill there too.
+
+What the Match Viewer already has (so this is a small, consistent add):
+- A `mode` toggle (`'article' | 'paragraph'`, line 85) — the default rubric is mode-dependent.
+- An `explainReasoning` checkbox already as a separate control (line 87) — no decoupling needed
+  (unlike Judge Lab, which we had to add one to).
+- A `showCustom` toggle (line 88) gating the box; submit uses
+  `customPrompt: showCustom && customPrompt.trim() ? customPrompt : undefined` (line 127), so the
+  default re-judge path is unchanged unless the user opens + uses the box.
+
+What's needed:
+- Prefill `customPrompt` with the **mode-appropriate** default rubric from the client-safe
+  `evolution/src/lib/shared/judgeRubrics.ts` — `PARAGRAPH_SANDBOX_RUBRIC` when `mode==='paragraph'`,
+  `ARTICLE_SANDBOX_RUBRIC` when `mode==='article'` (both already exported there from Phase 2's
+  extraction). Editable + submittable directly, same as Judge Lab.
+- **Mode-aware**: when the user flips `mode`, refresh the box to that mode's rubric **unless they've
+  hand-edited it** (track a "dirty" flag, or only auto-fill while the text still equals one of the two
+  preset rubrics). A "Reset to default rubric" affordance (mirrors Judge Lab) covers the edited case.
+- Keep the existing `showCustom`/`explainReasoning` controls as-is.
+
+Key files: `src/app/admin/evolution/matches/[comparisonId]/page.tsx`,
+`evolution/src/lib/shared/judgeRubrics.ts` (`ARTICLE_SANDBOX_RUBRIC` / `PARAGRAPH_SANDBOX_RUBRIC`).
+
 ## Documents Read
 
 ### Core Workflow Docs
