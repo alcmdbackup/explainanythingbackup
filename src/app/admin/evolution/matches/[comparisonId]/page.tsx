@@ -129,7 +129,12 @@ export default function MatchDetailPage(): JSX.Element {
     if (res.success && res.data) {
       setResults((prev) => [{ id: resultIdRef.current++, result: res.data! }, ...prev]);
     } else if (!res.success) {
-      toast.error(res.error?.message ?? 'Re-judge failed');
+      // categorizeError replaces the user-facing `message` with a generic bucket label
+      // (e.g. "Error communicating with AI service") but keeps the raw cause in `details`.
+      // Surface details when it's a string so config / SDK errors (missing API key,
+      // 401 from provider) reach the operator directly.
+      const detail = typeof res.error?.details === 'string' ? res.error.details : null;
+      toast.error(detail && detail !== res.error?.message ? `${res.error?.message}: ${detail}` : res.error?.message ?? 'Re-judge failed');
     }
     setRejudging(false);
   }, [comparisonId, model, mode, temperature, tempSupported, explainReasoning, showCustom, customPrompt]);
