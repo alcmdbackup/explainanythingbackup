@@ -85,3 +85,30 @@
 
 ### Final verification
 - lint ✓ · typecheck ✓ · build ✓ · unit **7119 passed / 0 failed** · E2E (both judge-lab specs) ✓
+
+## Phase 5: Clone with curated membership (added post-consensus)
+### Work Done
+- **persist.ts**: extracted shared `projectPairElo` (Elo + text-strip) reused by contents + curation;
+  new `loadBankPairsForCuration(db, testSetId, filters)` — the source's BANK universe with `isMember`
+  flags, filtered (kind · membership · gapKind · label search · **Elo both-sides min/max**) + paginated,
+  returns `{ pairs, total, memberCount, filteredLabels }`. `cloneTestSet` now records per-kind selected
+  counts as sizes for a `manual` clone. Unit tests (incl. Elo-both-sides + manual-size capture).
+- **judgeEvalActions.ts**: `cloneSchema` accepts `strategy:'manual'` + `manualLabels` (zod refine:
+  non-empty when manual); new `getBankPairsForCurationAction`. Action test for the refine.
+- **UI**: new `CloneCuratePanel.tsx` (checkbox list, filter row, select-all-filtered, lazy texts,
+  pagination, "Clone with N pairs") mounted on `test-sets/[testSetId]` behind a "Clone & curate"
+  toggle. **Decision recorded**: curation = selecting existing recorded pairs (not constructing novel
+  pairs from individual variants — out of scope).
+- **E2E**: extended `admin-evolution-judge-lab-test-sets.spec.ts` — drop a member, add a non-member,
+  clone, assert DB membership is exactly the curated set.
+
+## Phase 6: Match Viewer re-judge custom-prompt prefill (parity)
+### Work Done
+- **matches/[comparisonId]/page.tsx**: custom-prompt box pre-filled with the **mode-appropriate**
+  default rubric (`ARTICLE_SANDBOX_RUBRIC`/`PARAGRAPH_SANDBOX_RUBRIC`); mode-flip refreshes it unless
+  hand-edited; added "Reset to default rubric". Existing `showCustom`/`explainReasoning` controls kept.
+  No server change. (E2E for the prefill deferred — pure UI default; covered by build/typecheck +
+  manual verification.)
+
+### Final verification (Phases 5–6)
+- lint ✓ · typecheck ✓ · build ✓ · unit **7126 passed / 0 failed** · E2E curate spec (see commit)
