@@ -9,17 +9,28 @@ Make it possible to see the match history for runs in the judge lab, including b
 ## Problem
 Judge Lab eval runs persist per-(run × pair × repeat) verdicts in `judge_eval_calls`, but there is no UI to inspect the individual matches behind a run, and the persisted data is incomplete for after-the-fact analysis: the two compared content pieces are only joinable from the pair-bank JSONB, the exact judge **input prompt** (incl. custom rubric, as actually rendered) is not stored per call, and the full **reasoning trace** text is not stored (only a token count). This makes it hard to see *why* the judge ruled the way it did or to query the raw I/O later.
 
+## Analyzability Goal
+A first-class goal: the persisted per-call data must be **self-contained and queryable after the fact** so we can analyze *what drives decisiveness* (`confidence > 0.6`) without depending on mutable state. Concretely, after a sweep we should be able to (in SQL or the UI):
+- Decompose every non-decisive call into its structural cause (position-bias `0.5` vs partial-tie `0.7` vs single/double error) from `forward_winner`/`reverse_winner`/`error`.
+- Correlate decisiveness against **judge settings** (model × temp × reasoning × prompt) and against **pair difficulty** (ground-truth gap, baseline confidence).
+- Read the judge's **exact input** (incl. rendered custom rubric) and **full output + reasoning** for any match, to see *why* it ruled as it did and to audit verdict parsing.
+
+**Durability requirement (the reason to snapshot):** `text_a`/`text_b`, `mu`/`sigma`, `gap_kind`, and `baseline_confidence` all live in `judge_eval_pair_banks.pairs` JSONB, which **can be re-seeded** (frozen test-set members can later fail to resolve — the known "orphan" case). Any analysis that re-joins `pair_label` → bank would then read drifted or missing values. Therefore the call row must **freeze the ground-truth pair characteristics at write time**, not re-derive them later. Persisting the input prompt already snapshots the A/B text as a side effect; the numeric ground-truth must be snapshotted explicitly.
+
+Caveat to record (not a blocker): `confidence` is `NUMERIC(2,1)` with only 5 discrete values, so decisiveness analysis is bucket-level, not a continuous gradient; and reasoning text is provider-dependent (store `reasoning_trace_format` so "not requested" is distinguishable from "provider dropped it").
+
 ## Options Considered
 - [ ] **Option A: UI-only (reconstruct on read)**: Build a Matches/History view that reconstructs the judge input prompt in the UI (rubric + hydrated A/B text) and shows `forward_raw`/`reverse_raw` as the output. No migration. Risk: reconstruction can drift from what was actually sent; reasoning text not recoverable.
-- [ ] **Option B: Persist full I/O + UI (recommended)**: Add columns to `judge_eval_calls` to store the exact forward/reverse input prompts and reasoning trace text (+ format), populate them in `runJudgeEval.ts`/`executeSweep.ts`, then build the history view reading persisted data. Faithful + queryable; requires an additive migration + type regen.
+- [ ] **Option B: Persist full I/O + ground-truth snapshot + UI (recommended)**: Add columns to `judge_eval_calls` for the exact forward/reverse input prompts, reasoning trace text (+ format), AND a snapshot of the pair's ground-truth characteristics (mu/sigma, gap_kind, baseline_confidence); populate them in `runJudgeEval.ts`/`executeSweep.ts`, then build the history view reading persisted data. Faithful + queryable + analysis-durable; requires an additive migration + type regen.
 - [ ] **Option C: Separate detail table**: Store heavy text (prompts/reasoning) in a sibling `judge_eval_call_details` table to keep `judge_eval_calls` lean. More normalized; extra join + more surface area.
 
 ## Phased Execution Plan
 
 ### Phase 1: Persistence (DB + engine)
-- [ ] Decide column set (Option B vs C) for full input prompt + reasoning trace + format.
+- [ ] Decide column set (Option B vs C) for: full input prompt (`forward_prompt`/`reverse_prompt`), full reasoning trace text (`forward_reasoning`/`reverse_reasoning`), and `reasoning_trace_format` (`verbatim`/`summary`/`unavailable`/null).
+- [ ] **Snapshot ground-truth pair characteristics onto the call row** (frozen at write time, durable against bank re-seeding): `mu_a`/`mu_b`, `sigma_a`/`sigma_b`, `gap_kind`, `baseline_confidence`, `expected_winner` (+ `variant_a_id`/`variant_b_id` for provenance). Source = the pair-bank `pairs` entry resolved at sweep start.
 - [ ] Add additive, idempotent migration under `supabase/migrations/` (guards per environments.md lint).
-- [ ] Populate new fields in `runJudgeEval.ts` (capture `forwardPrompt`/`reversePrompt` + reasoning) and persist via `persist.ts`/`executeSweep.ts`.
+- [ ] Populate new fields in `runJudgeEval.ts` (capture `forwardPrompt`/`reversePrompt` + reasoning) and thread the resolved pair metadata through `executeSweep.ts`; persist via `persist.ts`.
 - [ ] Regenerate `src/lib/database.types.ts`; update Zod schemas in `evolution/src/lib/judgeEval/schemas.ts`.
 
 ### Phase 2: Server action + data access
@@ -33,7 +44,8 @@ Judge Lab eval runs persist per-(run × pair × repeat) verdicts in `judge_eval_
 
 ### Unit Tests
 - [ ] `evolution/src/lib/judgeEval/runJudgeEval.test.ts` — assert new prompt/reasoning fields are captured per pass.
-- [ ] `evolution/src/lib/judgeEval/persist.test.ts` — assert new fields round-trip on insert.
+- [ ] `evolution/src/lib/judgeEval/persist.test.ts` — assert new fields (prompts, reasoning, format, AND ground-truth snapshot: mu/sigma, gap_kind, baseline_confidence) round-trip on insert.
+- [ ] `evolution/src/lib/judgeEval/executeSweep.test.ts` — assert resolved pair metadata is threaded onto each call row (snapshot, not re-join).
 - [ ] Server action unit test for `getJudgeEvalCallsAction` (shape + A/B hydration + pagination).
 
 ### Integration Tests
@@ -44,6 +56,7 @@ Judge Lab eval runs persist per-(run × pair × repeat) verdicts in `judge_eval_
 
 ### Manual Verification
 - [ ] Run a small sweep (CLI/UI), open the run, confirm match history shows content + full I/O + reasoning; query the new columns via `npm run query:staging`.
+- [ ] **Analyzability check:** after a sweep, run a SQL query that decomposes non-decisive calls by structural cause and correlates decisive_rate against the snapshotted `gap_kind`/`baseline_confidence` — confirm it returns sensible results purely from `judge_eval_calls` (no bank join). Re-seed the bank, re-run the query, confirm results are unchanged (snapshot durability).
 
 ## Verification
 

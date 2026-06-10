@@ -33,6 +33,19 @@ Preliminary findings (to be deepened during /research):
      absent.
   → Decide in planning whether to add columns (e.g. `forward_prompt`/`reverse_prompt`,
      `forward_reasoning`/`reverse_reasoning`, `reasoning_trace_format`) vs. reconstruct in the UI.
+  3. **Ground-truth pair characteristics** (`mu`/`sigma`, `gap_kind`, `baseline_confidence`,
+     `expected_winner`, `text_a`/`text_b`) live ONLY in `judge_eval_pair_banks.pairs` JSONB, which can be
+     **re-seeded** (frozen members can later orphan). Analysis re-joining `pair_label`→bank can read drifted
+     or missing values. → Plan decision: **snapshot these onto the call row at write time** so per-call data
+     is self-contained and durable for after-the-fact decisiveness analysis. (Persisting the input prompt
+     also snapshots A/B text as a side effect; numeric ground-truth must be snapshotted explicitly.)
+
+- **Analyzability** is an explicit goal: decisiveness (`confidence > 0.6`) is fully determined by the
+  pass-agreement pattern (agree→1.0, soft-tie→0.7, disagree→0.5/position-bias, single/double error→0.3/0.0),
+  so non-decisive calls are structurally classifiable from stored columns today; the new persistence adds
+  the qualitative "why" (input + reasoning) and the difficulty correlates (snapshotted ground-truth).
+  Caveat: `confidence` is `NUMERIC(2,1)` (5 discrete buckets) → bucket-level analysis only; reasoning text
+  is provider-dependent → store `reasoning_trace_format`.
 
 - **Engine** (`evolution/src/lib/judgeEval/runJudgeEval.ts`): inlined `Promise.all` 2-pass; builds
   `forwardPrompt`/`reversePrompt` via `buildComparisonPrompt`, calls the injected `JudgeFn`, and currently
