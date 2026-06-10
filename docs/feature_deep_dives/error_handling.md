@@ -48,13 +48,20 @@ Both are caught in `llms.ts` before any provider call and propagated to callers 
 ### Automatic Categorization
 
 ```
-Error message contains 'api', 'openai' → LLM_API_ERROR
-Error message contains 'timeout' → TIMEOUT_ERROR
+Error message contains 'timeout' → TIMEOUT_ERROR        (checked FIRST)
+Error message matches \bapi\b / \bopenai\b → LLM_API_ERROR
 Error message contains 'database', 'sql' → DATABASE_ERROR
 Error message contains 'embedding', 'pinecone' → EMBEDDING_ERROR
 Error message contains 'validation', 'schema' → VALIDATION_ERROR
 Otherwise → UNKNOWN_ERROR
 ```
+
+> **Ordering + word-boundary (note):** `'timeout'` is matched **before** the `api`/`openai` check, so
+> a provider timeout whose message also mentions "API" is classified as a (transient) `TIMEOUT_ERROR`
+> rather than the generic `LLM_API_ERROR`. The api/openai check uses **word boundaries** (`\bapi\b`,
+> `\bopenai\b`) so glued tokens like `OPENROUTER_API_KEY` fall through to `UNKNOWN_ERROR` with the raw
+> message intact. `details` always carries the full underlying message so callers (e.g. the Judge Lab
+> sweep UI) can surface the real provider error instead of the opaque category string.
 
 ### Error Response Type
 
