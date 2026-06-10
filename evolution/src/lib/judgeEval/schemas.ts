@@ -159,8 +159,10 @@ export const JUDGE_EVAL_CALL_AUDIT_KEYS = [
 export type JudgeEvalCallAuditKey = (typeof JUDGE_EVAL_CALL_AUDIT_KEYS)[number];
 
 /** Light per-call row for the match LIST + aggregates: verdict + metrics + ground-truth snapshot,
- *  WITHOUT the heavy audit text. Mirrors the column list `getJudgeEvalCallsAction` selects. */
-export type JudgeEvalCallCore = Omit<JudgeEvalCall, JudgeEvalCallAuditKey>;
+ *  WITHOUT the heavy audit text. Mirrors the column list `getJudgeEvalCallsAction` selects.
+ *  Adds `decisive` — a DB GENERATED column (confidence > 0.6) absent from the insert-shaped base
+ *  schema but present in every read. */
+export type JudgeEvalCallCore = Omit<JudgeEvalCall, JudgeEvalCallAuditKey> & { decisive: boolean };
 /** The heavy audit payload for one expanded match (see getJudgeEvalCallDetailAction). */
 export type JudgeEvalCallAudit = Pick<JudgeEvalCall, 'id' | JudgeEvalCallAuditKey>;
 

@@ -161,7 +161,7 @@ describe('getJudgeEvalCallsAction', () => {
     mockCreate.mockResolvedValue(mock as never);
     const res = await getJudgeEvalCallsAction({ runId: TEST_SET, limit: 1, offset: 0 });
     expect(res.success).toBe(true);
-    if (res.success) {
+    if (res.success && res.data) {
       expect(res.data.total).toBe(7);
       expect(res.data.limit).toBe(1);
       expect(res.data.calls).toEqual(rows);

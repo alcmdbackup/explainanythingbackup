@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
 import { getEvalRunDetailAction } from '@evolution/services/judgeEvalActions';
@@ -103,9 +104,18 @@ export default function EvalRunDetailPage(): JSX.Element {
         ]}
       />
       {run && (
-        <div className="text-xs text-[var(--text-muted)] font-mono">
-          {run.judge_model} · temp {run.temperature} · reasoning {run.reasoning_effort ?? 'none'} ·{' '}
-          {run.prompt_variant ? 'custom rubric' : 'baseline rubric'} · repeats {run.repeats} · kind {run.kind_filter}
+        <div className="flex items-center justify-between gap-4">
+          <div className="text-xs text-[var(--text-muted)] font-mono">
+            {run.judge_model} · temp {run.temperature} · reasoning {run.reasoning_effort ?? 'none'} ·{' '}
+            {run.prompt_variant ? 'custom rubric' : 'baseline rubric'} · repeats {run.repeats} · kind {run.kind_filter}
+          </div>
+          <Link
+            className="text-xs underline whitespace-nowrap"
+            data-testid="view-match-history"
+            href={`/admin/evolution/judge-lab/runs/${runId}/matches`}
+          >
+            View match history →
+          </Link>
         </div>
       )}
 
