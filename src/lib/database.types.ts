@@ -187,6 +187,20 @@ export type Database = {
           reverse_raw: string | null
           error: string | null
           created_at: string
+          forward_prompt: string | null
+          reverse_prompt: string | null
+          forward_reasoning: string | null
+          reverse_reasoning: string | null
+          reasoning_trace_format: string | null
+          mu_a: number | null
+          mu_b: number | null
+          sigma_a: number | null
+          sigma_b: number | null
+          baseline_confidence: number | null
+          gap_kind: string | null
+          expected_winner: string | null
+          variant_a_id: string | null
+          variant_b_id: string | null
         }
         Insert: {
           id?: string
@@ -210,6 +224,20 @@ export type Database = {
           reverse_raw?: string | null
           error?: string | null
           created_at?: string
+          forward_prompt?: string | null
+          reverse_prompt?: string | null
+          forward_reasoning?: string | null
+          reverse_reasoning?: string | null
+          reasoning_trace_format?: string | null
+          mu_a?: number | null
+          mu_b?: number | null
+          sigma_a?: number | null
+          sigma_b?: number | null
+          baseline_confidence?: number | null
+          gap_kind?: string | null
+          expected_winner?: string | null
+          variant_a_id?: string | null
+          variant_b_id?: string | null
         }
         Update: {
           id?: string
@@ -233,6 +261,20 @@ export type Database = {
           reverse_raw?: string | null
           error?: string | null
           created_at?: string
+          forward_prompt?: string | null
+          reverse_prompt?: string | null
+          forward_reasoning?: string | null
+          reverse_reasoning?: string | null
+          reasoning_trace_format?: string | null
+          mu_a?: number | null
+          mu_b?: number | null
+          sigma_a?: number | null
+          sigma_b?: number | null
+          baseline_confidence?: number | null
+          gap_kind?: string | null
+          expected_winner?: string | null
+          variant_a_id?: string | null
+          variant_b_id?: string | null
         }
         Relationships: [
           {

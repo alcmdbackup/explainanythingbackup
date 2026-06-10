@@ -125,12 +125,11 @@ async function main(): Promise<void> {
         const sub = rows.filter((r) => r.pair_kind === kind);
         if (sub.length === 0) continue;
         const m = computeMetrics(sub.map((r) => ({
-          pair_label: r.pair_label, pair_kind: r.pair_kind as 'article' | 'paragraph',
-          comparison_mode: r.comparison_mode as 'article' | 'paragraph', repeat_index: r.repeat_index,
-          forward_winner: r.forward_winner as 'A' | 'B' | 'TIE' | null, reverse_winner: r.reverse_winner as 'A' | 'B' | 'TIE' | null,
-          winner: r.winner as 'A' | 'B' | 'TIE', confidence: r.confidence, wall_ms: r.wall_ms, fwd_ms: r.fwd_ms, rev_ms: r.rev_ms,
-          prompt_tokens: r.prompt_tokens, output_tokens: r.output_tokens, reasoning_tokens: r.reasoning_tokens,
-          cost_usd: r.cost_usd, forward_raw: r.forward_raw, reverse_raw: r.reverse_raw, error: r.error,
+          forward_winner: r.forward_winner as 'A' | 'B' | 'TIE' | null,
+          reverse_winner: r.reverse_winner as 'A' | 'B' | 'TIE' | null,
+          winner: r.winner as 'A' | 'B' | 'TIE', confidence: r.confidence,
+          wall_ms: r.wall_ms, fwd_ms: r.fwd_ms,
+          output_tokens: r.output_tokens, reasoning_tokens: r.reasoning_tokens, cost_usd: r.cost_usd,
         })));
         console.log(`  ${cell.judgeModel} t=${cell.temperature} r=${cell.reasoningEffort ?? 'none'} [${kind}] decisive=${(m.decisiveRate * 100).toFixed(0)}% conf=${m.avgConfidence.toFixed(2)} posBias=${(m.positionBiasRate * 100).toFixed(0)}% cost/dec=${m.costPerDecisiveUsd != null ? '$' + m.costPerDecisiveUsd.toFixed(5) : '∞'}`);
       }

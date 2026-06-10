@@ -9,7 +9,6 @@ import { toast } from 'sonner';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
 import { getEvalRunDetailAction } from '@evolution/services/judgeEvalActions';
 import { computeMetrics } from '@evolution/lib/judgeEval/metrics';
-import type { JudgeEvalCallResult } from '@evolution/lib/judgeEval/schemas';
 
 type Kind = 'article' | 'paragraph';
 
@@ -23,26 +22,36 @@ interface RunRow {
   repeats: number;
 }
 
-function toResult(r: Record<string, unknown>): JudgeEvalCallResult {
+// This page only needs verdict/metric fields (for computeMetrics) + pair label/kind (for grouping).
+// It reads the lightweight Core columns — never the heavy audit payload (prompts/reasoning/raw),
+// which the dedicated match-history view fetches per-row instead.
+interface RunCall {
+  pair_label: string;
+  pair_kind: Kind;
+  forward_winner: 'A' | 'B' | 'TIE' | null;
+  reverse_winner: 'A' | 'B' | 'TIE' | null;
+  winner: 'A' | 'B' | 'TIE';
+  confidence: number;
+  wall_ms: number | null;
+  fwd_ms: number | null;
+  output_tokens: number | null;
+  reasoning_tokens: number | null;
+  cost_usd: number | null;
+}
+
+function toResult(r: Record<string, unknown>): RunCall {
   return {
     pair_label: r.pair_label as string,
     pair_kind: r.pair_kind as Kind,
-    comparison_mode: r.comparison_mode as Kind,
-    repeat_index: r.repeat_index as number,
     forward_winner: (r.forward_winner as 'A' | 'B' | 'TIE' | null) ?? null,
     reverse_winner: (r.reverse_winner as 'A' | 'B' | 'TIE' | null) ?? null,
     winner: r.winner as 'A' | 'B' | 'TIE',
     confidence: r.confidence as number,
     wall_ms: (r.wall_ms as number | null) ?? null,
     fwd_ms: (r.fwd_ms as number | null) ?? null,
-    rev_ms: (r.rev_ms as number | null) ?? null,
-    prompt_tokens: (r.prompt_tokens as number | null) ?? null,
     output_tokens: (r.output_tokens as number | null) ?? null,
     reasoning_tokens: (r.reasoning_tokens as number | null) ?? null,
     cost_usd: (r.cost_usd as number | null) ?? null,
-    forward_raw: (r.forward_raw as string | null) ?? null,
-    reverse_raw: (r.reverse_raw as string | null) ?? null,
-    error: (r.error as string | null) ?? null,
   };
 }
 
@@ -50,7 +59,7 @@ function pct(v: number | null): string {
   return v == null ? '—' : `${(v * 100).toFixed(0)}%`;
 }
 
-function KindBlock({ kind, calls }: { kind: Kind; calls: JudgeEvalCallResult[] }): JSX.Element {
+function KindBlock({ kind, calls }: { kind: Kind; calls: RunCall[] }): JSX.Element {
   const m = computeMetrics(calls);
   return (
     <div className="flex-1 min-w-[240px] space-y-1" data-testid={`kind-block-${kind}`}>
@@ -71,7 +80,7 @@ export default function EvalRunDetailPage(): JSX.Element {
   const params = useParams<{ evalRunId: string }>();
   const runId = params.evalRunId;
   const [run, setRun] = useState<RunRow | null>(null);
-  const [calls, setCalls] = useState<JudgeEvalCallResult[]>([]);
+  const [calls, setCalls] = useState<RunCall[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -100,7 +109,7 @@ export default function EvalRunDetailPage(): JSX.Element {
 
   // Per-pair summary (within whichever kinds are present).
   const perPair = useMemo(() => {
-    const byLabel = new Map<string, JudgeEvalCallResult[]>();
+    const byLabel = new Map<string, RunCall[]>();
     for (const c of calls) {
       const arr = byLabel.get(c.pair_label) ?? [];
       arr.push(c);

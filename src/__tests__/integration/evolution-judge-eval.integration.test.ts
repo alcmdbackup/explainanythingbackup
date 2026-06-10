@@ -38,6 +38,11 @@ function call(label: string, kind: 'article' | 'paragraph', i: number, conf: num
     forward_winner: 'A', reverse_winner: 'A', winner: 'A', confidence: conf,
     wall_ms: 100, fwd_ms: 50, rev_ms: 50, prompt_tokens: 100, output_tokens: 3, reasoning_tokens: 0,
     cost_usd: 0.0001, forward_raw: 'A', reverse_raw: 'A', error: null,
+    // Audit + ground-truth snapshot (mirrors what the engine writes; values match pair()).
+    forward_prompt: '## Text A\nalpha\n## Text B\nbeta\nYour answer:', reverse_prompt: '## Text A\nbeta\n## Text B\nalpha\nYour answer:',
+    forward_reasoning: 'A is stronger.', reverse_reasoning: 'A is stronger.', reasoning_trace_format: 'verbatim',
+    mu_a: 40, mu_b: 20, sigma_a: 5, sigma_b: 5, baseline_confidence: 1.0,
+    gap_kind: 'large', expected_winner: 'A', variant_a_id: VA, variant_b_id: VB,
   };
 }
 
