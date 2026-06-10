@@ -117,9 +117,11 @@ adminTest.describe('Judge Lab', { tag: '@evolution' }, () => {
     await expect(adminPage.getByTestId('judge-output-forward').first()).toContainText('A');
     await expect(adminPage.getByTestId('reasoning-format-state').first()).toContainText(/verbatim/i);
 
-    // Backward-compat: the legacy all-null row expands without crashing and shows the empty state.
+    // Backward-compat: expanding the legacy all-null row (repeat 1) renders the empty state without
+    // crashing. The list is a single-open accordion, so this collapses the first row — exactly one
+    // match-audit-detail is in the DOM at a time, so assert on that single open detail.
     await adminPage.getByTestId('match-expand').nth(1).click();
-    await expect(adminPage.getByTestId('match-audit-detail').nth(1)).toBeVisible({ timeout: 30000 });
-    await expect(adminPage.getByTestId('reasoning-format-state').nth(1)).toContainText(/not requested/i);
+    await expect(adminPage.getByTestId('match-audit-detail')).toBeVisible({ timeout: 30000 });
+    await expect(adminPage.getByTestId('reasoning-format-state')).toContainText(/not requested/i);
   });
 });
