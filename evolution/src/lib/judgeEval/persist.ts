@@ -205,6 +205,34 @@ export interface TestSetContents {
   orphanCount: number;
 }
 
+// Stored mu/sigma are OpenSkill-scale; project to display Elo so the UI never shows raw mu.
+// mu/sigma are nullable on a pair — Elo is null unless both are present.
+function oneSideElo(mu: number | null, sigma: number | null): { elo: number; uncertainty: number } | null {
+  if (mu == null || sigma == null) return null;
+  const r = dbToRating(mu, sigma);
+  return { elo: Math.round(toDisplayElo(r.elo)), uncertainty: Math.round(r.uncertainty) };
+}
+
+/** Project a stored pair to the Elo-bearing, text-stripped shape shared by the contents + curation views. */
+function projectPairElo(p: JudgeEvalPair): TestSetContentPair {
+  const a = oneSideElo(p.mu_a, p.sigma_a);
+  const b = oneSideElo(p.mu_b, p.sigma_b);
+  return {
+    label: p.label,
+    pair_kind: p.pair_kind,
+    variant_a_id: p.variant_a_id,
+    variant_b_id: p.variant_b_id,
+    elo_a: a?.elo ?? null,
+    elo_b: b?.elo ?? null,
+    uncertainty_a: a?.uncertainty ?? null,
+    uncertainty_b: b?.uncertainty ?? null,
+    elo_gap: a && b ? Math.abs(a.elo - b.elo) : null,
+    expected_winner: p.expected_winner,
+    gap_kind: p.gap_kind,
+    baseline_confidence: p.baseline_confidence,
+  };
+}
+
 /**
  * Load a test set's metadata + member pairs for the contents view, WITHOUT the snapshot texts
  * (a large set's texts can be megabytes; the detail page fetches them per-row via
@@ -227,31 +255,7 @@ export async function loadTestSetContents(
   if (error) throw error;
   const memberCount = count ?? 0;
 
-  // Stored mu/sigma are OpenSkill-scale; project to display Elo so the UI never shows raw mu.
-  // mu/sigma are nullable on a pair — render Elo only when both are present.
-  const toElo = (mu: number | null, sigma: number | null): { elo: number; uncertainty: number } | null => {
-    if (mu == null || sigma == null) return null;
-    const r = dbToRating(mu, sigma);
-    return { elo: Math.round(toDisplayElo(r.elo)), uncertainty: Math.round(r.uncertainty) };
-  };
-  const pairs: TestSetContentPair[] = full.map((p) => {
-    const a = toElo(p.mu_a, p.sigma_a);
-    const b = toElo(p.mu_b, p.sigma_b);
-    return {
-      label: p.label,
-      pair_kind: p.pair_kind,
-      variant_a_id: p.variant_a_id,
-      variant_b_id: p.variant_b_id,
-      elo_a: a?.elo ?? null,
-      elo_b: b?.elo ?? null,
-      uncertainty_a: a?.uncertainty ?? null,
-      uncertainty_b: b?.uncertainty ?? null,
-      elo_gap: a && b ? Math.abs(a.elo - b.elo) : null,
-      expected_winner: p.expected_winner,
-      gap_kind: p.gap_kind,
-      baseline_confidence: p.baseline_confidence,
-    };
-  });
+  const pairs: TestSetContentPair[] = full.map(projectPairElo);
 
   return {
     testSet,
@@ -272,6 +276,103 @@ export async function getTestSetPairTexts(
   const pair = pairs.find((p) => p.label === pairLabel);
   if (!pair) throw new Error(`Pair not found in test set: ${pairLabel}`);
   return { text_a: pair.text_a, text_b: pair.text_b };
+}
+
+/** One bank pair for the Clone & curate picker — projected Elo + whether it's a current member. */
+export interface CurationPair extends TestSetContentPair {
+  isMember: boolean;
+}
+
+export interface CurationFilters {
+  kind?: JudgeKindFilter;
+  /** 'member' = current members of the source set; 'non_member' = bank pairs not in the set. */
+  membership?: 'all' | 'member' | 'non_member';
+  gapKind?: 'all' | 'large' | 'close';
+  /** Case-insensitive substring match on pair_label. */
+  search?: string;
+  /** Elo bounds — a pair passes only when BOTH sides are within them (null Elo → excluded if set). */
+  eloMin?: number | null;
+  eloMax?: number | null;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CurationResult {
+  pairs: CurationPair[];
+  /** Filtered count (for pagination). */
+  total: number;
+  /** Current member count of the source set (across both kinds). */
+  memberCount: number;
+  /** ALL labels matching the filter (labels are tiny — powers "select all (filtered)"). */
+  filteredLabels: string[];
+}
+
+/**
+ * List the source set's BANK pairs (the available universe for a curated clone), projected to Elo +
+ * text-stripped, each flagged `isMember`. Filtering happens in-memory over the parsed bank JSONB
+ * (one row) then paginates; the Elo filter requires BOTH sides within bounds. Powers the Clone &
+ * curate picker — the chosen labels feed `cloneTestSet({ strategy:'manual', manualLabels })`.
+ */
+export async function loadBankPairsForCuration(
+  db: Db,
+  testSetId: string,
+  filters: CurationFilters = {},
+): Promise<CurationResult> {
+  const { data: ts, error: tsErr } = await db
+    .from('judge_eval_test_sets')
+    .select('pair_bank_id')
+    .eq('id', testSetId)
+    .single();
+  if (tsErr) throw tsErr;
+
+  const { data: bankRow, error: bErr } = await db
+    .from('judge_eval_pair_banks')
+    .select('pairs')
+    .eq('id', ts.pair_bank_id)
+    .single();
+  if (bErr) throw bErr;
+  const allPairs = parsePairs(bankRow.pairs);
+
+  const { data: members, error: mErr } = await db
+    .from('judge_eval_test_set_members')
+    .select('pair_label')
+    .eq('test_set_id', testSetId);
+  if (mErr) throw mErr;
+  const memberLabels = new Set((members ?? []).map((m) => m.pair_label));
+
+  const kind = filters.kind ?? 'both';
+  const membership = filters.membership ?? 'all';
+  const gapKind = filters.gapKind ?? 'all';
+  const search = filters.search?.trim().toLowerCase() ?? '';
+  const { eloMin, eloMax } = filters;
+
+  const withinElo = (p: CurationPair): boolean => {
+    if (eloMin == null && eloMax == null) return true;
+    if (p.elo_a == null || p.elo_b == null) return false; // both sides required
+    if (eloMin != null && (p.elo_a < eloMin || p.elo_b < eloMin)) return false;
+    if (eloMax != null && (p.elo_a > eloMax || p.elo_b > eloMax)) return false;
+    return true;
+  };
+
+  const projected = allPairs
+    .map((p): CurationPair => ({ ...projectPairElo(p), isMember: memberLabels.has(p.label) }))
+    .filter((p) => kind === 'both' || p.pair_kind === kind)
+    .filter((p) => membership === 'all' || (membership === 'member' ? p.isMember : !p.isMember))
+    .filter((p) => gapKind === 'all' || p.gap_kind === gapKind)
+    .filter((p) => !search || p.label.toLowerCase().includes(search))
+    .filter(withinElo)
+    .sort((a, b) =>
+      a.pair_kind !== b.pair_kind ? (a.pair_kind < b.pair_kind ? -1 : 1) : a.label < b.label ? -1 : a.label > b.label ? 1 : 0,
+    );
+
+  const offset = Math.max(0, filters.offset ?? 0);
+  const limit = Math.max(1, Math.min(filters.limit ?? 100, 500));
+  return {
+    pairs: projected.slice(offset, offset + limit),
+    total: projected.length,
+    memberCount: memberLabels.size,
+    filteredLabels: projected.map((p) => p.label),
+  };
 }
 
 /**
@@ -358,15 +459,27 @@ export async function cloneTestSet(
     created_at: bankRow.created_at,
   };
 
+  const strategy = input.strategy ?? (source.strategy as CreateTestSetInput['strategy']);
+  // For a manual (curated) clone, membership is exactly the chosen labels — so record the actual
+  // per-kind selected counts as the new set's sizes (manual ignores seed/size for selection).
+  let sizeArticle = input.sizeArticle ?? source.size_article;
+  let sizeParagraph = input.sizeParagraph ?? source.size_paragraph;
+  if (strategy === 'manual') {
+    const labels = new Set(input.manualLabels ?? []);
+    const chosen = bank.pairs.filter((p) => labels.has(p.label));
+    sizeArticle = chosen.filter((p) => p.pair_kind === 'article').length;
+    sizeParagraph = chosen.filter((p) => p.pair_kind === 'paragraph').length;
+  }
+
   let result: { testSet: JudgeEvalTestSet; created: boolean };
   try {
     result = await getOrCreateTestSet(db, bank, {
       name: input.newName,
       description: input.description ?? null,
-      strategy: input.strategy ?? (source.strategy as CreateTestSetInput['strategy']),
+      strategy,
       seed: input.seed ?? source.seed,
-      sizeArticle: input.sizeArticle ?? source.size_article,
-      sizeParagraph: input.sizeParagraph ?? source.size_paragraph,
+      sizeArticle,
+      sizeParagraph,
       manualLabels: input.manualLabels,
     });
   } catch (e) {

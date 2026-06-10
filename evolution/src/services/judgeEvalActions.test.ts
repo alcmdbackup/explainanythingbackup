@@ -21,10 +21,21 @@ jest.mock('@/lib/logging/server/automaticServerLoggingBase', () => ({
 }));
 jest.mock('@/lib/services/auditLog', () => ({ logAdminAction: jest.fn().mockResolvedValue(undefined) }));
 
-import { createEvalRunAction, getEvalLeaderboardAction } from './judgeEvalActions';
+import { createEvalRunAction, getEvalLeaderboardAction, cloneTestSetAction } from './judgeEvalActions';
 
 const mockCreate = createSupabaseServiceClient as jest.MockedFunction<typeof createSupabaseServiceClient>;
 const TEST_SET = '550e8400-e29b-41d4-a716-446655440000';
+
+describe('cloneTestSetAction', () => {
+  it('rejects a manual clone with empty manualLabels before any DB call (zod refine)', async () => {
+    const mock = createTableAwareMock([]);
+    mockCreate.mockResolvedValue(mock as never);
+    const res = await cloneTestSetAction({ sourceTestSetId: TEST_SET, newName: 'x', strategy: 'manual' });
+    expect(res.success).toBe(false);
+    if (!res.success) expect(res.error?.message).toMatch(/manualLabels/);
+    expect(mock.from).not.toHaveBeenCalled();
+  });
+});
 
 describe('createEvalRunAction', () => {
   it('rejects a model not in the evolution allow-list before any DB call', async () => {

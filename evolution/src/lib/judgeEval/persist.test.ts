@@ -7,6 +7,7 @@ import {
   getTestSetPairTexts,
   updateTestSetMetadata,
   cloneTestSet,
+  loadBankPairsForCuration,
 } from './persist';
 import type { JudgeEvalPair } from './schemas';
 
@@ -250,5 +251,107 @@ describe('cloneTestSet', () => {
     const db = cloneDb({ source, bank, existingByName: null });
     const out = await cloneTestSet(db, { sourceTestSetId: 'ts-1', newName: 'fresh' });
     expect(out.created).toBe(true);
+  });
+
+  it('manual clone records the per-kind selected counts as the new set sizes', async () => {
+    // Capture the test-set INSERT payload so we can assert size_article/size_paragraph.
+    const captured: { insert?: Record<string, unknown> } = {};
+    const bankAP = {
+      id: 'bank-1',
+      name: 'b',
+      description: null,
+      source_topic_id: null,
+      pairs: [pair('art#1'), pair('par#1', { pair_kind: 'paragraph' })],
+      created_at: 't',
+    };
+    function captureDb(): never {
+      function builder(table: string) {
+        const eqs: Record<string, unknown> = {};
+        const b: Record<string, unknown> = {
+          select: () => b,
+          eq: (c: string, v: unknown) => {
+            eqs[c] = v;
+            return b;
+          },
+          insert: (payload: unknown) => {
+            if (table === 'judge_eval_test_sets' && !Array.isArray(payload)) {
+              captured.insert = payload as Record<string, unknown>;
+            }
+            return b;
+          },
+          single: () =>
+            Promise.resolve(
+              table === 'judge_eval_test_sets'
+                ? { data: source, error: null }
+                : table === 'judge_eval_pair_banks'
+                  ? { data: bankAP, error: null }
+                  : { data: null, error: null },
+            ),
+          maybeSingle: () => Promise.resolve({ data: null, error: null }),
+          then: (f: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(f),
+        };
+        return b;
+      }
+      return { from: builder } as never;
+    }
+
+    await cloneTestSet(captureDb(), {
+      sourceTestSetId: 'ts-1',
+      newName: 'curated',
+      strategy: 'manual',
+      manualLabels: ['art#1', 'par#1'],
+    });
+    expect(captured.insert?.strategy).toBe('manual');
+    expect(captured.insert?.size_article).toBe(1);
+    expect(captured.insert?.size_paragraph).toBe(1);
+  });
+});
+
+describe('loadBankPairsForCuration', () => {
+  const cfg = {
+    testSet: TS,
+    bankPairs: [
+      pair('art#1', { mu_a: 40, mu_b: 20 }), // elo 1440 vs 1120
+      pair('art#2', { mu_a: 30, mu_b: 30 }), // elo 1280 vs 1280
+      pair('par#1', { pair_kind: 'paragraph', mu_a: 28, mu_b: 26, gap_kind: 'close' }),
+    ],
+    members: [{ pair_label: 'art#1', pair_kind: 'article' }],
+  };
+
+  it('flags isMember and strips snapshot texts', async () => {
+    const out = await loadBankPairsForCuration(makeDb(cfg), 'ts-1', {});
+    expect(out.total).toBe(3);
+    expect(out.memberCount).toBe(1);
+    const a1 = out.pairs.find((p) => p.label === 'art#1')!;
+    expect(a1.isMember).toBe(true);
+    expect(out.pairs.find((p) => p.label === 'art#2')!.isMember).toBe(false);
+    expect(a1).not.toHaveProperty('text_a');
+    expect(typeof a1.elo_a).toBe('number');
+  });
+
+  it('filters by membership', async () => {
+    const m = await loadBankPairsForCuration(makeDb(cfg), 'ts-1', { membership: 'member' });
+    expect(m.filteredLabels).toEqual(['art#1']);
+    const n = await loadBankPairsForCuration(makeDb(cfg), 'ts-1', { membership: 'non_member' });
+    expect(new Set(n.filteredLabels)).toEqual(new Set(['art#2', 'par#1']));
+  });
+
+  it('filters by kind and by gapKind', async () => {
+    expect((await loadBankPairsForCuration(makeDb(cfg), 'ts-1', { kind: 'paragraph' })).filteredLabels).toEqual(['par#1']);
+    expect((await loadBankPairsForCuration(makeDb(cfg), 'ts-1', { gapKind: 'close' })).filteredLabels).toEqual(['par#1']);
+  });
+
+  it('Elo filter requires BOTH sides within bounds', async () => {
+    // eloMin 1200: art#1 B-side 1120 < 1200 → excluded; art#2 (1280/1280) + par#1 (1248/1216) pass.
+    const out = await loadBankPairsForCuration(makeDb(cfg), 'ts-1', { eloMin: 1200 });
+    expect(out.filteredLabels).not.toContain('art#1');
+    expect(out.filteredLabels).toEqual(expect.arrayContaining(['art#2', 'par#1']));
+  });
+
+  it('matches label substring and paginates', async () => {
+    expect((await loadBankPairsForCuration(makeDb(cfg), 'ts-1', { search: 'par' })).filteredLabels).toEqual(['par#1']);
+    const page = await loadBankPairsForCuration(makeDb(cfg), 'ts-1', { limit: 2, offset: 0 });
+    expect(page.pairs).toHaveLength(2);
+    expect(page.total).toBe(3);
   });
 });

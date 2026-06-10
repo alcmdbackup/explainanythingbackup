@@ -13,6 +13,7 @@ import {
   getTestSetContentsAction,
   getTestSetPairTextsAction,
 } from '@evolution/services/judgeEvalActions';
+import CloneCuratePanel from './CloneCuratePanel';
 
 type Kind = 'article' | 'paragraph' | 'both';
 
@@ -61,6 +62,7 @@ export default function TestSetContentsPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [texts, setTexts] = useState<Record<string, { text_a: string; text_b: string }>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [curating, setCurating] = useState(false);
 
   useEffect(() => {
     if (data?.testSet.name) document.title = `${data.testSet.name} | Test Set | Judge Lab`;
@@ -130,6 +132,24 @@ export default function TestSetContentsPage(): JSX.Element {
             </div>
           )}
         </div>
+      )}
+
+      <div>
+        <button
+          data-testid="open-clone-curate"
+          className="text-xs px-3 py-1.5 rounded border border-[var(--border-default)]"
+          onClick={() => setCurating((v) => !v)}
+        >
+          {curating ? 'Close Clone & curate' : 'Clone & curate ▸'}
+        </button>
+      </div>
+
+      {curating && data && (
+        <CloneCuratePanel
+          testSetId={testSetId}
+          sourceName={data.testSet.name}
+          onCloned={() => setCurating(false)}
+        />
       )}
 
       <div className="flex items-center gap-2 text-xs font-ui">

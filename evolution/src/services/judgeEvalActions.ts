@@ -18,6 +18,7 @@ import {
   getTestSetPairTexts,
   updateTestSetMetadata,
   cloneTestSet,
+  loadBankPairsForCuration,
 } from '@evolution/lib/judgeEval/persist';
 import { executeSweep, type SweepOutcome } from '@evolution/lib/judgeEval/executeSweep';
 import { seedPairBankFromTopic } from '@evolution/lib/judgeEval/seed';
@@ -104,23 +105,62 @@ export const updateTestSetMetaAction = adminAction(
   },
 );
 
-const cloneSchema = z.object({
-  sourceTestSetId: z.string().uuid(),
-  newName: z.string().min(1).max(120),
-  sizeArticle: z.number().int().min(0).max(100000).optional(),
-  sizeParagraph: z.number().int().min(0).max(100000).optional(),
-  strategy: testSetStrategySchema.optional(),
-  seed: z.number().int().optional(),
-  description: z.string().max(2000).nullable().optional(),
-});
+const cloneSchema = z
+  .object({
+    sourceTestSetId: z.string().uuid(),
+    newName: z.string().min(1).max(120),
+    sizeArticle: z.number().int().min(0).max(100000).optional(),
+    sizeParagraph: z.number().int().min(0).max(100000).optional(),
+    strategy: testSetStrategySchema.optional(),
+    seed: z.number().int().optional(),
+    description: z.string().max(2000).nullable().optional(),
+    /** Curated clone: explicit pair labels to include (required when strategy='manual'). */
+    manualLabels: z.array(z.string().min(1)).optional(),
+  })
+  .refine((v) => v.strategy !== 'manual' || (v.manualLabels?.length ?? 0) > 0, {
+    message: 'manualLabels must be non-empty when strategy is "manual"',
+    path: ['manualLabels'],
+  });
 
 /** Clone a test set into a NEW frozen set (the only safe membership-change path). Re-samples the
- *  source's CURRENT bank; preserves the source + its eval runs. Errors on name collision. */
+ *  source's CURRENT bank; preserves the source + its eval runs. With strategy='manual' + manualLabels
+ *  it produces a curated set (exactly the chosen pairs). Errors on name collision. */
 export const cloneTestSetAction = adminAction(
   'cloneTestSet',
   async (input: z.input<typeof cloneSchema>, ctx: AdminContext) => {
     const parsed = cloneSchema.parse(input);
     return cloneTestSet(db(ctx), parsed);
+  },
+);
+
+const curationSchema = z.object({
+  testSetId: z.string().uuid(),
+  kind: kindFilterSchema.default('both'),
+  membership: z.enum(['all', 'member', 'non_member']).default('all'),
+  gapKind: z.enum(['all', 'large', 'close']).default('all'),
+  search: z.string().max(200).optional(),
+  eloMin: z.number().nullable().optional(),
+  eloMax: z.number().nullable().optional(),
+  limit: z.number().int().min(1).max(500).default(100),
+  offset: z.number().int().min(0).default(0),
+});
+
+/** List the source set's bank pairs (the curated-clone universe) with Elo + isMember flags, filtered
+ *  + paginated. Powers the Clone & curate picker; the chosen labels feed cloneTestSetAction(manual). */
+export const getBankPairsForCurationAction = adminAction(
+  'getBankPairsForCuration',
+  async (input: z.input<typeof curationSchema>, ctx: AdminContext) => {
+    const parsed = curationSchema.parse(input);
+    return loadBankPairsForCuration(db(ctx), parsed.testSetId, {
+      kind: parsed.kind,
+      membership: parsed.membership,
+      gapKind: parsed.gapKind,
+      search: parsed.search,
+      eloMin: parsed.eloMin ?? null,
+      eloMax: parsed.eloMax ?? null,
+      limit: parsed.limit,
+      offset: parsed.offset,
+    });
   },
 );
 

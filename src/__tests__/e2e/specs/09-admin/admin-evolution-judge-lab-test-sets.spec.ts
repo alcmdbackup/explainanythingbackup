@@ -15,6 +15,9 @@ const STAMP = Date.now();
 const BANK_NAME = `[TEST_EVO] judge-lab ts-crud bank ${STAMP}`;
 const TEST_SET_NAME = `[TEST_EVO] ts-crud ${STAMP}`;
 const CLONE_NAME = `[TEST_EVO] ts-crud-clone ${STAMP}`;
+const CURATE_BANK_NAME = `[TEST_EVO] curate bank ${STAMP}`;
+const CURATE_SET_NAME = `[TEST_EVO] curate src ${STAMP}`;
+const CURATE_CLONE_NAME = `[TEST_EVO] curate clone ${STAMP}`;
 const VA = '11111111-1111-4111-8111-111111111111';
 const VB = '22222222-2222-4222-8222-222222222222';
 
@@ -84,5 +87,67 @@ adminTest.describe('Judge Lab — Test Set view/edit/clone', { tag: '@evolution'
     await expect(
       adminPage.getByTestId('test-set-row').filter({ hasText: CLONE_NAME }),
     ).toBeVisible({ timeout: 30000 });
+  });
+
+  adminTest('clone & curate edits membership (remove a member, add a non-member)', async ({ adminPage }) => {
+    const db = getEvolutionServiceClient();
+
+    const probe = await db.from('judge_eval_pair_banks').select('id').limit(1);
+    if (probe.error) {
+      // eslint-disable-next-line flakiness/no-test-skip -- infrastructure limitation: judge_eval_* migration deploys on merge to main; skip until the tables exist on staging.
+      adminTest.skip(true, 'judge_eval_* tables not deployed yet');
+      return;
+    }
+
+    // Seed a bank with TWO article pairs; the source set has only art#1 as a member.
+    const bank = await db
+      .from('judge_eval_pair_banks')
+      .insert({
+        name: CURATE_BANK_NAME,
+        pairs: [
+          { label: 'art#1', pair_kind: 'article', variant_a_id: VA, variant_b_id: VB, text_a: 'one a', text_b: 'one b', mu_a: 40, mu_b: 20, sigma_a: 5, sigma_b: 5, expected_winner: 'A', gap_kind: 'large', baseline_confidence: 1.0 },
+          { label: 'art#2', pair_kind: 'article', variant_a_id: VA, variant_b_id: VB, text_a: 'two a', text_b: 'two b', mu_a: 35, mu_b: 25, sigma_a: 5, sigma_b: 5, expected_winner: 'A', gap_kind: 'large', baseline_confidence: 1.0 },
+        ],
+      })
+      .select('id')
+      .single();
+    expect(bank.error).toBeNull();
+    const bankId = bank.data!.id;
+    trackEvolutionId('judge_eval_pair_bank', bankId);
+
+    const ts = await db
+      .from('judge_eval_test_sets')
+      .insert({ pair_bank_id: bankId, name: CURATE_SET_NAME, strategy: 'manual', seed: 1, size_article: 1, size_paragraph: 0 })
+      .select('id')
+      .single();
+    expect(ts.error).toBeNull();
+    const testSetId = ts.data!.id;
+    await db.from('judge_eval_test_set_members').insert({ test_set_id: testSetId, pair_label: 'art#1', pair_kind: 'article' });
+
+    await safeGoto(adminPage, `/admin/evolution/judge-lab/test-sets/${testSetId}`);
+    await adminPage.getByTestId('open-clone-curate').click();
+    await expect(adminPage.getByTestId('curate-table')).toBeVisible({ timeout: 30000 });
+
+    // art#1 is the current member (pre-checked); art#2 is not.
+    await expect(adminPage.getByTestId('curate-check-art#1')).toBeChecked({ timeout: 30000 });
+    await expect(adminPage.getByTestId('curate-check-art#2')).not.toBeChecked();
+
+    // Edit membership: drop art#1, add art#2 → curated set should contain exactly art#2.
+    await adminPage.getByTestId('curate-check-art#1').uncheck();
+    await adminPage.getByTestId('curate-check-art#2').check();
+    await adminPage.getByTestId('curate-name').fill(CURATE_CLONE_NAME);
+    await adminPage.getByTestId('curate-clone').click();
+
+    // The curated clone appears in the list with size_article = 1 (just art#2).
+    await safeGoto(adminPage, '/admin/evolution/judge-lab/test-sets');
+    await expect(
+      adminPage.getByTestId('test-set-row').filter({ hasText: CURATE_CLONE_NAME }),
+    ).toBeVisible({ timeout: 30000 });
+
+    // Verify membership in the DB: exactly art#2 (art#1 was removed).
+    const created = await db.from('judge_eval_test_sets').select('id').eq('name', CURATE_CLONE_NAME).single();
+    expect(created.error).toBeNull();
+    const members = await db.from('judge_eval_test_set_members').select('pair_label').eq('test_set_id', created.data!.id);
+    expect((members.data ?? []).map((m) => m.pair_label).sort()).toEqual(['art#2']);
   });
 });
