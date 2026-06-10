@@ -22,6 +22,10 @@ const VA = '11111111-1111-4111-8111-111111111111';
 const VB = '22222222-2222-4222-8222-222222222222';
 
 adminTest.describe('Judge Lab — Test Set view/edit/clone', { tag: '@evolution' }, () => {
+  // Serial: the tests share the test-sets list page + seed data; serial avoids cross-test races
+  // (and matches the convention in admin-evolution-matches.spec.ts).
+  adminTest.describe.configure({ mode: 'serial', retries: 2 });
+
   adminTest.afterAll(async () => {
     await cleanupAllTrackedEvolutionData();
   });
@@ -84,6 +88,9 @@ adminTest.describe('Judge Lab — Test Set view/edit/clone', { tag: '@evolution'
     await expect(clonePanel).toBeVisible();
     await clonePanel.getByTestId('clone-name').fill(CLONE_NAME);
     await clonePanel.getByTestId('clone-submit').click();
+    // Panel closes only after the clone action resolves — wait before asserting the new row so we
+    // don't race the server action + list refresh.
+    await expect(adminPage.getByTestId('test-set-clone')).toBeHidden({ timeout: 30000 });
     await expect(
       adminPage.getByTestId('test-set-row').filter({ hasText: CLONE_NAME }),
     ).toBeVisible({ timeout: 30000 });
@@ -127,6 +134,10 @@ adminTest.describe('Judge Lab — Test Set view/edit/clone', { tag: '@evolution'
     await safeGoto(adminPage, `/admin/evolution/judge-lab/test-sets/${testSetId}`);
     await adminPage.getByTestId('open-clone-curate').click();
     await expect(adminPage.getByTestId('curate-table')).toBeVisible({ timeout: 30000 });
+    // The panel runs two async loads (member-seed + display); wait for the rows to actually render
+    // (both checkboxes present) before asserting state, so we don't race the loads.
+    await expect(adminPage.getByTestId('curate-row')).toHaveCount(2, { timeout: 30000 });
+    await expect(adminPage.getByTestId('curate-check-art#2')).toBeVisible({ timeout: 30000 });
 
     // art#1 is the current member (pre-checked); art#2 is not.
     await expect(adminPage.getByTestId('curate-check-art#1')).toBeChecked({ timeout: 30000 });

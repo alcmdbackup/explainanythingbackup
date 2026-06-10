@@ -31,6 +31,7 @@ interface CurationResult {
   pairs: CurationRow[];
   total: number;
   memberCount: number;
+  memberLabels: string[];
   filteredLabels: string[];
 }
 
@@ -71,17 +72,6 @@ export default function CloneCuratePanel({
   const [texts, setTexts] = useState<Record<string, { text_a: string; text_b: string }>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // Seed the selection from the source set's CURRENT members (all of them, not just a page).
-  useEffect(() => {
-    void (async () => {
-      const res = await getBankPairsForCurationAction({ testSetId, membership: 'member', limit: 1 });
-      if (res.success && res.data) {
-        setSelected(new Set((res.data as CurationResult).filteredLabels));
-      }
-      setSeeded(true);
-    })();
-  }, [testSetId]);
-
   const load = useCallback(async () => {
     setLoading(true);
     const res = await getBankPairsForCurationAction({
@@ -100,7 +90,14 @@ export default function CloneCuratePanel({
       toast.error(res.error?.message ?? 'Failed to load pairs');
       return;
     }
-    setResult(res.data as CurationResult);
+    const data = res.data as CurationResult;
+    setResult(data);
+    // Seed the selection from the source set's CURRENT members on the FIRST load only — the result
+    // carries all member labels, so no separate query is needed (one round-trip instead of two).
+    setSeeded((wasSeeded) => {
+      if (!wasSeeded) setSelected(new Set(data.memberLabels));
+      return true;
+    });
   }, [testSetId, kind, membership, gapKind, search, eloMin, eloMax, offset]);
 
   useEffect(() => {

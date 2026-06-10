@@ -303,6 +303,9 @@ export interface CurationResult {
   total: number;
   /** Current member count of the source set (across both kinds). */
   memberCount: number;
+  /** ALL current member labels of the source set (labels are tiny — seeds the picker's initial
+   *  selection without a second query, regardless of the active filter). */
+  memberLabels: string[];
   /** ALL labels matching the filter (labels are tiny — powers "select all (filtered)"). */
   filteredLabels: string[];
 }
@@ -371,6 +374,7 @@ export async function loadBankPairsForCuration(
     pairs: projected.slice(offset, offset + limit),
     total: projected.length,
     memberCount: memberLabels.size,
+    memberLabels: [...memberLabels].sort(),
     filteredLabels: projected.map((p) => p.label),
   };
 }

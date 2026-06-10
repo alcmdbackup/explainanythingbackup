@@ -322,6 +322,7 @@ describe('loadBankPairsForCuration', () => {
     const out = await loadBankPairsForCuration(makeDb(cfg), 'ts-1', {});
     expect(out.total).toBe(3);
     expect(out.memberCount).toBe(1);
+    expect(out.memberLabels).toEqual(['art#1']); // seeds the picker selection without a 2nd query
     const a1 = out.pairs.find((p) => p.label === 'art#1')!;
     expect(a1.isMember).toBe(true);
     expect(out.pairs.find((p) => p.label === 'art#2')!.isMember).toBe(false);
