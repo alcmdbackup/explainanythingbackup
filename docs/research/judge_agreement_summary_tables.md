@@ -250,3 +250,4 @@ Output tokens are **total across both calls** in a comparison (forward + reverse
 ## Related Documents
 
 - [`judging_accuracy_20260412.md`](./judging_accuracy_20260412.md) — full research context, beta analysis, and OpenSkill calibration findings
+- [Judge Evaluation (Judge Lab)](../feature_deep_dives/judge_evaluation.md) — this ad-hoc methodology is now a repeatable tool: frozen test sets + settings sweeps + a decisive-rate leaderboard, replicating the agreement/decisiveness/implied-beta metrics here.

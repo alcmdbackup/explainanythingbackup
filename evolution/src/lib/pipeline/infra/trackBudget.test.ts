@@ -222,6 +222,25 @@ describe('createAgentCostScope', () => {
     expect(scope.getOwnSpent()).toBe(0);
   });
 
+  // Phase 12 code-review #1: scope must forward getIterationPhaseCosts when wrapping
+  // an iter tracker, so the per-iter escape hatch is reachable through Agent.run.
+  it('Phase 12: forwards getIterationPhaseCosts when shared is an iter tracker', () => {
+    const run = createCostTracker(1.0);
+    const iter = createIterationBudgetTracker(0.5, run, 0);
+    const scope = createAgentCostScope(iter);
+    const m = scope.reserve('generation', 0.1);
+    scope.recordSpend('generation', 0.08, m);
+    // The per-iter accessor must be reachable through the scope.
+    expect(scope.getIterationPhaseCosts).toBeDefined();
+    expect(scope.getIterationPhaseCosts?.()['generation']).toBeCloseTo(0.08);
+  });
+
+  it('Phase 12: omits getIterationPhaseCosts when shared is a flat run tracker', () => {
+    const shared = createCostTracker(1.0);
+    const scope = createAgentCostScope(shared);
+    expect(scope.getIterationPhaseCosts).toBeUndefined();
+  });
+
   it('getOwnSpent() increments only for this scope\'s recordSpend() calls', () => {
     const shared = createCostTracker(1.0);
     const scope = createAgentCostScope(shared);
@@ -357,15 +376,19 @@ describe('createIterationBudgetTracker', () => {
     expect(iter.getAvailableBudget()).toBeCloseTo(0.3);
   });
 
-  it('getPhaseCosts tracks iteration-level costs independently', () => {
+  // Phase 12: getPhaseCosts() on iter trackers now returns RUN-CUMULATIVE.
+  // getIterationPhaseCosts() returns the per-iter shape (callers that need it).
+  it('Phase 12: getPhaseCosts() returns run-cumulative phase costs (delegates to runTracker)', () => {
     const run = createCostTracker(1.0);
     const iter = createIterationBudgetTracker(0.5, run, 0);
     const m = iter.reserve('generation', 0.1);
     iter.recordSpend('generation', 0.08, m);
+    // After one iter's spend, run-cumulative == iter spend.
     expect(iter.getPhaseCosts()['generation']).toBeCloseTo(0.08);
+    expect(iter.getIterationPhaseCosts?.()['generation']).toBeCloseTo(0.08);
   });
 
-  it('two iterations on same run tracker have independent iteration spend', () => {
+  it('Phase 12: getPhaseCosts() accumulates across iterations on the same run tracker', () => {
     const run = createCostTracker(1.0);
     const iter1 = createIterationBudgetTracker(0.6, run, 0);
     const iter2 = createIterationBudgetTracker(0.4, run, 1);
@@ -373,12 +396,91 @@ describe('createIterationBudgetTracker', () => {
     const m1 = iter1.reserve('generation', 0.1);
     iter1.recordSpend('generation', 0.05, m1);
 
-    const m2 = iter2.reserve('ranking', 0.1);
-    iter2.recordSpend('ranking', 0.03, m2);
+    const m2 = iter2.reserve('generation', 0.1);
+    iter2.recordSpend('generation', 0.03, m2);
 
+    // getTotalSpent stays per-iter (load-bearing for iter-budget gating).
     expect(iter1.getTotalSpent()).toBeCloseTo(0.05);
     expect(iter2.getTotalSpent()).toBeCloseTo(0.03);
     expect(run.getTotalSpent()).toBeCloseTo(0.08);
+
+    // getPhaseCosts now RUN-CUMULATIVE on both iter trackers — they share the underlying
+    // runTracker phaseCosts. Reading from iter2's scope sees the SUM ($0.08), not just
+    // iter2's per-iter ($0.03). This is the fix that lets writeMetricMax(GREATEST) record
+    // correctly across iterations on overlapping AgentName labels.
+    expect(iter1.getPhaseCosts()['generation']).toBeCloseTo(0.08);
+    expect(iter2.getPhaseCosts()['generation']).toBeCloseTo(0.08);
+
+    // getIterationPhaseCosts() preserves the old per-iter shape for callers that need it.
+    expect(iter1.getIterationPhaseCosts?.()['generation']).toBeCloseTo(0.05);
+    expect(iter2.getIterationPhaseCosts?.()['generation']).toBeCloseTo(0.03);
+  });
+
+  // Phase 12.6.1: kill switch — EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED.
+  describe('Phase 12.6 kill switch tristate', () => {
+    const ORIGINAL = process.env.EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED;
+    afterEach(() => {
+      if (ORIGINAL === undefined) {
+        delete process.env.EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED;
+      } else {
+        process.env.EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED = ORIGINAL;
+      }
+    });
+
+    it('unset → run-cumulative (new behavior, default)', () => {
+      delete process.env.EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED;
+      const run = createCostTracker(1.0);
+      const iter1 = createIterationBudgetTracker(0.5, run, 0);
+      const iter2 = createIterationBudgetTracker(0.5, run, 1);
+      const m1 = iter1.reserve('generation', 0.1);
+      iter1.recordSpend('generation', 0.05, m1);
+      const m2 = iter2.reserve('generation', 0.1);
+      iter2.recordSpend('generation', 0.03, m2);
+      expect(iter2.getPhaseCosts()['generation']).toBeCloseTo(0.08); // run-cumulative
+      expect(iter2.getSubagentCosts?.()['generation']).toBeCloseTo(0.08); // alias lockstep
+    });
+
+    it("'true' → run-cumulative", () => {
+      process.env.EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED = 'true';
+      const run = createCostTracker(1.0);
+      const iter1 = createIterationBudgetTracker(0.5, run, 0);
+      const iter2 = createIterationBudgetTracker(0.5, run, 1);
+      const m1 = iter1.reserve('generation', 0.1);
+      iter1.recordSpend('generation', 0.05, m1);
+      const m2 = iter2.reserve('generation', 0.1);
+      iter2.recordSpend('generation', 0.03, m2);
+      expect(iter2.getPhaseCosts()['generation']).toBeCloseTo(0.08);
+      expect(iter2.getSubagentCosts?.()['generation']).toBeCloseTo(0.08);
+    });
+
+    it("'false' → reverts to per-iter (kill switch active)", () => {
+      process.env.EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED = 'false';
+      const run = createCostTracker(1.0);
+      const iter1 = createIterationBudgetTracker(0.5, run, 0);
+      const iter2 = createIterationBudgetTracker(0.5, run, 1);
+      const m1 = iter1.reserve('generation', 0.1);
+      iter1.recordSpend('generation', 0.05, m1);
+      const m2 = iter2.reserve('generation', 0.1);
+      iter2.recordSpend('generation', 0.03, m2);
+      expect(iter2.getPhaseCosts()['generation']).toBeCloseTo(0.03); // per-iter (old)
+      expect(iter2.getSubagentCosts?.()['generation']).toBeCloseTo(0.03); // alias lockstep
+    });
+
+    it('alias invariant: getPhaseCosts and getSubagentCosts always return the same values', () => {
+      // Test all 3 states for alias invariant
+      for (const value of [undefined, 'true', 'false']) {
+        if (value === undefined) {
+          delete process.env.EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED;
+        } else {
+          process.env.EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED = value;
+        }
+        const run = createCostTracker(1.0);
+        const iter = createIterationBudgetTracker(0.5, run, 0);
+        const m = iter.reserve('generation', 0.1);
+        iter.recordSpend('generation', 0.05, m);
+        expect(iter.getPhaseCosts()).toEqual(iter.getSubagentCosts?.());
+      }
+    });
   });
 
   it('IterationBudgetExceededError extends BudgetExceededError', () => {

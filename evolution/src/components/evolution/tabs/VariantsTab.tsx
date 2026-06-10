@@ -17,6 +17,7 @@ import { formatEloWithUncertainty, formatEloCIRange } from '@evolution/lib/utils
 import { dbToRating } from '@evolution/lib/shared/computeRatings';
 import { bootstrapDeltaCI } from '@evolution/lib/shared/ratingDelta';
 import { VariantParentBadge } from '@evolution/components/evolution/variant/VariantParentBadge';
+import { isDiscardedGenerateVariant } from '@evolution/lib/utils/variantStatus';
 
 /** Extended variant type with optional parent IDs for display.
  *  bring_back_debate_agent_20260506 PR 2: parent_variant_ids is the canonical column;
@@ -54,13 +55,19 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
   const [strategyFilter, setStrategyFilter] = useState<string>('');
   const [iterationFilter, setIterationFilter] = useState<string>('');
   const [includeDiscarded, setIncludeDiscarded] = useState(false);
+  // hide_paragraphs_from_run_variants_tab_evolution_20260603: default to article-only so
+  // paragraph_recombine slot rewrites (variant_kind='paragraph') are hidden; the dropdown lets users
+  // opt into paragraph snippets, mirroring the standalone /admin/evolution/variants list.
+  const [kindFilter, setKindFilter] = useState<'article' | 'paragraph' | 'any'>('article');
   const initialVariantApplied = useRef(false);
 
   useEffect(() => {
     async function load(): Promise<void> {
       setLoading(true);
       const result = await getEvolutionVariantsAction(
-        runId ? { runId, includeDiscarded } : { strategyId, includeDiscarded },
+        runId
+          ? { runId, includeDiscarded, variantKind: kindFilter }
+          : { strategyId, includeDiscarded, variantKind: kindFilter },
       );
       if (result.success && result.data) {
         setVariants(result.data);
@@ -70,7 +77,7 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
       setLoading(false);
     }
     load();
-  }, [runId, strategyId, includeDiscarded]);
+  }, [runId, strategyId, includeDiscarded, kindFilter]);
 
   useEffect(() => {
     if (!initialVariant || loading || initialVariantApplied.current || variants.length === 0) return;
@@ -140,6 +147,17 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
           >
             <option value="">All iterations</option>
             {iterations.map(i => <option key={i} value={String(i)}>Iteration {i}</option>)}
+          </select>
+          <select
+            value={kindFilter}
+            onChange={e => setKindFilter(e.target.value as 'article' | 'paragraph' | 'any')}
+            className="px-3 py-1.5 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)] text-xs"
+            data-testid="variant-kind-filter"
+            aria-label="Kind"
+          >
+            <option value="article">Articles only</option>
+            <option value="paragraph">Paragraph snippets only</option>
+            <option value="any">Both</option>
           </select>
         </div>
         <label className="flex items-center gap-2 text-xs font-ui text-[var(--text-secondary)] cursor-pointer" data-testid="include-discarded-toggle">
@@ -246,7 +264,7 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
                     })()}
                   </td>
                   <td className="px-2 py-2 text-center" data-testid={`persisted-${v.id.substring(0, 6)}`}>
-                    {v.persisted === false ? (
+                    {isDiscardedGenerateVariant(v.persisted, v.variant_kind) ? (
                       <span className="text-xs font-ui text-[var(--status-error)]" title="Discarded — not in final pool">✗</span>
                     ) : (
                       <span className="text-xs font-ui text-[var(--status-success)]" title="Surfaced to final pool">✓</span>

@@ -96,6 +96,7 @@ export function VariantMatchHistory({ variantId }: VariantMatchHistoryProps): JS
               <th className="px-2 py-1.5 text-left text-xs text-[var(--text-muted)]">Opponent</th>
               <th className="px-2 py-1.5 text-right text-xs text-[var(--text-muted)]">Opp. Rating</th>
               <th className="px-2 py-1.5 text-right text-xs text-[var(--text-muted)]">Confidence</th>
+              <th className="px-2 py-1.5 text-right text-xs text-[var(--text-muted)]">Match</th>
             </tr>
           </thead>
           <tbody>
@@ -124,6 +125,15 @@ export function VariantMatchHistory({ variantId }: VariantMatchHistoryProps): JS
                 </td>
                 <td className="px-2 py-1.5 text-right font-mono text-[var(--text-muted)]">
                   {(m.confidence * 100).toFixed(0)}%
+                </td>
+                <td className="px-2 py-1.5 text-right">
+                  <Link
+                    href={`/admin/evolution/matches/${m.comparisonId}`}
+                    className="text-xs text-[var(--accent-gold)] hover:underline"
+                    title="Open in Match Viewer"
+                  >
+                    Open
+                  </Link>
                 </td>
               </tr>
             ))}

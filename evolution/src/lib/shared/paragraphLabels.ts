@@ -54,3 +54,19 @@ export function formatSlotTopicName(parentId: string, slotIndex: number, kindSho
   const parentPrefix = parentId.slice(0, 8);
   return `[${kindShort}] ${parentPrefix}.P${slotIndex + 1}`;
 }
+
+/**
+ * Parse the 1-based paragraph (slot) number out of a slot-topic name produced by
+ * `formatSlotTopicName` — e.g. `[para] V8abc123.P3` → `3`. Inverse of the `.P<N>`
+ * suffix ONLY; the 8-char parent prefix is intentionally NOT recovered (it is
+ * non-unique across the UUID space — see enable_side_by_side_variant_comparisons_vs_parent_20260531).
+ *
+ * Returns `null` on missing/malformed input (never throws) so callers can simply
+ * omit the "Paragraph N" header when the topic name is unexpected.
+ */
+export function parseSlotParagraphNumber(prompt: string | null | undefined): number | null {
+  const match = prompt?.match(/^\[para\] .+\.P(\d+)$/);
+  if (!match) return null;
+  const n = parseInt(match[1]!, 10);
+  return Number.isFinite(n) && n >= 1 ? n : null;
+}

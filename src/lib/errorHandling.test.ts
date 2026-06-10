@@ -445,7 +445,12 @@ describe('errorHandling', () => {
         { message: 'pinecone', expectedCode: ERROR_CODES.EMBEDDING_ERROR },
         { message: 'validation', expectedCode: ERROR_CODES.VALIDATION_ERROR },
         { message: 'schema', expectedCode: ERROR_CODES.VALIDATION_ERROR },
-        { message: 'random error', expectedCode: ERROR_CODES.UNKNOWN_ERROR }
+        { message: 'random error', expectedCode: ERROR_CODES.UNKNOWN_ERROR },
+        // Regression (error_communicating_gemini_service_evolution_20260607): env-var-style
+        // errors where `api` is glued to `_` MUST fall through to UNKNOWN_ERROR so the raw
+        // text reaches the operator instead of "Error communicating with AI service".
+        { message: 'OPENROUTER_API_KEY not found in environment variables. Please check your .env file.', expectedCode: ERROR_CODES.UNKNOWN_ERROR },
+        { message: 'ANTHROPIC_API_KEY required for Claude models. Please check your .env file.', expectedCode: ERROR_CODES.UNKNOWN_ERROR },
       ];
 
       testCases.forEach(({ message, expectedCode }) => {

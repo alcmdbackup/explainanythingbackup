@@ -234,4 +234,5 @@ describe('paragraph_recombine multi-dispatch integration', () => {
     expect(input.matchBuffers.length).toBeGreaterThan(0);
     expect(input.newVariants.map((v) => v.id)).toContain('pr1');
   });
+
 });

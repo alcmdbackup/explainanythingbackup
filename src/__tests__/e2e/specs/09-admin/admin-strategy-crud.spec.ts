@@ -106,6 +106,19 @@ adminTest.describe('Strategy Registry CRUD', () => {
     expect(joined).not.toContain('openai/gpt-oss-20b');
   });
 
+  adminTest('model dropdown includes DeepSeek V4 models', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/strategies/new', { timeout: 30000 });
+
+    const genModelSelect = adminPage.locator('select').first();
+    await expect(genModelSelect).toBeVisible({ timeout: 15000 });
+
+    const optionValues = await genModelSelect.locator('option').evaluateAll(
+      (opts) => opts.map((o) => (o as HTMLOptionElement).value),
+    );
+    expect(optionValues).toContain('deepseek-v4-pro');
+    expect(optionValues).toContain('deepseek-v4-flash');
+  });
+
   // rank_individual_paragraphs_evolution_20260525 Phase 6 — paragraph_recombine wizard controls.
   adminTest('paragraph_recombine wizard controls appear only for paragraph_recombine iterations', { tag: '@evolution' }, async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/strategies/new', { timeout: 30000 });

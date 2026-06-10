@@ -11,6 +11,9 @@ export interface ModelPricing {
   inputPer1M: number;
   outputPer1M: number;
   reasoningPer1M?: number;
+  /** Cache-hit input price per 1M tokens. When set, cache-hit prompt tokens bill at
+   *  this rate while the remaining (cache-miss) prompt tokens use inputPer1M. */
+  cachedInputPer1M?: number;
 }
 
 // Build pricing from registry (source of truth for registered models)
@@ -19,6 +22,7 @@ const registryPricing: Record<string, ModelPricing> = Object.fromEntries(
     inputPer1M: info.inputPer1M,
     outputPer1M: info.outputPer1M,
     ...(info.reasoningPer1M != null && { reasoningPer1M: info.reasoningPer1M }),
+    ...(info.cachedInputPer1M != null && { cachedInputPer1M: info.cachedInputPer1M }),
   }]),
 );
 
@@ -89,12 +93,17 @@ export function getModelPricing(model: string): ModelPricing {
   return prefixMatch?.[1] ?? DEFAULT_PRICING;
 }
 
-/** Calculate estimated cost in USD for an LLM call. */
+/** Calculate estimated cost in USD for an LLM call.
+ *  `cachedPromptTokens` is the cache-hit subset of `promptTokens` (e.g. DeepSeek's
+ *  `usage.prompt_cache_hit_tokens`). When the model has a `cachedInputPer1M` rate, that
+ *  subset bills at the cache-hit rate and the remainder at `inputPer1M`; otherwise all
+ *  prompt tokens bill at `inputPer1M` (cachedPromptTokens is ignored). */
 export function calculateLLMCost(
   model: string,
   promptTokens: number,
   completionTokens: number,
-  reasoningTokens: number = 0
+  reasoningTokens: number = 0,
+  cachedPromptTokens: number = 0
 ): number {
   // B021: reject non-finite / negative token counts. A provider bug returning -1 would
   // produce negative spend, silently deflating reported cost and un-tripping the budget
@@ -102,17 +111,27 @@ export function calculateLLMCost(
   if (
     !Number.isFinite(promptTokens) || promptTokens < 0 ||
     !Number.isFinite(completionTokens) || completionTokens < 0 ||
-    !Number.isFinite(reasoningTokens) || reasoningTokens < 0
+    !Number.isFinite(reasoningTokens) || reasoningTokens < 0 ||
+    !Number.isFinite(cachedPromptTokens) || cachedPromptTokens < 0
   ) {
     throw new Error(
       `calculateLLMCost: token counts must be finite non-negative numbers ` +
-      `(model=${model}, prompt=${promptTokens}, completion=${completionTokens}, reasoning=${reasoningTokens})`,
+      `(model=${model}, prompt=${promptTokens}, completion=${completionTokens}, ` +
+      `reasoning=${reasoningTokens}, cached=${cachedPromptTokens})`,
     );
   }
 
   const pricing = getModelPricing(model);
 
-  const inputCost = (promptTokens / 1_000_000) * pricing.inputPer1M;
+  // Cache-hit tokens are a subset of promptTokens. Only split when the model defines a
+  // cache-hit rate; otherwise bill all prompt tokens at inputPer1M (existing behavior).
+  // Math.min clamps a provider returning cached > prompt so we never over-count.
+  const cachedTokens = pricing.cachedInputPer1M != null
+    ? Math.min(cachedPromptTokens, promptTokens)
+    : 0;
+  const fullInputTokens = promptTokens - cachedTokens;
+  const inputCost = (fullInputTokens / 1_000_000) * pricing.inputPer1M
+    + (cachedTokens / 1_000_000) * (pricing.cachedInputPer1M ?? pricing.inputPer1M);
   const outputCost = (completionTokens / 1_000_000) * pricing.outputPer1M;
   const reasoningCost = pricing.reasoningPer1M
     ? (reasoningTokens / 1_000_000) * pricing.reasoningPer1M

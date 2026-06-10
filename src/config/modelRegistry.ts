@@ -16,6 +16,10 @@ export interface ModelInfo {
   outputPer1M: number;
   /** Reasoning token price per 1M tokens (o1/o3 models). */
   reasoningPer1M?: number;
+  /** Cache-hit input price per 1M tokens (e.g. DeepSeek context caching). When set,
+   *  cache-hit prompt tokens bill at this rate while cache-miss tokens use inputPer1M.
+   *  Omit for providers without a separate cache-hit tier. */
+  cachedInputPer1M?: number;
   /** Maximum temperature the model accepts. null = temperature not supported. */
   maxTemperature: number | null;
   /** Whether this model appears in the evolution strategy creation dropdown. */
@@ -118,6 +122,19 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     inputPer1M: 0.28, outputPer1M: 0.42, maxTemperature: 2.0, supportsEvolution: true,
     supportsReasoning: false,
   },
+  // DeepSeek V4 — registered non-reasoning (thinking disabled in llms.ts; see plan).
+  // pricing as of 2026-05-31 (the 75% v4-pro cut is permanent); cachedInputPer1M is the
+  // cache-hit input rate — re-verify, the cache-hit rate is the volatile field.
+  'deepseek-v4-pro': {
+    id: 'deepseek-v4-pro', displayName: 'DeepSeek V4 Pro', provider: 'deepseek',
+    inputPer1M: 0.435, cachedInputPer1M: 0.003625, outputPer1M: 0.87,
+    maxTemperature: 2.0, supportsEvolution: true, supportsReasoning: false,
+  },
+  'deepseek-v4-flash': {
+    id: 'deepseek-v4-flash', displayName: 'DeepSeek V4 Flash', provider: 'deepseek',
+    inputPer1M: 0.14, cachedInputPer1M: 0.0028, outputPer1M: 0.28,
+    maxTemperature: 2.0, supportsEvolution: true, supportsReasoning: false,
+  },
 
   // Anthropic — Sonnet 4 supports extended thinking via the Anthropic SDK, but the
   // wire-up + Phase 1.20 trace extraction are dead-code in v1 (see planning doc).
@@ -143,6 +160,15 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     id: 'google/gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash Lite', provider: 'openrouter',
     inputPer1M: 0.10, outputPer1M: 0.40, maxTemperature: 2.0, supportsEvolution: true,
     openRouterModelId: 'google/gemini-2.5-flash-lite',
+    supportsReasoning: false,
+  },
+  // Cheap model for the nightly real-AI smoke (TEST_LLM_MODEL tier). Routed via OpenRouter.
+  // VERIFY pricing against the live OpenRouter rate for google/gemini-2.5-flash before relying
+  // on cost dashboards — these are best-known figures and only affect cost attribution, not routing.
+  'google/gemini-2.5-flash': {
+    id: 'google/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', provider: 'openrouter',
+    inputPer1M: 0.30, outputPer1M: 2.50, maxTemperature: 2.0, supportsEvolution: true,
+    openRouterModelId: 'google/gemini-2.5-flash',
     supportsReasoning: false,
   },
   'qwen/qwen3-8b': {

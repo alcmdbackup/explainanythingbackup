@@ -106,3 +106,4 @@ timeline-*.png
 # These contain PII; must never be checked in. Store under ~/.backups/ with chmod 600.
 *.sql.dump
 *.sql.dump.gz
+.claude/safe-to-close-verdict.json

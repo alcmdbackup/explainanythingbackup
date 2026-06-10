@@ -166,7 +166,7 @@ export interface AgentContext {
       prompt: string,
       label: string,
       opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' },
-    ): Promise<string | { text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } }>;
+    ): Promise<string | { text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number; cachedPromptTokens?: number } }>;
   };
   /** Default model for the scoped LLM client. Required when rawProvider is set. */
   defaultModel?: string;

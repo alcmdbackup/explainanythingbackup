@@ -46,6 +46,7 @@ import {
 import { buildParagraphRewritePrompt, PARAGRAPH_REWRITE_DIRECTIVES } from './buildParagraphRewritePrompt';
 import { getModelMaxTemperature } from '@/config/modelRegistry';
 import { estimateParagraphRecombineCost } from '../../../pipeline/infra/estimateCosts';
+import { sentenceVerbatimOverlap } from '../../../shared/sentenceOverlap';
 
 // ─── Defaults (per D9) ────────────────────────────────────────────
 
@@ -185,6 +186,20 @@ export class ParagraphRecombineAgent extends Agent<
       throw new Error('ParagraphRecombineAgent: ctx.costTracker must be an AgentCostScope (B012)');
     }
 
+    // PHASE_COSTS_ENTRY: pin invocation-scope baseline before any LLM call mutates the
+    // shared accumulator. Phase 12 makes getPhaseCosts() return run-cumulative (delegating
+    // to runTracker); without subtracting this entry snapshot, the per-invocation cost
+    // accounting at the bottom of execute() would include prior multi-dispatch siblings'
+    // spend AND prior iters' spend, producing a +K× inflated estimationErrorPct.
+    //
+    // Multi-dispatch K>1 invariant: each parallel paragraph_recombine invocation gets its
+    // OWN AgentCostScope (via Agent.run()), but getPhaseCosts() delegates to the shared
+    // run-level tracker. Invocation #N's phasesAtEntry captures invocations 1..N-1's
+    // accumulated paragraph_rewrite/paragraph_rank spend; subtracting at execute() exit
+    // yields ONLY this invocation's delta — which is what execution_detail.paragraph_*.cost
+    // and estimationErrorPct must record.
+    const phasesAtEntry = invocationScope.getPhaseCosts();
+
     // ─── Step 1: Decompose ─────────────────────────────────────────
     const allSlots = extractParagraphsWithRanges(parentText);
     const slots = allSlots.slice(0, maxParagraphsPerInvocation);
@@ -244,9 +259,13 @@ export class ParagraphRecombineAgent extends Agent<
     // per-phase actuals from the run-cumulative shared tracker, then compute
     // estimationErrorPct = (actual - estimated) / estimated × 100 for both per-phase
     // and top-level. Persisted into the execution_detail base populated below.
-    const totalPhaseCosts = invocationScope.getPhaseCosts();
-    const actualRewriteCost = totalPhaseCosts['paragraph_rewrite'] ?? 0;
-    const actualRankCost = totalPhaseCosts['paragraph_rank'] ?? 0;
+    //
+    // Phase 12: subtract phasesAtEntry to get THIS invocation's delta only. With
+    // getPhaseCosts() now returning run-cumulative (post-12.2), reading totalPhaseCosts
+    // directly would inflate per-invocation accounting by all prior siblings + iters.
+    const phasesAfter = invocationScope.getPhaseCosts();
+    const actualRewriteCost = (phasesAfter['paragraph_rewrite'] ?? 0) - (phasesAtEntry['paragraph_rewrite'] ?? 0);
+    const actualRankCost = (phasesAfter['paragraph_rank'] ?? 0) - (phasesAtEntry['paragraph_rank'] ?? 0);
     const actualTotalCost = actualRewriteCost + actualRankCost; // matches paragraph_recombine_cost rollup
     const pctError = (actual: number, est: number): number | undefined => {
       if (est <= 0 || !Number.isFinite(actual) || !Number.isFinite(est)) return undefined;
@@ -325,12 +344,29 @@ export class ParagraphRecombineAgent extends Agent<
     // ─── Step 5: Build the recombined Variant ─────────────────────
     // Per revised D4: parent_variant_ids = [parentVariant.id] only.
     // Slot winners live in execution_detail.slots[i].winnerSlotVariantId.
+    //
+    // Phase 10: compute sentence_verbatim_ratio mirroring generateFromPreviousArticle.ts:259-267.
+    // The metric is "universal" per evolution/docs/metrics.md; paragraph_recombine variants
+    // have a single comparable parent (D4) so the ratio is meaningful. Note: SVR is inflated
+    // for paragraph_recombine vs GFPA because preserved-original slots (winnerSource='original'
+    // or no_valid_rewrites discards) keep parent sentences verbatim. This is observational only.
+    let sentenceVerbatimRatio: number | undefined;
+    try {
+      sentenceVerbatimRatio = sentenceVerbatimOverlap(parentText, recombinedText).ratio;
+    } catch (err) {
+      ctx.logger.warn('sentence-overlap compute failed; ratio stays NULL', {
+        phaseName: 'recombine',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     const recombinedVariant = createVariant({
       text: recombinedText,
       tactic: 'paragraph_recombine',
       iterationBorn: ctx.iteration,
       parentIds: [parentVariantId],
       agentInvocationId: ctx.invocationId === '' ? undefined : ctx.invocationId,
+      ...(sentenceVerbatimRatio !== undefined && { sentenceVerbatimRatio }),
     });
 
     // ─── Step 6: Article-level ranking (Task 3) ───────────────────
@@ -422,11 +458,14 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
   // check is independent of sibling slots, while budget reserves still flow up.
   const slotScope = createAgentCostScope(invocationScope);
 
-  // Phase 9 retrofit R3: per-slot logger.child for evolution_logs.subagent_name
-  // dotted-path attribution (e.g. 'slot.2'). Optional-chain because unit tests
-  // pass a flat-mock logger without .child(). The rankNewVariant call below
-  // gets a further .child('ranking') extension.
-  const slotLogger = ctx.logger.child?.(`slot.${slot.paragraphIndex}`) ?? ctx.logger;
+  // Phase 9 retrofit R3 + Phase 11.0 fix: per-slot logger.child for evolution_logs.subagent_name
+  // dotted-path attribution (e.g. 'slot.2'). MUST pass array form (['slot', N]) NOT a single
+  // string containing a '.' — `joinSubagentPath` in createEntityLogger.ts:42-67 rejects
+  // segments containing literal '.' and returns null, which strips subagent_name on emit.
+  // Empirical: pre-fix run 88b5e860-… had 0 rows matching subagent_name LIKE 'slot.%'.
+  // Optional-chain because unit tests pass a flat-mock logger without .child(). The
+  // rankNewVariant call below gets a further .child('ranking') extension.
+  const slotLogger = ctx.logger.child?.(['slot', String(slot.paragraphIndex)]) ?? ctx.logger;
 
   // Build a per-slot LLM client bound to slotScope so per-paragraph_rewrite calls are
   // attributed to this slot's spend, not aggregated across slots.
@@ -457,6 +496,12 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
     originalSlotVariantId = upsert.originalSlotVariantId;
   } catch (err) {
     // Topic setup failed: record discardReason and keep original.
+    // Phase 11: surface slot discards to evolution_logs at warn level.
+    slotLogger.warn?.('paragraph_recombine: slot discarded', {
+      slotIndex: slot.paragraphIndex,
+      failurePoint: 'sync_failed',
+      message: err instanceof Error ? err.message : String(err),
+    });
     slotDetails.push({
       slotIndex: slot.paragraphIndex,
       originalText: slot.originalText,
@@ -600,8 +645,32 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
     }
   }
 
+  // Phase 11.2: aggregated per-slot drop warn — emit once per slot if any rewrites dropped,
+  // with counts grouped by dropReason. Avoids per-rewrite log spam at high K.
+  const droppedRewrites = rewrites.filter((r) => r.status === 'dropped');
+  if (droppedRewrites.length > 0) {
+    const reasonCounts: Record<string, number> = {};
+    for (const r of droppedRewrites) {
+      const reason = r.dropReason ?? 'unknown';
+      reasonCounts[reason] = (reasonCounts[reason] ?? 0) + 1;
+    }
+    slotLogger.warn?.('paragraph_recombine: rewrites dropped', {
+      slotIndex: slot.paragraphIndex,
+      droppedCount: droppedRewrites.length,
+      totalCount: rewrites.length,
+      reasonCounts,
+    });
+  }
+
   // ─── Self-abort check between rewrite and ranking (D16) ──────────
   if (slotScope.getOwnSpent!() >= SLOT_SELF_ABORT_FRACTION * perSlotBudgetUsd) {
+    // Phase 11: surface slot discards.
+    slotLogger.warn?.('paragraph_recombine: slot discarded', {
+      slotIndex: slot.paragraphIndex,
+      failurePoint: 'slot_budget',
+      spentUsd: slotScope.getOwnSpent!(),
+      perSlotBudgetUsd,
+    });
     slotDetails.push({
       slotIndex: slot.paragraphIndex,
       originalText: slot.originalText,
@@ -616,6 +685,12 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
   }
 
   if (survivingRewriteVariants.length === 0) {
+    // Phase 11: surface slot discards.
+    slotLogger.warn?.('paragraph_recombine: slot discarded', {
+      slotIndex: slot.paragraphIndex,
+      failurePoint: 'no_valid_rewrites',
+      totalAttempts: rewrites.length,
+    });
     slotDetails.push({
       slotIndex: slot.paragraphIndex,
       originalText: slot.originalText,
@@ -749,6 +824,12 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
     );
   } catch (err) {
     // syncToArena failed: fall back to original, skip persistSlotMatches.
+    // Phase 11: surface slot discards.
+    slotLogger.warn?.('paragraph_recombine: slot discarded', {
+      slotIndex: slot.paragraphIndex,
+      failurePoint: 'sync_failed',
+      message: err instanceof Error ? err.message : String(err),
+    });
     slotDetails.push({
       slotIndex: slot.paragraphIndex,
       originalText: slot.originalText,

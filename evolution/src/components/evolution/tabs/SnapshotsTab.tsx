@@ -11,6 +11,7 @@ import {
 } from '@evolution/services/evolutionActions';
 import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatEloCIRange } from '@evolution/lib/utils/formatters';
+import { isDiscardedGenerateVariant } from '@evolution/lib/utils/variantStatus';
 
 interface SnapshotsTabProps {
   runId: string;
@@ -24,6 +25,7 @@ interface VariantRow {
   uncertainty: number;
   matchCount: number;
   persisted: boolean;
+  variantKind: string;
 }
 
 function buildRows(
@@ -41,6 +43,7 @@ function buildRows(
       uncertainty: r.uncertainty,
       matchCount: snap.matchCounts?.[id] ?? 0,
       persisted: v?.persisted ?? true,
+      variantKind: v?.variantKind ?? 'article',
     };
   }).sort((a, b) => b.elo - a.elo);
 }
@@ -79,10 +82,10 @@ function VariantTable({ rows }: { rows: VariantRow[] }): JSX.Element {
               <td className="px-2 py-1 text-right text-[var(--text-muted)]">{formatEloCIRange(r.elo, r.uncertainty) ?? '—'}</td>
               <td className="px-2 py-1 text-right text-[var(--text-muted)]">{r.matchCount}</td>
               <td className="px-2 py-1 text-center">
-                {r.persisted ? (
-                  <span className="text-[var(--status-success)]">✓</span>
-                ) : (
+                {isDiscardedGenerateVariant(r.persisted, r.variantKind) ? (
                   <span className="text-[var(--status-error)]">✗</span>
+                ) : (
+                  <span className="text-[var(--status-success)]">✓</span>
                 )}
               </td>
             </tr>

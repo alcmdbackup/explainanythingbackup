@@ -10,21 +10,23 @@ describe('V2 hashStrategyConfig', () => {
     iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
   };
 
-  it('produces a 12-char hex string', () => {
+  it('produces a v2-prefixed 12-char hex string', () => {
     const hash = hashStrategyConfig(baseConfig);
-    expect(hash).toMatch(/^[0-9a-f]{12}$/);
+    expect(hash).toMatch(/^v2:[0-9a-f]{12}$/);
   });
 
   it('is deterministic', () => {
     expect(hashStrategyConfig(baseConfig)).toBe(hashStrategyConfig(baseConfig));
   });
 
-  it('excludes V2-only fields from hash', () => {
-    const withExtras: StrategyConfig = {
+  // v2: the hash now covers the ENTIRE config. budgetUsd (a top-level field that v1
+  // dropped) MUST change the hash so two strategies differing only in budget are distinct.
+  it('INCLUDES top-level budgetUsd in the hash (v2 full-config)', () => {
+    const withBudget: StrategyConfig = {
       ...baseConfig,
       budgetUsd: 5.0,
     };
-    expect(hashStrategyConfig(withExtras)).toBe(hashStrategyConfig(baseConfig));
+    expect(hashStrategyConfig(withBudget)).not.toBe(hashStrategyConfig(baseConfig));
   });
 
   it('changes hash when core fields differ', () => {
@@ -235,10 +237,146 @@ describe('V2 hashStrategyConfig', () => {
     // Snapshot — first computed at Phase 1 implementation. If this changes the
     // canonicalization rule changed too. Update only after confirming intent.
     const hash = hashStrategyConfig(legacy);
-    expect(hash).toMatch(/^[0-9a-f]{12}$/);
-    expect(hash.length).toBe(12);
+    // v2 re-baseline: canonicalization deliberately changed (whitelist → full-config),
+    // so the format is now `v2:<12 hex>` (length 15). This guard now protects the v2 rule.
+    expect(hash).toMatch(/^v2:[0-9a-f]{12}$/);
+    expect(hash.length).toBe(15);
     // Recomputing twice must always be byte-identical (deterministic).
     expect(hashStrategyConfig(legacy)).toBe(hash);
+  });
+
+  // ─── v2 full-config: newly-activated TOP-LEVEL fields (v1 hashed none of these) ───
+  it('INCLUDES every newly-activated top-level field in the hash', () => {
+    const base = hashStrategyConfig(baseConfig);
+    const variants: StrategyConfig[] = [
+      { ...baseConfig, generationTemperature: 1.5 },
+      { ...baseConfig, maxComparisonsPerVariant: 7 },
+      { ...baseConfig, editingModel: 'gpt-4.1-nano' },
+      { ...baseConfig, approverModel: 'gpt-4.1-nano' },
+      { ...baseConfig, debateJudgeReasoningEffort: 'high', judgeModel: 'o4-mini' },
+      { ...baseConfig, minBudgetAfterParallelFraction: 0.2 },
+      { ...baseConfig, minBudgetAfterParallelAgentMultiple: 2 },
+      { ...baseConfig, minBudgetAfterSequentialFraction: 0.1 },
+      { ...baseConfig, minBudgetAfterSequentialAgentMultiple: 1.5 },
+    ];
+    for (const v of variants) {
+      expect(hashStrategyConfig(v)).not.toBe(base);
+    }
+  });
+
+  it('INCLUDES top-level generationGuidance but is order-insensitive (unordered set)', () => {
+    const guideAB: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }],
+      generationGuidance: [{ tactic: 'alpha', percent: 60 }, { tactic: 'beta', percent: 40 }],
+    };
+    const guideBA: StrategyConfig = {
+      ...guideAB,
+      generationGuidance: [{ tactic: 'beta', percent: 40 }, { tactic: 'alpha', percent: 60 }],
+    };
+    const noGuide: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }],
+    };
+    // reorder → same hash (set), but present → different from absent.
+    expect(hashStrategyConfig(guideAB)).toBe(hashStrategyConfig(guideBA));
+    expect(hashStrategyConfig(guideAB)).not.toBe(hashStrategyConfig(noGuide));
+  });
+
+  // ─── v2 full-config: newly-activated PER-ITERATION fields ───
+  it('INCLUDES newly-activated per-iteration fields in the hash', () => {
+    const pr = (extra: Record<string, unknown>): StrategyConfig => ({
+      ...baseConfig,
+      iterationConfigs: [{ agentType: 'paragraph_recombine', budgetPercent: 100, ...extra } as StrategyConfig['iterationConfigs'][number]],
+    });
+    const base = hashStrategyConfig(pr({}));
+    expect(hashStrategyConfig(pr({ rewritesPerParagraph: 6 }))).not.toBe(base);
+    expect(hashStrategyConfig(pr({ maxComparisonsPerParagraph: 8 }))).not.toBe(base);
+    expect(hashStrategyConfig(pr({ maxParagraphsPerInvocation: 20 }))).not.toBe(base);
+    expect(hashStrategyConfig(pr({ paragraphRewriteModel: 'gpt-4.1-nano' }))).not.toBe(base);
+
+    const edit = (extra: Record<string, unknown>): StrategyConfig => ({
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        { agentType: 'iterative_editing_rewrite', budgetPercent: 50, ...extra } as StrategyConfig['iterationConfigs'][number],
+      ],
+    });
+    const editBase = hashStrategyConfig(edit({}));
+    expect(hashStrategyConfig(edit({ editingMaxCycles: 4 }))).not.toBe(editBase);
+    expect(hashStrategyConfig(edit({ editingProposerSoftCap: 2 }))).not.toBe(editBase);
+  });
+
+  // ─── v2 default-folding: omitted ≡ explicit-default (preserve dedup) ───
+  it('folds paragraph_recombine runtime defaults: omitted === explicit default', () => {
+    const omitted: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [{ agentType: 'paragraph_recombine', budgetPercent: 100 }],
+    };
+    const explicitDefaults: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [{ agentType: 'paragraph_recombine', budgetPercent: 100, maxDispatches: 1, perInvocationCapUsd: 0.05 }],
+    };
+    expect(hashStrategyConfig(omitted)).toBe(hashStrategyConfig(explicitDefaults));
+  });
+
+  // ─── v2 D1.4: deprecated budget-floor aliases must not split (parse vs action path) ───
+  it('strips deprecated budgetBufferAfter* aliases (parse-path vs action-path equivalence)', () => {
+    const withNewOnly: StrategyConfig = { ...baseConfig, minBudgetAfterParallelFraction: 0.2 };
+    // Simulate the parse path where preprocessBudgetFloor mirrored the value into the alias.
+    const withMirroredAlias = { ...withNewOnly, budgetBufferAfterParallel: 0.2 } as StrategyConfig;
+    expect(hashStrategyConfig(withNewOnly)).toBe(hashStrategyConfig(withMirroredAlias));
+  });
+
+  // ─── v2 D4: number rounding to 0.001 floor, including nested leaves ───
+  it('rounds numbers to a 0.001 floor: 40 === 40.0; 0.05 === 0.0500005; 0.05 !== 0.051', () => {
+    const t = (temp: number): StrategyConfig => ({ ...baseConfig, generationTemperature: temp });
+    expect(hashStrategyConfig(t(40 as number))).toBe(hashStrategyConfig(t(40.0)));
+    expect(hashStrategyConfig(t(0.05))).toBe(hashStrategyConfig(t(0.0500005)));
+    expect(hashStrategyConfig(t(0.05))).not.toBe(hashStrategyConfig(t(0.051)));
+  });
+
+  it('rounds NESTED numeric leaves (qualityCutoff.value, generationGuidance[].percent)', () => {
+    const qc = (value: number): StrategyConfig => ({
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        { agentType: 'generate', budgetPercent: 50, sourceMode: 'pool', qualityCutoff: { mode: 'topPercent', value } },
+      ],
+    });
+    expect(hashStrategyConfig(qc(25))).toBe(hashStrategyConfig(qc(25.0000004)));
+    expect(hashStrategyConfig(qc(25))).not.toBe(hashStrategyConfig(qc(25.5)));
+
+    const gg = (percent: number): StrategyConfig => ({
+      ...baseConfig,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }],
+      generationGuidance: [{ tactic: 'alpha', percent }, { tactic: 'beta', percent: 100 - percent }],
+    });
+    expect(hashStrategyConfig(gg(60))).toBe(hashStrategyConfig(gg(60.0000003)));
+    expect(hashStrategyConfig(gg(60))).not.toBe(hashStrategyConfig(gg(61)));
+  });
+
+  // ─── v2 regression-guard: already-hashed per-iteration fields the rewrite must PRESERVE ───
+  it('PRESERVES distinctness for previously-hashed per-iteration fields', () => {
+    const pr = (extra: Record<string, unknown>): StrategyConfig => ({
+      ...baseConfig,
+      iterationConfigs: [{ agentType: 'paragraph_recombine', budgetPercent: 100, ...extra } as StrategyConfig['iterationConfigs'][number]],
+    });
+    const base = hashStrategyConfig(pr({}));
+    expect(hashStrategyConfig(pr({ maxDispatches: 5 }))).not.toBe(base);
+    expect(hashStrategyConfig(pr({ parallelFloorFraction: 0.3 }))).not.toBe(base);
+    expect(hashStrategyConfig(pr({ parallelFloorAgentMultiple: 2 }))).not.toBe(base);
+    expect(hashStrategyConfig(pr({ sequentialFloorFraction: 0.1 }))).not.toBe(base);
+    expect(hashStrategyConfig(pr({ sequentialFloorAgentMultiple: 1.5 }))).not.toBe(base);
+
+    const spc = (extra: Record<string, unknown>): StrategyConfig => ({
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        { agentType: 'single_pass_evaluate_criteria_and_generate', budgetPercent: 50, criteriaIds: ['11111111-1111-1111-1111-111111111111'], weakestK: 1, ...extra } as StrategyConfig['iterationConfigs'][number],
+      ],
+    });
+    expect(hashStrategyConfig(spc({ redundancyJaccardThreshold: 0.5 }))).not.toBe(hashStrategyConfig(spc({})));
   });
 });
 
@@ -516,5 +654,28 @@ describe('V2 upsertStrategy', () => {
     await expect(upsertStrategy(fakeDb, baseConfig)).rejects.toThrow(
       'Strategy upsert returned no ID',
     );
+  });
+
+  // D2: the v2 hash carries a `v2:` prefix; the derived strategy NAME must strip it
+  // before slicing, otherwise names read "Strategy v2:abc (...)".
+  it('derives a strategy name from the bare hex, NOT the v2: prefix', async () => {
+    let capturedName: string | undefined;
+    const fakeDb = {
+      from: () => ({
+        upsert: (payload: { name: string }) => {
+          capturedName = payload.name;
+          return {
+            select: () => ({
+              single: () => Promise.resolve({ data: { id: 'abc' }, error: null }),
+            }),
+          };
+        },
+      }),
+    } as unknown as import('@supabase/supabase-js').SupabaseClient;
+
+    await upsertStrategy(fakeDb, baseConfig);
+    expect(capturedName).toBeDefined();
+    expect(capturedName).not.toContain('v2:');
+    expect(capturedName).toMatch(/^Strategy [0-9a-f]{6} \(/);
   });
 });

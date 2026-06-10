@@ -69,6 +69,16 @@ test.describe('Host isolation', { tag: ['@critical', '@skip-prod'] }, () => {
       expect(res.status()).toBe(404);
     });
 
+    test('blocks /admin/evolution/prompt-editor with 404', async () => {
+      const res = await ctx.get('/admin/evolution/prompt-editor');
+      expect(res.status()).toBe(404);
+    });
+
+    test('blocks /api/evolution/prompt-editor with 404', async () => {
+      const res = await ctx.post('/api/evolution/prompt-editor', { data: {} });
+      expect(res.status()).toBe(404);
+    });
+
     test('serves /api/health (always-allowed)', async () => {
       const res = await ctx.get('/api/health');
       expect(res.status()).toBe(200);

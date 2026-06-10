@@ -290,7 +290,7 @@ The propose / forward / mirror calls all bucket to one **umbrella metric** (`pro
 
 ### Paragraph-Recombine Cost (rank_individual_paragraphs_evolution_20260525)
 
-The `ParagraphRecombineAgent` cost stack scales as `N slots × M rewrites × (rewrite + ranking)`. Both layers bucket into the single umbrella metric `paragraph_recombine_cost` via two dedicated AgentName labels: `'paragraph_rewrite'` (rewrite calls) and `'paragraph_rank'` (per-slot ranking calls — the agent relabels `rankNewVariant`'s `'ranking'` calls so they don't pollute the article-level `ranking_cost`). The agent writes the run-level metric once per invocation as the SUM of the two phase-cost accumulators (MAX-safe because both are run-cumulative).
+The `ParagraphRecombineAgent` cost stack scales as `N slots × M rewrites × (rewrite + ranking)`. Both layers bucket into the single umbrella metric `paragraph_recombine_cost` via two dedicated AgentName labels: `'paragraph_rewrite'` (rewrite calls) and `'paragraph_rank'` (per-slot ranking calls — the agent relabels `rankNewVariant`'s `'ranking'` calls so they don't pollute the article-level `ranking_cost`). The agent writes the run-level metric once per invocation as the SUM of the two phase-cost accumulators (MAX-safe because both are run-cumulative as of Phase 12 of `analyze_effectiveness_paragraph_recombine_20260530`; pre-Phase-12 the iter tracker returned per-iter, silently shadowing smaller per-iter contributions under writeMetricMax GREATEST — kill switch `EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED='false'` reverts to legacy behavior for rollback).
 
 | Knob | Default | Range | Effect |
 |---|---|---|---|
@@ -311,6 +311,8 @@ The `ParagraphRecombineAgent` cost stack scales as `N slots × M rewrites × (re
 #### Multi-dispatch (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529, Option J)
 
 Pre-J the agent ran EXACTLY 1 invocation per iteration regardless of iteration budget. Strategies that set `iterationConfig.maxDispatches > 1` + `sourceMode: 'pool'` now opt into K-dispatch: the loop selects K distinct parents from the `qualityCutoff`-filtered eligible set and runs them in parallel + sequential top-up, mirroring the `generate` iteration's RUNTIME pattern (`resolveParallelFloor` is projector-only; only `resolveSequentialFloor` is consulted at runtime). Both budget-floor methods (fraction-of-budget + multiple-of-agent-cost) are honored via the existing strategy-level floor fields, with optional per-iteration overrides (`iterCfg.{parallelFloor,sequentialFloor}{Fraction,AgentMultiple}`) for distinct floor profiles within a single strategy. `maxDispatches` defaults to 1 → exact back-compat.
+
+**Wizard projector qualityCutoff alignment** (`analyze_effectiveness_paragraph_recombine_20260530` Phase 7): pre-fix, the wizard's dispatch projector (`projectDispatchPlan.ts`) read `maxDispatches` but used the FULL `poolSize` as the eligibility ceiling — ignoring `qualityCutoff`. The runtime correctly applies `qualityCutoff` at `runIterationLoop.ts:1303-1318`. Result: the wizard preview could show `expectedTotalDispatch=1` while the runtime actually dispatched up to `qualityCutoff.value` invocations. Phase 7 adds `resolveParagraphRecombineEligibility({ sourceMode, qualityCutoff, poolSize })` mirroring the runtime filter so wizard preview matches runtime dispatch counts. Known limitation: projector `poolSize` includes arena-pre-loaded variants from `loadArenaEntries`; runtime filters those out — so the projector can over-estimate when `ctx.initialPoolSize > 0`.
 
 #### Projector-vs-actual accuracy (Options G4–G7)
 
@@ -411,15 +413,28 @@ Prices per 1M tokens (USD). The table includes 30+ model entries; these are the 
 Model lookup uses exact match first, then longest-prefix match (e.g., `gpt-4o-2024-11-20` matches the `gpt-4o` entry). Unknown models fall back to conservative default pricing ($10/$30 per 1M tokens).
 
 Key functions:
-- `getModelPricing(model: string): ModelPricing` -- returns `{ inputPer1M, outputPer1M, reasoningPer1M? }`
-- `calculateLLMCost(model, promptTokens, completionTokens, reasoningTokens?): number` -- returns USD rounded to 6 decimal places
+- `getModelPricing(model: string): ModelPricing` -- returns `{ inputPer1M, outputPer1M, reasoningPer1M?, cachedInputPer1M? }`
+- `calculateLLMCost(model, promptTokens, completionTokens, reasoningTokens?, cachedPromptTokens?): number` -- returns USD rounded to 6 decimal places
 - `formatCost(cost: number): string` -- `$0.0042` for sub-cent, `$1.23` otherwise
 
 The pricing table also includes reasoning models (o1, o3-mini) with a separate `reasoningPer1M` field. When present, reasoning tokens are billed at this rate in addition to the standard input/output costs. The evolution pipeline does not currently use reasoning models, but the pricing infrastructure supports them for future use.
 
+**Context caching (`cachedInputPer1M`).** Some providers (e.g. DeepSeek V4: `deepseek-v4-pro`, `deepseek-v4-flash`) bill cache-hit prompt tokens at a much lower rate than cache-miss tokens — for DeepSeek the cache-hit rate is 50-120x cheaper. When a model entry sets `cachedInputPer1M`, `calculateLLMCost` bills the cache-hit subset (`cachedPromptTokens`) at that rate and the remainder at `inputPer1M`; models without the field bill all prompt tokens at `inputPer1M` (unchanged). The cache-hit count flows from the provider's `usage.prompt_cache_hit_tokens` through `RawProviderUsage.cachedPromptTokens` so the evolution budget gate bills cache-aware, not just the `llmCallTracking` row. Pre-flight reservations still assume 0% cache hits (conservative); the reserve→spend→reconcile loop trues up to the cache-aware actual.
+
 Note that the evolution pipeline's `llm-client.ts` imports `getModelPricing` from this shared config file rather than maintaining its own pricing. This ensures a single source of truth for all cost calculations across the application.
 
 ---
+
+## Prompt Editor spend (tool_test_rewrite_prompts_evolution_20260605)
+
+The Prompt Editor (`/admin/evolution/prompt-editor`) runs single `callLLM` rewrites with
+`call_source='evolution_prompt_editor'`. The `evolution_` prefix routes its spend into the **shared
+daily `evolution` budget category** (same cap as real pipeline runs) and engages the LLM semaphore.
+It records `llmCallTracking` rows like any app LLM call but writes **no** evolution-pipeline cost
+metrics (no run/invocation). A per-run **pre-flight cap** (`PROMPT_EDITOR_PER_RUN_CAP_USD = $0.50`,
+`evolution/src/lib/promptEditor/runPromptEditor.ts`) estimates Σ `calculateLLMCost(model, prompt.length/4,
+cappedOutputTokens)` and rejects (HTTP 402) before any call; the global `LLMSpendingGate` is the hard
+backstop. Disable entirely via `EVOLUTION_PROMPT_EDITOR_ENABLED='0'`. See [prompt_editor.md](./prompt_editor.md).
 
 ## Layer 2: Global LLM Spending Gate
 

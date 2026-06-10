@@ -5,6 +5,7 @@
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';
 import { dbToRating } from '../lib/shared/computeRatings';
+import { parseSlotParagraphNumber } from '../lib/shared/paragraphLabels';
 
 /** Lift optional mu/sigma from a DB row to the public Rating.uncertainty (Elo-scale).
  *  Returns undefined when either is missing (legacy rows). */
@@ -28,6 +29,10 @@ export interface VariantFullDetail {
   agentName: string;
   matchCount: number;
   isWinner: boolean;
+  /** 'article' (full article variant) or 'paragraph' (paragraph_recombine slot variant).
+   *  Legacy rows with NULL variant_kind are treated as 'article'. Drives the parent-badge
+   *  label ('Original paragraph' vs 'Seed · no parent') and the Diff-vs-parent framing. */
+  variantKind: 'article' | 'paragraph';
   /** Canonical primary parent (parent_variant_ids[0]). null for root variants. */
   parentVariantId: string | null;
   /** Full parents array. Multi-parent variants (debate) emit [winner, loser];
@@ -42,7 +47,9 @@ export interface VariantFullDetail {
   createdAt: string;
   runStatus: string;
   runCreatedAt: string;
-  /** Whether this variant survived to the final pool. False = discarded by its owning generate agent. */
+  /** Whether this variant survived to the final pool. False = discarded by its owning generate agent.
+   *  Note: paragraph variants are always persisted=false by design (sync_to_arena) and are surfaced,
+   *  not discarded — the discarded banner is gated on variantKind='article' via isDiscardedGenerateVariant. */
   persisted: boolean;
   /**
    * UUID of the agent invocation that produced this variant. NULL for variants
@@ -67,6 +74,9 @@ export interface VariantRelative {
 }
 
 export interface VariantMatchEntry {
+  /** Comparison row id (evolution_arena_comparisons.id) — used to deep-link the row to the
+   *  Match Viewer (match_viewer_with_experimentation_procedures_20260605). */
+  comparisonId: string;
   opponentId: string;
   opponentElo: number | null;
   /** Opponent's Elo-scale rating uncertainty. Optional for legacy rows. */
@@ -159,6 +169,7 @@ export const getVariantFullDetailAction = adminAction('getVariantFullDetailActio
     agentName: variant.agent_name,
     matchCount: variant.match_count,
     isWinner: variant.is_winner,
+    variantKind: variant.variant_kind === 'paragraph' ? 'paragraph' : 'article',
     parentVariantId: primaryParentId,
     parentVariantIds: variantParentIds,
     // parent.mu is raw OpenSkill (~25); elo_score is the ELO-scale projection (~1200). Use elo_score.
@@ -173,6 +184,130 @@ export const getVariantFullDetailAction = adminAction('getVariantFullDetailActio
     persisted: variant.persisted ?? true,
     agentInvocationId: invocation?.id ?? null,
     agentInvocationName: invocation?.agent_name ?? null,
+  };
+});
+
+// ─── 1b. Variant ↔ Parent Diff ──────────────────────────────────
+
+/** Powers the "Diff vs parent" tab on the variant detail page. Returns the variant's
+ *  own text plus its primary parent's full text (parent_variant_ids[0]) in one call,
+ *  for both article and paragraph variants.
+ *
+ *  For paragraph (paragraph_recombine slot) variants the "parent" is the slot's
+ *  original-paragraph variant — whose variant_content IS the isolated parent paragraph —
+ *  so the diff is inherently paragraph-vs-paragraph. Legacy slot rewrites persisted with
+ *  empty parent_variant_ids (pre-migration 20260529000001) are recovered via the slot
+ *  topic (prompt_id + agent_name='paragraph_original').
+ *
+ *  enable_side_by_side_variant_comparisons_vs_parent_20260531. */
+export interface VariantParentDiff {
+  variantId: string;
+  variantKind: 'article' | 'paragraph';
+  /** This variant's full text (right-hand side of the diff). */
+  variantContent: string;
+  /** Primary parent (left-hand side). null for parentless variants (seed article /
+   *  original-slot paragraph) — the UI renders an empty state instead of a diff. */
+  parent: {
+    id: string;
+    content: string;
+    elo: number | null;
+    /** Elo-scale uncertainty (lifted from mu/sigma). null for legacy rows. */
+    uncertainty: number | null;
+    runId: string | null;
+  } | null;
+  /** parent.runId !== variant.run_id — drives the "(other run)" pill. */
+  crossRun: boolean;
+  /** Paragraph variants only: 1-based slot number parsed from the slot topic name.
+   *  null for article variants or when the topic name is unexpected. */
+  slotContext: { paragraphNumber: number } | null;
+}
+
+export const getVariantParentDiffAction = adminAction('getVariantParentDiffAction', async (
+  variantId: string,
+  ctx: AdminContext,
+): Promise<VariantParentDiff | null> => {
+  if (!validateUuid(variantId)) throw new Error('Invalid variantId');
+  const { supabase } = ctx;
+
+  type VariantRow = {
+    id: string;
+    run_id: string | null;
+    variant_kind: string | null;
+    prompt_id: string | null;
+    parent_variant_ids: string[] | null;
+    variant_content: string;
+  };
+  const { data: variantData, error } = await supabase
+    .from('evolution_variants')
+    .select('id, run_id, variant_kind, prompt_id, parent_variant_ids, variant_content')
+    .eq('id', variantId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!variantData) return null; // variant not found → tab renders nothing
+  const variant = variantData as unknown as VariantRow;
+
+  const variantKind: 'article' | 'paragraph' = variant.variant_kind === 'paragraph' ? 'paragraph' : 'article';
+  const parentIds = variant.parent_variant_ids ?? [];
+  let primaryParentId: string | null = parentIds.length > 0 ? parentIds[0]! : null;
+
+  // Paragraph fallback: legacy slot rewrites persisted with empty parent_variant_ids
+  // (pre-migration 20260529000001). Recover the slot's original-paragraph variant via the
+  // slot topic. No DB uniqueness on (prompt_id, agent_name, variant_kind) → take earliest.
+  if (!primaryParentId && variantKind === 'paragraph' && variant.prompt_id) {
+    const { data: originals } = await supabase
+      .from('evolution_variants')
+      .select('id')
+      .eq('prompt_id', variant.prompt_id)
+      .eq('agent_name', 'paragraph_original')
+      .eq('variant_kind', 'paragraph')
+      .order('created_at', { ascending: true })
+      .limit(1);
+    const originalId = (originals ?? [])[0]?.id ?? null;
+    // The variant may itself BE the original-slot paragraph → leave parentless.
+    if (originalId && originalId !== variant.id) primaryParentId = originalId;
+  }
+
+  let parent: VariantParentDiff['parent'] = null;
+  if (primaryParentId) {
+    const { data: parentRow } = await supabase
+      .from('evolution_variants')
+      .select('id, variant_content, elo_score, mu, sigma, run_id')
+      .eq('id', primaryParentId)
+      .maybeSingle();
+    if (parentRow) {
+      parent = {
+        id: parentRow.id,
+        content: parentRow.variant_content,
+        elo: parentRow.elo_score ?? null,
+        uncertainty: liftUncertainty({ mu: parentRow.mu, sigma: parentRow.sigma }) ?? null,
+        runId: parentRow.run_id ?? null,
+      };
+    }
+  }
+
+  // Slot context: paragraph number from the slot topic name (cheap). The parent-article
+  // link is intentionally omitted — slot variants lack agent_invocation_id and the 8-char
+  // topic prefix is non-unique, so a reliable article link would need a JSONB scan.
+  let slotContext: VariantParentDiff['slotContext'] = null;
+  if (variantKind === 'paragraph' && variant.prompt_id) {
+    const { data: promptRow } = await supabase
+      .from('evolution_prompts')
+      .select('prompt')
+      .eq('id', variant.prompt_id)
+      .maybeSingle();
+    const paragraphNumber = parseSlotParagraphNumber(promptRow?.prompt ?? null);
+    if (paragraphNumber != null) slotContext = { paragraphNumber };
+  }
+
+  const crossRun = !!parent?.runId && !!variant.run_id && parent.runId !== variant.run_id;
+
+  return {
+    variantId: variant.id,
+    variantKind,
+    variantContent: variant.variant_content,
+    parent,
+    crossRun,
+    slotContext,
   };
 });
 
@@ -306,6 +441,7 @@ export const getVariantMatchHistoryAction = adminAction('getVariantMatchHistoryA
       (c.entry_b === variantId && c.winner === 'b');
     const oppUncertainty = opp ? liftUncertainty(opp) : undefined;
     return {
+      comparisonId: c.id,
       opponentId,
       opponentElo: opp?.elo_score ?? null,
       ...(oppUncertainty != null ? { opponentUncertainty: oppUncertainty } : {}),
@@ -396,9 +532,10 @@ export const getVariantFullChainAction = adminAction('getVariantFullChainAction'
     depth: number;
   };
   // RPC return shape rewritten in migration 20260508000002 (Phase 1.18).
+  const rpcArgs = { target_variant_id: variantId };
   const rpcResult = await supabase.rpc(
     'get_variant_full_chain' as never,
-    { target_variant_id: variantId } as never,
+    rpcArgs as never,
   ) as unknown as { data: ChainRpcRow[] | null; error: { message: string } | null };
   if (rpcResult.error) throw rpcResult.error;
 

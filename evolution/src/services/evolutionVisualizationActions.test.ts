@@ -449,6 +449,28 @@ describe('evolutionVisualizationActions', () => {
       expect(result.data![1]!.isWinner).toBe(true);
     });
 
+    it("filters to article-only (hides paragraph_recombine slot rewrites + their dangling edges)", async () => {
+      // hide_paragraphs_from_run_variants_tab_evolution_20260603: paragraph slot rewrites carry run_id
+      // (via sync_to_arena) but their parent slot-original has no run_id, so they'd render as orphan
+      // nodes with dangling edges. The action must filter variant_kind='article'.
+      const eqCalls: Array<[string, unknown]> = [];
+      // Explicit type annotation breaks the self-referential implicit-any (TS7022): `eq` returns `chain`.
+      const chain: Record<string, jest.Mock> = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
+      };
+      chain.eq = jest.fn((...args: unknown[]) => { eqCalls.push([String(args[0]), args[1]]); return chain; });
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getEvolutionRunLineageAction(VALID_UUID);
+
+      expect(result.success).toBe(true);
+      expect(eqCalls.some(([k, v]) => k === 'variant_kind' && v === 'article')).toBe(true);
+      expect(eqCalls.some(([k, v]) => k === 'run_id' && v === VALID_UUID)).toBe(true);
+    });
+
     it('rejects invalid runId', async () => {
       const result = await getEvolutionRunLineageAction('not-a-uuid');
 

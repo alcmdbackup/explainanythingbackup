@@ -93,6 +93,13 @@ See the planning doc for full bypass documentation.
 - **Migration verification**: `/finalize` Step 5.5 runs `npm run migration:verify` when the PR touches migrations. The script uses an ephemeral Docker postgres on a random port; it does not touch the user's live local DB. Docker is a one-time prerequisite — see CLAUDE.md.
 - **CI monitoring**: A Stop hook prevents Claude from finishing while a PR targeting `main` or `production` has failing or pending CI checks. Fails open if `gh` is unavailable.
 
+### Step 9: Verify safe-to-close (optional but recommended)
+- Run `/safe_to_close` to verify the current branch and broader repo state are healthy before considering the work done.
+- It checks: open PRs across all worktrees, plan checkbox completeness, `/finalize` artifact validity, un-promoted migrations, un-released commits, active release PRs, nightly E2E status, and open `release-health` issues.
+- GREEN → safe to close. YELLOW → caution (informational items). RED → blocking items with `Next action` hints (e.g. "Run: /mainToProd").
+- Optional `--update-docs` flag appends a "Closeout" block to research/planning/progress docs derived from git log + plan's Review & Discussion + a single AskUserQuestion. Pair with `--dry-run` to preview without mutating.
+- Audit trail written to `.claude/safe-to-close-verdict.json` (gitignored).
+
 ---
 
 ## Document Templates

@@ -9,7 +9,7 @@ import { adminAction, type AdminContext } from './adminAction';
 import { estimateAgentCost } from '../lib/pipeline/infra/estimateCosts';
 import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
 import { DEFAULT_SEED_CHARS } from '../lib/pipeline/loop/projectDispatchPlan';
-import { iterationAgentTypeEnum, type IterationAgentType } from '../lib/schemas';
+import { iterationAgentTypeEnum, qualityCutoffSchema, type IterationAgentType } from '../lib/schemas';
 
 // ─── Schemas ────────────────────────────────────────────────────
 
@@ -169,17 +169,36 @@ const dispatchPreviewInputSchema = z.object({
       agentType: iterationAgentTypeEnum,
       budgetPercent: z.number().min(1).max(100),
       sourceMode: z.enum(['seed', 'pool']).optional(),
-      qualityCutoff: z.object({ mode: z.enum(['topN', 'topPercent']), value: z.number().positive() }).optional(),
+      // Reuse canonical qualityCutoffSchema (enforces topN=integer≥1, topPercent in (0,100])
+      // so previews don't silently accept values the canonical save will reject.
+      qualityCutoff: qualityCutoffSchema.optional(),
       generationGuidance: z.array(z.unknown()).optional(),
       reflectionTopN: z.number().int().min(1).max(10).optional(),
       editingMaxCycles: z.number().int().min(1).max(5).optional(),
-      editingEligibilityCutoff: z.object({ mode: z.enum(['topN', 'topPercent']), value: z.number().positive() }).optional(),
+      editingEligibilityCutoff: qualityCutoffSchema.optional(),
       criteriaIds: z.array(z.string().uuid()).optional(),
       weakestK: z.number().int().min(1).max(5).optional(),
       lengthCapRatio: z.number().min(1.01).max(1.50).optional(),
       redundancyJaccardThreshold: z.number().min(0).max(1).optional(),
       includesMirrorApprover: z.boolean().optional(),
-    })).min(1).max(20),
+      // Phase 7 fix (analyze_effectiveness_paragraph_recombine_20260530): paragraph_recombine
+      // knobs were silently stripped by the schema, so maxDispatches/qualityCutoff never reached
+      // the projector — the wizard showed Dispatch=1 even with Source=pool + maxDispatches=10.
+      // Bounds mirror canonical iterationConfigSchema in evolution/src/lib/schemas.ts:674-684.
+      maxDispatches: z.number().int().min(1).max(10).optional(),
+      rewritesPerParagraph: z.number().int().min(1).max(6).optional(),
+      maxComparisonsPerParagraph: z.number().int().min(1).max(20).optional(),
+      maxParagraphsPerInvocation: z.number().int().min(1).max(50).optional(),
+      paragraphRewriteModel: z.string().optional(),
+      perInvocationCapUsd: z.number().min(0.001).max(0.5).optional(),
+    }).refine(
+      // Mirror canonical schemas.ts:794-798 — these knobs are only valid for paragraph_recombine.
+      (c) => c.agentType === 'paragraph_recombine' || c.perInvocationCapUsd === undefined,
+      { message: 'perInvocationCapUsd only valid when agentType is paragraph_recombine' },
+    ).refine(
+      (c) => c.agentType === 'paragraph_recombine' || c.maxDispatches === undefined,
+      { message: 'maxDispatches only valid when agentType is paragraph_recombine' },
+    )).min(1).max(20),
     minBudgetAfterParallelFraction: z.number().min(0).max(1).optional(),
     minBudgetAfterParallelAgentMultiple: z.number().min(0).optional(),
     minBudgetAfterSequentialFraction: z.number().min(0).max(1).optional(),
