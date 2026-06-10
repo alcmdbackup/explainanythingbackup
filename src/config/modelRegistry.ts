@@ -52,6 +52,16 @@ export interface ModelInfo {
    * Source: bring_back_debate_agent_20260506 Phase 1.19.
    */
   supportsReasoning: boolean;
+  /**
+   * Whether this model supports OpenAI-style schema-enforced structured output
+   * (`response_format: { type: 'json_schema', ... }`). When false/unset, structured
+   * callLLM requests fall back to `{ type: 'json_object' }` (JSON-forced but NOT
+   * schema-enforced). Only meaningful for `openrouter` provider models — OpenAI always
+   * uses json_schema; DeepSeek/Local always use json_object. Default unset (= false).
+   * Set true only for OpenRouter models verified to honor json_schema (e.g. Gemini).
+   * See fix_openrouter_json_schema_structured_output_20260608.
+   */
+  supportsJsonSchema?: boolean;
 }
 
 // ─── Registry ───────────────────────────────────────────────────
@@ -161,6 +171,7 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     inputPer1M: 0.10, outputPer1M: 0.40, maxTemperature: 2.0, supportsEvolution: true,
     openRouterModelId: 'google/gemini-2.5-flash-lite',
     supportsReasoning: false,
+    supportsJsonSchema: true,
   },
   // Cheap model for the nightly real-AI smoke (TEST_LLM_MODEL tier). Routed via OpenRouter.
   // VERIFY pricing against the live OpenRouter rate for google/gemini-2.5-flash before relying
@@ -170,6 +181,7 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     inputPer1M: 0.30, outputPer1M: 2.50, maxTemperature: 2.0, supportsEvolution: true,
     openRouterModelId: 'google/gemini-2.5-flash',
     supportsReasoning: false,
+    supportsJsonSchema: true,
   },
   'qwen/qwen3-8b': {
     id: 'qwen/qwen3-8b', displayName: 'Qwen3 8B', provider: 'openrouter',
@@ -243,6 +255,13 @@ export function getModelDefaultReasoningEffort(modelId: string): 'none' | 'low' 
  *  bring_back_debate_agent_20260506 Phase 1.19. */
 export function modelSupportsReasoning(modelId: string): boolean {
   return MODEL_REGISTRY[modelId]?.supportsReasoning === true;
+}
+
+/** Whether the model supports schema-enforced structured output (json_schema). Used to decide,
+ *  for OpenRouter structured calls, between `response_format: json_schema` (true) and the
+ *  unstructured `json_object` fallback (false/unset). See callOpenAIModel in llms.ts. */
+export function modelSupportsJsonSchema(modelId: string): boolean {
+  return MODEL_REGISTRY[modelId]?.supportsJsonSchema === true;
 }
 
 /** Get all model IDs that support evolution (for schema derivation). */
