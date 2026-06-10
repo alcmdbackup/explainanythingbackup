@@ -311,6 +311,7 @@ export default function MatchDetailPage(): JSX.Element {
 
         <div className="mt-3">
           <button
+            data-testid="rejudge-toggle-custom"
             className="text-xs text-[var(--accent-gold)] hover:underline"
             onClick={() => setShowCustom((s) => !s)}
           >

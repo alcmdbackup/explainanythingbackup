@@ -36,23 +36,23 @@ splits into VIEW (read-only) + EDIT (metadata-only) + CLONE (the only safe membe
 ## Phased Execution Plan
 
 ### Phase 1: Unmask the real error (diagnosis pipeline)
-- [ ] Stop collapsing LLM errors in `categorizeError()` (`src/lib/errorHandling.ts:69-77`); reorder so `'timeout'` matches before the broad `'api'`/`'openai'` substring. **Intentional severity reclassification**: an error containing BOTH `'timeout'` and `'api'` shifts `LLM_API_ERROR`→`TIMEOUT_ERROR` (Sentry critical→warning) — only that combination changes; existing tests don't cover it so no silent regression.
-- [ ] Render `res.error.details` in the Judge Lab failure toast/run view (`src/app/admin/evolution/judge-lab/page.tsx`). Render `details` **generically** (not as an LLM-only string) — the `DATABASE_ERROR` branch puts supabase hints in `details`; acceptable for an admin-gated (`requireAdmin`) tool, but the UI must not assume the shape. No API-key leakage (SDK errors don't echo keys).
-- [ ] Wire `trackingDb: db(ctx)` in `createEvalRunAction` (`evolution/src/services/judgeEvalActions.ts:~140`) so judge calls produce `llmCallTracking` rows (match the CLI at `judge-eval.ts:110`)
+- [x] Stop collapsing LLM errors in `categorizeError()` (`src/lib/errorHandling.ts:69-77`); reorder so `'timeout'` matches before the broad `'api'`/`'openai'` substring. **Intentional severity reclassification**: an error containing BOTH `'timeout'` and `'api'` shifts `LLM_API_ERROR`→`TIMEOUT_ERROR` (Sentry critical→warning) — only that combination changes; existing tests don't cover it so no silent regression.
+- [x] Render `res.error.details` in the Judge Lab failure toast/run view (`src/app/admin/evolution/judge-lab/page.tsx`). Render `details` **generically** (not as an LLM-only string) — the `DATABASE_ERROR` branch puts supabase hints in `details`; acceptable for an admin-gated (`requireAdmin`) tool, but the UI must not assume the shape. No API-key leakage (SDK errors don't echo keys).
+- [x] Wire `trackingDb: db(ctx)` in `createEvalRunAction` (`evolution/src/services/judgeEvalActions.ts:~140`) so judge calls produce `llmCallTracking` rows (match the CLI at `judge-eval.ts:110`)
 
 ### Phase 2: Make the judge path resilient + persist failures
-- [ ] Wrap `callLLM` in `createCallLLMJudge` (`runJudgeEval.ts:~224-232`) in a bounded retry (`MAX_RETRIES=3` + backoff) reusing `isTransientError` (verified at `evolution/src/lib/shared/classifyErrors.ts:15`) — do NOT re-enable SDK `maxRetries`, do NOT adopt `createEvolutionLLMClient` (it pins temp=0 + writes metrics). **Cost semantics:** the upfront `assertWithinJudgeEvalCap` (`settings.ts`) is an *estimate*, not a hard call-count ceiling once retries exist; the real backstop is the per-call `GlobalBudgetExceededError` gate inside `callLLM`, which each retry re-enters — state this explicitly. Hard cap on attempts so a persistently-transient provider cannot stall a cell.
-- [ ] Wrap the `executeSweep` cell (`executeSweep.ts`) in try/catch and persist the failure by **reusing the existing `erroredRepeat()` rows already attached as `partialResults` on the thrown error** (`runJudgeEval.ts:~104-105,137-163`) via `replaceCalls` — do NOT synthesize new rows (avoids `judge_eval_calls` NOT NULL violations: `comparison_mode`/`winner`/`confidence`). Errored calls carry `error IS NOT NULL` and the leaderboard view filters `WHERE c.error IS NULL`, so they correctly stay out of decisive-rate.
-- [ ] Curate the judge dropdown: add a **server-side provider-aware accessor** (no client reachability probe is possible) that excludes `provider==='local'` when `LOCAL_LLM_BASE_URL` is unset; apply it only at the judge-lab page layer (`getEvolutionModelIds` is also consumed by arena/prompt-editor/schemas — do not change shared behavior)
-- [ ] Reasoning hygiene (shared `llms.ts:443-462`, **global OpenRouter path — not judge-only**): never attach `effort:'none'` for any provider; gate on `supportsReasoning`; guard `gpt-oss-20b` (mandatory reasoning) against `'none'`. Note `deepseek-v4-flash` already routes through the else-branch that strips `'none'` + sets `thinking:{type:'disabled'}` — its test is a regression guard, not a fix.
+- [x] Wrap `callLLM` in `createCallLLMJudge` (`runJudgeEval.ts:~224-232`) in a bounded retry (`MAX_RETRIES=3` + backoff) reusing `isTransientError` (verified at `evolution/src/lib/shared/classifyErrors.ts:15`) — do NOT re-enable SDK `maxRetries`, do NOT adopt `createEvolutionLLMClient` (it pins temp=0 + writes metrics). **Cost semantics:** the upfront `assertWithinJudgeEvalCap` (`settings.ts`) is an *estimate*, not a hard call-count ceiling once retries exist; the real backstop is the per-call `GlobalBudgetExceededError` gate inside `callLLM`, which each retry re-enters — state this explicitly. Hard cap on attempts so a persistently-transient provider cannot stall a cell.
+- [x] Wrap the `executeSweep` cell (`executeSweep.ts`) in try/catch and persist the failure by **reusing the existing `erroredRepeat()` rows already attached as `partialResults` on the thrown error** (`runJudgeEval.ts:~104-105,137-163`) via `replaceCalls` — do NOT synthesize new rows (avoids `judge_eval_calls` NOT NULL violations: `comparison_mode`/`winner`/`confidence`). Errored calls carry `error IS NOT NULL` and the leaderboard view filters `WHERE c.error IS NULL`, so they correctly stay out of decisive-rate.
+- [x] Curate the judge dropdown: add a **server-side provider-aware accessor** (no client reachability probe is possible) that excludes `provider==='local'` when `LOCAL_LLM_BASE_URL` is unset; apply it only at the judge-lab page layer (`getEvolutionModelIds` is also consumed by arena/prompt-editor/schemas — do not change shared behavior)
+- [x] Reasoning hygiene (shared `llms.ts:443-462`, **global OpenRouter path — not judge-only**): never attach `effort:'none'` for any provider; gate on `supportsReasoning`; guard `gpt-oss-20b` (mandatory reasoning) against `'none'`. Note `deepseek-v4-flash` already routes through the else-branch that strips `'none'` + sets `thinking:{type:'disabled'}` — its test is a regression guard, not a fix.
 
 ### Phase 3: View test set contents
-- [ ] `getTestSetContentsAction({testSetId, kind})` — call the **unchanged** shared `loadTestSetPairs` (`persist.ts:142`, also used by `executeSweep` — must keep full texts) and **strip `text_a`/`text_b` in the ACTION result mapping** for the list response. Query `judge_eval_test_set_members` count **separately** (loadTestSetPairs returns only resolved pairs, silently dropping orphans at `persist.ts:168-173`) so the action can return member-vs-resolved counts → orphan warning.
-- [ ] New detail page `src/app/admin/evolution/judge-lab/test-sets/[testSetId]/page.tsx` (mirror `runs/[evalRunId]/page.tsx`, reuse its `pct()` null-handling): per-pair table (label/kind/mu_a vs mu_b/Elo-gap/gap_kind/expected_winner[render `—`/`tie-acceptable` when null]/baseline_confidence) with lazy `text_a`/`text_b` expand fetched per-pair on demand
+- [x] `getTestSetContentsAction({testSetId, kind})` — call the **unchanged** shared `loadTestSetPairs` (`persist.ts:142`, also used by `executeSweep` — must keep full texts) and **strip `text_a`/`text_b` in the ACTION result mapping** for the list response. Query `judge_eval_test_set_members` count **separately** (loadTestSetPairs returns only resolved pairs, silently dropping orphans at `persist.ts:168-173`) so the action can return member-vs-resolved counts → orphan warning.
+- [x] New detail page `src/app/admin/evolution/judge-lab/test-sets/[testSetId]/page.tsx` (mirror `runs/[evalRunId]/page.tsx`, reuse its `pct()` null-handling): per-pair table (label/kind/mu_a vs mu_b/Elo-gap/gap_kind/expected_winner[render `—`/`tie-acceptable` when null]/baseline_confidence) with lazy `text_a`/`text_b` expand fetched per-pair on demand
 
 ### Phase 4: Edit (metadata) + Clone (membership) + UI refactor
-- [ ] `updateTestSetMetaAction({testSetId, name?, description?})` — scoped UPDATE on name/description ONLY; zod schema rejects strategy/seed/size; catch `23505` on `name` → friendly error; warn rename breaks saved CLI `--test-set` scripts
-- [ ] `cloneTestSetAction({sourceTestSetId, newName, sizeArticle?, sizeParagraph?, strategy?, seed?, manualLabels?, description?})` — load `source.pair_bank_id` and call `getOrCreateTestSet` (which internally calls `selectTestSetMembers`) with the new name → new id → new settings_keys. **Critical edge:** `getOrCreateTestSet` is get-OR-create by name and returns the existing set UNCHANGED with `created:false` on collision — clone MUST treat `created===false` as a name-collision error (or pre-check), else it silently no-ops. Also `try/catch` the insert for `23505` on `name` (TOCTOU backstop — two concurrent clones can both pass a `created===false` pre-check; the UNIQUE constraint is the real guard, consistent with `updateTestSetMetaAction`). Coerce `seed` string→number (BIGINT serializes as string); warn clone re-samples the *current* bank. Expose `description` + `strategy='manual'`+`manualLabels` (omitted from create today).
+- [x] `updateTestSetMetaAction({testSetId, name?, description?})` — scoped UPDATE on name/description ONLY; zod schema rejects strategy/seed/size; catch `23505` on `name` → friendly error; warn rename breaks saved CLI `--test-set` scripts
+- [x] `cloneTestSetAction({sourceTestSetId, newName, sizeArticle?, sizeParagraph?, strategy?, seed?, manualLabels?, description?})` — load `source.pair_bank_id` and call `getOrCreateTestSet` (which internally calls `selectTestSetMembers`) with the new name → new id → new settings_keys. **Critical edge:** `getOrCreateTestSet` is get-OR-create by name and returns the existing set UNCHANGED with `created:false` on collision — clone MUST treat `created===false` as a name-collision error (or pre-check), else it silently no-ops. Also `try/catch` the insert for `23505` on `name` (TOCTOU backstop — two concurrent clones can both pass a `created===false` pre-check; the UNIQUE constraint is the real guard, consistent with `updateTestSetMetaAction`). Coerce `seed` string→number (BIGINT serializes as string); warn clone re-samples the *current* bank. Expose `description` + `strategy='manual'`+`manualLabels` (omitted from create today).
 - [ ] Migrate `test-sets/page.tsx` to **`EntityListPage` self-managed mode** (precedent: `src/app/admin/evolution/strategies/page.tsx`; there is **no** "RegistryPage" component — that name survives only in a comment) → rowActions View/Edit/Clone (+ optional Delete, hard-blocked when `runs>0` given 4-level `ON DELETE CASCADE`). The existing bespoke inline create form (bank `<select>` + name + sizes + strategy + seed) must be ported into a `FormDialog` `children` slot, not just list-only.
 
 ## Phase 5: Clone with curated membership (edit which pairs are in a set)
@@ -72,13 +72,13 @@ splits into VIEW (read-only) + EDIT (metadata-only) + CLONE (the only safe membe
 > subset of `pair_label`s; each chosen pair keeps its recorded ground truth intact.
 
 ### Phase 5a: Backend — expose manual membership on clone + a curation universe action
-- [ ] Extend `cloneSchema` in `judgeEvalActions.ts` to accept `strategy` (incl. `'manual'`) +
+- [x] Extend `cloneSchema` in `judgeEvalActions.ts` to accept `strategy` (incl. `'manual'`) +
   `manualLabels: z.array(z.string().min(1)).optional()`; when `strategy==='manual'`, require
   non-empty `manualLabels`. `cloneTestSet` already passes `manualLabels` through.
-- [ ] In `cloneTestSet`/`getOrCreateTestSet` (manual path): set the cloned set's
+- [x] In `cloneTestSet`/`getOrCreateTestSet` (manual path): set the cloned set's
   `size_article`/`size_paragraph` to the **selected counts per kind** (honest metadata, since manual
   ignores `seed`/`size`). Map an `assertMembersExist` failure (label not in bank) to a friendly error.
-- [ ] New `loadBankPairsForCuration(db, testSetId, filters)` in `persist.ts`: returns the source's
+- [x] New `loadBankPairsForCuration(db, testSetId, filters)` in `persist.ts`: returns the source's
   **bank** pairs (the available universe) projected like `loadTestSetContents` (display Elo, **no
   `text_a`/`text_b`**), each flagged `isMember` (current member of the source set). Filters (applied
   server-side over the parsed bank JSONB, then paginated): `kind` (article/paragraph/both),
@@ -90,12 +90,12 @@ splits into VIEW (read-only) + EDIT (metadata-only) + CLONE (the only safe membe
   `toDisplayElo`. Thin `getBankPairsForCurationAction`.
 
 ### Phase 5b: UI — curation picker in a "Clone & curate" flow (on the **test-set detail page**)
-- [ ] On `test-sets/[testSetId]`, add a **Clone & curate** picker: checkbox list of bank pairs
+- [x] On `test-sets/[testSetId]`, add a **Clone & curate** picker: checkbox list of bank pairs
   (current members pre-checked), a filter row — **Kind · Membership · Gap-kind · Elo min/max
   (both-sides) · label search** — lazy text expand (reuse `getTestSetPairTextsAction`), a live
   selected-count, "Select all (filtered)" / "Clear" (operate on `filteredLabels`, no text fetch),
   and "Clone with these N pairs" → `cloneTestSetAction({ strategy:'manual', manualLabels, newName, … })`.
-- [ ] Handle scale: paginate/search the universe (banks can be ~8.8k pairs); "select all (filtered)"
+- [x] Handle scale: paginate/search the universe (banks can be ~8.8k pairs); "select all (filtered)"
   operates on labels (no text fetch). Show an orphan note for current members no longer in the bank
   (cannot be re-included).
 
@@ -135,20 +135,20 @@ cannot be re-included. "Clone with N pairs" submits `cloneTestSetAction({ strate
 manualLabels:<checked>, newName, … })`.
 
 ### Phase 5 Testing
-- [ ] `evolution/src/lib/judgeEval/persist.test.ts` — `cloneTestSet` with `strategy:'manual'` +
+- [x] `evolution/src/lib/judgeEval/persist.test.ts` — `cloneTestSet` with `strategy:'manual'` +
   `manualLabels` produces a set whose members are exactly the chosen labels and whose
   `size_article`/`size_paragraph` equal the per-kind selected counts; friendly error when a label
   isn't in the bank. `loadBankPairsForCuration` flags `isMember` correctly and strips texts.
-- [ ] `evolution/src/services/judgeEvalActions.test.ts` — `cloneTestSetAction` rejects empty
+- [x] `evolution/src/services/judgeEvalActions.test.ts` — `cloneTestSetAction` rejects empty
   `manualLabels` when `strategy:'manual'`; passes labels through.
-- [ ] E2E (extend `admin-evolution-judge-lab-test-sets.spec.ts`): open Clone & curate, uncheck one
+- [x] E2E (extend `admin-evolution-judge-lab-test-sets.spec.ts`): open Clone & curate, uncheck one
   member + check one non-member, clone, and assert the new set's contents page shows the curated
   membership (count + presence/absence of the toggled labels).
 
 ### Phase 5 Verification
-- [ ] Playwright: the curation flow on local server; assert the cloned set's member set differs from
+- [x] Playwright: the curation flow on local server; assert the cloned set's member set differs from
   the source by exactly the toggled pairs.
-- [ ] `npm run test:unit -- persist judgeEvalActions`
+- [x] `npm run test:unit -- persist judgeEvalActions`
 
 ## Phase 6: Prefill the Match Viewer re-judge custom-prompt box (parity with Judge Lab)
 
@@ -157,21 +157,21 @@ manualLabels:<checked>, newName, … })`.
 > still starts its custom-prompt box empty (`useState('')`, line 89). Make the two consistent. See the
 > research doc's "Follow-up research: prefill the Match Viewer re-judge custom-prompt box".
 
-- [ ] Prefill `customPrompt` with the **mode-appropriate** default rubric from
+- [x] Prefill `customPrompt` with the **mode-appropriate** default rubric from
   `evolution/src/lib/shared/judgeRubrics.ts` — `PARAGRAPH_SANDBOX_RUBRIC` when `mode==='paragraph'`,
   `ARTICLE_SANDBOX_RUBRIC` when `mode==='article'`. Editable + directly submittable.
-- [ ] **Mode-aware refresh**: when `mode` changes, replace the box with that mode's rubric **only if
+- [x] **Mode-aware refresh**: when `mode` changes, replace the box with that mode's rubric **only if
   the user hasn't hand-edited it** (auto-fill while the text still equals one of the two presets; a
   "Reset to default rubric" button covers the edited case — mirrors Judge Lab).
-- [ ] Leave the existing `showCustom` toggle + `explainReasoning` checkbox as-is (Match Viewer already
+- [x] Leave the existing `showCustom` toggle + `explainReasoning` checkbox as-is (Match Viewer already
   has both; the default re-judge path stays unchanged unless the box is opened + used).
-- [ ] No new server action / schema change (the action already accepts `customPrompt`).
+- [x] No new server action / schema change (the action already accepts `customPrompt`).
 
 ### Phase 6 Testing
-- [ ] E2E (extend `admin-evolution-match-viewer*` spec, or the matches spec): opening the custom box
+- [x] E2E (extend `admin-evolution-match-viewer*` spec, or the matches spec): opening the custom box
   shows the paragraph rubric for a paragraph match; flipping the rubric toggle to article swaps it to
   the article rubric; editing then toggling does NOT clobber the edit.
-- [ ] Manual: re-judge with the prefilled rubric unchanged reproduces the built-in behavior.
+- [x] Manual: re-judge with the prefilled rubric unchanged reproduces the built-in behavior.
 
 ## Rollback & Safety
 No new feature flags are introduced; all changes are low-risk and **revert-by-PR**:
@@ -182,38 +182,38 @@ No new feature flags are introduced; all changes are low-risk and **revert-by-PR
 ## Testing
 
 ### Unit Tests
-- [ ] `src/lib/services/llms.test.ts` — request-body shape per model: `deepseek-v4-flash` → `thinking:{type:'disabled'}` + no `reasoning` (regression guard); `gemini-2.5-flash-lite` (OpenRouter) → no `reasoning` when `effort='none'`; `gpt-4o-mini` → no `reasoning_effort` when `effort='none'`; `gpt-oss-20b` never gets `'none'`. Include a **non-judge OpenRouter** case to prove the shared-path hygiene change doesn't regress other callers.
-- [ ] `src/lib/errorHandling.test.ts` — `categorizeError()` preserves `details`; add a message containing **BOTH `'api'` and `'timeout'`** (e.g. `"OpenAI API request timeout"`) asserting `TIMEOUT_ERROR` — the existing timeout test (`'Request timeout after 30 seconds'`) has no `'api'` substring and already passes under the bug, so it cannot catch the regression.
-- [ ] `evolution/src/lib/judgeEval/runJudgeEval.test.ts` — `createCallLLMJudge` retries on `isTransientError` (twice then success) and does NOT retry non-transient. **Mocking:** `jest.mock('@/lib/services/llms')` so the module-imported `callLLM` is a `jest.fn` (the retry wraps the imported `callLLM`, NOT the injected `JudgeFn`); **unset `E2E_TEST_MODE`** so the stub early-return is bypassed; use fake timers / zero-delay backoff to stay under the 5s unit timeout.
-- [ ] `evolution/src/lib/judgeEval/executeSweep.test.ts` (NEW file) — when `runJudgeEval` throws with attached `partialResults`, the cell persists an errored run via `replaceCalls` (assert error row written) instead of a 0-call orphan; mock the Supabase chain.
-- [ ] `evolution/src/services/judgeEvalActions.test.ts` — `getTestSetContentsAction` omits `text_a`/`text_b` in list + returns member-vs-resolved counts + flags orphan (simulate a member label absent from the bank); `updateTestSetMetaAction` updates only name/description, rejects strategy/seed/size at schema, maps `23505`; `cloneTestSetAction` yields a new id/settings_key lineage, treats `created===false` as a collision error, and leaves source members/runs untouched
+- [x] `src/lib/services/llms.test.ts` — request-body shape per model: `deepseek-v4-flash` → `thinking:{type:'disabled'}` + no `reasoning` (regression guard); `gemini-2.5-flash-lite` (OpenRouter) → no `reasoning` when `effort='none'`; `gpt-4o-mini` → no `reasoning_effort` when `effort='none'`; `gpt-oss-20b` never gets `'none'`. Include a **non-judge OpenRouter** case to prove the shared-path hygiene change doesn't regress other callers.
+- [x] `src/lib/errorHandling.test.ts` — `categorizeError()` preserves `details`; add a message containing **BOTH `'api'` and `'timeout'`** (e.g. `"OpenAI API request timeout"`) asserting `TIMEOUT_ERROR` — the existing timeout test (`'Request timeout after 30 seconds'`) has no `'api'` substring and already passes under the bug, so it cannot catch the regression.
+- [x] `evolution/src/lib/judgeEval/runJudgeEval.test.ts` — `createCallLLMJudge` retries on `isTransientError` (twice then success) and does NOT retry non-transient. **Mocking:** `jest.mock('@/lib/services/llms')` so the module-imported `callLLM` is a `jest.fn` (the retry wraps the imported `callLLM`, NOT the injected `JudgeFn`); **unset `E2E_TEST_MODE`** so the stub early-return is bypassed; use fake timers / zero-delay backoff to stay under the 5s unit timeout.
+- [x] `evolution/src/lib/judgeEval/executeSweep.test.ts` (NEW file) — when `runJudgeEval` throws with attached `partialResults`, the cell persists an errored run via `replaceCalls` (assert error row written) instead of a 0-call orphan; mock the Supabase chain.
+- [x] `evolution/src/services/judgeEvalActions.test.ts` — `getTestSetContentsAction` omits `text_a`/`text_b` in list + returns member-vs-resolved counts + flags orphan (simulate a member label absent from the bank); `updateTestSetMetaAction` updates only name/description, rejects strategy/seed/size at schema, maps `23505`; `cloneTestSetAction` yields a new id/settings_key lineage, treats `created===false` as a collision error, and leaves source members/runs untouched
 
 ### Integration Tests
-- [ ] `src/__tests__/integration/judge-eval-test-sets.integration.test.ts` — editing metadata leaves `settings_key` + members unchanged so dependent runs stay comparable; clone produces a distinct member population; assert the frozen contract **negatively** (no code path updates `judge_eval_test_set_members` for an existing id)
+- [x] `src/__tests__/integration/judge-eval-test-sets.integration.test.ts` — editing metadata leaves `settings_key` + members unchanged so dependent runs stay comparable; clone produces a distinct member population; assert the frozen contract **negatively** (no code path updates `judge_eval_test_set_members` for an existing id)
 
 ### E2E Tests
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-judge-lab-test-sets.spec.ts` (`@evolution`) — View row → detail renders members; Edit dialog persists description; Clone creates a new row. **Reuse the existing `admin-evolution-judge-lab.spec.ts` seed pattern**: seed `judge_eval_pair_banks` via the service client + `trackEvolutionId('judge_eval_pair_bank', bankId)`; include `adminTest.afterAll(cleanupAllTrackedEvolutionData)` (required by ESLint `flakiness/require-test-cleanup`; CASCADE from the bank cleans test_sets/members/runs/calls incl. the clone). Add a test-sets POM `resetFilters()` (no-op override is fine if the migrated list has no default "Hide test content" filter) per ESLint `flakiness/require-reset-filters` on `09-admin/*`.
+- [x] `src/__tests__/e2e/specs/09-admin/admin-evolution-judge-lab-test-sets.spec.ts` (`@evolution`) — View row → detail renders members; Edit dialog persists description; Clone creates a new row. **Reuse the existing `admin-evolution-judge-lab.spec.ts` seed pattern**: seed `judge_eval_pair_banks` via the service client + `trackEvolutionId('judge_eval_pair_bank', bankId)`; include `adminTest.afterAll(cleanupAllTrackedEvolutionData)` (required by ESLint `flakiness/require-test-cleanup`; CASCADE from the bank cleans test_sets/members/runs/calls incl. the clone). Add a test-sets POM `resetFilters()` (no-op override is fine if the migrated list has no default "Hide test content" filter) per ESLint `flakiness/require-reset-filters` on `09-admin/*`.
 
 ### Manual Verification
-- [ ] **Outside `E2E_TEST_MODE`** (local dev vs a real provider — the stub short-circuits `createCallLLMJudge`): trigger a judge sweep with a deliberately-bad model (e.g. `LOCAL_qwen2.5:14b` in a non-local env) and confirm the **real** error now surfaces (not the generic string)
-- [ ] Confirm a successful sweep now writes `llmCallTracking` rows
+- [x] **Outside `E2E_TEST_MODE`** (local dev vs a real provider — the stub short-circuits `createCallLLMJudge`): trigger a judge sweep with a deliberately-bad model (e.g. `LOCAL_qwen2.5:14b` in a non-local env) and confirm the **real** error now surfaces (not the generic string)
+- [x] Confirm a successful sweep now writes `llmCallTracking` rows
 
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] Run the new test-sets E2E spec on the local server via `ensure-server.sh`; verify view/edit/clone flows
+- [x] Run the new test-sets E2E spec on the local server via `ensure-server.sh`; verify view/edit/clone flows
 
 ### B) Automated Tests
-- [ ] `npm run test:unit -- llms errorHandling runJudgeEval executeSweep judgeEvalActions`
-- [ ] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-judge-lab-test-sets.spec.ts`
+- [x] `npm run test:unit -- llms errorHandling runJudgeEval executeSweep judgeEvalActions`
+- [x] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-judge-lab-test-sets.spec.ts`
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `docs/feature_deep_dives/judge_evaluation.md` — Admin UI test-sets section (view/edit), and judge-model notes if model routing changes
-- [ ] `evolution/docs/rating_and_comparison.md` — only if comparison/judge-call behavior changes
-- [ ] `evolution/docs/reference.md` — LLM model/routing/error notes if model registry changes
-- [ ] `evolution/docs/visualization.md` — Judge Lab admin page row (test-sets view/edit)
-- [ ] `evolution/docs/data_model.md` — only if judge_eval_* schema changes
+- [x] `docs/feature_deep_dives/judge_evaluation.md` — Admin UI test-sets section (view/edit), and judge-model notes if model routing changes
+- [x] `evolution/docs/rating_and_comparison.md` — only if comparison/judge-call behavior changes
+- [x] `evolution/docs/reference.md` — LLM model/routing/error notes if model registry changes
+- [x] `evolution/docs/visualization.md` — Judge Lab admin page row (test-sets view/edit)
+- [x] `evolution/docs/data_model.md` — only if judge_eval_* schema changes
 
 ## Review & Discussion
 
