@@ -22,9 +22,15 @@ import {
   modelSupportsReasoning,
   DEFAULT_JUDGE_MODEL,
 } from '@/config/modelRegistry';
+import { ARTICLE_SANDBOX_RUBRIC, PARAGRAPH_SANDBOX_RUBRIC } from '@evolution/lib/shared/judgeRubrics';
 
 const SECTION = 'border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)] p-5';
 const MODEL_OPTIONS = getModelOptions();
+
+/** The default rubric block the custom prompt overrides, for the given comparison mode. */
+function rubricFor(mode: 'article' | 'paragraph'): string {
+  return mode === 'paragraph' ? PARAGRAPH_SANDBOX_RUBRIC : ARTICLE_SANDBOX_RUBRIC;
+}
 
 function storedToVerdict(winner: 'a' | 'b' | 'draw'): 'A' | 'B' | 'TIE' {
   return winner === 'a' ? 'A' : winner === 'b' ? 'B' : 'TIE';
@@ -86,8 +92,17 @@ export default function MatchDetailPage(): JSX.Element {
   const [temperature, setTemperature] = useState(0);
   const [explainReasoning, setExplainReasoning] = useState(false);
   const [showCustom, setShowCustom] = useState(false);
-  const [customPrompt, setCustomPrompt] = useState('');
+  // Pre-filled with the real default rubric for the current mode so it's visible + directly editable.
+  const [customPrompt, setCustomPrompt] = useState(() => rubricFor('article'));
   const [rejudging, setRejudging] = useState(false);
+
+  // Mode-aware: when the rubric toggle changes, swap the box to that mode's default rubric — but
+  // only if the user hasn't hand-edited it (i.e. it still equals one of the two presets).
+  useEffect(() => {
+    setCustomPrompt((cur) =>
+      cur === ARTICLE_SANDBOX_RUBRIC || cur === PARAGRAPH_SANDBOX_RUBRIC ? rubricFor(mode) : cur,
+    );
+  }, [mode]);
   // Stable id per result so prepending new cards doesn't reshuffle React keys.
   const resultIdRef = useRef(0);
   const [results, setResults] = useState<{ id: number; result: RejudgeResult }[]>([]);
@@ -302,14 +317,25 @@ export default function MatchDetailPage(): JSX.Element {
             {showCustom ? '▾' : '▸'} Custom judge prompt (optional)
           </button>
           {showCustom && (
-            <textarea
-              data-testid="rejudge-custom-prompt"
-              className="mt-1 w-full bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded px-2 py-1 text-xs font-mono"
-              rows={4}
-              placeholder="Rubric/instructions only — the two texts and a verdict line are appended automatically."
-              value={customPrompt}
-              onChange={(e) => setCustomPrompt(e.target.value)}
-            />
+            <>
+              <p className="mt-1 text-xs text-[var(--text-muted)]">
+                Pre-filled with the default {mode} rubric — edit and run it directly. Overrides only
+                the rubric block; the two texts and a verdict line are appended automatically.
+              </p>
+              <textarea
+                data-testid="rejudge-custom-prompt"
+                className="mt-1 w-full bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded px-2 py-1 text-xs font-mono"
+                rows={6}
+                value={customPrompt}
+                onChange={(e) => setCustomPrompt(e.target.value)}
+              />
+              <button
+                className="mt-1 text-xs text-[var(--text-muted)] underline"
+                onClick={() => setCustomPrompt(rubricFor(mode))}
+              >
+                Reset to default {mode} rubric
+              </button>
+            </>
           )}
         </div>
 
