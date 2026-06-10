@@ -118,5 +118,22 @@ const TS = `[TEST] judge-eval ts ${Date.now()}`;
     const runIds = new Set((board ?? []).map((r) => r.eval_run_id));
     expect(runIds.has(runA.runId)).toBe(true);
     expect(runIds.has(runB.runId)).toBe(true);
+
+    // Audit + ground-truth snapshot round-trip: the new columns persist and read back intact.
+    const { data: persisted, error: readErr } = await db
+      .from('judge_eval_calls')
+      .select('pair_label, forward_prompt, forward_reasoning, reasoning_trace_format, mu_a, mu_b, gap_kind, expected_winner, variant_a_id')
+      .eq('eval_run_id', runA.runId)
+      .eq('pair_label', 'art#1')
+      .single();
+    if (readErr) throw readErr;
+    expect(persisted!.forward_prompt).toContain('## Text A');
+    expect(persisted!.forward_reasoning).toBe('A is stronger.');
+    expect(persisted!.reasoning_trace_format).toBe('verbatim');
+    expect(Number(persisted!.mu_a)).toBe(40);
+    expect(Number(persisted!.mu_b)).toBe(20);
+    expect(persisted!.gap_kind).toBe('large');
+    expect(persisted!.expected_winner).toBe('A');
+    expect(persisted!.variant_a_id).toBe(VA);
   }, 30000);
 });

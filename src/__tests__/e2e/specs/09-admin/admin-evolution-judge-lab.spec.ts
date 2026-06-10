@@ -66,10 +66,25 @@ adminTest.describe('Judge Lab', { tag: '@evolution' }, () => {
       .single();
     expect(run.error).toBeNull();
     const runId = run.data!.id;
-    await db.from('judge_eval_calls').insert({
-      eval_run_id: runId, pair_label: 'art#1', pair_kind: 'article', comparison_mode: 'article',
-      repeat_index: 0, forward_winner: 'A', reverse_winner: 'A', winner: 'A', confidence: 1.0,
-    });
+    // Two calls on the same pair: repeat 0 = fully-populated audit + snapshot; repeat 1 = a legacy
+    // pre-migration row (all audit/snapshot columns NULL) to exercise the empty-state render path.
+    const callsRes = await db.from('judge_eval_calls').insert([
+      {
+        eval_run_id: runId, pair_label: 'art#1', pair_kind: 'article', comparison_mode: 'article',
+        repeat_index: 0, forward_winner: 'A', reverse_winner: 'A', winner: 'A', confidence: 1.0,
+        forward_prompt: '## Text A\nalpha article body\n## Text B\nbeta article body\nYour answer: A|B|TIE',
+        reverse_prompt: '## Text A\nbeta article body\n## Text B\nalpha article body\nYour answer: A|B|TIE',
+        forward_reasoning: 'A reads more clearly.', reverse_reasoning: 'A still reads more clearly.',
+        reasoning_trace_format: 'verbatim', forward_raw: 'Your answer: A', reverse_raw: 'Your answer: B',
+        mu_a: 40, mu_b: 20, sigma_a: 5, sigma_b: 5, baseline_confidence: 1.0,
+        gap_kind: 'large', expected_winner: 'A', variant_a_id: VA, variant_b_id: VB,
+      },
+      {
+        eval_run_id: runId, pair_label: 'art#1', pair_kind: 'article', comparison_mode: 'article',
+        repeat_index: 1, forward_winner: 'A', reverse_winner: 'B', winner: 'TIE', confidence: 0.5,
+      },
+    ]);
+    expect(callsRes.error).toBeNull();
 
     // Open Judge Lab and select the seeded test set (hydration: wait for the select to load options).
     await safeGoto(adminPage, '/admin/evolution/judge-lab');
@@ -87,5 +102,22 @@ adminTest.describe('Judge Lab', { tag: '@evolution' }, () => {
     await safeGoto(adminPage, `/admin/evolution/judge-lab/runs/${runId}`);
     await expect(adminPage.getByTestId('run-kind-aggregates')).toBeVisible({ timeout: 30000 });
     await expect(adminPage.getByTestId('kind-block-article')).toContainText(/decisive/i);
+
+    // Match history: open the dedicated view, expand the populated match, assert the full judge
+    // I/O + both content pieces are shown.
+    await safeGoto(adminPage, `/admin/evolution/judge-lab/runs/${runId}/matches`);
+    await expect(adminPage.getByTestId('matches-table')).toBeVisible({ timeout: 30000 });
+    await expect(adminPage.getByTestId('match-row').first()).toBeVisible({ timeout: 30000 });
+    await adminPage.getByTestId('match-expand').first().click();
+    await expect(adminPage.getByTestId('match-audit-detail').first()).toBeVisible({ timeout: 30000 });
+    await expect(adminPage.getByTestId('match-text-a').first()).toContainText('alpha article body');
+    await expect(adminPage.getByTestId('judge-input-forward').first()).toContainText('## Text A');
+    await expect(adminPage.getByTestId('judge-output-forward').first()).toContainText('A');
+    await expect(adminPage.getByTestId('reasoning-format-state').first()).toContainText(/verbatim/i);
+
+    // Backward-compat: the legacy all-null row expands without crashing and shows the empty state.
+    await adminPage.getByTestId('match-expand').nth(1).click();
+    await expect(adminPage.getByTestId('match-audit-detail').nth(1)).toBeVisible({ timeout: 30000 });
+    await expect(adminPage.getByTestId('reasoning-format-state').nth(1)).toContainText(/not requested/i);
   });
 });

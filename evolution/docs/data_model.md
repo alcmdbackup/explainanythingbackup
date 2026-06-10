@@ -343,7 +343,12 @@ from `evolution_arena_comparisons` (which is the in-run match log and drops judg
 passes): `judge_eval_pair_banks` (full candidate pairs from a topic, `pairs` JSONB),
 `judge_eval_test_sets` (frozen sample def), `judge_eval_test_set_members` (frozen membership,
 PK `(test_set_id, pair_label)`), `judge_eval_runs` (one per settings tuple, UNIQUE `settings_key`),
-`judge_eval_calls` (per-(run × pair × repeat) verdict; `decisive` GENERATED `(confidence > 0.6)`).
+`judge_eval_calls` (per-(run × pair × repeat) verdict; `decisive` GENERATED `(confidence > 0.6)`;
+migration `20260610000001` adds the full per-call audit payload — `forward_prompt`/`reverse_prompt`
+(exact rendered judge input), `forward_reasoning`/`reverse_reasoning` + `reasoning_trace_format`,
+`forward_raw`/`reverse_raw` — plus a frozen ground-truth snapshot `mu_a`/`mu_b`/`sigma_a`/`sigma_b`/
+`baseline_confidence`/`gap_kind`/`expected_winner`/`variant_a_id`/`variant_b_id`, all nullable, copied
+from the resolved pair at write time so match-history analysis survives pair-bank re-seeding).
 Plus VIEW `judge_eval_settings_leaderboard` (best settings by decisive rate, scoped to a test set,
 split by `pair_kind`; RLS-locked to `service_role`). All tables: deny-all + `service_role_all` RLS.
 
