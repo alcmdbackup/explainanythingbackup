@@ -27,11 +27,13 @@ adminTest.describe('Judge Lab', { tag: '@evolution' }, () => {
   adminTest('shows the leaderboard for a seeded eval run and drills into run detail', async ({ adminPage }) => {
     const db = getEvolutionServiceClient();
 
-    // Skip cleanly if the judge_eval_* migration hasn't been deployed to staging yet.
-    const probe = await db.from('judge_eval_pair_banks').select('id').limit(1);
+    // Skip cleanly until the judge_eval_* audit/snapshot migration (20260610000001) is on staging.
+    // Probes a NEW column so the spec skips both when the tables are absent AND when they exist but
+    // the new columns don't (CI's deploy-migrations applies it before this spec runs).
+    const probe = await db.from('judge_eval_calls').select('forward_prompt').limit(1);
     if (probe.error) {
-      // eslint-disable-next-line flakiness/no-test-skip -- infrastructure limitation: judge_eval_* migration deploys on merge to main; skip until the tables exist on staging.
-      adminTest.skip(true, 'judge_eval_* tables not deployed yet');
+      // eslint-disable-next-line flakiness/no-test-skip -- infrastructure limitation: judge_eval_* migration deploys on merge to main; skip until the columns exist on staging.
+      adminTest.skip(true, 'judge_eval_* audit columns not deployed yet');
       return;
     }
 

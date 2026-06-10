@@ -15,9 +15,11 @@ function makeClient(): SupabaseClient<Database> | null {
   return createClient<Database>(url, key, { auth: { persistSession: false } });
 }
 
-/** judge_eval-SPECIFIC probe (evolutionTablesExist only checks evolution_runs). 42P01 = skip. */
+/** judge_eval-SPECIFIC probe (evolutionTablesExist only checks evolution_runs). Probes a NEW
+ *  audit column so the suite also skips when the tables exist but migration 20260610000001 hasn't
+ *  deployed to staging yet (CI's deploy-migrations job applies it before these tests run). */
 async function judgeEvalTablesExist(db: SupabaseClient<Database>): Promise<boolean> {
-  const { error } = await db.from('judge_eval_pair_banks').select('id').limit(1);
+  const { error } = await db.from('judge_eval_calls').select('forward_prompt').limit(1);
   return !error;
 }
 
