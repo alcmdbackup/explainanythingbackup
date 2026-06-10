@@ -197,7 +197,7 @@ export default function TestSetsPage(): JSX.Element {
           <input type="number" className="w-16 bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded px-2 py-1"
             value={form.seed} onChange={(e) => setForm((f) => ({ ...f, seed: Number(e.target.value) || 0 }))} />
           <button data-testid="ts-create" disabled={busy}
-            className="text-xs px-3 py-1.5 rounded disabled:opacity-50" style={{ background: 'var(--accent-gold)', color: 'var(--bg-primary)' }}
+            className="text-xs px-3 py-1.5 rounded disabled:opacity-50" style={{ background: 'var(--accent-gold)', color: 'var(--text-on-primary)' }}
             onClick={() => void create()}>
             {busy ? 'Creating…' : 'Create'}
           </button>
@@ -220,7 +220,7 @@ export default function TestSetsPage(): JSX.Element {
             <input data-testid="edit-description" className="flex-1 min-w-[200px] bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded px-2 py-1"
               value={edit.description} onChange={(e) => setEdit({ ...edit, description: e.target.value })} />
             <button data-testid="edit-save" disabled={busy} className="text-xs px-3 py-1.5 rounded disabled:opacity-50"
-              style={{ background: 'var(--accent-gold)', color: 'var(--bg-primary)' }} onClick={() => void saveEdit()}>Save</button>
+              style={{ background: 'var(--accent-gold)', color: 'var(--text-on-primary)' }} onClick={() => void saveEdit()}>Save</button>
             <button className="text-xs px-3 py-1.5 rounded border border-[var(--border-default)]" onClick={() => setEdit(null)}>Cancel</button>
           </div>
         </div>
@@ -253,7 +253,7 @@ export default function TestSetsPage(): JSX.Element {
             <input type="number" className="w-16 bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded px-2 py-1"
               value={clone.seed} onChange={(e) => setClone({ ...clone, seed: Number(e.target.value) || 0 })} />
             <button data-testid="clone-submit" disabled={busy} className="text-xs px-3 py-1.5 rounded disabled:opacity-50"
-              style={{ background: 'var(--accent-gold)', color: 'var(--bg-primary)' }} onClick={() => void submitClone()}>Clone</button>
+              style={{ background: 'var(--accent-gold)', color: 'var(--text-on-primary)' }} onClick={() => void submitClone()}>Clone</button>
             <button className="text-xs px-3 py-1.5 rounded border border-[var(--border-default)]" onClick={() => setClone(null)}>Cancel</button>
           </div>
         </div>

@@ -275,7 +275,7 @@ export default function CloneCuratePanel({
         <span>page {page} / {pages}</span>
         <button className="underline disabled:opacity-40" disabled={page >= pages} onClick={() => setOffset(offset + PAGE)}>Next ›</button>
         <button data-testid="curate-clone" disabled={busy} className="ml-auto text-xs px-3 py-1.5 rounded disabled:opacity-50"
-          style={{ background: 'var(--accent-gold)', color: 'var(--bg-primary)' }} onClick={() => void submit()}>
+          style={{ background: 'var(--accent-gold)', color: 'var(--text-on-primary)' }} onClick={() => void submit()}>
           {busy ? 'Cloning…' : `Clone with ${selected.size} pairs`}
         </button>
       </div>

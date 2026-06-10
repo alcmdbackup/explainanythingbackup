@@ -218,7 +218,7 @@ export default function JudgeLabPage(): JSX.Element {
               style={{
                 borderColor: 'var(--border-default)',
                 background: kind === k ? 'var(--accent-gold)' : 'transparent',
-                color: kind === k ? 'var(--bg-primary)' : 'var(--text-secondary)',
+                color: kind === k ? 'var(--text-on-primary)' : 'var(--text-secondary)',
               }}
               onClick={() => setKind(k)}
             >
@@ -314,7 +314,7 @@ export default function JudgeLabPage(): JSX.Element {
             data-testid="judge-lab-launch"
             disabled={launching}
             className="text-xs px-3 py-1.5 rounded disabled:opacity-50"
-            style={{ background: 'var(--accent-gold)', color: 'var(--bg-primary)' }}
+            style={{ background: 'var(--accent-gold)', color: 'var(--text-on-primary)' }}
             onClick={() => void runSweep(false)}
           >
             {launching ? 'Running…' : '▶ Launch sweep'}
@@ -337,7 +337,7 @@ export default function JudgeLabPage(): JSX.Element {
                 style={{
                   borderColor: 'var(--border-default)',
                   background: viewKind === k ? 'var(--accent-gold)' : 'transparent',
-                  color: viewKind === k ? 'var(--bg-primary)' : 'var(--text-secondary)',
+                  color: viewKind === k ? 'var(--text-on-primary)' : 'var(--text-secondary)',
                 }}
                 onClick={() => setViewKind(k)}
               >
