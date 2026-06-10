@@ -137,6 +137,9 @@ adminTest.describe('Judge Lab — Test Set view/edit/clone', { tag: '@evolution'
     await adminPage.getByTestId('curate-check-art#2').check();
     await adminPage.getByTestId('curate-name').fill(CURATE_CLONE_NAME);
     await adminPage.getByTestId('curate-clone').click();
+    // The panel closes only after the clone action resolves — wait for that before navigating so
+    // we don't race the server action (the new set must exist before the list query runs).
+    await expect(adminPage.getByTestId('clone-curate')).toBeHidden({ timeout: 30000 });
 
     // The curated clone appears in the list with size_article = 1 (just art#2).
     await safeGoto(adminPage, '/admin/evolution/judge-lab/test-sets');
