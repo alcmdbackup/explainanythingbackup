@@ -205,6 +205,13 @@ export interface TestSetContents {
   orphanCount: number;
 }
 
+// Code-point string compare (stable, locale-independent) for deterministic sort ordering.
+function cmpStr(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
 // Stored mu/sigma are OpenSkill-scale; project to display Elo so the UI never shows raw mu.
 // mu/sigma are nullable on a pair — Elo is null unless both are present.
 function oneSideElo(mu: number | null, sigma: number | null): { elo: number; uncertainty: number } | null {
@@ -364,9 +371,8 @@ export async function loadBankPairsForCuration(
     .filter((p) => gapKind === 'all' || p.gap_kind === gapKind)
     .filter((p) => !search || p.label.toLowerCase().includes(search))
     .filter(withinElo)
-    .sort((a, b) =>
-      a.pair_kind !== b.pair_kind ? (a.pair_kind < b.pair_kind ? -1 : 1) : a.label < b.label ? -1 : a.label > b.label ? 1 : 0,
-    );
+    // Group by kind, then alphabetical by label within each kind.
+    .sort((a, b) => cmpStr(a.pair_kind, b.pair_kind) || cmpStr(a.label, b.label));
 
   const offset = Math.max(0, filters.offset ?? 0);
   const limit = Math.max(1, Math.min(filters.limit ?? 100, 500));

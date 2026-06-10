@@ -126,6 +126,16 @@ export type JudgeEvalCallResult = Omit<
   'id' | 'eval_run_id'
 >;
 
+/** Read the partial call rows the engine attaches to a thrown error (see runJudgeEval/executeSweep),
+ *  so a failed sweep cell persists what completed instead of leaving a 0-call orphan. */
+export function readPartialResults(e: unknown): JudgeEvalCallResult[] {
+  if (e && typeof e === 'object' && 'partialResults' in e) {
+    const partial = (e as { partialResults: unknown }).partialResults;
+    if (Array.isArray(partial)) return partial as JudgeEvalCallResult[];
+  }
+  return [];
+}
+
 export type JudgeKindFilter = z.infer<typeof kindFilterSchema>;
 export type JudgeReasoningEffort = z.infer<typeof reasoningEffortSchema>;
 export type Winner = z.infer<typeof winnerSchema>;

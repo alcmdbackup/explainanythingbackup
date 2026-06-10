@@ -24,6 +24,7 @@ import type {
   Winner,
   PairKind,
 } from './schemas';
+import { readPartialResults } from './schemas';
 
 export const JUDGE_EVAL_SYSTEM_USERID = '00000000-0000-4000-8000-000000000001';
 export const DEFAULT_JUDGE_EVAL_CONCURRENCY = 8;
@@ -190,12 +191,8 @@ export async function runJudgeEval(
     // On failure, attach everything completed so far (other pairs in `out`) plus the failing
     // pair's rows (carried on the thrown error by evaluatePair) so the caller can persist a
     // real errored run instead of leaving a 0-call orphan. See executeSweep.
-    const pairPartial =
-      e && typeof e === 'object' && 'partialResults' in e && Array.isArray((e as { partialResults: unknown }).partialResults)
-        ? ((e as { partialResults: JudgeEvalCallResult[] }).partialResults)
-        : [];
     throw Object.assign(e instanceof Error ? e : new Error(String(e)), {
-      partialResults: [...out, ...pairPartial],
+      partialResults: [...out, ...readPartialResults(e)],
     });
   }
   return out;

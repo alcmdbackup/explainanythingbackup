@@ -26,6 +26,8 @@ function clampTemperature(temperature: number | undefined, model: string): numbe
     if (maxTemp === null || maxTemp === undefined) return undefined;
     return Math.min(temperature, maxTemp);
 }
+import { getLLMSemaphore } from './llmSemaphore';
+import { getSpendingGate } from './llmSpendingGate';
 
 /**
  * Build the provider request fields that carry reasoning effort, applying per-model hygiene so a
@@ -63,8 +65,6 @@ export function resolveReasoningRequestFields(
     if (effort === 'none') return {};
     return { reasoning_effort: effort, reasoning: { summary: 'auto' } };
 }
-import { getLLMSemaphore } from './llmSemaphore';
-import { getSpendingGate } from './llmSpendingGate';
 
 export interface LLMUsageMetadata {
   promptTokens: number;
@@ -480,10 +480,11 @@ async function callOpenAIModel(
         const reasoningFields = resolveReasoningRequestFields(validatedModel, requestedReasoningEffort);
         Object.assign(requestOptions, reasoningFields);
         // True iff thinking was actually requested (a non-'none' effort) — drives trace extraction
-        // below. A disabled-thinking 'none' (e.g. qwen3-8b) emits no trace, so it stays false.
-        const orEffort = (reasoningFields.reasoning as { effort?: string } | undefined)?.effort;
+        // below. Both trace opt-ins (reasoning_effort for OpenAI, include_reasoning for OpenRouter)
+        // are emitted only when effort !== 'none', so their presence is the signal. A disabled-
+        // thinking 'none' (e.g. qwen3-8b) emits neither and stays false.
         const reasoningRequested =
-            reasoningFields.reasoning_effort !== undefined || (orEffort !== undefined && orEffort !== 'none');
+            reasoningFields.reasoning_effort !== undefined || reasoningFields.include_reasoning === true;
 
         // DeepSeek defaults thinking ON. For non-reasoning DeepSeek models, explicitly disable
         // it so they behave as plain chat models (temperature honored, no chain-of-thought
