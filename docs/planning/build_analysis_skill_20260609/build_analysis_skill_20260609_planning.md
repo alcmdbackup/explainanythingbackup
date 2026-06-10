@@ -3,7 +3,7 @@
 ## Background
 Build a new skill for writing analyses to `/docs/analysis`, which is a renamed version of `/docs/research`. The skill formalizes how data-analysis writeups are produced and stored so they are reproducible: every analysis is linked to a project folder + branch, states its methodology, summarizes key findings, captures a copy of the exact dataset used (CSV when size permits), and records all queries run and their results.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1186)
 Analysis skill should
 - Header
     - Analysis name
