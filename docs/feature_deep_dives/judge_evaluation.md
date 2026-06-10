@@ -124,7 +124,20 @@ cross-run comparability. The only safe membership change is **Clone** (`cloneTes
 re-samples the source's *current* bank into a NEW set (new id → new `settings_key`s), leaving the
 source and its eval runs intact; it errors on name collision (never aliases an existing set).
 
-Interactive single-match re-judge stays in the Match Viewer (`/admin/evolution/matches`).
+**Clone & curate** (`CloneCuratePanel` on the test-set detail page) is the membership-editing path:
+it lists the source's **bank** (the available universe of existing recorded pairs) via
+`getBankPairsForCurationAction` → `loadBankPairsForCuration` — each pair projected to Elo,
+text-stripped, and flagged `isMember`, filtered by Kind · Membership · Gap-kind · **Elo both-sides
+min/max** · label search, paginated. Current members are pre-checked (seeded from the load's
+`memberLabels` — one round-trip); uncheck to remove, check a non-member to add. "Clone with N pairs"
+calls `cloneTestSetAction({ strategy:'manual', manualLabels, newName })`, which freezes exactly the
+chosen labels into a new set (per-kind selected counts stored as its sizes). It curates **existing
+pairs only** — it never constructs novel pairs from individual variants (that would null out
+`baseline_confidence`), and it never mutates the source.
+
+Interactive single-match re-judge stays in the Match Viewer (`/admin/evolution/matches`) — whose
+custom-prompt box is pre-filled with the mode-appropriate default rubric (article/paragraph) from
+`judgeRubrics.ts`, editable and directly submittable (parity with the Judge Lab launcher).
 
 ## Key files
 
