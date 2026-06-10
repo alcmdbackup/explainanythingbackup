@@ -29,9 +29,9 @@ membership in place silently corrupts existing runs (`fr2-smoke` already has 7).
 splits into VIEW (read-only) + EDIT (metadata-only) + CLONE (the only safe membership-change path).
 
 ## Options Considered
-- [x] **Option A (chosen): Fix the diagnosis pipeline + add bounded retry, then deliver view/edit/clone for test sets.** Surface real errors, make the judge path resilient to transients, and respect the frozen contract. Matches all investigation evidence.
-- [ ] **Option B: "Fix" model routing / reasoning-effort param.** REJECTED — exonerated by the decisive same-shape/different-provider DB comparison (gpt-4o-mini succeeded while deepseek-v4-flash failed on byte-identical request shape).
-- [ ] **Option C: Make test sets directly editable (in-place membership edit).** REJECTED — silently breaks cross-run comparability (same `settings_key`, `replaceCalls` overwrites against a different population) with zero signal; `fr2-smoke`'s 7 runs are live risk.
+- **Option A (chosen): Fix the diagnosis pipeline + add bounded retry, then deliver view/edit/clone for test sets.** Surface real errors, make the judge path resilient to transients, and respect the frozen contract. Matches all investigation evidence.
+- **Option B: "Fix" model routing / reasoning-effort param.** REJECTED — exonerated by the decisive same-shape/different-provider DB comparison (gpt-4o-mini succeeded while deepseek-v4-flash failed on byte-identical request shape).
+- **Option C: Make test sets directly editable (in-place membership edit).** REJECTED — silently breaks cross-run comparability (same `settings_key`, `replaceCalls` overwrites against a different population) with zero signal; `fr2-smoke`'s 7 runs are live risk.
 
 ## Phased Execution Plan
 
@@ -53,7 +53,7 @@ splits into VIEW (read-only) + EDIT (metadata-only) + CLONE (the only safe membe
 ### Phase 4: Edit (metadata) + Clone (membership) + UI refactor
 - [x] `updateTestSetMetaAction({testSetId, name?, description?})` — scoped UPDATE on name/description ONLY; zod schema rejects strategy/seed/size; catch `23505` on `name` → friendly error; warn rename breaks saved CLI `--test-set` scripts
 - [x] `cloneTestSetAction({sourceTestSetId, newName, sizeArticle?, sizeParagraph?, strategy?, seed?, manualLabels?, description?})` — load `source.pair_bank_id` and call `getOrCreateTestSet` (which internally calls `selectTestSetMembers`) with the new name → new id → new settings_keys. **Critical edge:** `getOrCreateTestSet` is get-OR-create by name and returns the existing set UNCHANGED with `created:false` on collision — clone MUST treat `created===false` as a name-collision error (or pre-check), else it silently no-ops. Also `try/catch` the insert for `23505` on `name` (TOCTOU backstop — two concurrent clones can both pass a `created===false` pre-check; the UNIQUE constraint is the real guard, consistent with `updateTestSetMetaAction`). Coerce `seed` string→number (BIGINT serializes as string); warn clone re-samples the *current* bank. Expose `description` + `strategy='manual'`+`manualLabels` (omitted from create today).
-- [ ] Migrate `test-sets/page.tsx` to **`EntityListPage` self-managed mode** (precedent: `src/app/admin/evolution/strategies/page.tsx`; there is **no** "RegistryPage" component — that name survives only in a comment) → rowActions View/Edit/Clone (+ optional Delete, hard-blocked when `runs>0` given 4-level `ON DELETE CASCADE`). The existing bespoke inline create form (bank `<select>` + name + sizes + strategy + seed) must be ported into a `FormDialog` `children` slot, not just list-only.
+- [x] **DEVIATED — kept bespoke (decision 2026-06-09):** ~~Migrate `test-sets/page.tsx` to `EntityListPage` self-managed mode~~. Evidence: ALL 5 Judge Lab pages are bespoke hand-rolled tables (`page.tsx`, `pair-banks`, `test-sets`, `test-sets/[testSetId]`, `runs/[evalRunId]`) — none use `EntityListPage`. Migrating only this page would make it the lone `EntityListPage` page among its 5 siblings (LESS consistent within the sub-app) and is a sizable rewrite of a working create+edit+clone+view+curate surface with real regression risk and no user-facing benefit. Instead, View/Edit/Clone were added bespoke (rowActions + inline panels), consistent with the sub-app. See Review & Discussion.
 
 ## Phase 5: Clone with curated membership (edit which pairs are in a set)
 
@@ -244,3 +244,15 @@ Resolved into the plan:
 ### Iteration 2 — scores 5/5/5, 0 critical gaps → CONSENSUS
 All three reviewers re-verified each fix against the live code and voted 5/5. Final non-blocking nit
 (clone path also catch `23505` for TOCTOU) folded in. **Plan is ready for execution.**
+
+### Finalize-stage gap closure (2026-06-09)
+During `/finalize`, the checkbox gate surfaced items not checked during execution. Resolution:
+- **Built**: the frozen-contract **integration test** (`judge-eval-test-sets.integration.test.ts`,
+  real-DB, 2/2) and the Match-Viewer prefill **E2E** (matches spec — asserts the re-judge box
+  prefills the mode-appropriate rubric and swaps on rubric toggle). `reference.md` note added.
+- **#56 EntityListPage migration — DEVIATED (kept bespoke).** Confirmed all 5 Judge Lab pages are
+  bespoke (none use `EntityListPage`); migrating only test-sets would reduce sub-app consistency and
+  risk regressing working flows for no user benefit. View/Edit/Clone delivered bespoke instead.
+- **Options B/C** converted from checkboxes to plain decision-markers (they are rejected
+  alternatives, not tasks). Also fixed a Judge Lab button-text bug (undefined `--bg-primary` →
+  `--text-on-primary`) and an E2E race (wait for the curate panel to close before navigating).
