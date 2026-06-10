@@ -401,3 +401,29 @@ export const getJudgeEvalCallDetailAction = adminAction(
     return data as unknown as JudgeEvalCallAudit;
   },
 );
+
+const variantPairSchema = z.object({
+  variantA: z.string().uuid(),
+  variantB: z.string().uuid(),
+});
+
+/** Resolve a judge-eval call's snapshotted variant pair to a recorded arena comparison so the match
+ *  can be opened in the Match Viewer. Judge-eval pairs are seeded FROM evolution_arena_comparisons
+ *  (entry_a/entry_b), so a comparison almost always exists; we match either entry order and return
+ *  the newest. Returns { comparisonId: null } when none is found (e.g. the comparison was deleted).
+ *  variantA/variantB are validated UUIDs, so they are safe to interpolate into the PostgREST filter. */
+export const findArenaComparisonForVariantsAction = adminAction(
+  'findArenaComparisonForVariants',
+  async (input: z.input<typeof variantPairSchema>, ctx: AdminContext) => {
+    const { variantA, variantB } = variantPairSchema.parse(input);
+    const { data, error } = await db(ctx)
+      .from('evolution_arena_comparisons')
+      .select('id')
+      .or(`and(entry_a.eq.${variantA},entry_b.eq.${variantB}),and(entry_a.eq.${variantB},entry_b.eq.${variantA})`)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return { comparisonId: data?.id ?? null };
+  },
+);

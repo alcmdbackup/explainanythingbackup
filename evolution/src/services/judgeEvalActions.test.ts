@@ -28,6 +28,7 @@ import {
   getEvalRunDetailAction,
   getJudgeEvalCallsAction,
   getJudgeEvalCallDetailAction,
+  findArenaComparisonForVariantsAction,
 } from './judgeEvalActions';
 
 const mockCreate = createSupabaseServiceClient as jest.MockedFunction<typeof createSupabaseServiceClient>;
@@ -210,5 +211,40 @@ describe('getJudgeEvalCallDetailAction', () => {
     const res = await getJudgeEvalCallDetailAction({ callId: CALL });
     expect(res.success).toBe(true);
     if (res.success) expect(res.data!.forward_prompt).toBeNull();
+  });
+});
+
+const VARA = '11111111-1111-4111-8111-111111111111';
+const VARB = '22222222-2222-4222-8222-222222222222';
+
+describe('findArenaComparisonForVariantsAction', () => {
+  it('returns the matching comparison id and filters on both entry orders', async () => {
+    let orCall: jest.Mock | undefined;
+    const mock = createTableAwareMock([
+      (b) => {
+        orCall = b.or;
+        b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: { id: 'cmp-1' }, error: null }));
+      },
+    ]);
+    mockCreate.mockResolvedValue(mock as never);
+    const res = await findArenaComparisonForVariantsAction({ variantA: VARA, variantB: VARB });
+    expect(res.success).toBe(true);
+    if (res.success) expect(res.data?.comparisonId).toBe('cmp-1');
+    expect(mock.from).toHaveBeenCalledWith('evolution_arena_comparisons');
+    const orArg = orCall!.mock.calls[0]![0] as string;
+    expect(orArg).toContain(`entry_a.eq.${VARA},entry_b.eq.${VARB}`);
+    expect(orArg).toContain(`entry_a.eq.${VARB},entry_b.eq.${VARA}`);
+  });
+
+  it('returns null comparisonId when no arena comparison matches the pair', async () => {
+    const mock = createTableAwareMock([
+      (b) => {
+        b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: null, error: null }));
+      },
+    ]);
+    mockCreate.mockResolvedValue(mock as never);
+    const res = await findArenaComparisonForVariantsAction({ variantA: VARA, variantB: VARB });
+    expect(res.success).toBe(true);
+    if (res.success) expect(res.data?.comparisonId).toBeNull();
   });
 });

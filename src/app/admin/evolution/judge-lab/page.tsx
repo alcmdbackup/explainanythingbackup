@@ -374,7 +374,8 @@ export default function JudgeLabPage(): JSX.Element {
         <table className="w-full text-xs" data-testid="leaderboard-table">
           <thead>
             <tr className="text-left text-[var(--text-muted)]">
-              <th className="py-1">Model</th>
+              <th className="py-1">Run</th>
+              <th>Model</th>
               <th>Temp</th>
               <th>Reas.</th>
               <th>Kind</th>
@@ -387,22 +388,23 @@ export default function JudgeLabPage(): JSX.Element {
           </thead>
           <tbody>
             {loadingBoard && (
-              <tr><td colSpan={9} className="py-3 text-[var(--text-muted)]">Loading…</td></tr>
+              <tr><td colSpan={10} className="py-3 text-[var(--text-muted)]">Loading…</td></tr>
             )}
             {!loadingBoard && rows.length === 0 && (
-              <tr><td colSpan={9} className="py-3 text-[var(--text-muted)]">No runs yet for this test set. Launch a sweep above.</td></tr>
+              <tr><td colSpan={10} className="py-3 text-[var(--text-muted)]">No runs yet for this test set. Launch a sweep above.</td></tr>
             )}
             {rows.map((r, i) => (
               <tr key={`${r.eval_run_id}-${r.pair_kind}-${i}`} data-testid="leaderboard-row" className="border-t border-[var(--border-default)]">
-                <td className="py-1 font-mono">
+                <td className="py-1 font-mono" data-testid="leaderboard-run-id">
                   {r.eval_run_id ? (
-                    <Link className="underline" href={`/admin/evolution/judge-lab/runs/${r.eval_run_id}`}>
-                      {r.judge_model ?? '—'}
+                    <Link className="underline" href={`/admin/evolution/judge-lab/runs/${r.eval_run_id}`} title={r.eval_run_id}>
+                      {r.eval_run_id.substring(0, 8)}
                     </Link>
                   ) : (
-                    r.judge_model ?? '—'
+                    '—'
                   )}
                 </td>
+                <td className="font-mono">{r.judge_model ?? '—'}</td>
                 <td>{r.temperature ?? '—'}</td>
                 <td>{r.reasoning_effort ?? 'none'}</td>
                 <td>{r.pair_kind ?? '—'}</td>

@@ -100,16 +100,26 @@ adminTest.describe('Judge Lab', { tag: '@evolution' }, () => {
     const rows = adminPage.getByTestId('leaderboard-row');
     await expect(rows.first()).toBeVisible({ timeout: 30000 });
 
+    // The Run-ID column is the link to the detail page (8-char, full UUID in title).
+    const runIdLink = adminPage.getByTestId('leaderboard-run-id').first().locator('a');
+    await expect(runIdLink).toHaveAttribute('href', `/admin/evolution/judge-lab/runs/${runId}`);
+    await expect(runIdLink).toContainText(runId.substring(0, 8));
+
     // Drill into run detail.
     await safeGoto(adminPage, `/admin/evolution/judge-lab/runs/${runId}`);
     await expect(adminPage.getByTestId('run-kind-aggregates')).toBeVisible({ timeout: 30000 });
     await expect(adminPage.getByTestId('kind-block-article')).toContainText(/decisive/i);
+    // The full run id is surfaced (click-to-copy) for tracking.
+    await expect(adminPage.getByTestId('run-id')).toContainText(runId);
 
     // Match history: open the dedicated view, expand the populated match, assert the full judge
     // I/O + both content pieces are shown.
     await safeGoto(adminPage, `/admin/evolution/judge-lab/runs/${runId}/matches`);
     await expect(adminPage.getByTestId('matches-table')).toBeVisible({ timeout: 30000 });
     await expect(adminPage.getByTestId('match-row').first()).toBeVisible({ timeout: 30000 });
+    // "Open in Match Viewer" appears only for rows with snapshotted variant ids (the populated row,
+    // not the legacy-null one) — so exactly one is present.
+    await expect(adminPage.getByTestId('open-match-viewer')).toHaveCount(1);
     await adminPage.getByTestId('match-expand').first().click();
     await expect(adminPage.getByTestId('match-audit-detail').first()).toBeVisible({ timeout: 30000 });
     await expect(adminPage.getByTestId('match-text-a').first()).toContainText('alpha article body');

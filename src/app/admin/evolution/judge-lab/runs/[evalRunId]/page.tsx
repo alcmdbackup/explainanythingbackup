@@ -103,6 +103,25 @@ export default function EvalRunDetailPage(): JSX.Element {
           { label: `Run ${runId?.substring(0, 8) ?? ''}` },
         ]}
       />
+      <div className="flex items-center gap-2 text-xs font-mono text-[var(--text-muted)]">
+        <span>Run ID:</span>
+        <button
+          type="button"
+          data-testid="run-id"
+          title="Click to copy"
+          className="underline decoration-dotted hover:text-[var(--text-primary)]"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(runId ?? '');
+              toast.success('Run ID copied');
+            } catch {
+              toast.error('Copy failed');
+            }
+          }}
+        >
+          {runId}
+        </button>
+      </div>
       {run && (
         <div className="flex items-center justify-between gap-4">
           <div className="text-xs text-[var(--text-muted)] font-mono">

@@ -12,6 +12,7 @@ import { EvolutionBreadcrumb } from '@evolution/components/evolution';
 import {
   getJudgeEvalCallsAction,
   getJudgeEvalCallDetailAction,
+  findArenaComparisonForVariantsAction,
 } from '@evolution/services/judgeEvalActions';
 import type { JudgeEvalCallCore, JudgeEvalCallAudit } from '@evolution/lib/judgeEval/schemas';
 
@@ -101,6 +102,7 @@ export default function MatchHistoryPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [auditById, setAuditById] = useState<Record<string, JudgeEvalCallAudit | 'loading'>>({});
+  const [resolvingMv, setResolvingMv] = useState<string | null>(null);
 
   useEffect(() => {
     document.title = 'Judge Lab · Match history';
@@ -148,6 +150,26 @@ export default function MatchHistoryPage(): JSX.Element {
     [expanded, auditById],
   );
 
+  // Judge-eval pairs are seeded from arena comparisons, so the snapshotted variant pair usually maps
+  // to a recorded comparison. Resolve it on click and open the Match Viewer in a new tab (so the
+  // match-history list stays put); toast if no comparison is found or variant ids are missing (legacy).
+  const openInMatchViewer = useCallback(async (c: JudgeEvalCallCore) => {
+    if (!c.variant_a_id || !c.variant_b_id) {
+      toast.error('No variant ids recorded on this match (pre-migration row).');
+      return;
+    }
+    setResolvingMv(c.id);
+    const res = await findArenaComparisonForVariantsAction({ variantA: c.variant_a_id, variantB: c.variant_b_id });
+    setResolvingMv(null);
+    if (res.success && res.data?.comparisonId) {
+      window.open(`/admin/evolution/matches/${res.data.comparisonId}`, '_blank', 'noopener');
+    } else if (res.success) {
+      toast.error('No recorded arena match for this variant pair.');
+    } else {
+      toast.error(res.error?.message ?? 'Failed to resolve match');
+    }
+  }, []);
+
   return (
     <div className="space-y-6">
       <EvolutionBreadcrumb
@@ -191,7 +213,7 @@ export default function MatchHistoryPage(): JSX.Element {
                     <td>{c.decisive ? 'yes' : 'no'}</td>
                     <td>{c.gap_kind ?? '—'}</td>
                     <td>{pct(c.baseline_confidence)}</td>
-                    <td>
+                    <td className="whitespace-nowrap">
                       <button
                         type="button"
                         data-testid="match-expand"
@@ -200,6 +222,18 @@ export default function MatchHistoryPage(): JSX.Element {
                       >
                         {isOpen ? 'Hide' : 'View I/O'}
                       </button>
+                      {c.variant_a_id && c.variant_b_id && (
+                        <button
+                          type="button"
+                          data-testid="open-match-viewer"
+                          className="ml-3 underline text-[var(--accent-gold)] disabled:opacity-50"
+                          onClick={() => void openInMatchViewer(c)}
+                          disabled={resolvingMv === c.id}
+                          title="Open this variant pair in the Match Viewer (new tab)"
+                        >
+                          {resolvingMv === c.id ? 'Opening…' : 'Open in Match Viewer'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                   {isOpen && (

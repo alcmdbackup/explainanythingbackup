@@ -108,15 +108,22 @@ Under the evolution "Tools" sidebar group:
   default-off **Explain reasoning** checkbox (decoupled from the textarea). The leaderboard's
   **Prompt** column shows whether a custom prompt was used and the text (expandable), enriched from
   `judge_eval_runs.prompt_variant`.
+  The leaderboard's first column is the **Run** id (8-char, full UUID in `title`) — that is the link to
+  the run detail page (the model name is plain text); the eval-run id is the tracking handle throughout.
 - `/admin/evolution/judge-lab/runs/[evalRunId]` — per-kind aggregates + per-pair breakdown (reads
   light **Core** columns only — `getEvalRunDetailAction` selects an explicit column list, never `*`,
-  so the heavy audit text never ships with the aggregates). Links to ↓.
+  so the heavy audit text never ships with the aggregates). Header shows the full run id (click-to-copy).
+  Links to ↓.
 - `/admin/evolution/judge-lab/runs/[evalRunId]/matches` — **match history**: every (pair × repeat)
   call, paginated (`getJudgeEvalCallsAction`, Core rows). Expand a row to lazily load the audit
   payload (`getJudgeEvalCallDetailAction`): both input content pieces, the winner, and the full judge
   input (incl. custom prompt) + raw output + reasoning for each pass, with the `reasoning_trace_format`
   state surfaced ("not requested" vs "provider dropped the trace"). All model/user text is rendered as
-  plain (auto-escaped) `<pre>` — never `dangerouslySetInnerHTML`.
+  plain (auto-escaped) `<pre>` — never `dangerouslySetInnerHTML`. Each row also has **Open in Match
+  Viewer**: judge-eval pairs are seeded from `evolution_arena_comparisons`, so
+  `findArenaComparisonForVariantsAction` resolves the call's snapshotted `variant_a_id`/`variant_b_id`
+  (either entry order, newest) to a comparison id and opens `/admin/evolution/matches/[comparisonId]` in
+  a new tab (toasts if none / if the row predates the variant-id snapshot).
 - `/admin/evolution/judge-lab/pair-banks` — list + seed-from-topic.
 - `/admin/evolution/judge-lab/test-sets` — list + create (size/strategy/seed → frozen), plus
   **View** / **Edit** / **Clone** row actions.
