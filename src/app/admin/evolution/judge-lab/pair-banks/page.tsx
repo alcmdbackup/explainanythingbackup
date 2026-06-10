@@ -83,7 +83,7 @@ export default function PairBanksPage(): JSX.Element {
           <label className="flex items-center gap-1"><input type="checkbox" checked={includeArticles} onChange={(e) => setIncludeArticles(e.target.checked)} />articles</label>
           <label className="flex items-center gap-1"><input type="checkbox" checked={includeParagraphs} onChange={(e) => setIncludeParagraphs(e.target.checked)} />paragraphs</label>
           <button data-testid="seed-run" disabled={busy}
-            className="text-xs px-3 py-1.5 rounded disabled:opacity-50" style={{ background: 'var(--accent-gold)', color: 'var(--bg-primary)' }}
+            className="text-xs px-3 py-1.5 rounded disabled:opacity-50" style={{ background: 'var(--accent-gold)', color: 'var(--text-on-primary)' }}
             onClick={() => void seed()}>
             {busy ? 'Seeding…' : 'Seed'}
           </button>

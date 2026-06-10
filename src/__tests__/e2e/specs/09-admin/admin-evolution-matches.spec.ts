@@ -65,4 +65,18 @@ adminTest.describe('Evolution Match Viewer', { tag: '@evolution' }, () => {
     await expect(adminPage.locator('[data-testid="rejudge-result-card"]').first()).toBeVisible({ timeout: 15000 });
     await expect(adminPage.locator('[data-testid="rejudge-not-persisted"]')).toBeVisible();
   });
+
+  adminTest('prefills the custom prompt with the mode-appropriate default rubric', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/matches/${comparisonId}`);
+    await expect(adminPage.locator('[data-testid="match-detail"]')).toBeVisible({ timeout: 30000 });
+
+    // Open the custom-prompt box; default rubric mode is article → article rubric is pre-filled.
+    await adminPage.getByTestId('rejudge-toggle-custom').click();
+    const box = adminPage.getByTestId('rejudge-custom-prompt');
+    await expect(box).toHaveValue(/Compare the two text variations/, { timeout: 15000 });
+
+    // Flipping the rubric to paragraph swaps the (unedited) box to the paragraph rubric.
+    await adminPage.getByTestId('rejudge-rubric-select').selectOption('paragraph');
+    await expect(box).toHaveValue(/stronger paragraph/, { timeout: 15000 });
+  });
 });

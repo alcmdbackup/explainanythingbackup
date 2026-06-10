@@ -341,6 +341,17 @@ and `sweep --test-set <name> --models a,b --temperatures 0,1 --reasoning none,lo
 ceiling (`assertWithinJudgeEvalCap`) with the server action. Env: `JUDGE_EVAL_ENABLED` (default
 true), `JUDGE_EVAL_MAX_CALLS` (20000), `JUDGE_EVAL_MAX_USD` (5).
 
+> **Judge-call reliability + model routing (improve_judge_lab_evolution_20260707).** The judge path
+> (`createCallLLMJudge` in `runJudgeEval.ts`) wraps `callLLM` in a bounded retry
+> (`MAX_JUDGE_RETRIES=3`, `isTransientError`) since the provider clients are `maxRetries:0`; failed
+> sweep cells persist their `partialResults` (errored run, not a 0-call orphan). Model-registry
+> helpers added: `getDeployableEvolutionModelIds()` (`src/config/modelRegistry.ts`) drops
+> `provider:'local'` models when `LOCAL_LLM_BASE_URL` is unset (used to curate the Judge Lab picker),
+> and `resolveReasoningRequestFields()` (`src/lib/services/llms.ts`) centralizes reasoning-effort
+> hygiene — non-reasoning models never receive a reasoning param, `'none'` is only sent to models
+> whose registry default is `'none'` (e.g. qwen3-8b's disabled-thinking), and mandatory-reasoning
+> models (gpt-oss-20b) coerce `'none'`→default. See [Judge Evaluation](../../docs/feature_deep_dives/judge_evaluation.md).
+
 ### `evolution/scripts/evolution-runner-v2.ts`
 
 V2 batch runner designed for continuous operation. Polls for pending runs, claims and executes them with configurable parallelism.

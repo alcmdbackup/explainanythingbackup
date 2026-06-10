@@ -1183,6 +1183,40 @@ describe('llms', () => {
       expect(request.reasoning).toBeUndefined();
       expect(request.reasoning_effort).toBeUndefined();
     });
+
+    it('does NOT send a reasoning param for non-reasoning OpenRouter gemini-2.5-flash-lite even when effort=none is requested', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'resp' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'google/gemini-2.5-flash-lite',
+      });
+      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'google/gemini-2.5-flash-lite', false, null, null, null, false, { reasoningEffort: 'none' });
+      const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
+      expect(request.reasoning).toBeUndefined();
+      expect(request.include_reasoning).toBeUndefined();
+    });
+
+    it('does NOT send a reasoning param for non-reasoning OpenRouter qwen-2.5-7b-instruct with effort=none', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'resp' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'qwen/qwen-2.5-7b-instruct',
+      });
+      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'qwen-2.5-7b-instruct', false, null, null, null, false, { reasoningEffort: 'none' });
+      const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
+      expect(request.reasoning).toBeUndefined();
+    });
+
+    it('coerces effort=none to the registry default for mandatory-reasoning gpt-oss-20b (never sends none)', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'resp' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'openai/gpt-oss-20b',
+      });
+      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'gpt-oss-20b', false, null, null, null, false, { reasoningEffort: 'none' });
+      const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
+      expect(request.reasoning).toEqual({ effort: 'low' }); // coerced, NOT { effort: 'none' }
+    });
   });
 
   describe('isLocalModel', () => {
