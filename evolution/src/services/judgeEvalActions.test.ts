@@ -21,7 +21,14 @@ jest.mock('@/lib/logging/server/automaticServerLoggingBase', () => ({
 }));
 jest.mock('@/lib/services/auditLog', () => ({ logAdminAction: jest.fn().mockResolvedValue(undefined) }));
 
-import { createEvalRunAction, getEvalLeaderboardAction, cloneTestSetAction } from './judgeEvalActions';
+import {
+  createEvalRunAction,
+  getEvalLeaderboardAction,
+  cloneTestSetAction,
+  getEvalRunDetailAction,
+  getJudgeEvalCallsAction,
+  getJudgeEvalCallDetailAction,
+} from './judgeEvalActions';
 
 const mockCreate = createSupabaseServiceClient as jest.MockedFunction<typeof createSupabaseServiceClient>;
 const TEST_SET = '550e8400-e29b-41d4-a716-446655440000';
@@ -112,5 +119,96 @@ describe('getEvalLeaderboardAction', () => {
     if (res.success) {
       expect(res.data).toEqual([{ ...rows[0], prompt_variant: null, used_custom_prompt: false }]);
     }
+  });
+});
+
+const CALL = '660e8400-e29b-41d4-a716-446655440111';
+
+describe('getEvalRunDetailAction', () => {
+  it('selects explicit Core columns for calls — never SELECT * or the heavy audit payload', async () => {
+    let callsSelect: jest.Mock | undefined;
+    const mock = createTableAwareMock([
+      // 1st .from(): judge_eval_runs (.single) — default thenable resolves {data:null,error:null}.
+      () => {},
+      // 2nd .from(): judge_eval_calls — capture the select arg + resolve an empty list.
+      (b) => {
+        callsSelect = b.select;
+        b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null }));
+      },
+    ]);
+    mockCreate.mockResolvedValue(mock as never);
+    const res = await getEvalRunDetailAction({ runId: TEST_SET, kind: 'both' });
+    expect(res.success).toBe(true);
+    const sel = callsSelect!.mock.calls[0]![0] as string;
+    expect(sel).not.toBe('*');
+    expect(sel).toContain('confidence'); // a Core metric column
+    expect(sel).toContain('gap_kind'); // a snapshot column
+    expect(sel).not.toContain('forward_prompt'); // heavy audit must NOT leak into the list read
+    expect(sel).not.toContain('forward_raw');
+  });
+});
+
+describe('getJudgeEvalCallsAction', () => {
+  it('returns paginated Core rows + total and selects explicit columns (no SELECT *, no audit)', async () => {
+    const rows = [{ id: CALL, pair_label: 'art#1', pair_kind: 'article', winner: 'A', confidence: 1, decisive: true, gap_kind: 'large', baseline_confidence: 1 }];
+    let callsSelect: jest.Mock | undefined;
+    const mock = createTableAwareMock([
+      (b) => {
+        callsSelect = b.select;
+        b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: rows, error: null, count: 7 }));
+      },
+    ]);
+    mockCreate.mockResolvedValue(mock as never);
+    const res = await getJudgeEvalCallsAction({ runId: TEST_SET, limit: 1, offset: 0 });
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.data.total).toBe(7);
+      expect(res.data.limit).toBe(1);
+      expect(res.data.calls).toEqual(rows);
+    }
+    expect(mock.from).toHaveBeenCalledWith('judge_eval_calls');
+    const sel = callsSelect!.mock.calls[0]![0] as string;
+    expect(sel).not.toBe('*');
+    expect(sel).toContain('forward_winner');
+    expect(sel).not.toContain('forward_prompt');
+    expect(sel).not.toContain('forward_raw');
+  });
+});
+
+describe('getJudgeEvalCallDetailAction', () => {
+  it('returns the audit payload and selects only audit columns', async () => {
+    const audit = {
+      id: CALL, forward_prompt: '## Text A\nx', reverse_prompt: '## Text A\ny',
+      forward_reasoning: 'r1', reverse_reasoning: 'r2', forward_raw: 'A', reverse_raw: 'B',
+      reasoning_trace_format: 'verbatim',
+    };
+    let sel: jest.Mock | undefined;
+    const mock = createTableAwareMock([
+      (b) => {
+        sel = b.select;
+        b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: audit, error: null }));
+      },
+    ]);
+    mockCreate.mockResolvedValue(mock as never);
+    const res = await getJudgeEvalCallDetailAction({ callId: CALL });
+    expect(res.success).toBe(true);
+    if (res.success) expect(res.data).toEqual(audit);
+    expect((sel!.mock.calls[0]![0] as string)).toContain('forward_prompt');
+  });
+
+  it('tolerates a legacy row with all-null audit fields (no throw)', async () => {
+    const audit = {
+      id: CALL, forward_prompt: null, reverse_prompt: null, forward_reasoning: null,
+      reverse_reasoning: null, forward_raw: null, reverse_raw: null, reasoning_trace_format: null,
+    };
+    const mock = createTableAwareMock([
+      (b) => {
+        b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: audit, error: null }));
+      },
+    ]);
+    mockCreate.mockResolvedValue(mock as never);
+    const res = await getJudgeEvalCallDetailAction({ callId: CALL });
+    expect(res.success).toBe(true);
+    if (res.success) expect(res.data!.forward_prompt).toBeNull();
   });
 });

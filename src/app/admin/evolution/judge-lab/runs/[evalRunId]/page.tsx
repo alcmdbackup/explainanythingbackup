@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
 import { getEvalRunDetailAction } from '@evolution/services/judgeEvalActions';
 import { computeMetrics } from '@evolution/lib/judgeEval/metrics';
+import type { JudgeEvalCallCore } from '@evolution/lib/judgeEval/schemas';
 
 type Kind = 'article' | 'paragraph';
 
@@ -22,38 +23,9 @@ interface RunRow {
   repeats: number;
 }
 
-// This page only needs verdict/metric fields (for computeMetrics) + pair label/kind (for grouping).
-// It reads the lightweight Core columns — never the heavy audit payload (prompts/reasoning/raw),
-// which the dedicated match-history view fetches per-row instead.
-interface RunCall {
-  pair_label: string;
-  pair_kind: Kind;
-  forward_winner: 'A' | 'B' | 'TIE' | null;
-  reverse_winner: 'A' | 'B' | 'TIE' | null;
-  winner: 'A' | 'B' | 'TIE';
-  confidence: number;
-  wall_ms: number | null;
-  fwd_ms: number | null;
-  output_tokens: number | null;
-  reasoning_tokens: number | null;
-  cost_usd: number | null;
-}
-
-function toResult(r: Record<string, unknown>): RunCall {
-  return {
-    pair_label: r.pair_label as string,
-    pair_kind: r.pair_kind as Kind,
-    forward_winner: (r.forward_winner as 'A' | 'B' | 'TIE' | null) ?? null,
-    reverse_winner: (r.reverse_winner as 'A' | 'B' | 'TIE' | null) ?? null,
-    winner: r.winner as 'A' | 'B' | 'TIE',
-    confidence: r.confidence as number,
-    wall_ms: (r.wall_ms as number | null) ?? null,
-    fwd_ms: (r.fwd_ms as number | null) ?? null,
-    output_tokens: (r.output_tokens as number | null) ?? null,
-    reasoning_tokens: (r.reasoning_tokens as number | null) ?? null,
-    cost_usd: (r.cost_usd as number | null) ?? null,
-  };
-}
+// This page reads only the lightweight Core columns (verdict + metrics + ground-truth snapshot) —
+// never the heavy audit payload (prompts/reasoning/raw), which the match-history view fetches per-row.
+type RunCall = JudgeEvalCallCore;
 
 function pct(v: number | null): string {
   return v == null ? '—' : `${(v * 100).toFixed(0)}%`;
@@ -89,7 +61,7 @@ export default function EvalRunDetailPage(): JSX.Element {
     const res = await getEvalRunDetailAction({ runId, kind: 'both' });
     if (res.success && res.data) {
       setRun(res.data.run as unknown as RunRow);
-      setCalls((res.data.calls as Record<string, unknown>[]).map(toResult));
+      setCalls(res.data.calls);
     } else if (!res.success) {
       toast.error(res.error?.message ?? 'Failed to load run');
     }
