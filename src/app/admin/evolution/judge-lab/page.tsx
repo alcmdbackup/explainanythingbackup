@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
 import { getEvolutionModelIds, DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
-import { PARAGRAPH_SANDBOX_RUBRIC } from '@evolution/lib/shared/judgeRubrics';
+import { ARTICLE_SANDBOX_RUBRIC, PARAGRAPH_SANDBOX_RUBRIC } from '@evolution/lib/shared/judgeRubrics';
 import {
   listTestSetsAction,
   createEvalRunAction,
@@ -19,6 +19,18 @@ import {
 
 type Kind = 'article' | 'paragraph' | 'both';
 const TEMPERATURE_CHOICES = [0, 0.3, 0.7, 1.0];
+
+// The default rubric shown for the current Kind. 'both' shows the paragraph rubric (mixed sweeps
+// are dominated by paragraph pairs); it's only a reference — when left unchanged it is NOT sent as
+// an override, so the engine's built-in PER-PAIR rubric selection applies (article rubric to article
+// pairs, paragraph rubric to paragraph pairs).
+function defaultRubricFor(kind: Kind): string {
+  return kind === 'article' ? ARTICLE_SANDBOX_RUBRIC : PARAGRAPH_SANDBOX_RUBRIC;
+}
+function isDefaultRubric(text: string): boolean {
+  const t = text.trim();
+  return t === ARTICLE_SANDBOX_RUBRIC.trim() || t === PARAGRAPH_SANDBOX_RUBRIC.trim();
+}
 
 // Render an untyped ErrorResponse.details for a toast description. `details` is a raw
 // string for LLM/timeout errors and an object for DB errors; truncate long strings so
@@ -88,11 +100,18 @@ export default function JudgeLabPage(): JSX.Element {
   // Decoupled from the custom-prompt textarea (which is now pre-filled with the default rubric).
   const [explainReasoning, setExplainReasoning] = useState(false);
   const [repeats, setRepeats] = useState(10);
-  // Pre-filled with the actual default paragraph rubric so it is visible and directly editable
-  // (the custom prompt overrides ONLY this rubric block; the texts + verdict line are appended).
-  const [customPrompt, setCustomPrompt] = useState(PARAGRAPH_SANDBOX_RUBRIC);
+  // Pre-filled with the default rubric for the current Kind so it is visible + directly editable.
+  // When left unchanged it is NOT sent as an override (see runSweep) — the engine's built-in
+  // per-pair rubric is used. Editing it turns it into a real custom override applied to all pairs.
+  const [customPrompt, setCustomPrompt] = useState(() => defaultRubricFor('both'));
   const [launching, setLaunching] = useState(false);
   const [estimate, setEstimate] = useState<string | null>(null);
+
+  // Mode-aware: when Kind changes, swap the box to that Kind's default rubric — but only if the user
+  // hasn't hand-edited it (it still equals one of the presets), mirroring the Match Viewer.
+  useEffect(() => {
+    setCustomPrompt((cur) => (isDefaultRubric(cur) ? defaultRubricFor(kind) : cur));
+  }, [kind]);
 
   const [viewKind, setViewKind] = useState<Kind>('both');
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
@@ -142,13 +161,17 @@ export default function JudgeLabPage(): JSX.Element {
     }
     setLaunching(true);
     setEstimate(null);
+    // Only send a custom override when the user actually EDITED the box. An unchanged preset rubric
+    // is a reference only → null → the engine uses its built-in per-pair rubric (so an article sweep
+    // is judged with the article rubric, not whatever preset happens to be displayed).
+    const promptVariant = !isDefaultRubric(customPrompt) && customPrompt.trim() ? customPrompt.trim() : null;
     const res = await createEvalRunAction({
       testSetName: selectedTestSet.name,
       kindFilter: kind,
       models,
       temperatures,
       reasoningEfforts: [reasoning],
-      promptVariant: customPrompt.trim() || null,
+      promptVariant,
       explainReasoning,
       repeats,
       dryRun,
@@ -269,9 +292,11 @@ export default function JudgeLabPage(): JSX.Element {
         <details>
           <summary className="text-xs cursor-pointer text-[var(--text-muted)]">Custom judge prompt (rubric override)</summary>
           <p className="mt-2 text-xs text-[var(--text-muted)]">
-            Pre-filled with the default paragraph rubric — edit and run it directly, or replace it
-            with your own. This overrides only the rubric block; the two texts and a final
-            &ldquo;Your answer: A|B|TIE&rdquo; line are appended automatically.
+            Pre-filled with the default rubric for the selected Kind, for reference. <strong>Leave it
+            unchanged</strong> to use the engine&apos;s built-in per-pair rubric (article pairs judged
+            with the article rubric, paragraph pairs with the paragraph rubric). <strong>Edit it</strong>
+            to apply your own rubric to <em>all</em> pairs in the sweep — it overrides only the rubric
+            block; the two texts and a final &ldquo;Your answer: A|B|TIE&rdquo; line are appended.
           </p>
           <textarea
             data-testid="custom-prompt"
@@ -283,9 +308,9 @@ export default function JudgeLabPage(): JSX.Element {
             <button
               type="button"
               className="text-xs underline text-[var(--text-muted)]"
-              onClick={() => setCustomPrompt(PARAGRAPH_SANDBOX_RUBRIC)}
+              onClick={() => setCustomPrompt(defaultRubricFor(kind))}
             >
-              Reset to default paragraph rubric
+              Reset to default {kind === 'article' ? 'article' : 'paragraph'} rubric
             </button>
           </div>
           <label className="mt-2 flex items-center gap-2 text-xs font-ui">
