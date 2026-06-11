@@ -4,7 +4,22 @@
 // historical judge-analysis scripts (judge-agreement-test.ts, beta-analysis.ts) and the
 // live decisive_rate metric (finalization.ts: confidence > 0.6).
 
-import type { JudgeEvalCallResult, JudgeEvalPair, Winner } from './schemas';
+import type { JudgeEvalCall, JudgeEvalCallResult, JudgeEvalPair, Winner } from './schemas';
+
+/** Minimal per-call shape computeMetrics reads. A Pick (not JudgeEvalCallResult) so BOTH the
+ *  light list rows (JudgeEvalCallCore, no audit payload) and full result rows can be passed. */
+export type JudgeMetricsInput = Pick<
+  JudgeEvalCall,
+  | 'winner'
+  | 'confidence'
+  | 'forward_winner'
+  | 'reverse_winner'
+  | 'cost_usd'
+  | 'wall_ms'
+  | 'fwd_ms'
+  | 'output_tokens'
+  | 'reasoning_tokens'
+>;
 
 // DECISIVE_CONFIDENCE_THRESHOLD lives in evolution/src/lib/shared/computeRatings.ts (=0.6).
 // Re-declared here as a local const to keep this module dependency-free and pure; the value
@@ -55,7 +70,7 @@ function mean(values: Array<number | null>): number | null {
 
 /** Per-cell metrics over one pair's repeats (or any homogeneous call set). */
 export function computeMetrics(
-  calls: JudgeEvalCallResult[],
+  calls: JudgeMetricsInput[],
   opts: { expectedWinner?: Winner | 'A' | 'B' | null } = {},
 ): JudgeMetrics {
   const n = calls.length;

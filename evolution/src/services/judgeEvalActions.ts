@@ -27,11 +27,26 @@ import {
   reasoningEffortSchema,
   testSetStrategySchema,
   type JudgeReasoningEffort,
+  type JudgeEvalCallCore,
+  type JudgeEvalCallAudit,
 } from '@evolution/lib/judgeEval/schemas';
 
 function db(ctx: AdminContext): SupabaseClient<Database> {
   return ctx.supabase as SupabaseClient<Database>;
 }
+
+// Explicit column lists for judge_eval_calls so reads NEVER `SELECT *` (which would pull the
+// TOASTed heavy audit text — prompts/reasoning/raw — on every list/aggregate query). CORE is the
+// light per-call row (verdict + metrics + frozen ground-truth snapshot) used by the run-detail
+// aggregates and the match LIST; AUDIT is the heavy payload fetched only for a single expanded match.
+const CORE_CALL_COLUMNS =
+  'id, eval_run_id, pair_label, pair_kind, comparison_mode, repeat_index, forward_winner, ' +
+  'reverse_winner, winner, confidence, decisive, wall_ms, fwd_ms, rev_ms, prompt_tokens, ' +
+  'output_tokens, reasoning_tokens, cost_usd, error, created_at, mu_a, mu_b, sigma_a, sigma_b, ' +
+  'baseline_confidence, gap_kind, expected_winner, variant_a_id, variant_b_id';
+const AUDIT_CALL_COLUMNS =
+  'id, forward_prompt, reverse_prompt, forward_reasoning, reverse_reasoning, forward_raw, ' +
+  'reverse_raw, reasoning_trace_format';
 
 export const listPairBanksAction = adminAction('listPairBanks', async (ctx: AdminContext) => {
   const { data, error } = await db(ctx)
@@ -318,9 +333,11 @@ export const getEvalRunDetailAction = adminAction(
       .single();
     if (runRes.error) throw runRes.error;
 
+    // Core columns only — this powers the per-kind aggregates + per-pair table, which never
+    // render the heavy audit payload. The dedicated match-history view fetches that per-row.
     let q = db(ctx)
       .from('judge_eval_calls')
-      .select('*')
+      .select(CORE_CALL_COLUMNS)
       .eq('eval_run_id', parsed.runId)
       .order('pair_label', { ascending: true })
       .order('repeat_index', { ascending: true });
@@ -328,6 +345,85 @@ export const getEvalRunDetailAction = adminAction(
     const callsRes = await q;
     if (callsRes.error) throw callsRes.error;
 
-    return { run: runRes.data, calls: callsRes.data ?? [] };
+    // .select(<string>) loses supabase-js row inference → cast to the typed Core shape.
+    return { run: runRes.data, calls: (callsRes.data ?? []) as unknown as JudgeEvalCallCore[] };
+  },
+);
+
+const callsListSchema = z.object({
+  runId: z.string().uuid(),
+  kind: z.enum(['article', 'paragraph', 'both']).default('both'),
+  limit: z.number().int().min(1).max(200).default(50),
+  offset: z.number().int().min(0).default(0),
+});
+
+/** Match-history LIST for one eval run: light Core rows (verdict + metrics + ground-truth snapshot),
+ *  paginated, ordered by pair then repeat. Never selects the heavy audit payload — the row detail
+ *  is fetched lazily via getJudgeEvalCallDetailAction. Returns the filtered total for pagination. */
+export const getJudgeEvalCallsAction = adminAction(
+  'getJudgeEvalCalls',
+  async (input: z.input<typeof callsListSchema>, ctx: AdminContext) => {
+    const parsed = callsListSchema.parse(input);
+    let q = db(ctx)
+      .from('judge_eval_calls')
+      .select(CORE_CALL_COLUMNS, { count: 'exact' })
+      .eq('eval_run_id', parsed.runId)
+      .order('pair_label', { ascending: true })
+      .order('repeat_index', { ascending: true })
+      .range(parsed.offset, parsed.offset + parsed.limit - 1);
+    if (parsed.kind !== 'both') q = q.eq('pair_kind', parsed.kind);
+    const { data, error, count } = await q;
+    if (error) throw error;
+    return {
+      calls: (data ?? []) as unknown as JudgeEvalCallCore[],
+      total: count ?? 0,
+      limit: parsed.limit,
+      offset: parsed.offset,
+    };
+  },
+);
+
+const callDetailSchema = z.object({ callId: z.string().uuid() });
+
+/** AUDIT payload for ONE expanded match: the exact rendered forward/reverse prompts, per-pass
+ *  reasoning trace (+ format) and raw output. Legacy rows (pre-migration) return all-null audit
+ *  fields — callers render the empty state rather than treating it as an error. */
+export const getJudgeEvalCallDetailAction = adminAction(
+  'getJudgeEvalCallDetail',
+  async (input: z.input<typeof callDetailSchema>, ctx: AdminContext) => {
+    const parsed = callDetailSchema.parse(input);
+    const { data, error } = await db(ctx)
+      .from('judge_eval_calls')
+      .select(AUDIT_CALL_COLUMNS)
+      .eq('id', parsed.callId)
+      .single();
+    if (error) throw error;
+    return data as unknown as JudgeEvalCallAudit;
+  },
+);
+
+const variantPairSchema = z.object({
+  variantA: z.string().uuid(),
+  variantB: z.string().uuid(),
+});
+
+/** Resolve a judge-eval call's snapshotted variant pair to a recorded arena comparison so the match
+ *  can be opened in the Match Viewer. Judge-eval pairs are seeded FROM evolution_arena_comparisons
+ *  (entry_a/entry_b), so a comparison almost always exists; we match either entry order and return
+ *  the newest. Returns { comparisonId: null } when none is found (e.g. the comparison was deleted).
+ *  variantA/variantB are validated UUIDs, so they are safe to interpolate into the PostgREST filter. */
+export const findArenaComparisonForVariantsAction = adminAction(
+  'findArenaComparisonForVariants',
+  async (input: z.input<typeof variantPairSchema>, ctx: AdminContext) => {
+    const { variantA, variantB } = variantPairSchema.parse(input);
+    const { data, error } = await db(ctx)
+      .from('evolution_arena_comparisons')
+      .select('id')
+      .or(`and(entry_a.eq.${variantA},entry_b.eq.${variantB}),and(entry_a.eq.${variantB},entry_b.eq.${variantA})`)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return { comparisonId: data?.id ?? null };
   },
 );

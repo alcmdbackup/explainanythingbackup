@@ -8,6 +8,9 @@ export const PAIR_KINDS = ['article', 'paragraph'] as const;
 export const WINNERS = ['A', 'B', 'TIE'] as const;
 export const REASONING_EFFORTS = ['none', 'low', 'medium', 'high'] as const;
 export const GAP_KINDS = ['large', 'close'] as const;
+// Mirrors LLMUsageMetadata.reasoningTraceFormat (src/lib/services/llms.ts). NULL on a call =
+// thinking not requested / no usage callback fired.
+export const REASONING_TRACE_FORMATS = ['verbatim', 'summary', 'unavailable'] as const;
 export const TEST_SET_STRATEGIES = [
   'random',
   'stratified_confidence',
@@ -22,6 +25,7 @@ export const pairKindSchema = z.enum(PAIR_KINDS);
 export const winnerSchema = z.enum(WINNERS);
 export const reasoningEffortSchema = z.enum(REASONING_EFFORTS);
 export const gapKindSchema = z.enum(GAP_KINDS);
+export const reasoningTraceFormatSchema = z.enum(REASONING_TRACE_FORMATS);
 export const testSetStrategySchema = z.enum(TEST_SET_STRATEGIES);
 export const kindFilterSchema = z.enum(KIND_FILTERS);
 export const confidenceSchema = z
@@ -117,6 +121,22 @@ export const judgeEvalCallSchema = z.object({
   forward_raw: z.string().nullable(),
   reverse_raw: z.string().nullable(),
   error: z.string().nullable(),
+  // --- Audit payload (verbatim judge I/O). All nullable: errored passes + legacy pre-migration rows. ---
+  forward_prompt: z.string().nullable(),
+  reverse_prompt: z.string().nullable(),
+  forward_reasoning: z.string().nullable(),
+  reverse_reasoning: z.string().nullable(),
+  reasoning_trace_format: reasoningTraceFormatSchema.nullable(),
+  // --- Ground-truth snapshot, frozen from the resolved pair at write time (durable vs bank re-seeding). ---
+  mu_a: z.number().nullable(),
+  mu_b: z.number().nullable(),
+  sigma_a: z.number().nullable(),
+  sigma_b: z.number().nullable(),
+  baseline_confidence: z.number().nullable(),
+  gap_kind: gapKindSchema.nullable(),
+  expected_winner: z.enum(['A', 'B']).nullable(),
+  variant_a_id: z.string().uuid().nullable(),
+  variant_b_id: z.string().uuid().nullable(),
 });
 export type JudgeEvalCall = z.infer<typeof judgeEvalCallSchema>;
 
@@ -125,6 +145,26 @@ export type JudgeEvalCallResult = Omit<
   JudgeEvalCall,
   'id' | 'eval_run_id'
 >;
+
+/** Heavy audit columns — fetched only for a single expanded match (keeps the list query off TOAST). */
+export const JUDGE_EVAL_CALL_AUDIT_KEYS = [
+  'forward_prompt',
+  'reverse_prompt',
+  'forward_reasoning',
+  'reverse_reasoning',
+  'forward_raw',
+  'reverse_raw',
+  'reasoning_trace_format',
+] as const;
+export type JudgeEvalCallAuditKey = (typeof JUDGE_EVAL_CALL_AUDIT_KEYS)[number];
+
+/** Light per-call row for the match LIST + aggregates: verdict + metrics + ground-truth snapshot,
+ *  WITHOUT the heavy audit text. Mirrors the column list `getJudgeEvalCallsAction` selects.
+ *  Adds `decisive` — a DB GENERATED column (confidence > 0.6) absent from the insert-shaped base
+ *  schema but present in every read. */
+export type JudgeEvalCallCore = Omit<JudgeEvalCall, JudgeEvalCallAuditKey> & { decisive: boolean };
+/** The heavy audit payload for one expanded match (see getJudgeEvalCallDetailAction). */
+export type JudgeEvalCallAudit = Pick<JudgeEvalCall, 'id' | JudgeEvalCallAuditKey>;
 
 /** Read the partial call rows the engine attaches to a thrown error (see runJudgeEval/executeSweep),
  *  so a failed sweep cell persists what completed instead of leaving a 0-call orphan. */
@@ -138,5 +178,6 @@ export function readPartialResults(e: unknown): JudgeEvalCallResult[] {
 
 export type JudgeKindFilter = z.infer<typeof kindFilterSchema>;
 export type JudgeReasoningEffort = z.infer<typeof reasoningEffortSchema>;
+export type JudgeReasoningTraceFormat = z.infer<typeof reasoningTraceFormatSchema>;
 export type Winner = z.infer<typeof winnerSchema>;
 export type PairKind = z.infer<typeof pairKindSchema>;

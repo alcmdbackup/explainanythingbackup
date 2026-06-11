@@ -37,7 +37,7 @@ the leaderboard slices Article / Paragraph / Both.
 | `judge_eval_test_sets` | Frozen sample def: strategy, seed, per-kind sizes. |
 | `judge_eval_test_set_members` | Frozen membership (PK `(test_set_id, pair_label)`). |
 | `judge_eval_runs` | One row per settings tuple; UNIQUE `settings_key`. |
-| `judge_eval_calls` | Per-(run × pair × repeat) verdict; `decisive` GENERATED `(confidence > 0.6)`. |
+| `judge_eval_calls` | Per-(run × pair × repeat) verdict; `decisive` GENERATED `(confidence > 0.6)`. Also stores the full **audit payload** (`forward_prompt`/`reverse_prompt` = exact rendered judge input incl. custom rubric; `forward_reasoning`/`reverse_reasoning` + `reasoning_trace_format` ∈ {verbatim,summary,unavailable}/NULL; `forward_raw`/`reverse_raw` = raw output) and a frozen **ground-truth snapshot** (`mu_a`/`mu_b`, `sigma_a`/`sigma_b`, `baseline_confidence`, `gap_kind`, `expected_winner`, `variant_a_id`/`variant_b_id`) — see migration `20260610000001`. The snapshot is copied from the resolved pair at write time so match-history analysis is durable against pair-bank re-seeding. All these columns are nullable (errored passes + pre-migration rows). |
 | `judge_eval_settings_leaderboard` (VIEW) | Best settings by decisive rate, scoped to a test set, split by `pair_kind`. RLS-locked (REVOKE PUBLIC/anon/authenticated; GRANT service_role). |
 
 All tables: deny-all RLS + `service_role_all` (mirrors evolution convention). Separate from
@@ -108,7 +108,22 @@ Under the evolution "Tools" sidebar group:
   default-off **Explain reasoning** checkbox (decoupled from the textarea). The leaderboard's
   **Prompt** column shows whether a custom prompt was used and the text (expandable), enriched from
   `judge_eval_runs.prompt_variant`.
-- `/admin/evolution/judge-lab/runs/[evalRunId]` — per-kind aggregates + per-pair breakdown.
+  The leaderboard's first column is the **Run** id (8-char, full UUID in `title`) — that is the link to
+  the run detail page (the model name is plain text); the eval-run id is the tracking handle throughout.
+- `/admin/evolution/judge-lab/runs/[evalRunId]` — per-kind aggregates + per-pair breakdown (reads
+  light **Core** columns only — `getEvalRunDetailAction` selects an explicit column list, never `*`,
+  so the heavy audit text never ships with the aggregates). Header shows the full run id (click-to-copy).
+  Links to ↓.
+- `/admin/evolution/judge-lab/runs/[evalRunId]/matches` — **match history**: every (pair × repeat)
+  call, paginated (`getJudgeEvalCallsAction`, Core rows). Expand a row to lazily load the audit
+  payload (`getJudgeEvalCallDetailAction`): both input content pieces, the winner, and the full judge
+  input (incl. custom prompt) + raw output + reasoning for each pass, with the `reasoning_trace_format`
+  state surfaced ("not requested" vs "provider dropped the trace"). All model/user text is rendered as
+  plain (auto-escaped) `<pre>` — never `dangerouslySetInnerHTML`. Each row also has **Open in Match
+  Viewer**: judge-eval pairs are seeded from `evolution_arena_comparisons`, so
+  `findArenaComparisonForVariantsAction` resolves the call's snapshotted `variant_a_id`/`variant_b_id`
+  (either entry order, newest) to a comparison id and opens `/admin/evolution/matches/[comparisonId]` in
+  a new tab (toasts if none / if the row predates the variant-id snapshot).
 - `/admin/evolution/judge-lab/pair-banks` — list + seed-from-topic.
 - `/admin/evolution/judge-lab/test-sets` — list + create (size/strategy/seed → frozen), plus
   **View** / **Edit** / **Clone** row actions.
@@ -146,4 +161,4 @@ custom-prompt box is pre-filled with the mode-appropriate default rubric (articl
 - `evolution/src/services/judgeEvalActions.ts` — server actions (cap-gated).
 - `evolution/scripts/judge-eval.ts` — CLI.
 - `src/app/admin/evolution/judge-lab/**` — admin pages.
-- `supabase/migrations/20260606000001_judge_eval_tables.sql` — schema.
+- `supabase/migrations/20260606000001_judge_eval_tables.sql` — schema; `20260610000001_judge_eval_calls_audit_and_snapshot.sql` — additive audit + ground-truth-snapshot columns on `judge_eval_calls`.

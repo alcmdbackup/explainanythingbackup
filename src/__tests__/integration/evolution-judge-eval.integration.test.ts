@@ -15,9 +15,11 @@ function makeClient(): SupabaseClient<Database> | null {
   return createClient<Database>(url, key, { auth: { persistSession: false } });
 }
 
-/** judge_eval-SPECIFIC probe (evolutionTablesExist only checks evolution_runs). 42P01 = skip. */
+/** judge_eval-SPECIFIC probe (evolutionTablesExist only checks evolution_runs). Probes a NEW
+ *  audit column so the suite also skips when the tables exist but migration 20260610000001 hasn't
+ *  deployed to staging yet (CI's deploy-migrations job applies it before these tests run). */
 async function judgeEvalTablesExist(db: SupabaseClient<Database>): Promise<boolean> {
-  const { error } = await db.from('judge_eval_pair_banks').select('id').limit(1);
+  const { error } = await db.from('judge_eval_calls').select('forward_prompt').limit(1);
   return !error;
 }
 
@@ -38,6 +40,11 @@ function call(label: string, kind: 'article' | 'paragraph', i: number, conf: num
     forward_winner: 'A', reverse_winner: 'A', winner: 'A', confidence: conf,
     wall_ms: 100, fwd_ms: 50, rev_ms: 50, prompt_tokens: 100, output_tokens: 3, reasoning_tokens: 0,
     cost_usd: 0.0001, forward_raw: 'A', reverse_raw: 'A', error: null,
+    // Audit + ground-truth snapshot (mirrors what the engine writes; values match pair()).
+    forward_prompt: '## Text A\nalpha\n## Text B\nbeta\nYour answer:', reverse_prompt: '## Text A\nbeta\n## Text B\nalpha\nYour answer:',
+    forward_reasoning: 'A is stronger.', reverse_reasoning: 'A is stronger.', reasoning_trace_format: 'verbatim',
+    mu_a: 40, mu_b: 20, sigma_a: 5, sigma_b: 5, baseline_confidence: 1.0,
+    gap_kind: 'large', expected_winner: 'A', variant_a_id: VA, variant_b_id: VB,
   };
 }
 
@@ -113,5 +120,22 @@ const TS = `[TEST] judge-eval ts ${Date.now()}`;
     const runIds = new Set((board ?? []).map((r) => r.eval_run_id));
     expect(runIds.has(runA.runId)).toBe(true);
     expect(runIds.has(runB.runId)).toBe(true);
+
+    // Audit + ground-truth snapshot round-trip: the new columns persist and read back intact.
+    const { data: persisted, error: readErr } = await db
+      .from('judge_eval_calls')
+      .select('pair_label, forward_prompt, forward_reasoning, reasoning_trace_format, mu_a, mu_b, gap_kind, expected_winner, variant_a_id')
+      .eq('eval_run_id', runA.runId)
+      .eq('pair_label', 'art#1')
+      .single();
+    if (readErr) throw readErr;
+    expect(persisted!.forward_prompt).toContain('## Text A');
+    expect(persisted!.forward_reasoning).toBe('A is stronger.');
+    expect(persisted!.reasoning_trace_format).toBe('verbatim');
+    expect(Number(persisted!.mu_a)).toBe(40);
+    expect(Number(persisted!.mu_b)).toBe(20);
+    expect(persisted!.gap_kind).toBe('large');
+    expect(persisted!.expected_winner).toBe('A');
+    expect(persisted!.variant_a_id).toBe(VA);
   }, 30000);
 });
