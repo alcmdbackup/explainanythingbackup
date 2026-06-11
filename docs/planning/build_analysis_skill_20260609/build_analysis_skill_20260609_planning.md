@@ -27,6 +27,17 @@ Analyses today are written ad-hoc into `docs/research/` with no consistent struc
 - **Q3 — Per-analysis subfolder + ~1MB cap:** `docs/analysis/<name>/{<name>.md, dataset.csv, queries.sql}`; inline CSV ≤ ~1 MB / ~10k rows, else `sample.csv` + regen query + noted row count.
 - **Q4 — Hybrid capture:** active `query:staging/prod --json` → `dataset.csv` + queries/results in-doc for SQL analyses; documented manual fallback for non-SQL sources.
 
+## Research ↔ Analysis Interaction Model (2026-06-11)
+The conceptual split the rename reinforces: `<project>_research.md` is the **activity** (transient, branch-scoped working notes in the planning folder, fossilizes after merge); `docs/analysis/<name>/` is the **artifact** (durable, cross-project, citable formal report). `/analysis` is the **distillation/promotion** step that pulls the durable signal out of the working notes *before they fossilize*.
+
+- **Required research doc (Q5):** `/analysis [project-name]` resolves the project folder by branch (like `/research`) and reads `_research.md`. **Errors if absent** — "run `/initialize` → `/research` first." No standalone / bypass-branch mode in v1 (a deliberate constraint; standalone is a possible future escape hatch).
+- **Selection, not dump:** candidate findings come from the research doc's `High Level Summary` / `Key Findings`; the runner confirms which are promoted. **1 research doc → N analyses** (e.g. the judge investigation spawned two `docs/research/` reports).
+- **Self-contained output:** the analysis copies the promoted findings + adds the reproducibility artifacts (`dataset.csv`, `queries.sql`) the research doc never carried. It must NOT depend on the planning folder remaining accurate after merge.
+- **Bidirectional provenance (Q6):**
+  - Analysis Header → `Project: docs/planning/<branch>/` + `Branch: <branch>`.
+  - `_status.json` → new `analyses: string[]` array listing spawned `docs/analysis/<name>/` dirs.
+  - `_research.md` → a `Promoted to: docs/analysis/<name>/` pointer (per promoted analysis).
+
 ## Phased Execution Plan
 
 ### Phase 1: Decide rename strategy + output layout
@@ -39,8 +50,11 @@ Analyses today are written ad-hoc into `docs/research/` with no consistent struc
 - [ ] Update `getting_started.md` doc map to list the analysis surface.
 
 ### Phase 3: Author the analysis skill
-- [ ] Write the skill spec (command and/or SKILL per Phase 1) with the required sections: Header (analysis name + project folder + branch link), Methodology, Key Findings, Dataset (CSV capture w/ size guard), Queries & Results.
-- [ ] Wire dataset capture + query logging to the read-only SQL scripts (`npm run query:staging` / `query:prod`, `--json`).
+- [ ] Write `.claude/commands/analysis.md` with the required sections: Header (analysis name + project folder + branch link), Methodology, Key Findings, Dataset (CSV capture w/ size guard), Queries & Results.
+- [ ] Entry/resolution: resolve project folder by branch (mirror `/research` Step 2); read `_research.md` and **error if absent** ("run /initialize → /research first"). Pull `High Level Summary`/`Key Findings` as the candidate findings; confirm which to promote.
+- [ ] Wire hybrid dataset capture + query logging to the read-only SQL scripts (`npm run query:staging` / `query:prod`, `--json`); documented manual fallback for non-SQL sources.
+- [ ] Bidirectional provenance: write `Project`/`Branch` into the analysis Header; append the analysis dir to `_status.json.analyses[]`; add a `Promoted to:` pointer in `_research.md`.
+- [ ] Extend the `_status.json` schema (and `/initialize` to seed an empty `analyses: []`) so the array is well-formed from project creation.
 - [ ] Update `scripts/check-skill-sections.sh` `REQUIRED_SECTIONS` for the new skill in the SAME change.
 
 ### Phase 4: Verify + document
