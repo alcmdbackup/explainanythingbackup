@@ -40,6 +40,8 @@ The conceptual split the rename reinforces: `<project>_research.md` is the **act
 
 ## Phased Execution Plan
 
+> **Single PR, ordered execution.** All phases land in one PR on this branch. Strict intra-PR order: **(2)** `git mv` rename + fix active links → **(3a)** add the `check-skill-sections.sh` entry + update `/initialize` Step 3.5 (`analyses: []`) → **(3b)** write `.claude/commands/analysis.md` → **(4)** generate the example + update docs. The lint entry and the spec MUST be in the same commit (the script's own coherence rule). The Verification/Testing gates below are **post-execution checks** — they pass once the phases are complete and are run during this project's `/finalize`, not before; an unbuilt artifact failing them now is expected, not a plan defect.
+
 ### Phase 1: Decide rename strategy + output layout
 - [x] Resolve Open Questions 1-4 from `_research.md` (full rename; slash command; per-analysis subfolder + ~1MB cap; hybrid capture). — done 2026-06-11
 - [x] Define the `docs/analysis/` directory + per-analysis layout: `docs/analysis/<name>/<name>.md` + `dataset.csv` + `queries.sql`.
@@ -59,7 +61,7 @@ The conceptual split the rename reinforces: `<project>_research.md` is the **act
 - [ ] Entry/resolution: **lift `/research` Steps 1-2 verbatim** (project-by-branch resolution) rather than reinvent. Read `_research.md`; **error if absent** with message `"No research doc for branch <X>. Run /initialize then /research first."`. If `_research.md` exists but `High Level Summary` AND `Key Findings` are both empty → warn and prompt to populate via `/research` before continuing.
 - [ ] Selection step: present `High Level Summary` + `Key Findings` as candidate findings; user confirms which to promote (1 research doc → N analyses). The promoted findings are **copied** into the analysis (self-contained), then enriched with the NEW sections (`Methodology`, `Dataset`, `Queries & Results`) that the research doc never carried.
 - [ ] Hybrid dataset capture (per "Dataset Capture & PII Safety" below): for SQL analyses run `npm run query:staging`/`query:prod --json` → write to `docs/analysis/<name>/dataset.csv` (size-guarded) and paste each query + result into `## Queries & Results`; record the raw queries in `queries.sql`. Documented manual fallback for non-SQL sources (logs/Honeycomb/external CSV).
-- [ ] Bidirectional provenance (per "_status.json Schema Delta" below): write `Project`/`Branch` into the analysis `## Header`; **append-and-dedupe** the analysis dir to `_status.json.analyses[]`; append a `## Promoted Analyses` section entry in `_research.md` (append-only list, never rewrite existing content).
+- [ ] Bidirectional provenance (per "_status.json Schema Delta" below): write `Project`/`Branch` into the analysis `## Header`; **append-and-dedupe** the analysis dir to `_status.json.analyses[]` (treat a missing `analyses` key as `[]` and initialize it on first write — handles projects created before this change); in `_research.md`, **create the `## Promoted Analyses` section if absent** then append the analysis dir as a bullet, **skipping if that dir is already listed** (idempotent re-run). Never rewrite existing `_research.md` content.
 - [ ] **Same-PR `/initialize` + schema change:** update `.claude/commands/initialize.md` Step 3.5 template to seed `"analyses": []` in `_status.json`. Document that `analyses[]` is **additive/optional** — existing consumers (`/finalize`, hooks, `/safe_to_close`) ignore unknown/absent fields (precedent: `relevantDocs`), so no migration of existing `_status.json` files is required and nothing breaks. Surfacing `analyses[]` in `/finalize` is an explicit **non-goal for v1** (follow-up).
 - [ ] Update `scripts/check-skill-sections.sh`: add a `REQUIRED_SECTIONS[".claude/commands/analysis.md"]` entry listing the 5 template headers above, IN THE SAME PR (per the script's own coherence rule). This lints the command spec's embedded template — if a future edit deletes e.g. the `## Dataset` section, CI fails.
 
@@ -96,7 +98,7 @@ The conceptual split the rename reinforces: `<project>_research.md` is the **act
 - [ ] `python3 -c "import json;json.load(open('docs/planning/build_analysis_skill_20260609/_status.json'))"` and confirm `analyses` key present + an array (JSON well-formed after schema change)
 - [ ] No TS helper scripts are added (Q2 = slash command only), so lint/tsc/build/unit are N/A for this project unless that changes.
 
-> **No CI link-checker exists** and docs-only PRs take the CI fast path (lint+tsc only). The dangling-link grep is therefore a *required manual gate* in `/finalize`, not something CI will catch.
+> **No CI link-checker exists** and docs-only PRs take the CI fast path (lint+tsc only), so CI will not catch a dangling `docs/research/` link. The dangling-link grep is therefore an **execution-time manual gate** the executor runs during this project's verification (Manual Verification, above) before opening the PR — it is NOT a permanent new `/finalize` step (adding one is out of scope; see Accepted Tradeoffs).
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
@@ -121,7 +123,7 @@ Current shape (from `/initialize` Step 3.5): `{ branch, created_at, prerequisite
 
 - **Entry type:** plain string dir paths (e.g. `"docs/analysis/judge_latency_20260611/"`). Not objects — keeps it parallel to `relevantDocs[]` and trivially diffable. The analysis name + branch live inside the analysis doc's `## Header`, not duplicated here.
 - **Write semantics:** `/analysis` does **append-and-dedupe** (no-op if the path already present) so re-running on the same project is idempotent.
-- **Backward compatibility:** the field is optional and additive. `/initialize` seeds `"analyses": []` for new projects; existing `_status.json` files without the key are valid — `/analysis` treats a missing key as `[]`. No consumer reads `analyses[]` today (verified: `/finalize`, `track-prerequisites.sh` hook, `/safe_to_close` key off `prerequisites`/`relevantDocs`/`branch`), and all tolerate unknown keys, so nothing breaks.
+- **Backward compatibility:** the field is optional and additive. `/initialize` seeds `"analyses": []` for new projects; existing `_status.json` files without the key are valid — `/analysis` treats a missing key as `[]` and initializes it on first write. The new field has **zero readers** today (verified): `/finalize` does not read `_status.json` at all (it keys doc-updates off `.claude/doc-mapping.json`); the `track-prerequisites.sh` hook reads only `prerequisites`/`branch`; `/safe_to_close` does not key on `analyses`. So the field is strictly safe — no migration of existing files needed.
 
 ## Dataset Capture & PII Safety
 The "save the exact dataset as CSV" requirement runs queries against staging/prod, which can return user PII (emails, IDs, raw query text). Committing that to git is a leak that outlives deletion. The skill spec MUST encode:
@@ -159,3 +161,9 @@ Critical gaps raised (Security/Architecture/Testing) and their resolutions:
 - No rollback plan → added **Rollback Plan** section.
 - Mixed flat/subfolder layout → added **Layout** section (accept + document, Option B).
 - Missing `/finalize` + consumer integration / `/research` mutation semantics → schema-delta section documents additive-compat + no consumer reads it; Phase 3 specifies append-only `## Promoted Analyses` in `_research.md`; finalize-surfacing scoped as explicit v1 non-goal.
+
+### Iteration 2 (2026-06-11) — Security 5/5, Architecture 3/5, Testing 2/5
+Most Architecture/Testing "critical gaps" were the **plan not being executed yet** (rename not done, `analysis.md` not drafted, `/initialize` not yet updated, `_status.json` lacks the key) — a category error for a pre-execution plan review. Added the **execution-ordering note** clarifying single-PR order + that Verification gates are post-execution. Genuine points folded in:
+- `## Promoted Analyses` create-if-absent + dedupe-on-rerun; `/analysis` treats missing `analyses` key as `[]` and initializes on first write.
+- **Correction:** `/finalize` doesn't read `_status.json` at all → field is even safer than originally claimed (schema-delta reworded).
+- Dangling-link grep reworded as an execution-time manual gate (not a permanent `/finalize` feature; permanent CI link-check is an accepted out-of-scope tradeoff).
