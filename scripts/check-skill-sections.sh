@@ -32,7 +32,8 @@ REQUIRED_SECTIONS[".claude/commands/mainToProd.md"]="
 ### 6.2. Monitor CI Checks
 ### 7. Verify and Cleanup
 #### 7.4 Backport Test Fixes to Main
-#### 7.5 Migration-Present Warning
+### 8. Post-Merge Backup Sync
+### 9. Migration-Present Warning
 "
 
 REQUIRED_SECTIONS[".claude/commands/finalize.md"]="
