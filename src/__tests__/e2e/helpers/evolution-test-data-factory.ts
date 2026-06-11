@@ -63,7 +63,9 @@ type EvolutionEntityType =
   | 'explanation'
   | 'metric'
   | 'tactic'
-  | 'judge_eval_pair_bank';
+  | 'judge_eval_pair_bank'
+  | 'judge_rubric'
+  | 'criteria';
 
 /**
  * Registers an evolution entity ID for cleanup.
@@ -376,6 +378,10 @@ export interface CreateTestArenaComparisonOptions {
   winner?: string;
   confidence?: number;
   runId?: string;
+  /** Rubric-judged match (structured_judging_evolution_20260610): the FK pointer + the
+   *  per-dimension snapshot rendered in the Match Viewer detail. Both optional. */
+  judgeRubricId?: string;
+  rubricBreakdown?: Record<string, unknown>;
 }
 
 export interface TestArenaComparison {
@@ -392,16 +398,22 @@ export async function createTestArenaComparison(
 ): Promise<TestArenaComparison> {
   const supabase = getEvolutionServiceClient();
 
-  const { data, error } = await supabase
+  const row: Record<string, unknown> = {
+    prompt_id: options.promptId,
+    entry_a: options.entryA,
+    entry_b: options.entryB,
+    winner: options.winner ?? options.entryA,
+    confidence: options.confidence ?? 0.9,
+    run_id: options.runId ?? null,
+  };
+  // The rubric columns aren't in the generated Database types yet (db:types pending), so
+  // cast to an untyped client when threading them through — same idiom as evolution_tactics.
+  if (options.judgeRubricId !== undefined) row.judge_rubric_id = options.judgeRubricId;
+  if (options.rubricBreakdown !== undefined) row.rubric_breakdown = options.rubricBreakdown;
+
+  const { data, error } = await (supabase as unknown as SupabaseClient)
     .from('evolution_arena_comparisons')
-    .insert({
-      prompt_id: options.promptId,
-      entry_a: options.entryA,
-      entry_b: options.entryB,
-      winner: options.winner ?? options.entryA,
-      confidence: options.confidence ?? 0.9,
-      run_id: options.runId ?? null,
-    })
+    .insert(row)
     .select('id')
     .single();
 
@@ -409,12 +421,118 @@ export async function createTestArenaComparison(
     throw new Error(`Failed to create test arena comparison: ${error.message}`);
   }
 
-  trackEvolutionId('comparison', data.id);
+  trackEvolutionId('comparison', data!.id as string);
+
+  return {
+    id: data!.id as string,
+    cleanup: async () => {
+      await supabase.from('evolution_arena_comparisons').delete().eq('id', data!.id as string);
+    },
+  };
+}
+
+export interface CreateTestCriteriaOptions {
+  name?: string;
+  description?: string;
+  minRating?: number;
+  maxRating?: number;
+}
+
+export interface TestCriteria {
+  id: string;
+  name: string;
+  cleanup: () => Promise<void>;
+}
+
+/**
+ * Creates a test evolution criterion (a judging dimension source).
+ * Auto-tracked for defense-in-depth cleanup. (structured_judging_evolution_20260610)
+ */
+export async function createTestCriteria(options?: CreateTestCriteriaOptions): Promise<TestCriteria> {
+  const supabase = getEvolutionServiceClient();
+  const suffix = generateTestSuffix();
+  // evolution_criteria_name_format requires `^[A-Za-z][a-zA-Z0-9_-]*$` (must start with a
+  // letter; no brackets/spaces) — so the usual [TEST_EVO] prefix is illegal here. The
+  // embedded `-<13-digit ms>-` (from generateTestSuffix) is matched by evolution_is_test_name,
+  // so the row is still flagged is_test_content; explicit tracking handles cleanup regardless.
+  const name = options?.name ?? `TESTEVO-criterion-${suffix}`;
+
+  const { data, error } = await supabase
+    .from('evolution_criteria')
+    .insert({
+      name,
+      description: options?.description ?? 'test dimension',
+      min_rating: options?.minRating ?? 1,
+      max_rating: options?.maxRating ?? 10,
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to create test criteria: ${error.message}`);
+  }
+
+  trackEvolutionId('criteria', data.id);
 
   return {
     id: data.id,
+    name,
     cleanup: async () => {
-      await supabase.from('evolution_arena_comparisons').delete().eq('id', data.id);
+      await supabase.from('evolution_criteria').delete().eq('id', data.id);
+    },
+  };
+}
+
+export interface CreateTestJudgeRubricOptions {
+  name?: string;
+  description?: string;
+  /** Optional dimensions (criteria + raw weight). Omit for a bare rubric (FK-only use). */
+  dimensions?: { criteriaId: string; weight: number }[];
+}
+
+export interface TestJudgeRubric {
+  id: string;
+  name: string;
+  cleanup: () => Promise<void>;
+}
+
+/**
+ * Creates a test judge rubric (+ optional dimensions). evolution_judge_rubrics /
+ * evolution_judge_rubric_dimensions aren't in the generated Database types yet, so the
+ * inserts use an untyped client cast. Auto-tracked. (structured_judging_evolution_20260610)
+ */
+export async function createTestJudgeRubric(options?: CreateTestJudgeRubricOptions): Promise<TestJudgeRubric> {
+  const db = getEvolutionServiceClient() as unknown as SupabaseClient;
+  const suffix = generateTestSuffix();
+  const name = options?.name ?? `${TEST_EVO_PREFIX} rubric ${suffix}`;
+
+  const { data, error } = await db
+    .from('evolution_judge_rubrics')
+    .insert({ name, description: options?.description ?? 'test rubric' })
+    .select('id')
+    .single();
+  if (error || !data) {
+    throw new Error(`Failed to create test judge rubric: ${error?.message}`);
+  }
+  const rubricId = data.id as string;
+
+  if (options?.dimensions?.length) {
+    const rows = options.dimensions.map((d, i) => ({
+      rubric_id: rubricId, criteria_id: d.criteriaId, weight: d.weight, position: i,
+    }));
+    const { error: dErr } = await db.from('evolution_judge_rubric_dimensions').insert(rows);
+    if (dErr) {
+      throw new Error(`Failed to create rubric dimensions: ${dErr.message}`);
+    }
+  }
+
+  trackEvolutionId('judge_rubric', rubricId);
+
+  return {
+    id: rubricId,
+    name,
+    cleanup: async () => {
+      await db.from('evolution_judge_rubrics').delete().eq('id', rubricId);
     },
   };
 }
@@ -489,6 +607,9 @@ const FK_SAFE_DELETION_ORDER: { type: EvolutionEntityType; table: string }[] = [
   // judge_eval: deleting the pair-bank cascades test_sets→members and runs→calls.
   { type: 'judge_eval_pair_bank', table: 'judge_eval_pair_banks' },
   { type: 'comparison', table: 'evolution_arena_comparisons' },
+  // judge_rubric must go before criteria: its dimensions FK criteria ON DELETE RESTRICT,
+  // and deleting the rubric cascades those dimensions (structured_judging_evolution_20260610).
+  { type: 'judge_rubric', table: 'evolution_judge_rubrics' },
   { type: 'invocation', table: 'evolution_agent_invocations' },
   { type: 'log', table: 'evolution_logs' },
   { type: 'metric', table: 'evolution_metrics' },
@@ -499,6 +620,8 @@ const FK_SAFE_DELETION_ORDER: { type: EvolutionEntityType; table: string }[] = [
   { type: 'strategy', table: 'evolution_strategies' },
   { type: 'prompt', table: 'evolution_prompts' },
   { type: 'tactic', table: 'evolution_tactics' },
+  // criteria last: only safe to remove once any referencing rubric dimensions are gone.
+  { type: 'criteria', table: 'evolution_criteria' },
 ];
 
 /**

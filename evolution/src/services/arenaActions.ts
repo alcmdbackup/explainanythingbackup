@@ -16,6 +16,7 @@ import { callLLM, type CallLLMOptions } from '@/lib/services/llms';
 import { getEvolutionModelIds, getModelMaxTemperature } from '@/config/modelRegistry';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { GlobalBudgetExceededError, LLMKillSwitchError } from '@/lib/errors/serviceError';
+import type { RubricBreakdown } from '@evolution/lib/shared/rubricJudge';
 import { z } from 'zod';
 
 /** Transform raw DB row (with mu/sigma) to ArenaEntry (with elo/uncertainty). */
@@ -118,6 +119,10 @@ export interface ArenaComparison {
   run_id: string | null;
   status: string;
   created_at: string;
+  // Rubric judging (20260610): per-dimension snapshot (authoritative for the Match
+  // Viewer breakdown) + the rubric id (indexed filtering). Null for holistic matches.
+  rubric_breakdown?: RubricBreakdown | null;
+  judge_rubric_id?: string | null;
 }
 
 // ─── Schemas ────────────────────────────────────────────────────
@@ -376,6 +381,8 @@ export interface MatchListItem extends ArenaComparison {
   entry_a_preview: string | null;
   entry_b_preview: string | null;
   kind: MatchKind | null;
+  /** True when this match was rubric-judged (drives the list's rubric indicator). */
+  has_rubric: boolean;
 }
 
 /** List recent judge matches. Unlike getArenaComparisonsAction (prompt_id only), this filters
@@ -391,6 +398,7 @@ export const getRecentMatchesAction = adminAction(
       winner?: 'a' | 'b' | 'draw';
       minConfidence?: number;
       kind?: MatchKind;
+      judgeRubricId?: string;
       filterTestContent?: boolean;
       limit?: number;
       offset?: number;
@@ -424,6 +432,10 @@ export const getRecentMatchesAction = adminAction(
     if (input.runId) query = query.eq('run_id', input.runId);
     if (input.topicId) query = query.eq('prompt_id', input.topicId);
     if (input.winner) query = query.eq('winner', input.winner);
+    if (input.judgeRubricId) {
+      if (!validateUuid(input.judgeRubricId)) throw new Error('Invalid judgeRubricId');
+      query = query.eq('judge_rubric_id', input.judgeRubricId);
+    }
     if (input.minConfidence != null) query = query.gte('confidence', input.minConfidence);
     if (input.kind) query = query.eq('evolution_prompts.prompt_kind', input.kind);
     if (input.filterTestContent) {
@@ -466,6 +478,9 @@ export const getRecentMatchesAction = adminAction(
         status: r.status,
         created_at: r.created_at,
         kind,
+        judge_rubric_id: r.judge_rubric_id ?? null,
+        rubric_breakdown: r.rubric_breakdown ?? null,
+        has_rubric: r.judge_rubric_id != null || r.rubric_breakdown != null,
         entry_a_preview: previewContent(contentById.get(r.entry_a)),
         entry_b_preview: previewContent(contentById.get(r.entry_b)),
       };

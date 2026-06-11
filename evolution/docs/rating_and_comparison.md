@@ -532,6 +532,67 @@ The admin **Match Viewer** (`/admin/evolution/matches/[comparisonId]`, match_vie
 
 ---
 
+## Rubric-Based Judging (structured_judging_evolution_20260610)
+
+A strategy can opt into **rubric-based pairwise judging**: instead of one holistic
+A/B/TIE verdict, the judge returns which text wins each of N named **dimensions**, and
+the per-dimension winners are combined by weight into the overall match result. Dimensions
+are **existing `evolution_criteria` rows** (reused, not redefined) bundled into a reusable
+**judge rubric**.
+
+**Data model.** `evolution_judge_rubrics` (thin entity: name/label/description/status/
+soft-delete) + `evolution_judge_rubric_dimensions` junction (`rubric_id` FK CASCADE,
+`criteria_id` FK→`evolution_criteria` **ON DELETE RESTRICT**, `weight`, `position`). Weights
+are **normalized at read time** (`getJudgeRubricForEvaluation` in `services/judgeRubricActions.ts`),
+which is robust to a criterion being archived after the rubric was built (soft-deleted/archived
+criteria are dropped, survivors renormalize; zero survivors → null → holistic fallback). A
+strategy references a rubric via `StrategyConfig.judgeRubricId` (config-hashed; validated by
+`validateJudgeRubricId`, which requires ≥1 active dimension). Hard-deleting a rubric is blocked
+while an active strategy references it (`config->>judgeRubricId` count gate); archive instead.
+
+**Mode is an orthogonal overlay (Design Y).** `comparisonMode` ('article'/'paragraph') still
+selects the text framing; the rubric is passed as an optional `rubricContext` to
+`compareWithBiasMitigation`. So a rubric judge exists in both article- and paragraph-framed
+forms. There is **no new `ComparisonMode` value**. Per-slot `paragraph_recombine` ranking is
+**article-rubric-free** — `ParagraphRecombineAgent` strips `judgeRubric` from its per-slot config.
+
+**Aggregation (`evolution/src/lib/shared/rubricJudge.ts`, unit-tested).** Still the 2-pass
+A/B reversal, **2 LLM calls/match** (all dimensions judged in one response):
+
+1. `buildRubricComparisonPrompt` emits per-dimension blocks (`name` + `description` + anchors
+   **reframed as Excellent/Adequate/Weak tiers** from their score position within `[min,max]`)
+   + a per-line `dimension: A|B|TIE` instruction.
+2. `parseRubricVerdict` tolerantly extracts a verdict per dimension (one missing/ambiguous
+   dimension → null for that dim only; the rest survive — E3).
+3. `scorePass`: per pass, `scoreA/scoreB = Σ weight of dims that pass marked A/B`; **TIE & null
+   dims contribute nothing**; pass winner = higher score (TIE if equal & ≥1 parsed; null only if
+   the pass parsed nothing).
+4. `reconcilePasses(forwardWinner, reverseWinner)` applies the **same 5-value table** as
+   `aggregateWinners` (agree→1.0, one-TIE→0.7, A-vs-B→TIE 0.5, one-null→0.3, both-null→0.0). So
+   confidence = "did both passes pick the same overall winner," on the same scale + the same
+   `<0.3 → draw` Elo gate as holistic. All-unparseable falls out as the both-null limit (TIE,
+   conf 0 → draw).
+
+`compareWithBiasMitigation` takes the rubric branch only when a resolved `rubricContext` is
+passed — the **no-rubric path is byte-identical** to before. The comparison cache key is
+suffixed with the rubric id so rubric verdicts never collide with holistic (or another rubric)
+on the same text pair.
+
+**Persistence + viewing.** The result carries a `rubricBreakdown` snapshot
+(`{rubricId, dimensions:[{criteriaId,name,weight,forwardVerdict,reverseVerdict}], forwardPass,
+reversePass, overall}`), threaded `ComparisonResult → V2Match → MergeRatingsAgent`. It is
+**oriented to the entry_a/entry_b frame** (`orientBreakdownToEntries`) and persisted to the new
+nullable `evolution_arena_comparisons.rubric_breakdown` JSONB + indexed `judge_rubric_id` column.
+The Match Viewer detail page renders the **full two-pass breakdown** (per-dimension forward/
+reverse + weight, each pass's score, overall winner/confidence); the match list shows a rubric
+indicator + filter-by-rubric. Pre-rubric matches (null breakdown) render exactly as before.
+
+**Rollout.** Kill switch `EVOLUTION_RUBRIC_JUDGING_ENABLED='false'` short-circuits resolution in
+`buildRunContext` → all judging reverts to holistic with no redeploy. Admin CRUD lives at
+`/admin/evolution/judge-rubrics`; `evolution/scripts/seedSampleJudgeRubrics.ts` seeds two starter
+rubrics over the seeded criteria. Judge Lab integration is deferred. Cost is unchanged (2 calls/
+match, `'ranking'` phase).
+
 ## How the Pieces Connect
 
 The ranking subsystem sits between generation and selection in the

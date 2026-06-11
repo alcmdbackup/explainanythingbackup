@@ -207,6 +207,9 @@ function buildMatch(
     confidence: result.confidence,
     judgeModel,
     reversed: false,
+    // Carries the per-dimension snapshot through to MergeRatingsAgent persistence
+    // when this match was rubric-judged (undefined for holistic).
+    rubricBreakdown: result.rubricBreakdown,
   };
 }
 
@@ -317,6 +320,7 @@ export async function rankSingleVariant(
           callLLM,
           cache,
           config.comparisonMode,
+          config.judgeRubric,
         );
       } catch (e) {
         if (e instanceof BudgetExceededError) {

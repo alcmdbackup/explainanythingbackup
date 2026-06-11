@@ -4,6 +4,13 @@
 import { rating as osRating, rate as osRate } from 'openskill';
 import { createHash } from 'crypto';
 import { ARTICLE_SANDBOX_RUBRIC, PARAGRAPH_SANDBOX_RUBRIC } from './judgeRubrics';
+import { buildRubricComparisonPrompt, parseRubricVerdict, aggregateRubric } from './rubricJudge';
+import type {
+  ResolvedJudgeRubric,
+  RubricComparisonResult,
+  RubricBreakdown,
+  Verdict,
+} from './rubricJudge';
 
 // ═══════════════════════════════════════════════════════════════════
 // Rating (OpenSkill / Weng-Lin Bayesian — internal adapter)
@@ -310,6 +317,10 @@ export interface ComparisonResult {
   winner: 'A' | 'B' | 'TIE';
   confidence: number;
   turns: number;
+  /** Present only for rubric-judged comparisons; the per-dimension breakdown
+   *  snapshot (winner per dimension, per-pass scores, overall). Holistic
+   *  comparisons leave this undefined. */
+  rubricBreakdown?: RubricBreakdown;
 }
 
 /** Which comparison prompt to use. 'article' is the default whole-text rubric;
@@ -565,32 +576,51 @@ export async function compareWithBiasMitigation(
   callLLM: (prompt: string) => Promise<string>,
   cache?: Map<string, ComparisonResult>,
   mode: ComparisonMode = 'article',
+  rubricContext?: ResolvedJudgeRubric,
 ): Promise<ComparisonResult> {
   // NOTE (B029/B039): makeCacheKey is keyed on the texts only, NOT on `mode`. This is safe
-  // because each call site uses a mode-homogeneous cache (paragraph_recombine allocates a
-  // fresh per-slot cache that only ever sees 'paragraph'; article ranking uses its own).
-  // Do not share one cache across modes or stale cross-mode results could be returned.
+  // because each call site uses a mode-homogeneous cache. When a rubric is in play the key
+  // is additionally suffixed with the rubric id so rubric verdicts never collide with a
+  // holistic verdict (or a different rubric) on the same text pair.
+  const keyOf = (a: string, b: string): string =>
+    rubricContext ? `${makeCacheKey(a, b)}|rubric:${rubricContext.rubricId}` : makeCacheKey(a, b);
+
   if (cache) {
-    const key = makeCacheKey(textA, textB);
-    const cached = cache.get(key);
+    const cached = cache.get(keyOf(textA, textB));
     if (cached) return cached;
   }
 
-  const result = await run2PassReversal<string | null, ComparisonResult>({
-    buildPrompts: () => ({
-      forward: buildComparisonPrompt(textA, textB, mode),
-      reverse: buildComparisonPrompt(textB, textA, mode),
-    }),
-    callLLM,
-    parseResponse: parseWinner,
-    aggregate: aggregateWinners,
-  });
+  let result: ComparisonResult;
+  if (rubricContext) {
+    // Rubric branch: per-dimension verdicts, per-pass weighted scoring, top-level
+    // reversal. Still exactly 2 LLM calls (all dimensions judged inside one response).
+    const dimensionNames = rubricContext.dimensions.map((d) => d.name);
+    result = await run2PassReversal<Record<string, Verdict | null>, RubricComparisonResult>({
+      buildPrompts: () => ({
+        forward: buildRubricComparisonPrompt(textA, textB, rubricContext, mode),
+        reverse: buildRubricComparisonPrompt(textB, textA, rubricContext, mode),
+      }),
+      callLLM,
+      parseResponse: (resp) => parseRubricVerdict(resp, dimensionNames),
+      aggregate: (fwd, rev) => aggregateRubric(fwd, rev, rubricContext),
+    });
+  } else {
+    result = await run2PassReversal<string | null, ComparisonResult>({
+      buildPrompts: () => ({
+        forward: buildComparisonPrompt(textA, textB, mode),
+        reverse: buildComparisonPrompt(textB, textA, mode),
+      }),
+      callLLM,
+      parseResponse: parseWinner,
+      aggregate: aggregateWinners,
+    });
+  }
 
   // B033: cache partial-failure results at `confidence >= 0.3` (was `> 0.3`). The 0.3
   // boundary result (one forward pass succeeded + one null) is deterministic once
   // observed; re-querying it wastes 2 LLM calls per repeat on the same pair.
   if (cache && result.confidence >= 0.3) {
-    cache.set(makeCacheKey(textA, textB), result);
+    cache.set(keyOf(textA, textB), result);
   }
   return result;
 }

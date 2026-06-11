@@ -3,6 +3,16 @@
 import { buildRunContext, loadArenaEntries, isArenaEntry, type ClaimedRun, type ArenaTextVariation } from './buildRunContext';
 import type { Variant } from '../../types';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { getJudgeRubricForEvaluation } from '../../../services/judgeRubricActions';
+import type { ResolvedJudgeRubric } from '../../shared/rubricJudge';
+
+// structured_judging_evolution_20260610: stub the rubric resolver so the kill-switch
+// tests control resolution without a live DB. Default mock returns undefined; only the
+// resolution branch (judgeRubricId set + switch on) ever invokes it.
+jest.mock('../../../services/judgeRubricActions', () => ({
+  getJudgeRubricForEvaluation: jest.fn(),
+}));
+const mockGetRubric = getJudgeRubricForEvaluation as jest.MockedFunction<typeof getJudgeRubricForEvaluation>;
 
 const validText = `# Test Article
 
@@ -228,6 +238,69 @@ describe('buildRunContext', () => {
     if ('context' in result) {
       expect(result.context.config.budgetUsd).toBe(7.5);
     }
+  });
+
+  // ─── structured_judging_evolution_20260610: rubric kill switch ───
+  describe('rubric judging kill switch', () => {
+    const RUBRIC_ID = '11111111-1111-1111-1111-111111111111';
+    const FAKE_RUBRIC: ResolvedJudgeRubric = {
+      rubricId: RUBRIC_ID,
+      dimensions: [{ criteriaId: 'c1', name: 'clarity', description: null, minRating: 1, maxRating: 5, evaluationGuidance: null, weight: 1 }],
+    };
+    const configWithRubric = {
+      generationModel: 'gpt-4.1-nano',
+      judgeModel: 'gpt-4.1-nano',
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
+      judgeRubricId: RUBRIC_ID,
+    };
+
+    beforeEach(() => { mockGetRubric.mockReset(); });
+
+    it('resolves judgeRubric when enabled (default) and a judgeRubricId is set', async () => {
+      mockGetRubric.mockResolvedValue(FAKE_RUBRIC);
+      const { db } = makeMockDb({ contentText: validText, strategyConfig: configWithRubric });
+      const result = await buildRunContext('run-1', makeClaimedRun(), db, makeProvider());
+
+      expect('context' in result).toBe(true);
+      if ('context' in result) {
+        expect(mockGetRubric).toHaveBeenCalledWith(expect.anything(), RUBRIC_ID);
+        expect(result.context.config.judgeRubric).toEqual(FAKE_RUBRIC);
+        expect(result.context.config.judgeRubricId).toBe(RUBRIC_ID);
+      }
+    });
+
+    it("kill switch EVOLUTION_RUBRIC_JUDGING_ENABLED='false' skips resolution → judgeRubric undefined (holistic)", async () => {
+      const prev = process.env.EVOLUTION_RUBRIC_JUDGING_ENABLED;
+      process.env.EVOLUTION_RUBRIC_JUDGING_ENABLED = 'false';
+      try {
+        mockGetRubric.mockResolvedValue(FAKE_RUBRIC);
+        const { db } = makeMockDb({ contentText: validText, strategyConfig: configWithRubric });
+        const result = await buildRunContext('run-1', makeClaimedRun(), db, makeProvider());
+
+        expect('context' in result).toBe(true);
+        if ('context' in result) {
+          expect(mockGetRubric).not.toHaveBeenCalled();
+          expect(result.context.config.judgeRubric).toBeUndefined();
+          // The id pointer is still carried through; it's simply ignored while off.
+          expect(result.context.config.judgeRubricId).toBe(RUBRIC_ID);
+        }
+      } finally {
+        if (prev === undefined) delete process.env.EVOLUTION_RUBRIC_JUDGING_ENABLED;
+        else process.env.EVOLUTION_RUBRIC_JUDGING_ENABLED = prev;
+      }
+    });
+
+    it('a rubric that no longer resolves (null) → holistic fallback, judgeRubric undefined', async () => {
+      mockGetRubric.mockResolvedValue(null);
+      const { db } = makeMockDb({ contentText: validText, strategyConfig: configWithRubric });
+      const result = await buildRunContext('run-1', makeClaimedRun(), db, makeProvider());
+
+      expect('context' in result).toBe(true);
+      if ('context' in result) {
+        expect(mockGetRubric).toHaveBeenCalled();
+        expect(result.context.config.judgeRubric).toBeUndefined();
+      }
+    });
   });
 
   it('generated random_seed always fits in PostgreSQL signed BIGINT range', async () => {

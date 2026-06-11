@@ -23,8 +23,53 @@ import {
   DEFAULT_JUDGE_MODEL,
 } from '@/config/modelRegistry';
 import { ARTICLE_SANDBOX_RUBRIC, PARAGRAPH_SANDBOX_RUBRIC } from '@evolution/lib/shared/judgeRubrics';
+import type { RubricBreakdown } from '@evolution/lib/shared/rubricJudge';
 
 const SECTION = 'border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)] p-5';
+
+/** Full two-pass rubric breakdown: per-dimension forward/reverse verdicts + weight,
+ *  each pass's weighted score, and the overall weighted winner + confidence. Only
+ *  rendered for rubric-judged matches (null for holistic). */
+function RubricBreakdownSection({ breakdown }: { breakdown: RubricBreakdown }): JSX.Element {
+  const pct = (w: number): string => `${Math.round(w * 100)}%`;
+  const score = (n: number): string => n.toFixed(2);
+  return (
+    <div className={SECTION} data-testid="rubric-breakdown">
+      <div className="text-sm font-semibold mb-2">
+        Rubric Breakdown — WINNER {breakdown.overall.winner}
+        <span className="font-normal text-[var(--text-muted)]"> · confidence {breakdown.overall.confidence.toFixed(2)} · both passes {breakdown.forwardPass.winner === breakdown.reversePass.winner ? 'agree' : 'disagree'}</span>
+      </div>
+      <table className="w-full text-xs border-collapse">
+        <thead>
+          <tr className="text-left text-[var(--text-muted)]">
+            <th className="py-1 pr-3">Dimension</th>
+            <th className="py-1 pr-3">Weight</th>
+            <th className="py-1 pr-3">Forward</th>
+            <th className="py-1 pr-3">Reverse</th>
+          </tr>
+        </thead>
+        <tbody>
+          {breakdown.dimensions.map((d) => (
+            <tr key={d.criteriaId} className="border-t border-[var(--border-subtle)]" data-testid="rubric-dim-row">
+              <td className="py-1 pr-3 font-medium">{d.name}</td>
+              <td className="py-1 pr-3">{pct(d.weight)}</td>
+              <td className="py-1 pr-3 font-mono">{d.forwardVerdict ?? '—'}</td>
+              <td className="py-1 pr-3 font-mono">{d.reverseVerdict ?? '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-[var(--border-default)] text-[var(--text-muted)]">
+            <td className="py-1 pr-3">Pass score (A / B)</td>
+            <td className="py-1 pr-3"></td>
+            <td className="py-1 pr-3 font-mono">{score(breakdown.forwardPass.scoreA)} / {score(breakdown.forwardPass.scoreB)} → {breakdown.forwardPass.winner ?? '—'}</td>
+            <td className="py-1 pr-3 font-mono">{score(breakdown.reversePass.scoreA)} / {score(breakdown.reversePass.scoreB)} → {breakdown.reversePass.winner ?? '—'}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
 const MODEL_OPTIONS = getModelOptions();
 
 /** The default rubric block the custom prompt overrides, for the given comparison mode. */
@@ -184,8 +229,12 @@ export default function MatchDetailPage(): JSX.Element {
           Stored result: <span className="font-semibold">WINNER {stored}</span>
           {' · '}confidence {detail.confidence.toFixed(2)}
           {' · '}status {detail.status}
+          {detail.judge_rubric_id && <span className="ml-2 text-xs px-1.5 py-0.5 rounded-page bg-[var(--accent-gold)] text-[var(--text-on-primary)]">rubric</span>}
         </div>
       </div>
+
+      {/* Rubric breakdown (rubric-judged matches only; holistic → omitted) */}
+      {detail.rubric_breakdown && <RubricBreakdownSection breakdown={detail.rubric_breakdown} />}
 
       {/* Text comparison — word diff (default) or raw side-by-side */}
       {(() => {

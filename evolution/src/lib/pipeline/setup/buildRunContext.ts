@@ -5,6 +5,7 @@ import type { Variant } from '../../types';
 import type { EvolutionConfig } from '../infra/types';
 import type { Rating } from '../../shared/computeRatings';
 import { dbToRating, _INTERNAL_DEFAULT_MU, _INTERNAL_DEFAULT_SIGMA } from '../../shared/computeRatings';
+import { getJudgeRubricForEvaluation } from '../../../services/judgeRubricActions';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { createEntityLogger } from '../infra/createEntityLogger';
 import { strategyConfigSchema } from '../../schemas';
@@ -377,10 +378,23 @@ export async function buildRunContext(
     }
   }
 
+  // Rubric-based judging (structured_judging_evolution_20260610): resolve the
+  // strategy's judgeRubricId to dimensions + normalized weights once per run.
+  // Kill switch EVOLUTION_RUBRIC_JUDGING_ENABLED='false' skips resolution → all
+  // ranking judges fall back to holistic without a redeploy. A rubric that no
+  // longer resolves (deleted / all dims archived) returns null → holistic too.
+  const rubricEnabled = process.env.EVOLUTION_RUBRIC_JUDGING_ENABLED !== 'false';
+  const judgeRubric =
+    rubricEnabled && stratConfig.judgeRubricId
+      ? (await getJudgeRubricForEvaluation(db, stratConfig.judgeRubricId)) ?? undefined
+      : undefined;
+
   const config: EvolutionConfig = {
     iterationConfigs: stratConfig.iterationConfigs,
     budgetUsd: claimedRun.budget_cap_usd ?? 1.0,
     judgeModel: stratConfig.judgeModel,
+    judgeRubricId: stratConfig.judgeRubricId,
+    judgeRubric,
     generationModel: stratConfig.generationModel,
     calibrationOpponents: 5,
     tournamentTopK: 5,

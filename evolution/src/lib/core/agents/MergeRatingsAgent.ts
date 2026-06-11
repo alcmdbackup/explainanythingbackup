@@ -14,6 +14,8 @@ import type { V2Match } from '../../pipeline/infra/types';
 import { computeTop15Cutoff } from '../../pipeline/loop/rankSingleVariant';
 import { mergeRatingsExecutionDetailSchema } from '../../schemas';
 import { SeededRandom, deriveSeed } from '../../shared/seededRandom';
+import { orientBreakdownToEntries } from '../../shared/rubricJudge';
+import type { RubricBreakdown } from '../../shared/rubricJudge';
 import type { z } from 'zod';
 
 // ─── Public types ─────────────────────────────────────────────────
@@ -223,6 +225,11 @@ export class MergeRatingsAgent extends Agent<
       entry_b_mu_after: number;
       entry_b_sigma_after: number;
       status: string;
+      // Rubric judging (20260610000004): per-dimension snapshot oriented to the
+      // entry_a/entry_b frame + the rubric id for indexed filtering. Null for
+      // holistic matches.
+      rubric_breakdown: RubricBreakdown | null;
+      judge_rubric_id: string | null;
     }
     const arenaRows: ArenaRowPayload[] = [];
 
@@ -308,6 +315,10 @@ export class MergeRatingsAgent extends Agent<
         entry_b_mu_after: bAfterDb.mu,
         entry_b_sigma_after: bAfterDb.sigma,
         status: 'completed',
+        rubric_breakdown: match.rubricBreakdown
+          ? orientBreakdownToEntries(match.rubricBreakdown, match.winnerId, match.loserId, idA)
+          : null,
+        judge_rubric_id: match.rubricBreakdown?.rubricId ?? null,
       });
     }
 

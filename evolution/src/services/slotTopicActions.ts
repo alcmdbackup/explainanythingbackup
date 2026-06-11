@@ -224,6 +224,10 @@ export async function persistSlotMatches(
         entry_b_mu_after: bAfterDb?.mu ?? null,
         entry_b_sigma_after: bAfterDb?.sigma ?? null,
         status: 'completed' as const,
+        // Per-slot paragraph ranking is article-rubric-free (stripped in
+        // ParagraphRecombineAgent); these are always null here, kept for column parity.
+        rubric_breakdown: match.rubricBreakdown ?? null,
+        judge_rubric_id: match.rubricBreakdown?.rubricId ?? null,
       };
     });
 

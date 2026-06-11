@@ -162,6 +162,18 @@ User-defined evaluation criteria targeted by `EvaluateCriteriaThenGenerateFromPr
 
 > **Cross-strategy integrity:** `validateCriteriaIds(criteriaIds, db)` (in `evolution/src/services/criteriaActions.ts`) is called from `createStrategyAction` before persisting a strategy whose iteration configs reference any criteria UUIDs. It rejects unknown, archived, or soft-deleted criteria so dispatch-time fetches via `getCriteriaForEvaluation` never hit a missing row. The same set of UUIDs is sorted (canonicalized) before being included in the strategy's `config_hash` so `[a,b]` and `[b,a]` deduplicate.
 
+### `evolution_judge_rubrics` + `evolution_judge_rubric_dimensions`
+
+Reusable named bundles of judging dimensions for **rubric-based pairwise judging**
+(structured_judging_evolution_20260610; migration `20260610000002`). `evolution_judge_rubrics`
+is a thin entity (id, name UNIQUE, label, description, status, is_test_content trigger, soft-delete).
+`evolution_judge_rubric_dimensions` is the junction — PK `(rubric_id, criteria_id)`, `rubric_id`
+FK→rubrics ON DELETE CASCADE, **`criteria_id` FK→`evolution_criteria` ON DELETE RESTRICT** (a
+criterion used by a rubric can't be hard-deleted; criteria soft-delete is dropped at read time),
+`weight NUMERIC CHECK (weight ≥ 0)` (normalized at read), `position`. `evolution_arena_comparisons`
+gained nullable `rubric_breakdown JSONB` (per-dimension snapshot) + `judge_rubric_id UUID` FK SET
+NULL (migration `20260610000004`). See [Rating & Comparison → Rubric-Based Judging](./rating_and_comparison.md#rubric-based-judging-structured_judging_evolution_20260610).
+
 ### `evolution_tactics`
 
 Thin entity table for tactic identity. Tactic prompt definitions live in code (`evolution/src/lib/core/tactics/generateTactics.ts`); this table provides UUIDs for metrics, admin UI, and future FK references. Synced from code via `evolution/scripts/syncSystemTactics.ts`.
@@ -668,6 +680,9 @@ This means database rows written by older pipeline versions are transparently up
 | `20260322000002_prod_convergence.sql` | 2026-03-22 | Prod convergence migration |
 | `20260415000001_evolution_is_test_content.sql` | 2026-04-15 | `evolution_strategies.is_test_content` column + `evolution_is_test_name(text)` function + BEFORE INSERT/UPDATE-OF-name trigger + partial index |
 | `20260423000001_add_is_test_content_to_prompts_experiments.sql` | 2026-04-23 | Same `is_test_content` column + trigger + partial index pattern extended to `evolution_prompts` and `evolution_experiments`. Closes B17 (test rows leaked into prompts list, arena topics list, and start-experiment wizard pickers because `applyTestContentNameFilter` was substring-only and missed the timestamp regex). |
+| `20260610000002_evolution_judge_rubrics.sql` | 2026-06-10 | Rubric-based judging (structured_judging_evolution_20260610): `evolution_judge_rubrics` (named weighted rubric) + `evolution_judge_rubric_dimensions` junction (`rubric_id` FK ON DELETE CASCADE, `criteria_id` FK→`evolution_criteria` ON DELETE RESTRICT, weight ≥ 0). Three-policy RLS (deny_all / service_role_all / readonly_select) + `is_test_content` trigger, mirroring `evolution_criteria`. |
+| `20260610000003_extend_metrics_entity_type_for_judge_rubric.sql` | 2026-06-10 | Extends the `evolution_metrics.entity_type` CHECK to include `'judge_rubric'` (sibling pattern of `20260503033103`). |
+| `20260610000004_arena_comparisons_rubric_breakdown.sql` | 2026-06-10 | Adds nullable JSONB `rubric_breakdown` (per-dimension two-pass snapshot, authoritative for rendering) + nullable indexed `judge_rubric_id UUID` FK→`evolution_judge_rubrics(id)` ON DELETE SET NULL to `evolution_arena_comparisons`. Purely additive; pre-rubric matches stay NULL. |
 
 The V2 clean-slate migration (20260315) intentionally dropped all V1 tables, views, and functions. There is no backward migration path to V1.
 
