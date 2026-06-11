@@ -17,15 +17,21 @@ Analysis skill should
 Analyses today are written ad-hoc into `docs/research/` with no consistent structure, no reproducibility guarantees (methodology, exact dataset, queries), and no link back to the originating project/branch. There is no skill to scaffold or enforce this. We want a renamed, structured `docs/analysis/` surface plus a skill that produces compliant analysis docs.
 
 ## Options Considered
-- [ ] **Option A: Slash command `/analysis` modeled on `/research`**: New `.claude/commands/analysis.md` that finds the project by branch, scaffolds `docs/analysis/<name>/` with the required sections, and captures datasets/queries. Mirrors the existing research command shape; lowest surprise.
-- [ ] **Option B: `.claude/skills/analysis/SKILL.md`**: A richer skill with helper scripts for dataset capture + query logging. More capable but heavier; must satisfy `skill-sections-lint`.
-- [ ] **Option C: Rename `docs/research/` → `docs/analysis/` only (no skill)**: Pure doc move + link fixes; defers the skill. Cheapest but doesn't meet the "build a skill" ask.
+- [x] **Option A (CHOSEN): Slash command `/analysis` modeled on `/research`**: New `.claude/commands/analysis.md` that finds the project by branch, scaffolds `docs/analysis/<name>/` with the required sections, and captures datasets/queries inline. Mirrors the existing research command shape; lowest surprise. (Q2)
+- [ ] **Option B: `.claude/skills/analysis/SKILL.md`**: A richer skill with helper scripts for dataset capture + query logging. More capable but heavier; must satisfy `skill-sections-lint`. Rejected — capture is doable as inline spec steps; avoids script-maintenance + lint surface.
+- [ ] **Option C: Rename `docs/research/` → `docs/analysis/` only (no skill)**: Pure doc move + link fixes; defers the skill. Rejected — doesn't meet the "build a skill" ask. (The rename itself IS adopted as Phase 2 per Q1.)
+
+## Resolved Decisions (2026-06-11)
+- **Q1 — Full rename + fix links:** `git mv docs/research docs/analysis`; update every inbound reference.
+- **Q2 — Slash command:** `.claude/commands/analysis.md`, no bundled scripts.
+- **Q3 — Per-analysis subfolder + ~1MB cap:** `docs/analysis/<name>/{<name>.md, dataset.csv, queries.sql}`; inline CSV ≤ ~1 MB / ~10k rows, else `sample.csv` + regen query + noted row count.
+- **Q4 — Hybrid capture:** active `query:staging/prod --json` → `dataset.csv` + queries/results in-doc for SQL analyses; documented manual fallback for non-SQL sources.
 
 ## Phased Execution Plan
 
 ### Phase 1: Decide rename strategy + output layout
-- [ ] Resolve Open Questions 1-4 from `_research.md` (rename vs parallel surface; command vs skill; CSV location/threshold; auto-run vs template).
-- [ ] Define the `docs/analysis/` directory + per-analysis layout (e.g. `docs/analysis/<name>/<name>.md` + `dataset.csv` + `queries.sql`).
+- [x] Resolve Open Questions 1-4 from `_research.md` (full rename; slash command; per-analysis subfolder + ~1MB cap; hybrid capture). — done 2026-06-11
+- [x] Define the `docs/analysis/` directory + per-analysis layout: `docs/analysis/<name>/<name>.md` + `dataset.csv` + `queries.sql`.
 
 ### Phase 2: Establish docs/analysis surface
 - [ ] Create `docs/analysis/` (and migrate or alias existing `docs/research/` content per Phase 1 decision).

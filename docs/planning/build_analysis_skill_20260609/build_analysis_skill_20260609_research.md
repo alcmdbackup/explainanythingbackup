@@ -49,8 +49,8 @@ Analysis skill should
 3. New skill specs are CI-linted for required section headers (`scripts/check-skill-sections.sh`) — must be kept coherent in the same PR.
 4. Renaming `docs/research/` → `docs/analysis/` will break inbound links from evolution docs (`rating_and_comparison.md` references `docs/research/judge_agreement_summary_tables.md` and `judging_accuracy_20260412.md`) — those must be updated.
 
-## Open Questions
-1. Is `docs/research/` to be physically renamed to `docs/analysis/` (moving existing files + fixing all inbound links), or is `docs/analysis/` a new parallel surface with `research` deprecated going forward?
-2. Should the skill be a slash command (`.claude/commands/analysis.md`) like `research`, a `.claude/skills/` SKILL, or both?
-3. Dataset capture: where do CSVs live (alongside the analysis `.md` in `docs/analysis/<name>/`?) and what is the "size prohibitive" threshold/heuristic?
-4. Should the skill auto-run queries via `query:staging`/`query:prod` and capture their output, or just template the section for the human/agent to fill?
+## Open Questions (RESOLVED 2026-06-11)
+1. **`docs/research/` → physical rename.** `git mv docs/research docs/analysis`, move all existing files, and fix every inbound link (evolution `rating_and_comparison.md`, `getting_started.md`, any other grep hits). Truest to "renamed version."
+2. **Artifact = slash command.** `.claude/commands/analysis.md` modeled on `/research`. No bundled helper scripts; capture steps are executed inline by the agent following the spec.
+3. **Layout = per-analysis subfolder + ~1MB cap.** `docs/analysis/<name>/` holds `<name>.md` + `dataset.csv` + `queries.sql`. Inline the CSV when ≤ ~1 MB / ~10k rows; above that, store a representative `sample.csv` + the exact regen query in `queries.sql` + the full row count noted in the doc. (Existing flat files moved by the Q1 rename stay flat; subfolder migration is opportunistic, not blocking.)
+4. **Capture mode = hybrid.** When the analysis is SQL-driven: run `npm run query:staging --json` / `query:prod`, write rows to `dataset.csv`, and paste each query + its result into the doc. For non-SQL sources (logs, Honeycomb, external CSV): documented manual fallback to fill the Dataset + Queries & Results sections.
