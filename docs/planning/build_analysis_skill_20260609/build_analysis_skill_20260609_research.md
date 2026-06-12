@@ -54,3 +54,6 @@ Analysis skill should
 2. **Artifact = slash command.** `.claude/commands/analysis.md` modeled on `/research`. No bundled helper scripts; capture steps are executed inline by the agent following the spec.
 3. **Layout = per-analysis subfolder + ~1MB cap.** `docs/analysis/<name>/` holds `<name>.md` + `dataset.csv` + `queries.sql`. Inline the CSV when ≤ ~1 MB / ~10k rows; above that, store a representative `sample.csv` + the exact regen query in `queries.sql` + the full row count noted in the doc. (Existing flat files moved by the Q1 rename stay flat; subfolder migration is opportunistic, not blocking.)
 4. **Capture mode = hybrid.** When the analysis is SQL-driven: run `npm run query:staging --json` / `query:prod`, write rows to `dataset.csv`, and paste each query + its result into the doc. For non-SQL sources (logs, Honeycomb, external CSV): documented manual fallback to fill the Dataset + Queries & Results sections.
+
+## Promoted Analyses
+- docs/analysis/example_analysis_skill_smoketest_20260611/

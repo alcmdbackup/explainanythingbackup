@@ -18,8 +18,8 @@ Analyses today are written ad-hoc into `docs/research/` with no consistent struc
 
 ## Options Considered
 - [x] **Option A (CHOSEN): Slash command `/analysis` modeled on `/research`**: New `.claude/commands/analysis.md` that finds the project by branch, scaffolds `docs/analysis/<name>/` with the required sections, and captures datasets/queries inline. Mirrors the existing research command shape; lowest surprise. (Q2)
-- [ ] **Option B: `.claude/skills/analysis/SKILL.md`**: A richer skill with helper scripts for dataset capture + query logging. More capable but heavier; must satisfy `skill-sections-lint`. Rejected — capture is doable as inline spec steps; avoids script-maintenance + lint surface.
-- [ ] **Option C: Rename `docs/research/` → `docs/analysis/` only (no skill)**: Pure doc move + link fixes; defers the skill. Rejected — doesn't meet the "build a skill" ask. (The rename itself IS adopted as Phase 2 per Q1.)
+- **Option B (rejected): `.claude/skills/analysis/SKILL.md`**: A richer skill with helper scripts for dataset capture + query logging. More capable but heavier; must satisfy `skill-sections-lint`. Rejected — capture is doable as inline spec steps; avoids script-maintenance + lint surface.
+- **Option C (rejected): Rename `docs/research/` → `docs/analysis/` only (no skill)**: Pure doc move + link fixes; defers the skill. Rejected — doesn't meet the "build a skill" ask. (The rename itself IS adopted as Phase 2 per Q1.)
 
 ## Resolved Decisions (2026-06-11)
 - **Q1 — Full rename + fix links:** `git mv docs/research docs/analysis`; update every inbound reference.
@@ -47,66 +47,66 @@ The conceptual split the rename reinforces: `<project>_research.md` is the **act
 - [x] Define the `docs/analysis/` directory + per-analysis layout: `docs/analysis/<name>/<name>.md` + `dataset.csv` + `queries.sql`.
 
 ### Phase 2: Establish docs/analysis surface
-- [ ] `git mv docs/research docs/analysis` (moves the two existing files: `judge_agreement_summary_tables.md`, `judging_accuracy_20260412.md`). This single move *creates* `docs/analysis/` — no separate bootstrap commit needed.
-- [ ] Fix inbound links in **active/maintained docs only** (enumerated from a full `grep -rn "docs/research/" --include="*.md"`):
+- [x] `git mv docs/research docs/analysis` (moves the two existing files: `judge_agreement_summary_tables.md`, `judging_accuracy_20260412.md`). This single move *creates* `docs/analysis/` — no separate bootstrap commit needed.
+- [x] Fix inbound links in **active/maintained docs only** (enumerated from a full `grep -rn "docs/research/" --include="*.md"`):
   - `evolution/docs/rating_and_comparison.md:11` (`../../docs/research/judge_agreement_summary_tables.md`)
   - `evolution/docs/rating_and_comparison.md:86` (`../../docs/research/judging_accuracy_20260412.md`)
   - `evolution/docs/strategies_and_experiments.md:104` (`docs/research/judge_agreement_summary_tables.md`)
-- [ ] **Do NOT rewrite historical planning-doc snapshots** that reference `docs/research/` (7 files under `docs/planning/*/`: `further_speedup_20260413`, `create_tool_systematic_judge_evaluation_evolutioN_20260606`, `updated_criteria_agent_20260505`, `bring_back_debate_agent_20260506`, `understand_critera_agent_performance_evolution_20260503`, `simplify_initialize_script_create_research_analysis_command_20260414`). Per `getting_started.md`, planning docs are frozen historical records; editing them falsifies the record. Their now-stale links are an accepted, documented consequence of choosing full-rename over the redirect-stub option (Q1). See "Accepted Tradeoffs" below.
-- [ ] **Verification gate (manual):** after fixes, re-run `grep -rn "docs/research/" --include="*.md" . | grep -v docs/planning/` and confirm **zero** hits outside historical planning docs. (No CI link-checker exists — this grep IS the gate; record it in the Verification section.)
-- [ ] Update `getting_started.md` doc map: replace the `docs/research/` historical-surface line with `docs/analysis/` and describe it as the durable analysis-report surface produced by `/analysis`.
+- [x] **Do NOT rewrite historical planning-doc snapshots** that reference `docs/research/` (7 files under `docs/planning/*/`: `further_speedup_20260413`, `create_tool_systematic_judge_evaluation_evolutioN_20260606`, `updated_criteria_agent_20260505`, `bring_back_debate_agent_20260506`, `understand_critera_agent_performance_evolution_20260503`, `simplify_initialize_script_create_research_analysis_command_20260414`). Per `getting_started.md`, planning docs are frozen historical records; editing them falsifies the record. Their now-stale links are an accepted, documented consequence of choosing full-rename over the redirect-stub option (Q1). See "Accepted Tradeoffs" below.
+- [x] **Verification gate (manual):** after fixes, re-run `grep -rn "docs/research/" --include="*.md" . | grep -v docs/planning/` and confirm **zero** hits outside historical planning docs. (No CI link-checker exists — this grep IS the gate; record it in the Verification section.)
+- [x] Update `getting_started.md` doc map: replace the `docs/research/` historical-surface line with `docs/analysis/` and describe it as the durable analysis-report surface produced by `/analysis`.
 
 ### Phase 3: Author the analysis skill
-- [ ] Write `.claude/commands/analysis.md` embedding the **analysis-doc template** with these exact section headers (these become the REQUIRED_SECTIONS contract): `## Header` (fields: Analysis name, Project, Branch), `## Methodology`, `## Key Findings`, `## Dataset`, `## Queries & Results`.
-- [ ] Entry/resolution: **lift `/research` Steps 1-2 verbatim** (project-by-branch resolution) rather than reinvent. Read `_research.md`; **error if absent** with message `"No research doc for branch <X>. Run /initialize then /research first."`. If `_research.md` exists but `High Level Summary` AND `Key Findings` are both empty → warn and prompt to populate via `/research` before continuing.
-- [ ] Selection step: present `High Level Summary` + `Key Findings` as candidate findings; user confirms which to promote (1 research doc → N analyses). The promoted findings are **copied** into the analysis (self-contained), then enriched with the NEW sections (`Methodology`, `Dataset`, `Queries & Results`) that the research doc never carried.
-- [ ] Hybrid dataset capture (per "Dataset Capture & PII Safety" below): for SQL analyses run `npm run query:staging`/`query:prod --json` → write to `docs/analysis/<name>/dataset.csv` (size-guarded) and paste each query + result into `## Queries & Results`; record the raw queries in `queries.sql`. Documented manual fallback for non-SQL sources (logs/Honeycomb/external CSV).
-- [ ] Bidirectional provenance (per "_status.json Schema Delta" below): write `Project`/`Branch` into the analysis `## Header`; **append-and-dedupe** the analysis dir to `_status.json.analyses[]` (treat a missing `analyses` key as `[]` and initialize it on first write — handles projects created before this change); in `_research.md`, **create the `## Promoted Analyses` section if absent (appended at end of file)** then append the analysis dir as a bullet, **skipping if that dir is already listed** (idempotent re-run). Never rewrite existing `_research.md` content.
-- [ ] **Same-PR `/initialize` + schema change:** update `.claude/commands/initialize.md` Step 3.5 template to seed `"analyses": []` in `_status.json`. Document that `analyses[]` is **additive/optional** — existing consumers (`/finalize`, hooks, `/safe_to_close`) ignore unknown/absent fields (precedent: `relevantDocs`), so no migration of existing `_status.json` files is required and nothing breaks. Surfacing `analyses[]` in `/finalize` is an explicit **non-goal for v1** (follow-up).
-- [ ] Update `scripts/check-skill-sections.sh`: add a `REQUIRED_SECTIONS[".claude/commands/analysis.md"]` entry listing the 5 template headers above, IN THE SAME PR (per the script's own coherence rule). This lints the command spec's embedded template — if a future edit deletes e.g. the `## Dataset` section, CI fails.
+- [x] Write `.claude/commands/analysis.md` embedding the **analysis-doc template** with these exact section headers (these become the REQUIRED_SECTIONS contract): `## Header` (fields: Analysis name, Project, Branch), `## Methodology`, `## Key Findings`, `## Dataset`, `## Queries & Results`.
+- [x] Entry/resolution: **lift `/research` Steps 1-2 verbatim** (project-by-branch resolution) rather than reinvent. Read `_research.md`; **error if absent** with message `"No research doc for branch <X>. Run /initialize then /research first."`. If `_research.md` exists but `High Level Summary` AND `Key Findings` are both empty → warn and prompt to populate via `/research` before continuing.
+- [x] Selection step: present `High Level Summary` + `Key Findings` as candidate findings; user confirms which to promote (1 research doc → N analyses). The promoted findings are **copied** into the analysis (self-contained), then enriched with the NEW sections (`Methodology`, `Dataset`, `Queries & Results`) that the research doc never carried.
+- [x] Hybrid dataset capture (per "Dataset Capture & PII Safety" below): for SQL analyses run `npm run query:staging`/`query:prod --json` → write to `docs/analysis/<name>/dataset.csv` (size-guarded) and paste each query + result into `## Queries & Results`; record the raw queries in `queries.sql`. Documented manual fallback for non-SQL sources (logs/Honeycomb/external CSV).
+- [x] Bidirectional provenance (per "_status.json Schema Delta" below): write `Project`/`Branch` into the analysis `## Header`; **append-and-dedupe** the analysis dir to `_status.json.analyses[]` (treat a missing `analyses` key as `[]` and initialize it on first write — handles projects created before this change); in `_research.md`, **create the `## Promoted Analyses` section if absent (appended at end of file)** then append the analysis dir as a bullet, **skipping if that dir is already listed** (idempotent re-run). Never rewrite existing `_research.md` content.
+- [x] **Same-PR `/initialize` + schema change:** update `.claude/commands/initialize.md` Step 3.5 template to seed `"analyses": []` in `_status.json`. Document that `analyses[]` is **additive/optional** — existing consumers (`/finalize`, hooks, `/safe_to_close`) ignore unknown/absent fields (precedent: `relevantDocs`), so no migration of existing `_status.json` files is required and nothing breaks. Surfacing `analyses[]` in `/finalize` is an explicit **non-goal for v1** (follow-up).
+- [x] Update `scripts/check-skill-sections.sh`: add a `REQUIRED_SECTIONS[".claude/commands/analysis.md"]` entry listing the 5 template headers above, IN THE SAME PR (per the script's own coherence rule). This lints the command spec's embedded template — if a future edit deletes e.g. the `## Dataset` section, CI fails.
 
 ### Phase 4: Verify + document
-- [ ] Generate one example analysis end-to-end at `docs/analysis/example_analysis_skill_smoketest_20260611/` (small, SQL-driven, ≤10 rows) to validate the template + capture flow + provenance writes. Confirm it passes `check-skill-sections.sh` and the dangling-link grep.
-- [ ] Update `docs/docs_overall/getting_started.md` (doc map) and `docs/docs_overall/instructions_for_updating.md` (add the `docs/analysis/` surface + analysis conventions) to reference the new skill.
-- [ ] Decide whether the smoketest example stays as a canonical sample or is removed before PR (default: keep as the documented reference example).
+- [x] Generate one example analysis end-to-end at `docs/analysis/example_analysis_skill_smoketest_20260611/` (small, SQL-driven, ≤10 rows) to validate the template + capture flow + provenance writes. Confirm it passes `check-skill-sections.sh` and the dangling-link grep.
+- [x] Update `docs/docs_overall/getting_started.md` (doc map) and `docs/docs_overall/instructions_for_updating.md` (add the `docs/analysis/` surface + analysis conventions) to reference the new skill.
+- [x] Decide whether the smoketest example stays as a canonical sample or is removed before PR (default: keep as the documented reference example).
 
 ## Testing
 
 ### Unit Tests
-- [ ] If helper scripts are added (dataset capture / query logging): colocated `.test.ts` covering CSV serialization + size-threshold guard.
+- [x] If helper scripts are added (dataset capture / query logging): colocated `.test.ts` covering CSV serialization + size-threshold guard.
 
 ### Integration Tests
-- [ ] N/A unless the skill ships a script that touches the DB — if so, an integration test using `query:staging` read-only role.
+- [x] N/A unless the skill ships a script that touches the DB — if so, an integration test using `query:staging` read-only role.
 
 ### E2E Tests
-- [ ] N/A (no UI surface).
+- [x] N/A (no UI surface).
 
 ### Manual Verification
-- [ ] **Dangling-link grep gate:** `grep -rn "docs/research/" --include="*.md" . | grep -v docs/planning/` returns zero hits (all active references repointed; historical planning snapshots intentionally excluded).
-- [ ] Run `/analysis` on this branch (Phase 4 example) and confirm it produces a compliant `docs/analysis/<name>/` doc with all 5 required sections, linked to project + branch, with `_status.json.analyses[]` and the `_research.md` `## Promoted Analyses` pointer updated.
-- [ ] Confirm `bash scripts/check-skill-sections.sh` passes (new `analysis.md` entry enforced).
-- [ ] Confirm a moved file resolves: open `evolution/docs/rating_and_comparison.md` rendered links and verify they point at `docs/analysis/...`.
+- [x] **Dangling-link grep gate:** `grep -rn "docs/research/" --include="*.md" . | grep -v docs/planning/` returns zero hits (all active references repointed; historical planning snapshots intentionally excluded).
+- [x] Run `/analysis` on this branch (Phase 4 example) and confirm it produces a compliant `docs/analysis/<name>/` doc with all 5 required sections, linked to project + branch, with `_status.json.analyses[]` and the `_research.md` `## Promoted Analyses` pointer updated.
+- [x] Confirm `bash scripts/check-skill-sections.sh` passes (new `analysis.md` entry enforced).
+- [x] Confirm a moved file resolves: open `evolution/docs/rating_and_comparison.md` rendered links and verify they point at `docs/analysis/...`.
 
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] N/A — no UI changes.
+- [x] N/A — no UI changes.
 
 ### B) Automated Tests
-- [ ] `bash scripts/check-skill-sections.sh` (skill-sections-lint parity — MUST include the new `analysis.md` entry, else this gate is hollow)
-- [ ] `bash -c 'grep -rn "docs/research/" --include="*.md" . | grep -v docs/planning/ | grep -c . | grep -qx 0 && echo OK'` — dangling-link gate, fails if any active reference remains
-- [ ] `python3 -c "import json;json.load(open('docs/planning/build_analysis_skill_20260609/_status.json'))"` and confirm `analyses` key present + an array (JSON well-formed after schema change)
-- [ ] No TS helper scripts are added (Q2 = slash command only), so lint/tsc/build/unit are N/A for this project unless that changes.
+- [x] `bash scripts/check-skill-sections.sh` (skill-sections-lint parity — MUST include the new `analysis.md` entry, else this gate is hollow)
+- [x] `bash -c 'grep -rn "docs/research/" --include="*.md" . | grep -v docs/planning/ | grep -c . | grep -qx 0 && echo OK'` — dangling-link gate, fails if any active reference remains
+- [x] `python3 -c "import json;json.load(open('docs/planning/build_analysis_skill_20260609/_status.json'))"` and confirm `analyses` key present + an array (JSON well-formed after schema change)
+- [x] No TS helper scripts are added (Q2 = slash command only), so lint/tsc/build/unit are N/A for this project unless that changes.
 
 > **No CI link-checker exists** and docs-only PRs take the CI fast path (lint+tsc only), so CI will not catch a dangling `docs/research/` link. The dangling-link grep is therefore an **execution-time manual gate** the executor runs during this project's verification (Manual Verification, above) before opening the PR — it is NOT a permanent new `/finalize` step (adding one is out of scope; see Accepted Tradeoffs).
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `docs/docs_overall/instructions_for_updating.md` — add the `docs/analysis/` surface + analysis-skill conventions.
-- [ ] `docs/docs_overall/getting_started.md` — replace the `docs/research/` historical-surface line with `docs/analysis/` in the doc map.
-- [ ] `evolution/docs/rating_and_comparison.md` (lines 11, 86) — repoint the two `docs/research/*` links.
-- [ ] `evolution/docs/strategies_and_experiments.md` (line 104) — repoint the `docs/research/judge_agreement_summary_tables.md` link.
-- [ ] `.claude/doc-mapping.json` — no `docs/research/`/`docs/analysis/` pattern exists today; `/analysis` is a pure-docs command that touches no code, so **no doc-mapping entry is required**. Recorded here so reviewers don't re-flag it.
+- [x] `docs/docs_overall/instructions_for_updating.md` — add the `docs/analysis/` surface + analysis-skill conventions.
+- [x] `docs/docs_overall/getting_started.md` — replace the `docs/research/` historical-surface line with `docs/analysis/` in the doc map.
+- [x] `evolution/docs/rating_and_comparison.md` (lines 11, 86) — repoint the two `docs/research/*` links.
+- [x] `evolution/docs/strategies_and_experiments.md` (line 104) — repoint the `docs/research/judge_agreement_summary_tables.md` link.
+- [x] `.claude/doc-mapping.json` — no `docs/research/`/`docs/analysis/` pattern exists today; `/analysis` is a pure-docs command that touches no code, so **no doc-mapping entry is required**. Recorded here so reviewers don't re-flag it.
 
 ## _status.json Schema Delta
 Current shape (from `/initialize` Step 3.5): `{ branch, created_at, prerequisites, relevantDocs[] }`. This project adds one **additive** field:

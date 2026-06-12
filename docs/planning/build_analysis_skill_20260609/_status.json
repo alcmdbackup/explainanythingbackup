@@ -9,5 +9,8 @@
   },
   "relevantDocs": [
     "docs/docs_overall/instructions_for_updating.md"
+  ],
+  "analyses": [
+    "docs/analysis/example_analysis_skill_smoketest_20260611/"
   ]
 }
