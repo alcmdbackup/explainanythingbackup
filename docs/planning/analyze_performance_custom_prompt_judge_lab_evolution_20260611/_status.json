@@ -1,0 +1,14 @@
+{
+  "branch": "feat/analyze_performance_custom_prompt_judge_lab_evolution_20260611",
+  "created_at": "2026-06-11T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/feature_deep_dives/judge_evaluation.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/arena.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/strategies_and_experiments.md",
+    "evolution/docs/criteria_agents.md"
+  ]
+}
