@@ -44,6 +44,14 @@ All 15 files should be updated when their corresponding features change (evoluti
 - `reference.md` — Cross-cutting concerns (config, schema, files, CLI)
 - `minicomputer_deployment.md` — Batch runner deployment guide
 
+### analysis/
+
+`/docs/analysis/` holds durable, reproducible **analysis reports** (formal data-findings writeups), produced by the `/analysis` skill from a project's `_research.md`. Conventions:
+- **Do NOT hand-edit existing reports** to "refresh" them — an analysis is a point-in-time artifact tied to the dataset it captured. Supersede it with a new report rather than rewriting.
+- Each new report lives in its own subfolder `docs/analysis/<name>/` with `<name>.md` + `dataset.csv` (≤~1 MB / ~10k rows, else a sample + regen query) + `queries.sql`. Legacy flat reports at the directory root predate this convention and stay flat.
+- Reports must contain no PII in their committed `dataset.csv` (the read-only DB role guards against writes, not against committing sensitive output — prefer aggregates / exclude PII columns).
+- Renamed from the former `/docs/research/` (build_analysis_skill_20260609).
+
 ## Archive
 
 Files in `/docs/archive/` are historical and should NOT be updated:

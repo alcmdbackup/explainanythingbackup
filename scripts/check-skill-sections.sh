@@ -39,6 +39,14 @@ REQUIRED_SECTIONS[".claude/commands/mainToProd.md"]="
 REQUIRED_SECTIONS[".claude/commands/finalize.md"]="
 "
 
+REQUIRED_SECTIONS[".claude/commands/analysis.md"]="
+## Header
+## Methodology
+## Key Findings
+## Dataset
+## Queries & Results
+"
+
 fail=0
 for file in "${!REQUIRED_SECTIONS[@]}"; do
   if [ ! -f "$file" ]; then
