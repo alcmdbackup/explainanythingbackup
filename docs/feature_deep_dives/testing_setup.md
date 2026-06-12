@@ -335,23 +335,6 @@ import remarkParse from 'remark-parse';
 
 ## E2E Patterns
 
-### `safeGoto` for chained `page.goto` on evolution detail pages
-
-Added 2026-05-30. Wraps `page.goto` with a single retry on Firefox's `NS_BINDING_ABORTED`. Use it for ANY chained `page.goto()` call that happens AFTER a `click → detail-page-nav` sequence on evolution admin pages — those detail pages mount `useEffect` fetches that Firefox aborts when the next nav arrives. Chromium silently coalesces; Firefox surfaces the abort to Playwright.
-
-```ts
-import { safeGoto } from '@/lib/testing/safe-goto';
-
-// Initial goto: regular page.goto (no race possible)
-await adminPage.goto('/admin/evolution/experiments');
-// ... click an experiment row → detail page mounts EntityMetricsTab + AttributionCharts ...
-
-// Chained goto: use safeGoto — Firefox can NS_BINDING_ABORTED otherwise
-await safeGoto(adminPage, '/admin/evolution/strategies');
-```
-
-Helper retries once after `waitForLoadState('domcontentloaded')`. Non-NS errors propagate unchanged. See `docs/planning/nightly_e2e_still_failing_20260530/` for the full forensics.
-
 ### `EvolutionListPage` POM for "Hide test content" filter
 
 Mirrors `AdminContentPage.resetFilters()`. The "Hide test content" filter is default-on across all evolution admin list pages (runs / experiments / strategies / variants), so seeded `[TEST]`/`[E2E]`/`[TEST_EVO]` rows are invisible until reset. Tests must call `await listPage.resetFilters()` immediately after navigation, before asserting on seeded rows.
@@ -366,7 +349,7 @@ await listPage.enableHideTestFilter(); // re-check for filter-toggle tests
 
 ### `abortableEffectController` for React useEffect unmount safety
 
-Added 2026-05-30 at `evolution/src/lib/utils/abortableEffect.ts`. Wraps `AbortController` for use in React effects that await Server Actions. Server Action POSTs cannot be cancelled from the client (the server keeps running), but this controller prevents `setState` after unmount, which on Firefox would otherwise surface as `NS_BINDING_ABORTED` errors during chained navigation.
+Lives at `evolution/src/lib/utils/abortableEffect.ts`. Wraps `AbortController` for use in React effects that await Server Actions. Server Action POSTs cannot be cancelled from the client (the server keeps running), but this controller prevents `setState` after unmount.
 
 ```ts
 import { abortableEffectController } from '@evolution/lib/utils/abortableEffect';
@@ -495,7 +478,6 @@ export const test = base.extend<{ authenticatedPage: Page }>({
 | `setup` | Auth once, saves to `.auth/user.json` |
 | `chromium` | Authenticated tests (depends on setup) |
 | `chromium-unauth` | Tests auth redirects with empty state; `grep: /@critical/` limits to `@critical`-tagged unauth tests in the critical suite |
-| `firefox` | Nightly runs only |
 
 ---
 
@@ -533,7 +515,7 @@ Unit Tests + ESM ─┘
 ### e2e-nightly.yml
 
 - **Schedule**: 6 AM UTC daily
-- **Browsers**: Chromium + Firefox (full browser matrix)
+- **Browsers**: Chromium
 - Full test suite against live production URL, no sharding
 - **No `E2E_TEST_MODE`** — uses real AI against production (no SSE mocking)
 - **YAML runs from `main`** but checks out `production` branch code (`ref: production`)
@@ -716,12 +698,11 @@ npx supabase db diff --linked
 ## Known Issues
 
 1. **E2E logout test skipped**: `signOut()` uses `redirect()` incompatible with onClick
-2. **Firefox SSE**: Nightly runs include Firefox against production (no `E2E_TEST_MODE`) using real AI and SSE streaming
-3. **Coverage thresholds**: Set ~5% below baseline (branches: 41%, functions: 35%, lines: 42%, statements: 42%)
-4. **Supabase rate limits**: Rapid auth tests may trigger limits (use `--workers=1`)
-5. **AI suggestions E2E**: Requires `NEXT_PUBLIC_USE_AI_API_ROUTE='true'` in environment
-6. **Test data cleanup**: E2E test data uses `[TEST]` prefix for discovery filtering; integration uses `test-` prefix
-7. **Jest 30 upgrade**: Using Jest 30.2.0 - async context improvements, minor migration from 29.x
+2. **Coverage thresholds**: Set ~5% below baseline (branches: 41%, functions: 35%, lines: 42%, statements: 42%)
+3. **Supabase rate limits**: Rapid auth tests may trigger limits (use `--workers=1`)
+4. **AI suggestions E2E**: Requires `NEXT_PUBLIC_USE_AI_API_ROUTE='true'` in environment
+5. **Test data cleanup**: E2E test data uses `[TEST]` prefix for discovery filtering; integration uses `test-` prefix
+6. **Jest 30 upgrade**: Using Jest 30.2.0 - async context improvements, minor migration from 29.x
 8. **Column name convention**: `userLibrary` table uses `explanationid` (no underscore), while `explanation_tags` uses `explanation_id` (with underscore). Be careful with column names in cleanup queries.
 
 ---

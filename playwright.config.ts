@@ -154,15 +154,6 @@ export default defineConfig({
         storageState: { cookies: [], origins: [] },
       },
     },
-    // Firefox - for nightly runs only (authenticated via per-worker API auth)
-    {
-      name: 'firefox',
-      testMatch: /^(?!.*\.unauth\.spec\.ts$)(?!.*guest-auto-login\.spec\.ts$)(?!.*\.prod-ai\.spec\.ts$).*\.spec\.ts$/,
-      testIgnore: /auth\.setup\.ts/,
-      use: {
-        ...devices['Desktop Firefox'],
-      },
-    },
     // prod-ai — the deliberate cheap real-AI smoke (reduce_e2e_openai_test_costs_20260607).
     // Points at the SECONDARY webServer on port 3010 which runs WITHOUT E2E_TEST_MODE (so the
     // real returnExplanation pipeline executes) but WITH TEST_LLM_MODEL=google/gemini-2.5-flash

@@ -4,7 +4,6 @@
 // spend. Cleanup cascades from the tracked pair-bank (covers test sets, members, and the clone).
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
-import { safeGoto } from '@/lib/testing/safe-goto';
 import {
   getEvolutionServiceClient,
   trackEvolutionId,
@@ -65,12 +64,12 @@ adminTest.describe('Judge Lab — Test Set view/edit/clone', { tag: '@evolution'
     await db.from('judge_eval_test_set_members').insert({ test_set_id: testSetId, pair_label: 'art#1', pair_kind: 'article' });
 
     // View contents: the detail page renders the per-pair table with the pair row.
-    await safeGoto(adminPage, `/admin/evolution/judge-lab/test-sets/${testSetId}`);
+    await adminPage.goto(`/admin/evolution/judge-lab/test-sets/${testSetId}`);
     await expect(adminPage.getByTestId('test-set-pairs-table')).toBeVisible({ timeout: 30000 });
     await expect(adminPage.getByTestId('pair-row').first()).toBeVisible({ timeout: 30000 });
 
     // From the list, locate the seeded row (newest-first, no pagination on this page).
-    await safeGoto(adminPage, '/admin/evolution/judge-lab/test-sets');
+    await adminPage.goto('/admin/evolution/judge-lab/test-sets');
     const row = adminPage.getByTestId('test-set-row').filter({ hasText: TEST_SET_NAME });
     await expect(row).toBeVisible({ timeout: 30000 });
 
@@ -131,7 +130,7 @@ adminTest.describe('Judge Lab — Test Set view/edit/clone', { tag: '@evolution'
     const testSetId = ts.data!.id;
     await db.from('judge_eval_test_set_members').insert({ test_set_id: testSetId, pair_label: 'art#1', pair_kind: 'article' });
 
-    await safeGoto(adminPage, `/admin/evolution/judge-lab/test-sets/${testSetId}`);
+    await adminPage.goto(`/admin/evolution/judge-lab/test-sets/${testSetId}`);
     await adminPage.getByTestId('open-clone-curate').click();
     await expect(adminPage.getByTestId('curate-table')).toBeVisible({ timeout: 30000 });
     // The panel runs two async loads (member-seed + display); wait for the rows to actually render
@@ -153,7 +152,7 @@ adminTest.describe('Judge Lab — Test Set view/edit/clone', { tag: '@evolution'
     await expect(adminPage.getByTestId('clone-curate')).toBeHidden({ timeout: 30000 });
 
     // The curated clone appears in the list with size_article = 1 (just art#2).
-    await safeGoto(adminPage, '/admin/evolution/judge-lab/test-sets');
+    await adminPage.goto('/admin/evolution/judge-lab/test-sets');
     await expect(
       adminPage.getByTestId('test-set-row').filter({ hasText: CURATE_CLONE_NAME }),
     ).toBeVisible({ timeout: 30000 });

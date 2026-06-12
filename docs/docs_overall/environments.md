@@ -272,8 +272,8 @@ detect-changes → typecheck + lint (parallel)
 **Behavior:**
 - Runs on `main` branch
 - Full E2E test suite (no sharding)
-- **Browser matrix:** Chromium + Firefox
-- **No** `E2E_TEST_MODE` — nightly runs real AI against the deployed prod app (hence the `[TEST]` prefix on generated content is critical for cleanup). Chromium-only (firefox dropped 2026-06-07 to halve real spend). The separate `e2e-real-ai-smoke.yml` runs a cheap-model (`TEST_LLM_MODEL=google/gemini-2.5-flash`) `@prod-ai` real-AI smoke against a local build; per-deploy prod validation is covered by `post-deploy-smoke.yml`.
+- **Browser matrix:** Chromium
+- **No** `E2E_TEST_MODE` — nightly runs real AI against the deployed prod app (hence the `[TEST]` prefix on generated content is critical for cleanup). The separate `e2e-real-ai-smoke.yml` runs a cheap-model (`TEST_LLM_MODEL=google/gemini-2.5-flash`) `@prod-ai` real-AI smoke against a local build; per-deploy prod validation is covered by `post-deploy-smoke.yml`.
 - **Fail strategy:** Continues on failure (tests all browsers)
 
 ### Post-Deploy Smoke Tests (`post-deploy-smoke.yml`)
@@ -296,7 +296,7 @@ detect-changes → typecheck + lint (parallel)
 | **Test types** | Unit → Integration + E2E (parallel) | E2E only | E2E `@smoke` only |
 | **Target** | Local build | Local build | Live production URL |
 | **Secrets** | Staging environment | Staging environment | Production environment |
-| **Browsers** | Chromium (+ Firefox on `e2e-evolution` job for evolution/admin-path PRs) | Chromium + Firefox | Chromium |
+| **Browsers** | Chromium | Chromium | Chromium |
 
 > **Note:** CI and Nightly workflows build and run the app locally on the GitHub runner (`npm run build && npm start`). They do NOT test against any deployed environment. Only the Post-Deploy Smoke workflow tests against a live deployment.
 
