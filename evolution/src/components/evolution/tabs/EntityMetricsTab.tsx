@@ -134,10 +134,7 @@ export function EntityMetricsTab({ entityType, entityId }: EntityMetricsTabProps
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // State-guard for unmount safety. Server Actions are POST RPCs whose
-    // server-side work cannot be cancelled from the client, but we can prevent
-    // setState writes after unmount. Without this guard, Firefox surfaces
-    // racing fetches as NS_BINDING_ABORTED during chained nav.
+    // Guards setState after unmount; server-action POST continues server-side.
     // TODO(perf): plumb AbortSignal through getEntityMetricsAction if response
     // cancellation becomes important — separate PR.
     const ctl = abortableEffectController();

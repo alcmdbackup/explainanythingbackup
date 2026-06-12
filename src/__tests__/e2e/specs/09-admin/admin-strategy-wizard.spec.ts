@@ -275,9 +275,9 @@ adminTest.describe('Strategy Creation Wizard', { tag: '@evolution' }, () => {
 
     // Submit — the key assertion is that the strategy is created with agentType:'reflect_and_generate'.
     // Use Promise.all to attach the URL waiter BEFORE the click; this avoids a race
-    // where the click + server redirect complete before the toHaveURL assertion attaches
-    // (Firefox is especially prone to this). Server Actions POST to the page URL with
-    // a Next-Action header, so URL-change is the deterministic signal — not waitForResponse.
+    // where the click + server redirect complete before the toHaveURL assertion attaches.
+    // Server Actions POST to the page URL with a Next-Action header, so URL-change is
+    // the deterministic signal — not waitForResponse.
     const createBtn = adminPage.locator('button', { hasText: 'Create Strategy' });
     await expect(createBtn).toBeEnabled();
     await Promise.all([

@@ -80,10 +80,7 @@ test.describe('Search and Generate Flow', () => {
     // Note: SSE streaming is now handled via E2E_TEST_MODE in the API route,
     // which provides real incremental streaming instead of buffered route.fulfill().
 
-    test('should show title during streaming', async ({ authenticatedPage: page }, testInfo) => {
-      // Firefox is slower with SSE streaming
-      if (testInfo.project.name === 'firefox') test.slow();
-
+    test('should show title during streaming', async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
 
       if (isProduction) {
@@ -117,10 +114,8 @@ test.describe('Search and Generate Flow', () => {
       expect(title.trim().length).toBeGreaterThan(0);
     });
 
-    test('should display full content after streaming completes', { tag: '@critical' }, async ({ authenticatedPage: page }, testInfo) => {
+    test('should display full content after streaming completes', { tag: '@critical' }, async ({ authenticatedPage: page }) => {
       test.setTimeout(60000);
-      // Firefox is slower with SSE streaming
-      if (testInfo.project.name === 'firefox') test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -253,10 +248,7 @@ test.describe('Search and Generate Flow', () => {
   });
 
   test.describe('URL State', () => {
-    test('should preserve query in URL after generation', async ({ authenticatedPage: page }, testInfo) => {
-      // Firefox is slower with SSE streaming
-      if (testInfo.project.name === 'firefox') test.slow();
-
+    test('should preserve query in URL after generation', async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
 
       if (isProduction) {

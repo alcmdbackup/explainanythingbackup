@@ -6,7 +6,6 @@
 // (create_tool_systematic_judge_evaluation_evolution_20260606)
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
-import { safeGoto } from '@/lib/testing/safe-goto';
 import {
   getEvolutionServiceClient,
   trackEvolutionId,
@@ -89,7 +88,7 @@ adminTest.describe('Judge Lab', { tag: '@evolution' }, () => {
     expect(callsRes.error).toBeNull();
 
     // Open Judge Lab and select the seeded test set (hydration: wait for the select to load options).
-    await safeGoto(adminPage, '/admin/evolution/judge-lab');
+    await adminPage.goto('/admin/evolution/judge-lab');
     const select = adminPage.getByTestId('test-set-select');
     await expect(select).toBeVisible({ timeout: 30000 });
     // Options are keyed by test-set id; wait for the seeded option to hydrate, then select it.
@@ -106,7 +105,7 @@ adminTest.describe('Judge Lab', { tag: '@evolution' }, () => {
     await expect(runIdLink).toContainText(runId.substring(0, 8));
 
     // Drill into run detail.
-    await safeGoto(adminPage, `/admin/evolution/judge-lab/runs/${runId}`);
+    await adminPage.goto(`/admin/evolution/judge-lab/runs/${runId}`);
     await expect(adminPage.getByTestId('run-kind-aggregates')).toBeVisible({ timeout: 30000 });
     await expect(adminPage.getByTestId('kind-block-article')).toContainText(/decisive/i);
     // The full run id is surfaced (click-to-copy) for tracking.
@@ -114,7 +113,7 @@ adminTest.describe('Judge Lab', { tag: '@evolution' }, () => {
 
     // Match history: open the dedicated view, expand the populated match, assert the full judge
     // I/O + both content pieces are shown.
-    await safeGoto(adminPage, `/admin/evolution/judge-lab/runs/${runId}/matches`);
+    await adminPage.goto(`/admin/evolution/judge-lab/runs/${runId}/matches`);
     await expect(adminPage.getByTestId('matches-table')).toBeVisible({ timeout: 30000 });
     await expect(adminPage.getByTestId('match-row').first()).toBeVisible({ timeout: 30000 });
     // "Open in Match Viewer" appears only for rows with snapshotted variant ids (the populated row,

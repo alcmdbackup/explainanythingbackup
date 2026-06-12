@@ -389,7 +389,7 @@ detect-changes → typecheck + lint (parallel)
 | `main` | Critical (5 tests) | Critical (`@critical` tagged, ~18 tests) | None |
 | `production` | Full (31 tests) | Full (all tests) | 4 shards |
 
-**Firefox-evolution PR matrix** (post-2026-05-30): the `e2e-evolution` PR-CI job runs a `browser: [chromium, firefox]` matrix when changes touch evolution/admin paths. This is a structural fix for the Firefox `NS_BINDING_ABORTED` cluster that broke nightly E2E 5 nights in a row (see `docs/planning/nightly_e2e_still_failing_20260530/`). Chained `page.goto()` calls in evolution admin specs must use the `safeGoto` helper from `@/lib/testing/safe-goto` — the helper catches Firefox's `NS_BINDING_ABORTED` once and retries.
+Firefox was retired from CI on 2026-06-12; the `e2e-evolution` PR-CI job is now Chromium-only. See `docs/planning/remove_firefox_stage_merges_20260611/` for context.
 
 **Key Optimizations:**
 - Unit tests run only on affected files (`--changedSince`)
@@ -405,7 +405,7 @@ detect-changes → typecheck + lint (parallel)
 **Behavior:**
 - **YAML runs from `main`** (GitHub Actions cron behavior) but **checks out `production` branch** code via `actions/checkout@v4` with `ref: production`
 - Full E2E test suite against live production URL (no sharding)
-- **Browser matrix:** Chromium + Firefox
+- **Browser matrix:** Chromium
 - **No E2E_TEST_MODE** - uses real AI, tests create real content (hence [TEST] prefix is critical)
 - **`@skip-prod` filtering (belt-and-suspenders):** Tests tagged `@skip-prod` are excluded via both the CLI `--grep-invert="@skip-prod"` flag in the workflow AND the `grepInvert` config in `playwright.config.ts`. The CLI flag ensures filtering works regardless of which branch's config is checked out.
 - **Blocking pre-flight audit:** Before running tests, a step verifies that all mock-dependent test files (AI suggestions, error tests) have `@skip-prod` tags. The step blocks the run if any are missing.
@@ -433,7 +433,7 @@ detect-changes → typecheck + lint (parallel)
 | **Test types** | Unit → Integration → E2E | E2E only | E2E `@smoke` only |
 | **Target** | Local build | Live production URL | Live production URL |
 | **Secrets** | Staging environment | Production environment | Production environment |
-| **Browsers** | Chromium (+ Firefox on `e2e-evolution` job — see Firefox matrix below) | Chromium + Firefox | Chromium |
+| **Browsers** | Chromium | Chromium | Chromium |
 | **E2E_TEST_MODE** | Yes (mocked SSE) | No (real AI) | No (real AI) |
 | **@skip-prod** | runs locally + in CI (config `grepInvert` is prod-gated on `isProduction`) | excluded via CLI `--grep-invert="@skip-prod"` + the now prod-gated config `grepInvert` | N/A (only @smoke runs) |
 
