@@ -178,7 +178,39 @@ export async function finalizeRun(
 
   if (localPool.length === 0) {
     if (result.pool.length > 0) {
-      logger?.info('Arena-only pool: marking as completed', { phaseName: 'finalize', arenaPoolSize: result.pool.length, localPoolSize: 0 });
+      // D3 (fix_structured_judging_evolution_bugs): an empty localPool with arena entries
+      // remaining means every generated variant either ERRORED or was discarded. Distinguish
+      // the two via non-arena discarded variants:
+      //   - zero non-arena discarded → all generations errored (e.g. provider 402) → FAIL the run.
+      //   - some non-arena discarded → generations ran but all lost; with arena entries present
+      //     this is a genuine arena-only completion (preserved).
+      // (discardedVariants are agent-generated and never carry fromArena=true, so the filter is
+      // belt-and-suspenders.)
+      const nonArenaDiscardedCount = (result.discardedVariants ?? []).filter((v) => !v.fromArena).length;
+      // Authoritative gate: zero non-arena discarded variants ⇒ all generations errored. The
+      // loop-set `stopReason==='all_generations_failed'` is a redundant belt-and-suspenders signal.
+      if (nonArenaDiscardedCount === 0 || result.stopReason === 'all_generations_failed') {
+        logger?.error('Finalization failed: zero variants produced (all generations errored)', {
+          phaseName: 'finalize', arenaPoolSize: result.pool.length, localPoolSize: 0,
+        });
+        // Set a concrete error_code so a later markRunFailed (predicate .is('error_code', null))
+        // no-ops; mirror the success path's guards so a run re-claimed/killed by another runner
+        // isn't overwritten: status guard + runner_id fence (when known) + clear runner_id.
+        let failedQuery = db.from('evolution_runs').update({
+          status: 'failed',
+          error_message: 'All generations failed: zero variants produced',
+          error_code: 'all_generations_failed',
+          runner_id: null,
+          completed_at: new Date().toISOString(),
+        }).eq('id', runId).in('status', ['claimed', 'running']);
+        if (runnerId) {
+          // Stale-runner fence: only the current owner finalizes (matches the success path).
+          failedQuery = failedQuery.eq('runner_id', runnerId);
+        }
+        await failedQuery;
+        return;
+      }
+      logger?.info('Arena-only pool: marking as completed', { phaseName: 'finalize', arenaPoolSize: result.pool.length, localPoolSize: 0, nonArenaDiscardedCount });
       // B008-S1: pass FILTERED result (arena-only branch was passing raw `result` whose
       // pool still includes arena entries — topVariants/tacticEffectiveness were
       // contaminated with arena rows). Build the summary from a result with the same

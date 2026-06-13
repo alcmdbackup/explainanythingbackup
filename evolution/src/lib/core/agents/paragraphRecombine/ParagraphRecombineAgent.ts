@@ -329,12 +329,17 @@ export class ParagraphRecombineAgent extends Agent<
       return {
         result: { variant: null, surfaced: false, status: 'generation_failed', matches: [] },
         detail: partialDetail,
+        // D1 (fix_structured_judging_evolution_bugs): the recombined ARTICLE failed format
+        // validation → no usable variant produced → hard fail (consistent with GFPA format-invalid).
+        failure: { code: 'format_invalid', message: 'recombined article failed format validation' },
       };
     }
 
     // ─── Step 4: Pre-final-ranking budget gate (D6/D9) ────────────
     if (invocationScope.getOwnSpent!() >= PRE_FINAL_RANKING_GATE_FRACTION * perInvocationCapUsd) {
       await safeUpdateInvocation(ctx, partialDetail);
+      // D1: this is a deliberate BUDGET headroom gate, NOT a failure — do NOT set `failure`
+      // (analogous to GFPA's 'budget' status). The invocation stays success=true.
       return {
         result: { variant: null, surfaced: false, status: 'generation_failed', matches: [] },
         detail: partialDetail,

@@ -211,6 +211,12 @@ The `budgetFraction` is computed by the pipeline supervisor before each ranking 
 
 ## Cost Estimation
 
+### 402 / no-max_tokens failure mode (fix_structured_judging_evolution_bugs_20260611)
+
+Until 2026-06-12, `callOpenAIModel` (`src/lib/services/llms.ts`) never set `max_tokens` on the OpenAI/OpenRouter request, so OpenRouter reserved the model's **full max output (~65535 tokens)** for its credit-affordability pre-check. On a low OpenRouter balance this returned **HTTP 402** (`"requires more credits, or fewer max_tokens. You requested up to 65535…"`) *before any tokens were billed*, even though real evolution output is ~1–2.3K tokens. Every generation then failed, the run produced 0 variants at $0 cost, and finalize marked it silently `completed`/`arena_only` (the cascade through latent defects D1/D2/D3). This fired on **2026-05-02 and 2026-06-11**.
+
+**Fix (D5):** the evolution pipeline now passes `maxOutputTokens` (`CallLLMOptions`) — set to `EVOLUTION_MAX_OUTPUT_TOKENS` (default **4096**, env kill-switch) at the single chokepoint `claimAndExecuteRun.ts` `complete()` — which `callOpenAIModel` forwards as `max_tokens` **only for non-reasoning models** (reasoning models are exempted because `max_tokens` caps reasoning+completion together). A `finish_reason === 'length'` guard throws so a future truncation fails loudly (→ D1 `success=false`) instead of returning silently-partial text. The cap shrinks the affordability requirement ~16× and clears the 402 at low balances. The offline `runJudgeEval.ts` / `runPromptEditorConfig.ts` paths bypass this chokepoint and remain uncapped (follow-up). Recurrence detector: `evolution/scripts/detectArenaOnlyWipeouts.ts` + `.github/workflows/evolution-run-health.yml`.
+
 ### Per-Call Estimation (Reserve-Before-Spend)
 
 **File:** `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts`

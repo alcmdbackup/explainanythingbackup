@@ -159,12 +159,14 @@ describe('GenerateFromPreviousArticleAgent', () => {
     expect(initialCounts.size).toBe(0);
   });
 
-  it('returns generation_failed when format validation fails', async () => {
+  it('returns generation_failed AND marks invocation failed when format validation fails', async () => {
     mockFormatValid = false;
     mockFormatIssues = ['no_h1', 'too_few_sentences'];
     const agent = new GenerateFromPreviousArticleAgent();
     const result = await agent.run(makeInput(), makeCtx());
-    expect(result.success).toBe(true); // Agent.run() succeeds even if generation failed
+    // D1: a format-invalid generation is a hard fail — output.failure is set, so Agent.run()
+    // persists success=false (was masked as success=true before fix_structured_judging_evolution_bugs).
+    expect(result.success).toBe(false);
     expect(result.result?.variant).toBeNull();
     expect(result.result?.status).toBe('generation_failed');
     expect(result.result?.surfaced).toBe(false);
@@ -191,12 +193,30 @@ describe('GenerateFromPreviousArticleAgent', () => {
     }
   });
 
-  it('returns generation_failed for unknown tactics', async () => {
+  it('returns generation_failed for unknown tactics AND marks invocation failed', async () => {
     const input = { ...makeInput(), tactic: 'unknown_tactic' };
     const agent = new GenerateFromPreviousArticleAgent();
     const result = await agent.run(input, makeCtx());
     expect(result.result?.status).toBe('generation_failed');
     expect(result.result?.variant).toBeNull();
+    // D1: unknown-tactic is a strategy-misconfiguration hard fail.
+    expect(result.success).toBe(false);
+  });
+
+  it('D1: a non-budget LLM error (e.g. 402) → status generation_failed + success=false', async () => {
+    const llm: EvolutionLLMClient = {
+      complete: jest.fn(async (_p, agentName) => {
+        if (agentName === 'generation') throw new Error('402 This request requires more credits, or fewer max_tokens.');
+        return 'A';
+      }),
+      completeStructured: jest.fn(async () => { throw new Error('not used'); }),
+    };
+    const input = { ...makeInput(), llm };
+    const agent = new GenerateFromPreviousArticleAgent();
+    const result = await agent.run(input, makeCtx());
+    expect(result.result?.status).toBe('generation_failed');
+    expect(result.result?.variant).toBeNull();
+    expect(result.success).toBe(false);
   });
 
   it('SURFACES variant on converged status', async () => {

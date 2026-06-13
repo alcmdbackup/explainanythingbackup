@@ -222,6 +222,12 @@ export class SwissRankingAgent extends Agent<
       result: { pairs, matches: matchBuffer, status },
       detail,
       parentVariantIds: [...eligibleIds],
+      // D1 (fix_structured_judging_evolution_bugs): a 'failure' status means every pair threw a
+      // NON-budget error (provider outage) and zero matches landed — a genuine hard failure, so
+      // the invocation is recorded success=false. 'budget'/'no_pairs'/'success' are not failures.
+      ...(status === 'failure'
+        ? { failure: { code: 'swiss_all_pairs_failed', message: `All ${otherFailureCount} swiss pair comparison(s) failed (non-budget)` } }
+        : {}),
     };
   }
 }

@@ -256,4 +256,20 @@ describe('SinglePassEvaluateCriteriaAndGenerateAgent.execute() — parent-Elo ga
     await agent.execute(makeInput(llm, undefined), makeCtx());
     expect(findGenerationPrompt(llm)).not.toContain('SURGICAL EDITS ONLY');
   });
+
+  it('D1: forwards inner GFPA hard-fail (generation error) as output.failure', async () => {
+    const llm = {
+      complete: jest.fn(async (_p: string, label: string) => {
+        if (label === 'evaluate_and_suggest') return EVAL_RESPONSE_ONE_SUGGESTION;
+        if (label === 'generation') throw new Error('402 This request requires more credits, or fewer max_tokens.');
+        return 'A';
+      }),
+      completeStructured: jest.fn(async () => { throw new Error('not used'); }),
+    } as unknown as MockLlm;
+    const agent = new SinglePassEvaluateCriteriaAndGenerateAgent();
+    const result = await agent.execute(makeInput(llm, 1200), makeCtx());
+    expect(result.failure).toBeDefined();
+    expect(result.failure?.code).toBe('generation_failed');
+    expect(result.result.variant).toBeNull();
+  });
 });

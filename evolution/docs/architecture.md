@@ -714,6 +714,28 @@ out at the architecture level:
   `error_message`. Before B051, the row was marked `success: true` with
   `execution_detail: undefined`, which hid the failure in dashboards and
   crashed downstream renderers on read.
+- **Non-thrown generation hard-failure = success=false (D1, fix_structured_judging_evolution_bugs_20260611).**
+  B051 only covered *schema-invalid* detail. A generate/seed agent that hard-fails its LLM call
+  (e.g. a 402, an unknown tactic) RETURNS a non-thrown `AgentOutput` whose detail is schema-VALID,
+  so it was still recorded `success: true` / `error_message: null` — masking 100% generation
+  failures as success. `AgentOutput.failure?: {code, message}` now marks those return paths;
+  `Agent.run()` computes `isFailure = detailInvalid || output.failure !== undefined` and persists
+  `success=false` + `error_message` while KEEPING the valid detail. Legit surfaced=false discards
+  (real variant) and `'budget'` aborts never set `failure`, so they stay `success=true`. The 3
+  criteria/reflect wrappers forward the inner GFPA's `failure`.
+- **Top-up runaway breaker (D2).** The within-iteration top-up loop (`runIterationLoop.ts`) used to
+  decrement budget only by *realized* cost, so a stream of $0-cost generation failures (402) never
+  shrank `remaining` and the loop ran to `DISPATCH_SAFETY_CAP=100`. It now also breaks after
+  `MAX_CONSECUTIVE_GEN_FAILURES=3` dispatches with no variant (`result===null ||
+  status==='generation_failed'`), and a parallel-batch guard skips top-up when the whole batch
+  produced zero variants. `parallelSuccesses` counts real variants (not `cost>0`) so $0-cost local
+  successes don't false-fire. `'budget'` skips are excluded (they exit via the budget floor).
+- **all_generations_failed finalize outcome (D3).** `finalizeRun`'s arena-only early-return
+  (`persistRunResults.ts`) used to mark a run `completed`/`stopReason='arena_only'` whenever the
+  non-arena pool was empty. When that emptiness is because every generation ERRORED (zero non-arena
+  `discardedVariants`), the run is now marked `status='failed'`, `error_code='all_generations_failed'`
+  (race-safe: concrete error_code + `runner_id:null` + `.in('status',['claimed','running'])`).
+  A genuine arena-only completion (variants produced then all discarded) is preserved.
 - **Seed-variant retry + permanent failure (B008).** `claimAndExecuteRun`
   retries seed generation with exponential backoff on transient failure and
   fails the whole run (status = failed) on permanent failure. Runs no longer

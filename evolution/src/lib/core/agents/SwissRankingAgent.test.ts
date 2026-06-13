@@ -162,6 +162,20 @@ describe('SwissRankingAgent', () => {
     expect(result.result?.matches.length).toBe(2);
   });
 
+  it('D1: status=failure (all pairs threw non-budget errors) marks the invocation success=false', async () => {
+    const agent = new SwissRankingAgent();
+    mockComparisonResults = [
+      new Error('llm 502'),
+      new Error('llm timeout'),
+      new Error('llm 500'),
+    ];
+    const result = await agent.run(buildInput(), makeCtx());
+    expect(result.result?.status).toBe('failure');
+    expect(result.result?.matches.length).toBe(0);
+    // D1: a provider-outage 'failure' is now a hard fail (was masked as success=true).
+    expect(result.success).toBe(false);
+  });
+
   it('counts pairsFailedBudget and pairsFailedOther separately', async () => {
     const agent = new SwissRankingAgent();
     mockComparisonResults = [

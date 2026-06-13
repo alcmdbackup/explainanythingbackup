@@ -1,0 +1,63 @@
+# Scheduled detector for the "arena_only wipeout" evolution failure mode
+# (fix_structured_judging_evolution_bugs_20260611, GH #1202): runs marked completed but with
+# 0 variants / 0 cost because every generation 402'd. Fired silently on 2026-05-02 and
+# 2026-06-11 with no alert. This polls staging + production daily and alerts Slack on a hit.
+name: Evolution Run Health
+
+on:
+  schedule:
+    # Daily at 14:00 UTC — after the minicomputer runner's typical active window.
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: 'Look-back window in hours'
+        required: false
+        default: '24'
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { name: staging, env: staging, flag: '' }
+          - { name: production, env: Production, flag: '--prod' }
+    environment: ${{ matrix.target.env }}
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Detect arena_only wipeouts (${{ matrix.target.name }})
+        id: detect
+        # Bind the workflow_dispatch input to an env var rather than interpolating it into the
+        # shell — `${{ github.event.inputs.* }}` is untrusted and inlining it is a script-injection
+        # sink (this job holds the Supabase service-role key). `matrix.target.flag` is workflow-
+        # defined (trusted), so it stays inline.
+        env:
+          HOURS: ${{ github.event.inputs.hours || '24' }}
+        run: |
+          npx tsx evolution/scripts/detectArenaOnlyWipeouts.ts ${{ matrix.target.flag }} --hours "$HOURS"
+      - name: Notify Slack on detection
+        if: failure() && steps.detect.conclusion == 'failure'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          echo "::error::[evolution-health] arena_only wipeout detected on ${{ matrix.target.name }} — likely OpenRouter credit exhaustion."
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data "{\"text\":\"[evolution-health] arena_only wipeout(s) detected on ${{ matrix.target.name }} — runs completed with 0 variants / 0 cost (likely OpenRouter 402 credit exhaustion). See the workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+              "$SLACK_WEBHOOK_URL"
+          else
+            echo "::warning::SLACK_WEBHOOK_URL not configured - skipping Slack notification"
+          fi

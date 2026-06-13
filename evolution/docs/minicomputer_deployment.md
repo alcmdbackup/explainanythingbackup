@@ -286,6 +286,14 @@ Cost control operates at two levels:
 
 See [Cost Optimization](./cost_optimization.md) for detailed budgeting strategies.
 
+### OpenRouter credit exhaustion (runbook)
+
+If runs using an OpenRouter model (`google/*`, `qwen/*`, `gpt-oss-20b`, …) start finishing with **0 variants / 0 cost** (`stopReason='arena_only'` pre-fix, or `status='failed'` `error_code='all_generations_failed'` post-fix), the runner's `OPENROUTER_API_KEY` is **out of credits** — every generation 402s (`"requires more credits, or fewer max_tokens. You requested up to 65535…"`). This fired silently on 2026-05-02 and 2026-06-11.
+
+- **Check balance:** `curl -H "Authorization: Bearer $OPENROUTER_API_KEY" https://openrouter.ai/api/v1/credits`
+- **Fix:** top up credits, or point the strategy off the OpenRouter model. The `EVOLUTION_MAX_OUTPUT_TOKENS` cap (default 4096) already shrinks the affordability check ~16× so low balances don't 402; restore credits to actually generate.
+- **Detector / alert:** `evolution/scripts/detectArenaOnlyWipeouts.ts` (run `npx tsx … --hours 24`) flags the fingerprint; `.github/workflows/evolution-run-health.yml` runs it daily against staging + prod and posts to `SLACK_WEBHOOK_URL` on a hit.
+
 ### Monitoring
 
 - **Database**: Query `evolution_runs` for run status, duration, and cost. The `evolution_run_logs` table contains per-phase execution logs.

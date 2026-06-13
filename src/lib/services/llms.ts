@@ -108,6 +108,12 @@ export interface CallLLMOptions {
    *  `createSupabaseServiceClient` lives in a `'use server'` file that misbehaves in CLI.
    *  When omitted, falls back to the Next.js-resolved service client. */
   trackingDb?: SupabaseClient<Database>;
+  /** Hard cap on output tokens for THIS call, forwarded as OpenAI `max_tokens` on the
+   *  OpenAI/OpenRouter/DeepSeek path. Omit to let the provider use its default (the model max,
+   *  which on OpenRouter inflates the credit-affordability pre-check and can 402). Set by the
+   *  evolution pipeline (see claimAndExecuteRun). IGNORED for reasoning-capable models, where
+   *  `max_tokens` would cap reasoning+completion together and could truncate the trace. */
+  maxOutputTokens?: number;
 }
 
 type ResponseObject = z.ZodObject<any> | null;
@@ -472,6 +478,16 @@ async function callOpenAIModel(
             requestOptions.temperature = clampedTemp;
         }
 
+        // Per-call output cap (D5 — fix_structured_judging_evolution_bugs). Applied ONLY when the
+        // caller opts in (evolution sets it; main-app callers don't, so their request is byte-
+        // identical) AND the model is non-reasoning. Reasoning models are exempted because
+        // `max_tokens` caps reasoning+completion together and a small cap could truncate the trace.
+        // Without a cap, OpenRouter reserves the model max (~65535) for its credit-affordability
+        // pre-check, which 402s on a low balance even though real output is ~1-2K tokens.
+        if (options?.maxOutputTokens !== undefined && !modelSupportsReasoning(validatedModel)) {
+            requestOptions.max_tokens = options.maxOutputTokens;
+        }
+
         // Reasoning effort — caller override wins over the registry default; hygiene rules
         // (drop 'none', skip non-reasoning models) live in resolveReasoningRequestFields so a
         // model never receives a reasoning param it can't accept. Phase 1.20 trace opt-ins
@@ -585,6 +601,19 @@ async function callOpenAIModel(
                 modelUsed = completion.model || apiModel;
                 response = completion.choices[0]?.message?.content || '';
                 rawApiResponse = JSON.stringify(completion);
+            }
+
+            // D5 truncation guard: if WE imposed a max_tokens cap and the provider truncated the
+            // response at it (finish_reason='length'), fail loudly instead of returning silently-
+            // partial text. Scoped to `requestOptions.max_tokens !== undefined` so main-app calls
+            // (which never set the cap) are unaffected. For evolution this surfaces as a thrown
+            // error → the agent records the invocation success=false (D1), never a silent partial.
+            if (requestOptions.max_tokens !== undefined && finishReason === 'length') {
+                throw new Error(
+                    `LLM response truncated at max_tokens=${requestOptions.max_tokens} ` +
+                    `(finish_reason='length', model=${validatedModel}). Increase the evolution ` +
+                    `output cap (EVOLUTION_MAX_OUTPUT_TOKENS) or check the prompt size.`,
+                );
             }
 
             promptTokens = usage.prompt_tokens ?? 0;
