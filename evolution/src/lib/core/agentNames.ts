@@ -49,6 +49,11 @@ export const AGENT_NAMES = [
   //     both labels through its pairwise-verdict path.
   'paragraph_rewrite',
   'paragraph_rank',
+  // Sequential context-aware generation (debug_performance_paragraph_recombine_20260612):
+  // ONE coordinator LLM call per invocation that returns the per-paragraph plan
+  // (role + M variation directives + temperatures + skip flags). Cost lands in the
+  // umbrella paragraph_recombine_cost alongside paragraph_rewrite + paragraph_rank.
+  'paragraph_recombine_coordinator',
 ] as const;
 export type AgentName = typeof AGENT_NAMES[number];
 
@@ -98,4 +103,6 @@ export const COST_METRIC_BY_AGENT: Partial<Record<AgentName, MetricName>> = {
   // getPhaseCosts to runTracker. The invariant above is now TRUE post-fix.
   paragraph_rewrite: 'paragraph_recombine_cost',
   paragraph_rank: 'paragraph_recombine_cost',
+  // Sequential coordinator (debug_performance_paragraph_recombine_20260612).
+  paragraph_recombine_coordinator: 'paragraph_recombine_cost',
 };

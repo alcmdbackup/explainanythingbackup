@@ -138,6 +138,17 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
     sourceMetric: 'paragraph_rewrite_estimation_error_pct', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   { name: 'avg_paragraph_rank_estimation_error_pct', label: 'Avg Paragraph Rank Error %', category: 'cost', formatter: 'percentValue',
     sourceMetric: 'paragraph_rank_estimation_error_pct', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  // Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612).
+  { name: 'avg_coordinator_retry_rate', label: 'Avg Coordinator Retry Rate', category: 'cost', formatter: 'percentValue',
+    sourceMetric: 'coordinator_retry_rate', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  { name: 'avg_coordinator_failure_rate', label: 'Avg Coordinator Failure Rate', category: 'cost', formatter: 'percentValue',
+    sourceMetric: 'coordinator_failure_rate', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  { name: 'avg_excessive_parent_fallback_abort_rate', label: 'Avg Excessive Parent-Fallback Abort Rate', category: 'cost', formatter: 'percentValue',
+    sourceMetric: 'excessive_parent_fallback_abort_rate', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  { name: 'total_prior_picks_sanitization_count', label: 'Total Prior-Picks Sanitization Count', category: 'cost', formatter: 'integer',
+    sourceMetric: 'prior_picks_sanitization_count', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
+  { name: 'total_prior_picks_truncation_count', label: 'Total Prior-Picks Truncation Count', category: 'cost', formatter: 'integer',
+    sourceMetric: 'prior_picks_truncation_count', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
   { name: 'avg_estimation_abs_error_usd', label: 'Avg Abs Error', category: 'cost', formatter: 'costDetailed',
     sourceMetric: 'estimation_abs_error_usd', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   { name: 'total_estimated_cost', label: 'Total Estimated Cost', category: 'cost', formatter: 'cost',
@@ -213,6 +224,20 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
       // Surfaces silent persist failures that would otherwise break D10 cross-invocation
       // accumulation for the affected slot.
       { name: 'paragraph_slot_match_persist_failures', label: 'Paragraph Slot Match Persist Failures', category: 'count', formatter: 'integer',
+        compute: () => 0 },
+      // Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612).
+      // Run-level rates + counters. Default compute returns 0; actual values written by
+      // the agent's metric extractor in finalization.ts when invocations carry the new
+      // sequential-path execution_detail shape (coordinator block + counters).
+      { name: 'coordinator_retry_rate', label: 'Coordinator Retry Rate', category: 'cost', formatter: 'percentValue',
+        compute: () => 0 },
+      { name: 'coordinator_failure_rate', label: 'Coordinator Failure Rate', category: 'cost', formatter: 'percentValue',
+        compute: () => 0 },
+      { name: 'excessive_parent_fallback_abort_rate', label: 'Excessive Parent-Fallback Abort Rate', category: 'cost', formatter: 'percentValue',
+        compute: () => 0 },
+      { name: 'prior_picks_sanitization_count', label: 'Prior-Picks Sanitization Count', category: 'cost', formatter: 'integer',
+        compute: () => 0 },
+      { name: 'prior_picks_truncation_count', label: 'Prior-Picks Truncation Count', category: 'cost', formatter: 'integer',
         compute: () => 0 },
     ],
     atFinalization: [

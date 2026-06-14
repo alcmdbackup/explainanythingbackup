@@ -68,6 +68,14 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
       // Paragraph Recombine agent (rank_individual_paragraphs_evolution_20260525)
       { ...METRIC_CATALOG.paragraph_recombine_cost, compute: () => 0 },
       { ...METRIC_CATALOG.paragraph_slot_match_persist_failures, compute: () => 0 },
+      // Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612).
+      // Default compute returns 0; actual values written by the agent during execution + at
+      // finalization extractors when invocations carry the new sequential execution_detail.
+      { ...METRIC_CATALOG.coordinator_retry_rate, compute: () => 0 },
+      { ...METRIC_CATALOG.coordinator_failure_rate, compute: () => 0 },
+      { ...METRIC_CATALOG.excessive_parent_fallback_abort_rate, compute: () => 0 },
+      { ...METRIC_CATALOG.prior_picks_sanitization_count, compute: () => 0 },
+      { ...METRIC_CATALOG.prior_picks_truncation_count, compute: () => 0 },
     ],
     atFinalization: [
       { ...METRIC_CATALOG.winner_elo, compute: computeWinnerElo },

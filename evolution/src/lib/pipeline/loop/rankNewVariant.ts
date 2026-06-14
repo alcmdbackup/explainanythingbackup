@@ -32,6 +32,12 @@ export interface RankNewVariantInput {
   // `getOwnSpent` exists at call time. The net effect: `getTotalSpent()` is no longer
   // used as a fallback — a missing getOwnSpent fails loudly with a dev-time error.
   costTracker: V2CostTracker & { getOwnSpent?: () => number };
+  /** Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612):
+   *  when provided AND config.comparisonMode === 'paragraph', the judge prompt interpolates
+   *  a PRIOR CONTEXT block with these previously-chosen paragraphs. Lets the judge pick the
+   *  variation that fits best given prior picks, not just the best in isolation. Ignored
+   *  for article-mode comparisons. */
+  priorPicks?: readonly string[];
 }
 
 export interface RankNewVariantResult {
@@ -62,6 +68,7 @@ export async function rankNewVariant({
   invocationId,
   logger,
   costTracker,
+  priorPicks,
 }: RankNewVariantInput): Promise<RankNewVariantResult> {
   localPool.push(variant);
   localRatings.set(variant.id, createRating());
@@ -85,6 +92,7 @@ export async function rankNewVariant({
     config,
     invocationId,
     logger,
+    ...(priorPicks !== undefined && { priorPicks }),
   });
 
   const rankingCost = getOwn() - costBeforeRank;

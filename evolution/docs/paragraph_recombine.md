@@ -179,6 +179,28 @@ The run-level metrics that paragraph_recombine joins via these fields:
 
 `EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED='false'` short-circuits the dispatch branch in `runIterationLoop.ts` with a warn-log. Single-env-flip rollback. `EVOLUTION_TOPUP_ENABLED='false'` disables sequential top-up for paragraph_recombine the same way it does for `generate` (parallel batch still runs).
 
+## Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612)
+
+The agent's default path on `EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED='true'` (default) replaces the parallel-rewrite + per-slot judge + splice flow with a sequential context-aware loop. The article is built paragraph-by-paragraph; each paragraph's M variations are generated in parallel BUT every variation sees every previously-chosen paragraph's verbatim text as PRIOR CONTEXT. The per-paragraph judge picks the Elo winner; the winner is appended to the prior-picks list before moving to the next paragraph. Phase C (assemble + emit + article-level rank) is unchanged.
+
+**Three phases.** Phase A: one coordinator LLM call (AgentName `'paragraph_recombine_coordinator'`) returns a per-paragraph plan with M strategically-diverse directives + temperatures. Phase B: sequential per-paragraph loop. Phase C: assemble + emit (existing).
+
+**3-phase cost rollup.** The umbrella `paragraph_recombine_cost` is now the sum of THREE phase accumulators: `paragraph_rewrite` + `paragraph_rank` + `paragraph_recombine_coordinator`. The write fires AFTER the Phase B loop completes (so all 3 accumulators have landed) and BEFORE article-level rank (whose `'ranking'` calls land in `ranking_cost`, a separate umbrella). On the legacy parallel path the coordinator phase contributes 0.
+
+**Cost envelope.** Sequential mean ~$0.016 per invocation, worst-case ~$0.045, cap $0.060. Legacy parallel path cap stays $0.05. The cap function is env-flag-aware (`getDefaultPerInvocationCapUsd`). Strategies with `perInvocationCapUsd < $0.016` auto-fall through to the legacy path (B.5 low-cap guard) so they don't get aggressively constrained under the sequential mean cost.
+
+**Wall-clock.** ~36s wall-clock per invocation at N=12 (vs ~5-10s parallel). Orchestrator dispatch math is cost-bound (`actualAvgCostPerAgent`), not duration-bound — K-dispatch parallelism is unaffected.
+
+**Judge sees PRIOR CONTEXT on the sequential path.** `buildComparisonPrompt`'s `paragraph` mode branch gains an optional `priorPicks?: string[]` parameter (threaded through `rankNewVariant` → `rankSingleVariant` → `compareWithBiasMitigation`). When provided, the comparison prompt prepends a `<UNTRUSTED_PRIOR>` block listing every previously-chosen paragraph. Judge picks the variation that fits best given prior picks, not just the best in isolation. Article-mode comparisons are unchanged.
+
+**Prompt-injection sanitization.** Each round's chosen text passes through `sanitizeForPriorContext` before insertion into `priorPicks` — REDACTS literal `<UNTRUSTED_*>` and `</UNTRUSTED_*>` substrings (case-insensitive) to the placeholder `[UNTRUSTED_TAG_REDACTED]`. Replacement (not strip) prevents adjacent malicious payload from propagating across rounds. Counter `prior_picks_sanitization_count` increments per redaction. Post-generation rejection via `containsDelimiterMirror` drops candidates whose output echoes the tag literals.
+
+**Failure modes.** Coordinator parse failure on both attempts → throws `CoordinatorParseError`; agent reports `success=false` with `execution_detail.coordinator.{rawResponse, parseError, retried}` persisted for debugging. Mid-loop throw at paragraph i → persist `execution_detail.slots[0..i-1]` (truncated, NOT N-with-nulls) + `partialAt: i` + `abortReason` + `completedSlotCount: i`, then re-throw. Excessive parent-fallback (>70% of slots used parent text) → discard variant rather than emit a near-duplicate. Per-round budget gate: when remaining budget < `projectedPerRound × paragraphsRemaining × 2.0`, push parent for all remaining slots and break the loop (the 2.0 multiplier accounts for the triangular-growth worst case).
+
+**New metrics.** `coordinator_retry_rate`, `coordinator_failure_rate`, `excessive_parent_fallback_abort_rate`, `prior_picks_sanitization_count`, `prior_picks_truncation_count`. Each registered at run level + propagated to strategy/experiment as `avg_*` / `total_*` aggregates.
+
+**Rollback.** Flip `EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED='false'` to revert to today's parallel-slot dispatch. The legacy code path stays intact specifically for this purpose. The cap reverts $0.060 → $0.05 simultaneously via `getDefaultPerInvocationCapUsd`.
+
 ## Files
 
 | File | Purpose |

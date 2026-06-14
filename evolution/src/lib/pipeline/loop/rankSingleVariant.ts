@@ -257,6 +257,10 @@ export interface RankSingleVariantParams {
   /** Invocation row id for llmCallTracking joins. */
   invocationId: string;
   logger?: EntityLogger;
+  /** Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612):
+   *  when provided AND `config.comparisonMode === 'paragraph'`, forwarded to
+   *  `compareWithBiasMitigation` so the judge prompt interpolates a PRIOR CONTEXT block. */
+  priorPicks?: readonly string[];
 }
 
 /**
@@ -274,7 +278,7 @@ export async function rankSingleVariant(
 ): Promise<RankSingleVariantResult> {
   const {
     variant, pool, ratings, matchCounts, completedPairs,
-    cache, llm, config, invocationId, logger,
+    cache, llm, config, invocationId, logger, priorPicks,
   } = params;
 
   const matchBuffer: V2Match[] = [];
@@ -347,6 +351,7 @@ export async function rankSingleVariant(
           config.comparisonMode,
           config.judgeRubric,
           ensembleRunner,
+          priorPicks,
         );
       } catch (e) {
         if (e instanceof BudgetExceededError) {

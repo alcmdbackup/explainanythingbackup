@@ -593,6 +593,13 @@ const PARAGRAPH_REWRITE_OUTPUT_CHARS = 1000;
  * @param rewriteModel LLM model for per-paragraph rewrite calls (falls back to generation model).
  * @param judgeModel LLM model for per-slot ranking judge calls.
  */
+/** Coordinator prompt overhead (rough): ~1.5K chars for the structured instructions +
+ *  per-paragraph guidance examples. The parent article is the dominant input. */
+const COORDINATOR_PROMPT_OVERHEAD = 1500;
+/** Per-paragraph output chars in the coordinator's JSON plan. Roughly 350 chars per
+ *  paragraph (directive + temperature + rationale + role + M + index + nesting). */
+const COORDINATOR_OUTPUT_CHARS_PER_PARAGRAPH = 350;
+
 export function estimateParagraphRecombineCost(
   parentArticleChars: number,
   paragraphCount: number,
@@ -600,24 +607,29 @@ export function estimateParagraphRecombineCost(
   maxComparisonsPerParagraph: number,
   rewriteModel: string,
   judgeModel: string,
+  /** Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612):
+   *  when `sequentialEnabled: true`, the projector adds a `coordinatorCost` phase + models
+   *  triangular prior-picks growth on rewrite + rank phases. When omitted or false, the
+   *  projection collapses to the legacy parallel 2-phase shape (coordinatorCost === 0).
+   *  Pass an EXPLICIT param (not env.read) so wizard projection mirrors runtime even when
+   *  the projector is invoked client-side. Callers resolve env at their boundary. */
+  opts?: { sequentialEnabled?: boolean },
 ): {
   expected: number;
   upperBound: number;
-  /** Per-phase split (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 G4).
-   *  Total rewrite cost = N × M × per-rewrite. Total rank cost = N × M × per-slot-rank.
-   *  Sum equals `expected`. Persisted into `execution_detail.paragraph_rewrite.estimatedCost`
-   *  and `execution_detail.paragraph_rank.estimatedCost` for per-phase projector-vs-actual
-   *  visibility on the run/strategy/experiment level metric family. */
   perPhase: {
     paragraphRewriteCost: number;
     paragraphRankCost: number;
+    coordinatorCost: number;
   };
 } {
   if (paragraphCount <= 0 || rewritesPerParagraph <= 0) {
-    return { expected: 0, upperBound: 0, perPhase: { paragraphRewriteCost: 0, paragraphRankCost: 0 } };
+    return { expected: 0, upperBound: 0, perPhase: { paragraphRewriteCost: 0, paragraphRankCost: 0, coordinatorCost: 0 } };
   }
 
-  // Per-paragraph rewrite cost.
+  const sequentialEnabled = opts?.sequentialEnabled === true;
+
+  // Per-paragraph rewrite cost (base).
   const rewritePricing = getModelPricing(rewriteModel);
   const avgParagraphChars = Math.max(parentArticleChars / paragraphCount, 100);
   const rewriteInputChars = avgParagraphChars + PARAGRAPH_REWRITE_PROMPT_OVERHEAD;
@@ -625,30 +637,68 @@ export function estimateParagraphRecombineCost(
   const rewriteOutputChars = calibratedRewrite?.avgOutputChars ?? PARAGRAPH_REWRITE_OUTPUT_CHARS;
   const costPerRewrite = calculateCost(rewriteInputChars, rewriteOutputChars, rewritePricing);
 
-  // Total rewrite cost: N paragraphs × M rewrites each.
-  const totalRewriteCost = paragraphCount * rewritesPerParagraph * costPerRewrite;
+  let totalRewriteCost: number;
+  let totalRankCost: number;
 
-  // Per-slot ranking cost: each slot has M+1 candidates (M rewrites + 1 original);
-  // binary-search ranking goes through ~maxComparisonsPerParagraph comparisons per
-  // candidate, each comparison is 2 LLM calls (bias-mitigation reversal).
-  // Use estimateRankingCost with paragraph-sized articleChars.
-  // Approximation: pool size per slot = rewrites + 1 (original).
-  const slotPoolSize = rewritesPerParagraph + 1;
-  const perSlotRankCost = estimateRankingCost(
-    avgParagraphChars,
-    judgeModel,
-    slotPoolSize,
-    maxComparisonsPerParagraph,
-  );
-  // Per-slot ranks all M new candidates (originals don't need re-ranking).
-  const totalRankCost = paragraphCount * rewritesPerParagraph * perSlotRankCost;
+  if (sequentialEnabled) {
+    // Sequential path: round i's M rewrite calls each see i × avgParagraphChars of PRIOR
+    // CONTEXT. Triangular sum across N rounds: Σ_{i=0..N-1} M × (rewriteInput + i × ppc).
+    // Same triangular pattern for rank (judge sees PRIOR CONTEXT under sequential).
+    const N = paragraphCount;
+    const M = rewritesPerParagraph;
+    const ppc = avgParagraphChars;
+    // Cost is roughly proportional to input chars; we re-derive per-round cost analytically
+    // by scaling costPerRewrite by (rewriteInputChars + i × ppc) / rewriteInputChars.
+    // Simplified: triangularSum = sum_{i=0..N-1} (rewriteInputChars + i × ppc).
+    //          = N × rewriteInputChars + ppc × (N-1)N/2.
+    const baseInput = rewriteInputChars;
+    const triangularInputSum = N * baseInput + (ppc * (N - 1) * N) / 2;
+    const avgPerRoundInputChars = triangularInputSum / N;
+    const scaledRewriteCost = costPerRewrite * (avgPerRoundInputChars / baseInput);
+    totalRewriteCost = N * M * scaledRewriteCost;
 
-  const expected = totalRewriteCost + totalRankCost;
+    // Rank phase also triangular under sequential: each comparison's input includes the
+    // priorPicks block in addition to the two paragraph candidates.
+    const slotPoolSize = M + 1;
+    const baseRankInput = avgParagraphChars * 2 + 800; // COMPARISON_PROMPT_OVERHEAD-ish
+    const triangularRankInputSum = N * baseRankInput + (ppc * (N - 1) * N) / 2;
+    const avgPerRoundRankInputChars = triangularRankInputSum / N;
+    const baseRankCost = estimateRankingCost(avgParagraphChars, judgeModel, slotPoolSize, maxComparisonsPerParagraph);
+    const scaledRankCost = baseRankCost * (avgPerRoundRankInputChars / baseRankInput);
+    totalRankCost = N * scaledRankCost;
+  } else {
+    // Legacy parallel path: no PRIOR CONTEXT, no triangular growth.
+    totalRewriteCost = paragraphCount * rewritesPerParagraph * costPerRewrite;
+    const slotPoolSize = rewritesPerParagraph + 1;
+    const perSlotRankCost = estimateRankingCost(
+      avgParagraphChars,
+      judgeModel,
+      slotPoolSize,
+      maxComparisonsPerParagraph,
+    );
+    totalRankCost = paragraphCount * rewritesPerParagraph * perSlotRankCost;
+  }
+
+  // Coordinator phase (sequential only). One LLM call, parent text input + structured output.
+  let coordinatorCost = 0;
+  if (sequentialEnabled) {
+    const coordinatorInputChars = parentArticleChars + COORDINATOR_PROMPT_OVERHEAD;
+    const calibratedCoordinator = getCalibrationRow('__unspecified__', rewriteModel, judgeModel, 'paragraph_recombine_coordinator');
+    const coordinatorOutputChars = calibratedCoordinator?.avgOutputChars
+      ?? paragraphCount * COORDINATOR_OUTPUT_CHARS_PER_PARAGRAPH;
+    coordinatorCost = calculateCost(coordinatorInputChars, coordinatorOutputChars, rewritePricing);
+  }
+
+  const expected = totalRewriteCost + totalRankCost + coordinatorCost;
   const upperBound = expected * 1.3;
   return {
     expected,
     upperBound,
-    perPhase: { paragraphRewriteCost: totalRewriteCost, paragraphRankCost: totalRankCost },
+    perPhase: {
+      paragraphRewriteCost: totalRewriteCost,
+      paragraphRankCost: totalRankCost,
+      coordinatorCost,
+    },
   };
 }
 

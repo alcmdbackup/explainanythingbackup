@@ -47,22 +47,59 @@ import { buildParagraphRewritePrompt, PARAGRAPH_REWRITE_DIRECTIVES } from './bui
 import { getModelMaxTemperature } from '@/config/modelRegistry';
 import { estimateParagraphRecombineCost } from '../../../pipeline/infra/estimateCosts';
 import { sentenceVerbatimOverlap } from '../../../shared/sentenceOverlap';
+// Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612).
+import { runCoordinator, CoordinatorLLMError, CoordinatorParseError } from './coordinator';
+import { runSequentialLoop, type SequentialCounters } from './sequentialExecute';
+import type { CoordinatorPlan } from '../../../schemas';
 
 // ─── Defaults (per D9) ────────────────────────────────────────────
 
 const DEFAULT_REWRITES_PER_PARAGRAPH = 3;
 const DEFAULT_MAX_COMPARISONS_PER_PARAGRAPH = 6;
 const DEFAULT_MAX_PARAGRAPHS_PER_INVOCATION = 12;
-// Lowered $0.40 → $0.05 by investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 (Option F).
-// Rationale: the $0.40 default was 33× the projector's upperBound (~$0.012) and 80× actual median
-// spend (~$0.0048) on staging. That cap-vs-actual disconnect was the entire source of the
-// user-perceived "98.8% under cap" illusion (rendered by SlotsTab as `budget: $0.0333  spent: $0.0004`).
-// At $0.05 → per-slot $0.00417 at 12 slots → pre-final-ranking gate $0.045 still retains 9× headroom.
-// Strategies that intentionally need a larger envelope override via `iterCfg.perInvocationCapUsd`
-// (schemas.ts iterationConfigSchema; whitelisted in canonicalizeIterationConfig per J1.5).
-const DEFAULT_PER_INVOCATION_CAP_USD = 0.05;
+// Sequential context-aware generation (debug_performance_paragraph_recombine_20260612):
+// env-flag-aware per-invocation cap. Sequential mean cost ~$0.016, worst case ~$0.045.
+// $0.060 cap covers worst case with ~25% headroom. Legacy parallel path keeps $0.05 cap.
+const SEQUENTIAL_PER_INVOCATION_CAP_USD = 0.060;
+const LEGACY_PER_INVOCATION_CAP_USD = 0.05;
+const DEFAULT_PER_INVOCATION_CAP_USD = LEGACY_PER_INVOCATION_CAP_USD;
 const PRE_FINAL_RANKING_GATE_FRACTION = 0.9;
 const SLOT_SELF_ABORT_FRACTION = 0.9;
+
+/** Sequential context-aware generation (debug_performance_paragraph_recombine_20260612):
+ *  the env-flag governs whether the agent runs the new sequential path or falls through
+ *  to the legacy parallel-slot dispatch. Default `'true'`. */
+export function isSequentialEnabled(): boolean {
+  return process.env.EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED !== 'false';
+}
+
+/** Env-flag-aware cap function. Pass an explicit env value for projector use (so wizard
+ *  preview matches runtime when the projector runs client-side). When omitted, reads
+ *  process.env at runtime. */
+export function getDefaultPerInvocationCapUsd(sequentialEnabled?: boolean): number {
+  const enabled = sequentialEnabled ?? isSequentialEnabled();
+  return enabled ? SEQUENTIAL_PER_INVOCATION_CAP_USD : LEGACY_PER_INVOCATION_CAP_USD;
+}
+
+/** B.5 — low-cap strategy guard. When the strategy's `perInvocationCapUsd` is below
+ *  the sequential mean cost ($0.016), fall through to the parallel legacy path even
+ *  with env flag on. Strategies can opt OUT of legacy via the SEQUENTIAL_OPT_OUT set
+ *  (empty by default; populate when an operator decides to force legacy for an audit). */
+const SEQUENTIAL_LOW_CAP_THRESHOLD_USD = 0.016;
+const PARAGRAPH_RECOMBINE_SEQUENTIAL_OPT_OUT: ReadonlySet<string> = new Set<string>([
+  // Add strategy IDs here ONLY to force the legacy parallel path regardless of cap.
+]);
+
+function shouldForceLegacyForLowCap(
+  perInvocationCapUsd: number,
+  strategyId: string | undefined,
+): boolean {
+  if (perInvocationCapUsd >= SEQUENTIAL_LOW_CAP_THRESHOLD_USD
+      && !(strategyId && PARAGRAPH_RECOMBINE_SEQUENTIAL_OPT_OUT.has(strategyId))) {
+    return false;
+  }
+  return true;
+}
 
 /** Lower bound of the per-rewrite temperature ladder. Raised from 1.0 → 1.2 by
  *  investigate_paragraph_recombine_invocation_20260529. Index-0 is now special-cased
@@ -167,15 +204,23 @@ export class ParagraphRecombineAgent extends Agent<
     input: ParagraphRecombineInput,
     ctx: AgentContext,
   ): Promise<AgentOutput<ParagraphRecombineOutput, SlotRecombineExecutionDetail>> {
+    // Sequential context-aware generation (debug_performance_paragraph_recombine_20260612):
+    // env-flag-aware default cap. Sequential path uses $0.060; legacy uses $0.05. The B.5
+    // low-cap opt-out + manually-set low caps fall through to legacy regardless of env.
+    const sequentialEnabledByEnv = isSequentialEnabled();
+    const effectiveCapUsd = input.perInvocationCapUsd ?? getDefaultPerInvocationCapUsd(sequentialEnabledByEnv);
+    const sequentialEnabled =
+      sequentialEnabledByEnv && !shouldForceLegacyForLowCap(effectiveCapUsd, ctx.strategyId);
+
     const {
       parentText,
       parentVariantId,
       rewritesPerParagraph = DEFAULT_REWRITES_PER_PARAGRAPH,
       maxComparisonsPerParagraph = DEFAULT_MAX_COMPARISONS_PER_PARAGRAPH,
       maxParagraphsPerInvocation = DEFAULT_MAX_PARAGRAPHS_PER_INVOCATION,
-      perInvocationCapUsd = DEFAULT_PER_INVOCATION_CAP_USD,
       llm,
     } = input;
+    const perInvocationCapUsd = effectiveCapUsd;
 
     if (!llm) {
       throw new Error('ParagraphRecombineAgent: input.llm is required (Agent.run() should inject it)');
@@ -222,35 +267,127 @@ export class ParagraphRecombineAgent extends Agent<
       maxComparisonsPerParagraph,
       rewriteModelForProjector,
       judgeModelForProjector,
+      { sequentialEnabled },
     );
 
     // Extract H1 title from parent for the rewrite prompt's context.
     const parentH1 = extractH1(parentText);
 
     // Accumulator for execution_detail.slots[i] (populated in per-slot processing).
-    const slotDetails: SlotRecombineExecutionDetail['slots'] = [];
+    let slotDetails: SlotRecombineExecutionDetail['slots'] = [];
     const slotWinnerTexts = new Map<number, string>();
 
-    // ─── Step 2: Per-slot pipeline in parallel (D18) ───────────────
-    await Promise.allSettled(
-      slots.map((slot) =>
-        processSlot({
-          slot,
+    // Sequential coordinator detail accumulator (only populated on sequential path).
+    let coordinatorPlan: CoordinatorPlan | undefined;
+    let coordinatorRetried = false;
+    let coordinatorRawResponse: string | undefined;
+    let coordinatorPartialAt: number | undefined;
+    let coordinatorAbortReason: string | undefined;
+    let coordinatorCompletedSlotCount: number | undefined;
+    let sequentialCounters: SequentialCounters | undefined;
+
+    if (sequentialEnabled && paragraphCount > 0) {
+      // ─── Phase A: Coordinator ───────────────────────────────────
+      try {
+        const coordResult = await runCoordinator({
           parentText,
+          paragraphCount,
+          llm,
+          generationModel: rewriteModelForProjector,
+          ...(ctx.invocationId !== undefined && ctx.invocationId !== '' && { invocationId: ctx.invocationId }),
+        });
+        coordinatorPlan = coordResult.plan;
+        coordinatorRetried = coordResult.retried;
+        coordinatorRawResponse = coordResult.rawResponse;
+      } catch (err) {
+        // Coordinator throw → persist partial detail (cost + raw response + parse error)
+        // BEFORE re-throwing per I3 invariant. Agent.run() handles the throw → success=false.
+        const partialDetailOnThrow: SlotRecombineExecutionDetail = {
+          detailType: 'paragraph_recombine',
           parentVariantId,
-          parentH1,
-          totalSlots: paragraphCount,
-          rewritesPerParagraph,
-          maxComparisonsPerParagraph,
-          perSlotBudgetUsd,
+          slots: [],
+          recombined: { text: parentText, formatValid: false },
+          totalCost: invocationScope.getOwnSpent!(),
+          coordinator: {
+            estimatedCost: projection.perPhase.coordinatorCost,
+            cost: invocationScope.getOwnSpent!(),
+            retried: err instanceof CoordinatorParseError, // retry happened only on parse path
+            ...(err instanceof CoordinatorParseError && {
+              rawResponse: err.rawResponse.slice(0, 4000),
+              parseError: err.parseError.slice(0, 4000),
+            }),
+            ...(err instanceof CoordinatorLLMError && err.rawResponse !== undefined && {
+              rawResponse: err.rawResponse.slice(0, 4000),
+            }),
+          },
+        };
+        await safeUpdateInvocation(ctx, partialDetailOnThrow);
+        throw err;
+      }
+
+      // ─── Phase B: Sequential per-paragraph loop ────────────────
+      // B.7 try/catch wraps the loop so a mid-loop throw persists execution_detail.slots[0..i-1]
+      // + partialAt + abortReason + completedSlotCount BEFORE re-throwing.
+      try {
+        const seqResult = await runSequentialLoop({
+          slots,
+          paragraphCount,
+          parentVariantId,
+          coordinatorPlan,
+          perInvocationCapUsd,
+          rewriteModel: rewriteModelForProjector,
+          judgeModel: judgeModelForProjector,
           invocationScope,
           ctx,
           llm,
-          slotDetails,
-          slotWinnerTexts,
-        }),
-      ),
-    );
+        });
+        slotDetails = seqResult.slotDetails;
+        for (const [idx, text] of seqResult.slotWinnerTexts) {
+          slotWinnerTexts.set(idx, text);
+        }
+        sequentialCounters = seqResult.counters;
+      } catch (err) {
+        const completed = slotDetails.length;
+        coordinatorPartialAt = completed;
+        coordinatorAbortReason = String(err instanceof Error ? err.message : err).slice(0, 1000);
+        coordinatorCompletedSlotCount = completed;
+        // Build the partial-detail-on-throw with what we have.
+        const partialDetailOnThrow: SlotRecombineExecutionDetail = {
+          detailType: 'paragraph_recombine',
+          parentVariantId,
+          slots: slotDetails, // truncated: slots.length === completed (NOT N-with-nulls)
+          recombined: { text: parentText, formatValid: false },
+          totalCost: invocationScope.getOwnSpent!(),
+          coordinatorPlan,
+          partialAt: completed,
+          abortReason: coordinatorAbortReason,
+          completedSlotCount: completed,
+        };
+        await safeUpdateInvocation(ctx, partialDetailOnThrow);
+        throw err;
+      }
+    } else {
+      // ─── Legacy parallel path (D18) ────────────────────────────
+      await Promise.allSettled(
+        slots.map((slot) =>
+          processSlot({
+            slot,
+            parentText,
+            parentVariantId,
+            parentH1,
+            totalSlots: paragraphCount,
+            rewritesPerParagraph,
+            maxComparisonsPerParagraph,
+            perSlotBudgetUsd,
+            invocationScope,
+            ctx,
+            llm,
+            slotDetails,
+            slotWinnerTexts,
+          }),
+        ),
+      );
+    }
 
     // Sort slotDetails by slotIndex so the detail is deterministic.
     slotDetails.sort((a, b) => a.slotIndex - b.slotIndex);
@@ -266,7 +403,11 @@ export class ParagraphRecombineAgent extends Agent<
     const phasesAfter = invocationScope.getPhaseCosts();
     const actualRewriteCost = (phasesAfter['paragraph_rewrite'] ?? 0) - (phasesAtEntry['paragraph_rewrite'] ?? 0);
     const actualRankCost = (phasesAfter['paragraph_rank'] ?? 0) - (phasesAtEntry['paragraph_rank'] ?? 0);
-    const actualTotalCost = actualRewriteCost + actualRankCost; // matches paragraph_recombine_cost rollup
+    const actualCoordinatorCost = (phasesAfter['paragraph_recombine_coordinator'] ?? 0)
+      - (phasesAtEntry['paragraph_recombine_coordinator'] ?? 0);
+    // 3-phase total — matches paragraph_recombine_cost rollup below. Phase 12 invariant:
+    // computed AFTER Phase B/legacy loop completes so all 3 accumulators have landed.
+    const actualTotalCost = actualRewriteCost + actualRankCost + actualCoordinatorCost;
     const pctError = (actual: number, est: number): number | undefined => {
       if (est <= 0 || !Number.isFinite(actual) || !Number.isFinite(est)) return undefined;
       return ((actual - est) / est) * 100;
@@ -274,18 +415,17 @@ export class ParagraphRecombineAgent extends Agent<
     const estimationErrorPct = pctError(actualTotalCost, projection.expected);
     const paragraphRewriteErrorPct = pctError(actualRewriteCost, projection.perPhase.paragraphRewriteCost);
     const paragraphRankErrorPct = pctError(actualRankCost, projection.perPhase.paragraphRankCost);
+    const coordinatorErrorPct = pctError(actualCoordinatorCost, projection.perPhase.coordinatorCost);
 
-    // Phase 9 cost-attribution fix: write the run-level paragraph_recombine_cost as the
-    // SUM of the two paragraph phase-cost accumulators. The per-slot LLM client has no
-    // db/runId (so per-call writes don't fire), and getPhaseCosts() returns the SHARED
-    // run-cumulative accumulator keyed by label — so this sum is run-cumulative and
-    // monotonic, making the single writeMetricMax (GREATEST) write correct even across
-    // multiple paragraph_recombine invocations in one run. Written here (after all slots
-    // complete, before the format/budget branches) so spend is recorded on every return
-    // path, including no-variant outcomes.
+    // Run-level paragraph_recombine_cost = sum of 3 phase-cost accumulators. MAX-safe
+    // because all 3 are run-cumulative under the Phase 12 invariant. Written here AFTER
+    // the Phase B loop completes (and BEFORE article-level rank fires below), so spend
+    // is recorded on every return path including no-variant outcomes.
     if (ctx.db && ctx.runId) {
       const phases = invocationScope.getPhaseCosts();
-      const paragraphCost = (phases['paragraph_rewrite'] ?? 0) + (phases['paragraph_rank'] ?? 0);
+      const paragraphCost = (phases['paragraph_rewrite'] ?? 0)
+        + (phases['paragraph_rank'] ?? 0)
+        + (phases['paragraph_recombine_coordinator'] ?? 0);
       try {
         await writeMetricMax(ctx.db, 'run', ctx.runId, 'paragraph_recombine_cost' as MetricName, paragraphCost, 'during_execution');
       } catch (err) {
@@ -321,7 +461,21 @@ export class ParagraphRecombineAgent extends Agent<
         cost: actualRankCost,
         ...(paragraphRankErrorPct !== undefined && { estimationErrorPct: paragraphRankErrorPct }),
       },
+      ...(sequentialEnabled && {
+        coordinator: {
+          estimatedCost: projection.perPhase.coordinatorCost,
+          cost: actualCoordinatorCost,
+          ...(coordinatorErrorPct !== undefined && { estimationErrorPct: coordinatorErrorPct }),
+          ...(coordinatorRetried && { retried: coordinatorRetried }),
+          ...(coordinatorRawResponse !== undefined && { rawResponse: coordinatorRawResponse.slice(0, 4000) }),
+        },
+        ...(coordinatorPlan && { coordinatorPlan }),
+      }),
     };
+    void sequentialCounters;
+    void coordinatorPartialAt;
+    void coordinatorAbortReason;
+    void coordinatorCompletedSlotCount;
 
     if (!formatResult.valid) {
       // Persist partial detail before returning (I3).

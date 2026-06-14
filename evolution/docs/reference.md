@@ -192,6 +192,7 @@ Validation throws plain `Error` with a descriptive message on constraint violati
 | `EVOLUTION_REFLECTION_ENABLED` | `true` | Kill-switch for `reflect_and_generate` iterations. When `'false'`, the dispatch loop falls these iterations back to vanilla GFPA so the feature can be rolled back without a code revert. Mirrored at the wizard preview boundary. |
 | `EVOLUTION_DEBATE_ENABLED` | `true` | Kill-switch for `debate_and_generate` iterations (bring_back_debate_agent_20260506). When `'false'`, the dispatch loop short-circuits to `dispatchCount=0`. Mirrored at the wizard preview boundary. |
 | `EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED` | `true` | Kill-switch for `paragraph_recombine` iterations (rank_individual_paragraphs_evolution_20260525). When `'false'`, the dispatch loop short-circuits to `dispatchCount=0`. Mirrored at the wizard preview boundary via `paragraphRecombineEnabled` opts flag. |
+| `EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED` | `true` | Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612). Default `'true'`: agent runs the coordinator + sequential per-paragraph loop. `'false'`: falls back to today's parallel-slot dispatch (rollback path). Strategies with `perInvocationCapUsd < $0.016` auto-fall through to legacy even when env flag is `'true'`. Cap function `getDefaultPerInvocationCapUsd` is env-flag-aware: $0.060 sequential / $0.05 legacy. |
 
 #### `IterationConfig` paragraph_recombine knobs (added by `investigate_paragraph_rewrite_cost_undershoot_evolution_20260529`)
 

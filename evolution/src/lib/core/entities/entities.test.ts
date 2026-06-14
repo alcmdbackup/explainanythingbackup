@@ -30,12 +30,12 @@ describe('RunEntity', () => {
     expect(entity.children.every(c => c.cascade === 'delete')).toBe(true);
   });
 
-  it('has 17 execution + 23 finalization + 0 propagation metrics', () => {
-    // 15 (16 prior - 1 iterative_edit_rank_cost removed in Phase 6 of
-    // rename_agents_subagents_evolution_20260508; superseded by subagent:ranking.cost
-    // dynamic prefix) + 2 paragraph_recombine (paragraph_recombine_cost +
-    // paragraph_slot_match_persist_failures from rank_individual_paragraphs_evolution_20260525) = 17.
-    expect(entity.metrics.duringExecution).toHaveLength(17);
+  it('has 22 execution + 23 finalization + 0 propagation metrics', () => {
+    // 17 prior + 5 sequential context-aware generation metrics from
+    // debug_performance_paragraph_recombine_20260612 (coordinator_retry_rate,
+    // coordinator_failure_rate, excessive_parent_fallback_abort_rate,
+    // prior_picks_sanitization_count, prior_picks_truncation_count) = 22.
+    expect(entity.metrics.duringExecution).toHaveLength(22);
     // 18 prior + 3 sentence-overlap percentile metrics (median, p25, min)
     // (updated_criteria_agent_20260505) + 2 paragraph_recombine per-phase
     // estimation-error rollups (paragraph_rewrite_estimation_error_pct +
@@ -79,15 +79,13 @@ describe('StrategyEntity', () => {
     expect(entity.children[0]!.cascade).toBe('delete');
   });
 
-  it('has 46 propagation metrics', () => {
-    // 42 (44 prior - 2 iterative_edit_rank_cost rollups removed in Phase 6 of
-    // rename_agents_subagents_evolution_20260508; superseded by subagent:ranking.cost
-    // dynamic prefix) + 2 paragraph_recombine (total_paragraph_recombine_cost +
-    // avg_paragraph_recombine_cost_per_run from rank_individual_paragraphs_evolution_20260525)
-    // + 2 paragraph_recombine per-phase estimation-error rollups
-    // (avg_paragraph_rewrite_estimation_error_pct + avg_paragraph_rank_estimation_error_pct,
-    // G7 of investigate_paragraph_rewrite_cost_undershoot_evolution_20260529) = 46.
-    expect(entity.metrics.atPropagation).toHaveLength(46);
+  it('has 51 propagation metrics', () => {
+    // 46 prior + 5 sequential context-aware generation propagation metrics
+    // (avg_coordinator_retry_rate, avg_coordinator_failure_rate,
+    // avg_excessive_parent_fallback_abort_rate, total_prior_picks_sanitization_count,
+    // total_prior_picks_truncation_count) from
+    // debug_performance_paragraph_recombine_20260612 = 51.
+    expect(entity.metrics.atPropagation).toHaveLength(51);
     const names = entity.metrics.atPropagation.map(d => d.name);
     expect(names).toContain('run_count');
     expect(names).toContain('total_cost');
