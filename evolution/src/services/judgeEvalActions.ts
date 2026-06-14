@@ -9,11 +9,16 @@ import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { adminAction, type AdminContext } from './adminAction';
 import type { Database } from '@/lib/database.types';
-import { getEvolutionModelIds } from '@/config/modelRegistry';
+import { getEvolutionModelIds, getDeployableEvolutionModelIds } from '@/config/modelRegistry';
 import {
   loadPairBankByName,
   loadTestSetByName,
   getOrCreateTestSet,
+  loadTestSetContents,
+  getTestSetPairTexts,
+  updateTestSetMetadata,
+  cloneTestSet,
+  loadBankPairsForCuration,
 } from '@evolution/lib/judgeEval/persist';
 import { executeSweep, type SweepOutcome } from '@evolution/lib/judgeEval/executeSweep';
 import { seedPairBankFromTopic } from '@evolution/lib/judgeEval/seed';
@@ -22,11 +27,26 @@ import {
   reasoningEffortSchema,
   testSetStrategySchema,
   type JudgeReasoningEffort,
+  type JudgeEvalCallCore,
+  type JudgeEvalCallAudit,
 } from '@evolution/lib/judgeEval/schemas';
 
 function db(ctx: AdminContext): SupabaseClient<Database> {
   return ctx.supabase as SupabaseClient<Database>;
 }
+
+// Explicit column lists for judge_eval_calls so reads NEVER `SELECT *` (which would pull the
+// TOASTed heavy audit text — prompts/reasoning/raw — on every list/aggregate query). CORE is the
+// light per-call row (verdict + metrics + frozen ground-truth snapshot) used by the run-detail
+// aggregates and the match LIST; AUDIT is the heavy payload fetched only for a single expanded match.
+const CORE_CALL_COLUMNS =
+  'id, eval_run_id, pair_label, pair_kind, comparison_mode, repeat_index, forward_winner, ' +
+  'reverse_winner, winner, confidence, decisive, wall_ms, fwd_ms, rev_ms, prompt_tokens, ' +
+  'output_tokens, reasoning_tokens, cost_usd, error, created_at, mu_a, mu_b, sigma_a, sigma_b, ' +
+  'baseline_confidence, gap_kind, expected_winner, variant_a_id, variant_b_id';
+const AUDIT_CALL_COLUMNS =
+  'id, forward_prompt, reverse_prompt, forward_reasoning, reverse_reasoning, forward_raw, ' +
+  'reverse_raw, reasoning_trace_format';
 
 export const listPairBanksAction = adminAction('listPairBanks', async (ctx: AdminContext) => {
   const { data, error } = await db(ctx)
@@ -46,6 +66,118 @@ export const listTestSetsAction = adminAction('listTestSets', async (ctx: AdminC
   if (error) throw error;
   return data ?? [];
 });
+
+/** Judge-model ids for the picker, curated server-side: excludes provider:'local' models when
+ *  LOCAL_LLM_BASE_URL is unset (they'd just yield a connection error on Vercel). */
+export const getJudgeModelOptionsAction = adminAction('getJudgeModelOptions', async (ctx: AdminContext) => {
+  void ctx; // admin gate is applied by adminAction; no DB access needed here.
+  return getDeployableEvolutionModelIds();
+});
+
+const testSetContentsSchema = z.object({
+  testSetId: z.string().uuid(),
+  kind: kindFilterSchema.default('both'),
+});
+
+/** View a frozen test set's contents: metadata + member pairs (Elo, no snapshot texts) + an
+ *  orphan count (members no longer resolvable against a re-seeded bank). Read-only, no LLM cost. */
+export const getTestSetContentsAction = adminAction(
+  'getTestSetContents',
+  async (input: z.input<typeof testSetContentsSchema>, ctx: AdminContext) => {
+    const parsed = testSetContentsSchema.parse(input);
+    return loadTestSetContents(db(ctx), parsed.testSetId, parsed.kind);
+  },
+);
+
+const pairTextsSchema = z.object({
+  testSetId: z.string().uuid(),
+  pairLabel: z.string().min(1),
+});
+
+/** Lazy per-pair snapshot-text fetch for the contents detail page (kept out of the list to avoid
+ *  shipping a large set's full texts up front). */
+export const getTestSetPairTextsAction = adminAction(
+  'getTestSetPairTexts',
+  async (input: z.input<typeof pairTextsSchema>, ctx: AdminContext) => {
+    const parsed = pairTextsSchema.parse(input);
+    return getTestSetPairTexts(db(ctx), parsed.testSetId, parsed.pairLabel);
+  },
+);
+
+const updateMetaSchema = z.object({
+  testSetId: z.string().uuid(),
+  name: z.string().min(1).max(120).optional(),
+  description: z.string().max(2000).nullable().optional(),
+});
+
+/** Edit test-set METADATA only (name/description). Membership-determining fields (strategy/seed/
+ *  size) are intentionally not accepted — use cloneTestSetAction for a membership change. */
+export const updateTestSetMetaAction = adminAction(
+  'updateTestSetMeta',
+  async (input: z.input<typeof updateMetaSchema>, ctx: AdminContext) => {
+    const parsed = updateMetaSchema.parse(input);
+    return updateTestSetMetadata(db(ctx), parsed);
+  },
+);
+
+const cloneSchema = z
+  .object({
+    sourceTestSetId: z.string().uuid(),
+    newName: z.string().min(1).max(120),
+    sizeArticle: z.number().int().min(0).max(100000).optional(),
+    sizeParagraph: z.number().int().min(0).max(100000).optional(),
+    strategy: testSetStrategySchema.optional(),
+    seed: z.number().int().optional(),
+    description: z.string().max(2000).nullable().optional(),
+    /** Curated clone: explicit pair labels to include (required when strategy='manual'). */
+    manualLabels: z.array(z.string().min(1)).optional(),
+  })
+  .refine((v) => v.strategy !== 'manual' || (v.manualLabels?.length ?? 0) > 0, {
+    message: 'manualLabels must be non-empty when strategy is "manual"',
+    path: ['manualLabels'],
+  });
+
+/** Clone a test set into a NEW frozen set (the only safe membership-change path). Re-samples the
+ *  source's CURRENT bank; preserves the source + its eval runs. With strategy='manual' + manualLabels
+ *  it produces a curated set (exactly the chosen pairs). Errors on name collision. */
+export const cloneTestSetAction = adminAction(
+  'cloneTestSet',
+  async (input: z.input<typeof cloneSchema>, ctx: AdminContext) => {
+    const parsed = cloneSchema.parse(input);
+    return cloneTestSet(db(ctx), parsed);
+  },
+);
+
+const curationSchema = z.object({
+  testSetId: z.string().uuid(),
+  kind: kindFilterSchema.default('both'),
+  membership: z.enum(['all', 'member', 'non_member']).default('all'),
+  gapKind: z.enum(['all', 'large', 'close']).default('all'),
+  search: z.string().max(200).optional(),
+  eloMin: z.number().nullable().optional(),
+  eloMax: z.number().nullable().optional(),
+  limit: z.number().int().min(1).max(500).default(100),
+  offset: z.number().int().min(0).default(0),
+});
+
+/** List the source set's bank pairs (the curated-clone universe) with Elo + isMember flags, filtered
+ *  + paginated. Powers the Clone & curate picker; the chosen labels feed cloneTestSetAction(manual). */
+export const getBankPairsForCurationAction = adminAction(
+  'getBankPairsForCuration',
+  async (input: z.input<typeof curationSchema>, ctx: AdminContext) => {
+    const parsed = curationSchema.parse(input);
+    return loadBankPairsForCuration(db(ctx), parsed.testSetId, {
+      kind: parsed.kind,
+      membership: parsed.membership,
+      gapKind: parsed.gapKind,
+      search: parsed.search,
+      eloMin: parsed.eloMin ?? null,
+      eloMax: parsed.eloMax ?? null,
+      limit: parsed.limit,
+      offset: parsed.offset,
+    });
+  },
+);
 
 const seedSchema = z.object({
   topicId: z.string().uuid(),
@@ -137,7 +269,9 @@ export const createEvalRunAction = adminAction(
         explainReasoning: parsed.explainReasoning,
         repeats: parsed.repeats,
       },
-      { dryRun: parsed.dryRun, userId: ctx.adminUserId },
+      // trackingDb makes each judge call write an llmCallTracking row (matches the CLI);
+      // without it, even successful Judge Lab sweeps leave no per-call cost/audit trail.
+      { dryRun: parsed.dryRun, userId: ctx.adminUserId, trackingDb: db(ctx) },
     );
   },
 );
@@ -159,7 +293,27 @@ export const getEvalLeaderboardAction = adminAction(
     if (parsed.kind !== 'both') q = q.eq('pair_kind', parsed.kind);
     const { data, error } = await q;
     if (error) throw error;
-    return data ?? [];
+    const rows = data ?? [];
+
+    // The leaderboard view exposes only prompt_variant_hash; enrich each row with the actual
+    // custom-prompt text (judge_eval_runs.prompt_variant) so the UI can show whether a custom
+    // prompt was used and what it was. Batch-fetch by eval_run_id (avoids N+1).
+    const runIds = Array.from(
+      new Set(rows.map((r) => r.eval_run_id).filter((id): id is string => !!id)),
+    );
+    const promptByRun = new Map<string, string | null>();
+    if (runIds.length > 0) {
+      const { data: runs, error: runsErr } = await db(ctx)
+        .from('judge_eval_runs')
+        .select('id, prompt_variant')
+        .in('id', runIds);
+      if (runsErr) throw runsErr;
+      for (const run of runs ?? []) promptByRun.set(run.id, run.prompt_variant ?? null);
+    }
+    return rows.map((r) => {
+      const promptVariant = r.eval_run_id ? promptByRun.get(r.eval_run_id) ?? null : null;
+      return { ...r, prompt_variant: promptVariant, used_custom_prompt: !!promptVariant };
+    });
   },
 );
 
@@ -179,9 +333,11 @@ export const getEvalRunDetailAction = adminAction(
       .single();
     if (runRes.error) throw runRes.error;
 
+    // Core columns only — this powers the per-kind aggregates + per-pair table, which never
+    // render the heavy audit payload. The dedicated match-history view fetches that per-row.
     let q = db(ctx)
       .from('judge_eval_calls')
-      .select('*')
+      .select(CORE_CALL_COLUMNS)
       .eq('eval_run_id', parsed.runId)
       .order('pair_label', { ascending: true })
       .order('repeat_index', { ascending: true });
@@ -189,6 +345,85 @@ export const getEvalRunDetailAction = adminAction(
     const callsRes = await q;
     if (callsRes.error) throw callsRes.error;
 
-    return { run: runRes.data, calls: callsRes.data ?? [] };
+    // .select(<string>) loses supabase-js row inference → cast to the typed Core shape.
+    return { run: runRes.data, calls: (callsRes.data ?? []) as unknown as JudgeEvalCallCore[] };
+  },
+);
+
+const callsListSchema = z.object({
+  runId: z.string().uuid(),
+  kind: z.enum(['article', 'paragraph', 'both']).default('both'),
+  limit: z.number().int().min(1).max(200).default(50),
+  offset: z.number().int().min(0).default(0),
+});
+
+/** Match-history LIST for one eval run: light Core rows (verdict + metrics + ground-truth snapshot),
+ *  paginated, ordered by pair then repeat. Never selects the heavy audit payload — the row detail
+ *  is fetched lazily via getJudgeEvalCallDetailAction. Returns the filtered total for pagination. */
+export const getJudgeEvalCallsAction = adminAction(
+  'getJudgeEvalCalls',
+  async (input: z.input<typeof callsListSchema>, ctx: AdminContext) => {
+    const parsed = callsListSchema.parse(input);
+    let q = db(ctx)
+      .from('judge_eval_calls')
+      .select(CORE_CALL_COLUMNS, { count: 'exact' })
+      .eq('eval_run_id', parsed.runId)
+      .order('pair_label', { ascending: true })
+      .order('repeat_index', { ascending: true })
+      .range(parsed.offset, parsed.offset + parsed.limit - 1);
+    if (parsed.kind !== 'both') q = q.eq('pair_kind', parsed.kind);
+    const { data, error, count } = await q;
+    if (error) throw error;
+    return {
+      calls: (data ?? []) as unknown as JudgeEvalCallCore[],
+      total: count ?? 0,
+      limit: parsed.limit,
+      offset: parsed.offset,
+    };
+  },
+);
+
+const callDetailSchema = z.object({ callId: z.string().uuid() });
+
+/** AUDIT payload for ONE expanded match: the exact rendered forward/reverse prompts, per-pass
+ *  reasoning trace (+ format) and raw output. Legacy rows (pre-migration) return all-null audit
+ *  fields — callers render the empty state rather than treating it as an error. */
+export const getJudgeEvalCallDetailAction = adminAction(
+  'getJudgeEvalCallDetail',
+  async (input: z.input<typeof callDetailSchema>, ctx: AdminContext) => {
+    const parsed = callDetailSchema.parse(input);
+    const { data, error } = await db(ctx)
+      .from('judge_eval_calls')
+      .select(AUDIT_CALL_COLUMNS)
+      .eq('id', parsed.callId)
+      .single();
+    if (error) throw error;
+    return data as unknown as JudgeEvalCallAudit;
+  },
+);
+
+const variantPairSchema = z.object({
+  variantA: z.string().uuid(),
+  variantB: z.string().uuid(),
+});
+
+/** Resolve a judge-eval call's snapshotted variant pair to a recorded arena comparison so the match
+ *  can be opened in the Match Viewer. Judge-eval pairs are seeded FROM evolution_arena_comparisons
+ *  (entry_a/entry_b), so a comparison almost always exists; we match either entry order and return
+ *  the newest. Returns { comparisonId: null } when none is found (e.g. the comparison was deleted).
+ *  variantA/variantB are validated UUIDs, so they are safe to interpolate into the PostgREST filter. */
+export const findArenaComparisonForVariantsAction = adminAction(
+  'findArenaComparisonForVariants',
+  async (input: z.input<typeof variantPairSchema>, ctx: AdminContext) => {
+    const { variantA, variantB } = variantPairSchema.parse(input);
+    const { data, error } = await db(ctx)
+      .from('evolution_arena_comparisons')
+      .select('id')
+      .or(`and(entry_a.eq.${variantA},entry_b.eq.${variantB}),and(entry_a.eq.${variantB},entry_b.eq.${variantA})`)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return { comparisonId: data?.id ?? null };
   },
 );

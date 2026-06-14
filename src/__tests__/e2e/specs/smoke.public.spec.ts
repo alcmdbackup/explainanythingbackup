@@ -53,7 +53,7 @@ test.describe('Public Smoke Tests', () => {
 // signInWithPassword → redirects to /login → visitor lands on the login form
 // instead of being silently signed in as guest. The URL assertion below catches
 // this within ~2 min via Slack (runs in both post-deploy smoke @smoke-public grep
-// and nightly chromium/firefox testMatch on this file).
+// and nightly chromium testMatch on this file).
 unauthTest.describe('Public Smoke Tests — guest auto-login', () => {
   unauthTest.use({ storageState: { cookies: [], origins: [] } });
 

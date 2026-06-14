@@ -17,7 +17,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 import { calculateLLMCost } from '@/config/llmPricing';
-import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId, getModelMaxTemperature, getModelDefaultReasoningEffort, modelSupportsReasoning, MODEL_REGISTRY } from '@/config/modelRegistry';
+import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId, getModelMaxTemperature, getModelDefaultReasoningEffort, modelSupportsReasoning, modelSupportsJsonSchema, MODEL_REGISTRY } from '@/config/modelRegistry';
 
 /** Clamp temperature to model's max. Returns undefined if model doesn't support temperature or temp not set. */
 function clampTemperature(temperature: number | undefined, model: string): number | undefined {
@@ -28,6 +28,43 @@ function clampTemperature(temperature: number | undefined, model: string): numbe
 }
 import { getLLMSemaphore } from './llmSemaphore';
 import { getSpendingGate } from './llmSpendingGate';
+
+/**
+ * Build the provider request fields that carry reasoning effort, applying per-model hygiene so a
+ * model never receives a reasoning param it can't accept:
+ *  - models with `supportsReasoning === false` (gemini-2.5-flash-lite, qwen-2.5-7b-instruct,
+ *    gpt-4.1-mini, deepseek-*, claude-*) NEVER receive a reasoning param. Previously the judge
+ *    UI's default `reasoning='none'` was forwarded as `reasoning:{effort:'none'}` to these.
+ *  - `'none'` is only a meaningful value for OpenRouter models that opt into a disabled-thinking
+ *    mode (e.g. qwen3-8b, whose registry default IS 'none'). For a mandatory-reasoning model
+ *    (registry default is low/medium/high, e.g. gpt-oss-20b) a requested `'none'` is coerced to
+ *    that default rather than sent. For OpenAI o-series, `'none'` is invalid → omit entirely.
+ * Caller override wins over the registry default. Returns the fields to merge into the request
+ * body ({} when nothing should be attached).
+ */
+export function resolveReasoningRequestFields(
+    model: string,
+    requestedEffort: 'none' | 'low' | 'medium' | 'high' | undefined,
+): Record<string, unknown> {
+    if (!modelSupportsReasoning(model)) return {};
+    let effort = requestedEffort ?? getModelDefaultReasoningEffort(model);
+    if (!effort) return {};
+    if (isOpenRouterModel(model)) {
+        if (effort === 'none') {
+            // 'none' disables thinking — valid only when the model opts in (its default is 'none').
+            // For mandatory-reasoning models, coerce to the registry default instead of sending 'none'.
+            const def = getModelDefaultReasoningEffort(model);
+            if (def && def !== 'none') effort = def;
+        }
+        // include_reasoning surfaces the trace; pointless when thinking is disabled ('none').
+        return effort === 'none'
+            ? { reasoning: { effort } }
+            : { reasoning: { effort }, include_reasoning: true };
+    }
+    // OpenAI o-series: 'none' is not a valid value → omit reasoning entirely.
+    if (effort === 'none') return {};
+    return { reasoning_effort: effort, reasoning: { summary: 'auto' } };
+}
 
 export interface LLMUsageMetadata {
   promptTokens: number;
@@ -435,31 +472,19 @@ async function callOpenAIModel(
             requestOptions.temperature = clampedTemp;
         }
 
-        // Reasoning effort — for OpenAI o-series models we pass `reasoning_effort` directly
-        // (SDK-supported). For OpenRouter models that accept `reasoning.effort`, we include
-        // it as an extra request field (the SDK tolerates unknown fields on OpenAI-compatible
-        // endpoints). Caller override wins over the registry default.
-        const effectiveReasoningEffort = options?.reasoningEffort ?? getModelDefaultReasoningEffort(validatedModel);
-        if (effectiveReasoningEffort) {
-            if (isOpenRouterModel(validatedModel)) {
-                // OpenRouter unified API: { reasoning: { effort: 'low'|... }, include_reasoning: true }.
-                // bring_back_debate_agent_20260506 Phase 1.20: opt in to reasoning_details
-                // so the trace text is surfaced (verbatim per OpenRouter contract).
-                (requestOptions as unknown as Record<string, unknown>).reasoning = { effort: effectiveReasoningEffort };
-                (requestOptions as unknown as Record<string, unknown>).include_reasoning = true;
-            } else {
-                // OpenAI o-series: reasoning_effort parameter on the top-level request.
-                // 'none' is not a valid OpenAI value, so omit it.
-                if (effectiveReasoningEffort !== 'none') {
-                    (requestOptions as unknown as Record<string, unknown>).reasoning_effort = effectiveReasoningEffort;
-                    // bring_back_debate_agent_20260506 Phase 1.20: opt in to summary text.
-                    // OpenAI AUP prohibits raw chain-of-thought extraction; the summary is
-                    // what the API exposes under `reasoning: { summary: 'auto' }` for the
-                    // Responses API (and equivalent fields for Chat Completions when surfaced).
-                    (requestOptions as unknown as Record<string, unknown>).reasoning = { summary: 'auto' };
-                }
-            }
-        }
+        // Reasoning effort — caller override wins over the registry default; hygiene rules
+        // (drop 'none', skip non-reasoning models) live in resolveReasoningRequestFields so a
+        // model never receives a reasoning param it can't accept. Phase 1.20 trace opt-ins
+        // (include_reasoning for OpenRouter, reasoning.summary for OpenAI) are preserved there.
+        const requestedReasoningEffort = options?.reasoningEffort ?? getModelDefaultReasoningEffort(validatedModel);
+        const reasoningFields = resolveReasoningRequestFields(validatedModel, requestedReasoningEffort);
+        Object.assign(requestOptions, reasoningFields);
+        // True iff thinking was actually requested (a non-'none' effort) — drives trace extraction
+        // below. Both trace opt-ins (reasoning_effort for OpenAI, include_reasoning for OpenRouter)
+        // are emitted only when effort !== 'none', so their presence is the signal. A disabled-
+        // thinking 'none' (e.g. qwen3-8b) emits neither and stays false.
+        const reasoningRequested =
+            reasoningFields.reasoning_effort !== undefined || reasoningFields.include_reasoning === true;
 
         // DeepSeek defaults thinking ON. For non-reasoning DeepSeek models, explicitly disable
         // it so they behave as plain chat models (temperature honored, no chain-of-thought
@@ -470,9 +495,20 @@ async function callOpenAIModel(
         }
 
         if (response_obj && response_obj_name) {
-            if (isDeepSeekModel(validatedModel) || isLocalModel(validatedModel) || isOpenRouterModel(validatedModel)) {
+            if (isOpenRouterModel(validatedModel) && modelSupportsJsonSchema(validatedModel)) {
+                // Flagged OpenRouter model (e.g. Gemini): use schema-enforced json_schema so the
+                // model conforms to the Zod shape (plain json_object does NOT enforce the schema,
+                // which broke title-gen on Gemini — see fix_openrouter_json_schema_structured_output).
+                // Drop `strict` (zodResponseFormat defaults it to true); Gemini-via-OpenRouter rejects
+                // strict mode for some schemas, while non-strict still enforces the field shape.
+                const rf = zodResponseFormat(response_obj, response_obj_name);
+                rf.json_schema.strict = false;
+                requestOptions.response_format = rf;
+            } else if (isDeepSeekModel(validatedModel) || isLocalModel(validatedModel) || isOpenRouterModel(validatedModel)) {
+                // DeepSeek/Local/unflagged-OpenRouter: JSON-forced but not schema-enforced.
                 requestOptions.response_format = { type: 'json_object' };
             } else {
+                // OpenAI: schema-enforced json_schema (strict).
                 requestOptions.response_format = zodResponseFormat(response_obj, response_obj_name);
             }
         }
@@ -563,7 +599,7 @@ async function callOpenAIModel(
             // per provider, only when reasoning was actually requested + thinking happened.
             // Three-state semantics: 'verbatim'/'summary' = trace surfaced; 'unavailable' =
             // thinking happened but provider dropped trace; undefined = no thinking requested.
-            if (effectiveReasoningEffort && effectiveReasoningEffort !== 'none' && reasoningTokens > 0) {
+            if (reasoningRequested && reasoningTokens > 0) {
                 if (isOpenRouterModel(validatedModel)) {
                     // OpenRouter: parse choices[0].message.reasoning_details[] (verbatim).
                     // Some providers behind OpenRouter silently drop this — flag observability.

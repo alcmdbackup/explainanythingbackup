@@ -4,19 +4,43 @@
 // measurement surface. (create_tool_systematic_judge_evaluation_evolution_20260606)
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
 import { getEvolutionModelIds, DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
+import { ARTICLE_SANDBOX_RUBRIC, PARAGRAPH_SANDBOX_RUBRIC } from '@evolution/lib/shared/judgeRubrics';
 import {
   listTestSetsAction,
   createEvalRunAction,
   getEvalLeaderboardAction,
+  getJudgeModelOptionsAction,
 } from '@evolution/services/judgeEvalActions';
 
 type Kind = 'article' | 'paragraph' | 'both';
 const TEMPERATURE_CHOICES = [0, 0.3, 0.7, 1.0];
+
+// The default rubric shown for the current Kind. 'both' shows the paragraph rubric (mixed sweeps
+// are dominated by paragraph pairs); it's only a reference — when left unchanged it is NOT sent as
+// an override, so the engine's built-in PER-PAIR rubric selection applies (article rubric to article
+// pairs, paragraph rubric to paragraph pairs).
+function defaultRubricFor(kind: Kind): string {
+  return kind === 'article' ? ARTICLE_SANDBOX_RUBRIC : PARAGRAPH_SANDBOX_RUBRIC;
+}
+function isDefaultRubric(text: string): boolean {
+  const t = text.trim();
+  return t === ARTICLE_SANDBOX_RUBRIC.trim() || t === PARAGRAPH_SANDBOX_RUBRIC.trim();
+}
+
+// Render an untyped ErrorResponse.details for a toast description. `details` is a raw
+// string for LLM/timeout errors and an object for DB errors; truncate long strings so
+// the toast stays readable.
+function formatErrorDetail(details: unknown): string | undefined {
+  if (details == null) return undefined;
+  const text = typeof details === 'string' ? details : JSON.stringify(details);
+  if (!text) return undefined;
+  return text.length > 500 ? `${text.slice(0, 500)}…` : text;
+}
 
 interface TestSetOption {
   id: string;
@@ -37,6 +61,9 @@ interface LeaderboardRow {
   decisive_rate: number | null;
   avg_confidence: number | null;
   cost_per_decisive_usd: number | null;
+  // Enriched by getEvalLeaderboardAction from judge_eval_runs.prompt_variant.
+  used_custom_prompt?: boolean;
+  prompt_variant?: string | null;
 }
 
 function pct(v: number | null): string {
@@ -54,17 +81,37 @@ export default function JudgeLabPage(): JSX.Element {
     document.title = 'Judge Lab | Evolution';
   }, []);
 
-  const modelIds = useMemo(() => getEvolutionModelIds(), []);
+  // Start with the static evolution list, then replace with the server-curated list (which drops
+  // local-only models that can't run in this deployment). Falls back to the static list on error.
+  const [modelIds, setModelIds] = useState<string[]>(() => getEvolutionModelIds());
+  useEffect(() => {
+    void (async () => {
+      const res = await getJudgeModelOptionsAction();
+      if (res.success && res.data && res.data.length > 0) setModelIds(res.data);
+    })();
+  }, []);
   const [testSets, setTestSets] = useState<TestSetOption[]>([]);
   const [testSetId, setTestSetId] = useState<string>('');
   const [kind, setKind] = useState<Kind>('both');
   const [models, setModels] = useState<string[]>([DEFAULT_JUDGE_MODEL]);
   const [temperatures, setTemperatures] = useState<number[]>([0]);
   const [reasoning, setReasoning] = useState<'none' | 'low' | 'medium'>('none');
+  // Explicit, default-off control for whether the judge is asked to explain before its verdict.
+  // Decoupled from the custom-prompt textarea (which is now pre-filled with the default rubric).
+  const [explainReasoning, setExplainReasoning] = useState(false);
   const [repeats, setRepeats] = useState(10);
-  const [customPrompt, setCustomPrompt] = useState('');
+  // Pre-filled with the default rubric for the current Kind so it is visible + directly editable.
+  // When left unchanged it is NOT sent as an override (see runSweep) — the engine's built-in
+  // per-pair rubric is used. Editing it turns it into a real custom override applied to all pairs.
+  const [customPrompt, setCustomPrompt] = useState(() => defaultRubricFor('both'));
   const [launching, setLaunching] = useState(false);
   const [estimate, setEstimate] = useState<string | null>(null);
+
+  // Mode-aware: when Kind changes, swap the box to that Kind's default rubric — but only if the user
+  // hasn't hand-edited it (it still equals one of the presets), mirroring the Match Viewer.
+  useEffect(() => {
+    setCustomPrompt((cur) => (isDefaultRubric(cur) ? defaultRubricFor(kind) : cur));
+  }, [kind]);
 
   const [viewKind, setViewKind] = useState<Kind>('both');
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
@@ -114,20 +161,29 @@ export default function JudgeLabPage(): JSX.Element {
     }
     setLaunching(true);
     setEstimate(null);
+    // Only send a custom override when the user actually EDITED the box. An unchanged preset rubric
+    // is a reference only → null → the engine uses its built-in per-pair rubric (so an article sweep
+    // is judged with the article rubric, not whatever preset happens to be displayed).
+    const promptVariant = !isDefaultRubric(customPrompt) && customPrompt.trim() ? customPrompt.trim() : null;
     const res = await createEvalRunAction({
       testSetName: selectedTestSet.name,
       kindFilter: kind,
       models,
       temperatures,
       reasoningEfforts: [reasoning],
-      promptVariant: customPrompt.trim() || null,
-      explainReasoning: customPrompt.trim().length > 0,
+      promptVariant,
+      explainReasoning,
       repeats,
       dryRun,
     });
     setLaunching(false);
     if (!res.success) {
-      toast.error(res.error?.message ?? 'Sweep failed');
+      // Surface the underlying provider error (res.error.details) — not just the
+      // generic message — so judge-model failures are diagnosable. `details` is
+      // untyped (a raw string for LLM/timeout errors, an object for DB errors),
+      // so render it generically.
+      const detail = formatErrorDetail(res.error?.details);
+      toast.error(res.error?.message ?? 'Sweep failed', detail ? { description: detail } : undefined);
       return;
     }
     const o = res.data!;
@@ -185,7 +241,7 @@ export default function JudgeLabPage(): JSX.Element {
               style={{
                 borderColor: 'var(--border-default)',
                 background: kind === k ? 'var(--accent-gold)' : 'transparent',
-                color: kind === k ? 'var(--bg-primary)' : 'var(--text-secondary)',
+                color: kind === k ? 'var(--text-on-primary)' : 'var(--text-secondary)',
               }}
               onClick={() => setKind(k)}
             >
@@ -234,14 +290,38 @@ export default function JudgeLabPage(): JSX.Element {
         </div>
 
         <details>
-          <summary className="text-xs cursor-pointer text-[var(--text-muted)]">Custom judge prompt (optional — rubric override)</summary>
+          <summary className="text-xs cursor-pointer text-[var(--text-muted)]">Custom judge prompt (rubric override)</summary>
+          <p className="mt-2 text-xs text-[var(--text-muted)]">
+            Pre-filled with the default rubric for the selected Kind, for reference. <strong>Leave it
+            unchanged</strong> to use the engine&apos;s built-in per-pair rubric (article pairs judged
+            with the article rubric, paragraph pairs with the paragraph rubric). <strong>Edit it</strong>
+            to apply your own rubric to <em>all</em> pairs in the sweep — it overrides only the rubric
+            block; the two texts and a final &ldquo;Your answer: A|B|TIE&rdquo; line are appended.
+          </p>
           <textarea
             data-testid="custom-prompt"
-            className="mt-2 w-full h-24 bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded p-2 text-xs font-mono"
-            placeholder="Leave blank for the built-in rubric. Keep a final 'Your answer: A|B|TIE' instruction."
+            className="mt-2 w-full h-40 bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded p-2 text-xs font-mono"
             value={customPrompt}
             onChange={(e) => setCustomPrompt(e.target.value)}
           />
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              className="text-xs underline text-[var(--text-muted)]"
+              onClick={() => setCustomPrompt(defaultRubricFor(kind))}
+            >
+              Reset to default {kind === 'article' ? 'article' : 'paragraph'} rubric
+            </button>
+          </div>
+          <label className="mt-2 flex items-center gap-2 text-xs font-ui">
+            <input
+              type="checkbox"
+              data-testid="explain-reasoning"
+              checked={explainReasoning}
+              onChange={(e) => setExplainReasoning(e.target.checked)}
+            />
+            Explain reasoning (judge writes a brief rationale before its verdict — more tokens/cost)
+          </label>
         </details>
 
         {estimate && <div className="text-xs text-[var(--text-muted)]" data-testid="sweep-estimate">Estimate: {estimate}</div>}
@@ -259,7 +339,7 @@ export default function JudgeLabPage(): JSX.Element {
             data-testid="judge-lab-launch"
             disabled={launching}
             className="text-xs px-3 py-1.5 rounded disabled:opacity-50"
-            style={{ background: 'var(--accent-gold)', color: 'var(--bg-primary)' }}
+            style={{ background: 'var(--accent-gold)', color: 'var(--text-on-primary)' }}
             onClick={() => void runSweep(false)}
           >
             {launching ? 'Running…' : '▶ Launch sweep'}
@@ -282,7 +362,7 @@ export default function JudgeLabPage(): JSX.Element {
                 style={{
                   borderColor: 'var(--border-default)',
                   background: viewKind === k ? 'var(--accent-gold)' : 'transparent',
-                  color: viewKind === k ? 'var(--bg-primary)' : 'var(--text-secondary)',
+                  color: viewKind === k ? 'var(--text-on-primary)' : 'var(--text-secondary)',
                 }}
                 onClick={() => setViewKind(k)}
               >
@@ -294,7 +374,8 @@ export default function JudgeLabPage(): JSX.Element {
         <table className="w-full text-xs" data-testid="leaderboard-table">
           <thead>
             <tr className="text-left text-[var(--text-muted)]">
-              <th className="py-1">Model</th>
+              <th className="py-1">Run</th>
+              <th>Model</th>
               <th>Temp</th>
               <th>Reas.</th>
               <th>Kind</th>
@@ -302,26 +383,28 @@ export default function JudgeLabPage(): JSX.Element {
               <th>Avg conf</th>
               <th>$/dec</th>
               <th>N</th>
+              <th>Prompt</th>
             </tr>
           </thead>
           <tbody>
             {loadingBoard && (
-              <tr><td colSpan={8} className="py-3 text-[var(--text-muted)]">Loading…</td></tr>
+              <tr><td colSpan={10} className="py-3 text-[var(--text-muted)]">Loading…</td></tr>
             )}
             {!loadingBoard && rows.length === 0 && (
-              <tr><td colSpan={8} className="py-3 text-[var(--text-muted)]">No runs yet for this test set. Launch a sweep above.</td></tr>
+              <tr><td colSpan={10} className="py-3 text-[var(--text-muted)]">No runs yet for this test set. Launch a sweep above.</td></tr>
             )}
             {rows.map((r, i) => (
               <tr key={`${r.eval_run_id}-${r.pair_kind}-${i}`} data-testid="leaderboard-row" className="border-t border-[var(--border-default)]">
-                <td className="py-1 font-mono">
+                <td className="py-1 font-mono" data-testid="leaderboard-run-id">
                   {r.eval_run_id ? (
-                    <Link className="underline" href={`/admin/evolution/judge-lab/runs/${r.eval_run_id}`}>
-                      {r.judge_model ?? '—'}
+                    <Link className="underline" href={`/admin/evolution/judge-lab/runs/${r.eval_run_id}`} title={r.eval_run_id}>
+                      {r.eval_run_id.substring(0, 8)}
                     </Link>
                   ) : (
-                    r.judge_model ?? '—'
+                    '—'
                   )}
                 </td>
+                <td className="font-mono">{r.judge_model ?? '—'}</td>
                 <td>{r.temperature ?? '—'}</td>
                 <td>{r.reasoning_effort ?? 'none'}</td>
                 <td>{r.pair_kind ?? '—'}</td>
@@ -329,6 +412,18 @@ export default function JudgeLabPage(): JSX.Element {
                 <td>{conf(r.avg_confidence)}</td>
                 <td>{usd(r.cost_per_decisive_usd)}</td>
                 <td>{r.n_calls ?? 0}</td>
+                <td data-testid="leaderboard-prompt">
+                  {r.used_custom_prompt ? (
+                    <details>
+                      <summary className="cursor-pointer text-[var(--accent-gold)]">Custom</summary>
+                      <pre className="mt-1 max-w-md whitespace-pre-wrap break-words text-xs font-mono text-[var(--text-muted)]">
+                        {r.prompt_variant}
+                      </pre>
+                    </details>
+                  ) : (
+                    <span className="text-[var(--text-muted)]">Built-in</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

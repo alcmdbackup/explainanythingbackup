@@ -16,6 +16,7 @@ import {
 } from './schemas';
 import { selectTestSetMembers, assertMembersExist } from './testSet';
 import { buildPromptVariantHash, buildSettingsKey } from './settings';
+import { dbToRating, toDisplayElo } from '../shared/computeRatings';
 
 type Db = SupabaseClient<Database>;
 
@@ -172,6 +173,337 @@ export async function loadTestSetPairs(
   );
   const pairs = allPairs.filter((p) => wanted.has(p.label));
   return { testSet: ts as JudgeEvalTestSet, pairs };
+}
+
+/** One member pair for the contents view. Ratings are surfaced as display **Elo** (+ uncertainty),
+ *  NOT the raw OpenSkill mu/sigma stored on the pair — the rest of the admin UI speaks Elo. */
+export interface TestSetContentPair {
+  label: string;
+  pair_kind: JudgeEvalPair['pair_kind'];
+  variant_a_id: string;
+  variant_b_id: string;
+  elo_a: number | null;
+  elo_b: number | null;
+  uncertainty_a: number | null;
+  uncertainty_b: number | null;
+  /** |elo_a - elo_b| — the Elo-gap ground-truth signal; null when either side lacks a rating. */
+  elo_gap: number | null;
+  expected_winner: JudgeEvalPair['expected_winner'];
+  gap_kind: JudgeEvalPair['gap_kind'];
+  baseline_confidence: JudgeEvalPair['baseline_confidence'];
+}
+
+export interface TestSetContents {
+  testSet: JudgeEvalTestSet;
+  /** Member pairs WITHOUT the snapshot texts (see getTestSetPairTexts for lazy per-pair fetch). */
+  pairs: TestSetContentPair[];
+  /** Frozen members for the kind filter. */
+  memberCount: number;
+  /** Members that still resolve against the (possibly re-seeded) bank. */
+  resolvedCount: number;
+  /** memberCount - resolvedCount: frozen members whose label is no longer in the bank. */
+  orphanCount: number;
+}
+
+// Code-point string compare (stable, locale-independent) for deterministic sort ordering.
+function cmpStr(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+// Stored mu/sigma are OpenSkill-scale; project to display Elo so the UI never shows raw mu.
+// mu/sigma are nullable on a pair — Elo is null unless both are present.
+function oneSideElo(mu: number | null, sigma: number | null): { elo: number; uncertainty: number } | null {
+  if (mu == null || sigma == null) return null;
+  const r = dbToRating(mu, sigma);
+  return { elo: Math.round(toDisplayElo(r.elo)), uncertainty: Math.round(r.uncertainty) };
+}
+
+/** Project a stored pair to the Elo-bearing, text-stripped shape shared by the contents + curation views. */
+function projectPairElo(p: JudgeEvalPair): TestSetContentPair {
+  const a = oneSideElo(p.mu_a, p.sigma_a);
+  const b = oneSideElo(p.mu_b, p.sigma_b);
+  return {
+    label: p.label,
+    pair_kind: p.pair_kind,
+    variant_a_id: p.variant_a_id,
+    variant_b_id: p.variant_b_id,
+    elo_a: a?.elo ?? null,
+    elo_b: b?.elo ?? null,
+    uncertainty_a: a?.uncertainty ?? null,
+    uncertainty_b: b?.uncertainty ?? null,
+    elo_gap: a && b ? Math.abs(a.elo - b.elo) : null,
+    expected_winner: p.expected_winner,
+    gap_kind: p.gap_kind,
+    baseline_confidence: p.baseline_confidence,
+  };
+}
+
+/**
+ * Load a test set's metadata + member pairs for the contents view, WITHOUT the snapshot texts
+ * (a large set's texts can be megabytes; the detail page fetches them per-row via
+ * getTestSetPairTexts). Also returns member-vs-resolved counts so the UI can warn when the bank
+ * was re-seeded and some frozen members no longer resolve — loadTestSetPairs silently drops those.
+ */
+export async function loadTestSetContents(
+  db: Db,
+  testSetId: string,
+  kindFilter: JudgeKindFilter,
+): Promise<TestSetContents> {
+  const { testSet, pairs: full } = await loadTestSetPairs(db, testSetId, kindFilter);
+
+  let memberQ = db
+    .from('judge_eval_test_set_members')
+    .select('pair_label', { count: 'exact', head: true })
+    .eq('test_set_id', testSetId);
+  if (kindFilter !== 'both') memberQ = memberQ.eq('pair_kind', kindFilter);
+  const { count, error } = await memberQ;
+  if (error) throw error;
+  const memberCount = count ?? 0;
+
+  const pairs: TestSetContentPair[] = full.map(projectPairElo);
+
+  return {
+    testSet,
+    pairs,
+    memberCount,
+    resolvedCount: pairs.length,
+    orphanCount: Math.max(0, memberCount - pairs.length),
+  };
+}
+
+/** Fetch the two snapshot texts for one member pair (lazy row-expand on the contents page). */
+export async function getTestSetPairTexts(
+  db: Db,
+  testSetId: string,
+  pairLabel: string,
+): Promise<{ text_a: string; text_b: string }> {
+  const { pairs } = await loadTestSetPairs(db, testSetId, 'both');
+  const pair = pairs.find((p) => p.label === pairLabel);
+  if (!pair) throw new Error(`Pair not found in test set: ${pairLabel}`);
+  return { text_a: pair.text_a, text_b: pair.text_b };
+}
+
+/** One bank pair for the Clone & curate picker — projected Elo + whether it's a current member. */
+export interface CurationPair extends TestSetContentPair {
+  isMember: boolean;
+}
+
+export interface CurationFilters {
+  kind?: JudgeKindFilter;
+  /** 'member' = current members of the source set; 'non_member' = bank pairs not in the set. */
+  membership?: 'all' | 'member' | 'non_member';
+  gapKind?: 'all' | 'large' | 'close';
+  /** Case-insensitive substring match on pair_label. */
+  search?: string;
+  /** Elo bounds — a pair passes only when BOTH sides are within them (null Elo → excluded if set). */
+  eloMin?: number | null;
+  eloMax?: number | null;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CurationResult {
+  pairs: CurationPair[];
+  /** Filtered count (for pagination). */
+  total: number;
+  /** Current member count of the source set (across both kinds). */
+  memberCount: number;
+  /** ALL current member labels of the source set (labels are tiny — seeds the picker's initial
+   *  selection without a second query, regardless of the active filter). */
+  memberLabels: string[];
+  /** ALL labels matching the filter (labels are tiny — powers "select all (filtered)"). */
+  filteredLabels: string[];
+}
+
+/**
+ * List the source set's BANK pairs (the available universe for a curated clone), projected to Elo +
+ * text-stripped, each flagged `isMember`. Filtering happens in-memory over the parsed bank JSONB
+ * (one row) then paginates; the Elo filter requires BOTH sides within bounds. Powers the Clone &
+ * curate picker — the chosen labels feed `cloneTestSet({ strategy:'manual', manualLabels })`.
+ */
+export async function loadBankPairsForCuration(
+  db: Db,
+  testSetId: string,
+  filters: CurationFilters = {},
+): Promise<CurationResult> {
+  const { data: ts, error: tsErr } = await db
+    .from('judge_eval_test_sets')
+    .select('pair_bank_id')
+    .eq('id', testSetId)
+    .single();
+  if (tsErr) throw tsErr;
+
+  const { data: bankRow, error: bErr } = await db
+    .from('judge_eval_pair_banks')
+    .select('pairs')
+    .eq('id', ts.pair_bank_id)
+    .single();
+  if (bErr) throw bErr;
+  const allPairs = parsePairs(bankRow.pairs);
+
+  const { data: members, error: mErr } = await db
+    .from('judge_eval_test_set_members')
+    .select('pair_label')
+    .eq('test_set_id', testSetId);
+  if (mErr) throw mErr;
+  const memberLabels = new Set((members ?? []).map((m) => m.pair_label));
+
+  const kind = filters.kind ?? 'both';
+  const membership = filters.membership ?? 'all';
+  const gapKind = filters.gapKind ?? 'all';
+  const search = filters.search?.trim().toLowerCase() ?? '';
+  const { eloMin, eloMax } = filters;
+
+  const withinElo = (p: CurationPair): boolean => {
+    if (eloMin == null && eloMax == null) return true;
+    if (p.elo_a == null || p.elo_b == null) return false; // both sides required
+    if (eloMin != null && (p.elo_a < eloMin || p.elo_b < eloMin)) return false;
+    if (eloMax != null && (p.elo_a > eloMax || p.elo_b > eloMax)) return false;
+    return true;
+  };
+
+  const projected = allPairs
+    .map((p): CurationPair => ({ ...projectPairElo(p), isMember: memberLabels.has(p.label) }))
+    .filter((p) => kind === 'both' || p.pair_kind === kind)
+    .filter((p) => membership === 'all' || (membership === 'member' ? p.isMember : !p.isMember))
+    .filter((p) => gapKind === 'all' || p.gap_kind === gapKind)
+    .filter((p) => !search || p.label.toLowerCase().includes(search))
+    .filter(withinElo)
+    // Group by kind, then alphabetical by label within each kind.
+    .sort((a, b) => cmpStr(a.pair_kind, b.pair_kind) || cmpStr(a.label, b.label));
+
+  const offset = Math.max(0, filters.offset ?? 0);
+  const limit = Math.max(1, Math.min(filters.limit ?? 100, 500));
+  return {
+    pairs: projected.slice(offset, offset + limit),
+    total: projected.length,
+    memberCount: memberLabels.size,
+    memberLabels: [...memberLabels].sort(),
+    filteredLabels: projected.map((p) => p.label),
+  };
+}
+
+/**
+ * Edit a test set's METADATA only (name/description). Membership is frozen — strategy/seed/size
+ * are intentionally not editable (they determine membership; an in-place change would silently
+ * corrupt comparability for existing runs sharing the same settings_key). Maps a unique-name
+ * violation (23505) to a friendly error since `name` is the createEvalRun/CLI lookup key.
+ */
+export async function updateTestSetMetadata(
+  db: Db,
+  input: { testSetId: string; name?: string; description?: string | null },
+): Promise<JudgeEvalTestSet> {
+  const patch: Record<string, unknown> = {};
+  if (input.name !== undefined) patch.name = input.name;
+  if (input.description !== undefined) patch.description = input.description;
+  if (Object.keys(patch).length === 0) {
+    const { data, error } = await db
+      .from('judge_eval_test_sets')
+      .select('*')
+      .eq('id', input.testSetId)
+      .single();
+    if (error) throw error;
+    return data as JudgeEvalTestSet;
+  }
+  const { data, error } = await db
+    .from('judge_eval_test_sets')
+    .update(patch)
+    .eq('id', input.testSetId)
+    .select('*')
+    .single();
+  if (error) {
+    if ((error as { code?: string }).code === '23505') {
+      throw new Error(
+        `A test set named "${input.name}" already exists — names must be unique. ` +
+          `(Renaming may also break saved CLI --test-set scripts.)`,
+      );
+    }
+    throw error;
+  }
+  return data as JudgeEvalTestSet;
+}
+
+export interface CloneTestSetInput {
+  sourceTestSetId: string;
+  newName: string;
+  sizeArticle?: number;
+  sizeParagraph?: number;
+  strategy?: CreateTestSetInput['strategy'];
+  seed?: number;
+  manualLabels?: string[];
+  description?: string | null;
+}
+
+/**
+ * Clone a test set into a NEW frozen set — the only safe way to change membership/strategy/seed/
+ * size. Re-samples the source's CURRENT pair-bank with the given (or inherited) params, yielding a
+ * new id → new settings_keys, so the source's existing eval runs stay comparable. Throws on name
+ * collision (never mutates an existing set), including the TOCTOU 23505 race.
+ */
+export async function cloneTestSet(
+  db: Db,
+  input: CloneTestSetInput,
+): Promise<{ testSet: JudgeEvalTestSet; created: boolean }> {
+  const { data: src, error: srcErr } = await db
+    .from('judge_eval_test_sets')
+    .select('*')
+    .eq('id', input.sourceTestSetId)
+    .single();
+  if (srcErr) throw srcErr;
+  const source = src as JudgeEvalTestSet;
+
+  const { data: bankRow, error: bErr } = await db
+    .from('judge_eval_pair_banks')
+    .select('*')
+    .eq('id', source.pair_bank_id)
+    .single();
+  if (bErr) throw bErr;
+  const bank: JudgeEvalPairBank = {
+    id: bankRow.id,
+    name: bankRow.name,
+    description: bankRow.description,
+    source_topic_id: bankRow.source_topic_id,
+    pairs: parsePairs(bankRow.pairs),
+    created_at: bankRow.created_at,
+  };
+
+  const strategy = input.strategy ?? (source.strategy as CreateTestSetInput['strategy']);
+  // For a manual (curated) clone, membership is exactly the chosen labels — so record the actual
+  // per-kind selected counts as the new set's sizes (manual ignores seed/size for selection).
+  let sizeArticle = input.sizeArticle ?? source.size_article;
+  let sizeParagraph = input.sizeParagraph ?? source.size_paragraph;
+  if (strategy === 'manual') {
+    const labels = new Set(input.manualLabels ?? []);
+    const chosen = bank.pairs.filter((p) => labels.has(p.label));
+    sizeArticle = chosen.filter((p) => p.pair_kind === 'article').length;
+    sizeParagraph = chosen.filter((p) => p.pair_kind === 'paragraph').length;
+  }
+
+  let result: { testSet: JudgeEvalTestSet; created: boolean };
+  try {
+    result = await getOrCreateTestSet(db, bank, {
+      name: input.newName,
+      description: input.description ?? null,
+      strategy,
+      seed: input.seed ?? source.seed,
+      sizeArticle,
+      sizeParagraph,
+      manualLabels: input.manualLabels,
+    });
+  } catch (e) {
+    // TOCTOU: another clone with the same name inserted between get-or-create's check and insert.
+    if ((e as { code?: string }).code === '23505') {
+      throw new Error(`A test set named "${input.newName}" already exists — choose a different name.`);
+    }
+    throw e;
+  }
+  if (!result.created) {
+    // Name already existed: get-or-create returned it UNCHANGED. Clone must never alias/mutate it.
+    throw new Error(`A test set named "${input.newName}" already exists — choose a different name.`);
+  }
+  return result;
 }
 
 export interface UpsertRunInput {

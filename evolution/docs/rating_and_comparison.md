@@ -8,7 +8,7 @@ every text variant in the pool.
 > **Related research:** Empirical judge model agreement data (80 calls/model,
 > 4 temperatures, 2 variant pairs) across 5 judge models (nano, mini, deepseek,
 > gpt-oss-20b, qwen3-8b, qwen-2.5-7b) is preserved in
-> [`docs/research/judge_agreement_summary_tables.md`](../../docs/research/judge_agreement_summary_tables.md).
+> [`docs/analysis/judge_agreement_summary_tables.md`](../../docs/analysis/judge_agreement_summary_tables.md).
 > The beta=0 choice, Qwen 2.5 7B default judge, and parseWinner "Your answer:"
 > fallback all trace to findings in that document.
 
@@ -83,7 +83,7 @@ export type Rating = { elo: number; uncertainty: number };
 | `DEFAULT_CONVERGENCE_UNCERTAINTY` | 72       | Uncertainty below which rating is "settled" (Elo-scale; formerly `DEFAULT_CONVERGENCE_SIGMA=4.5`, scaled by 16) |
 | `DECISIVE_CONFIDENCE_THRESHOLD`   | 0.6      | Arena-level decisive match threshold                                    |
 | `BETA_ELO`                        | `DEFAULT_UNCERTAINTY * sqrt(2)` ≈ 188.6 | Bradley-Terry scale (Elo space)                          |
-| `beta` (openskill, internal)      | 0        | Performance variability passed to `osRate()`. Zero assumed noise — ratings update aggressively per match. Safe for text quality ranking where 2-pass reversal mitigates judge noise. See [`docs/research/judging_accuracy_20260412.md`](../../docs/research/judging_accuracy_20260412.md) for empirical calibration data. |
+| `beta` (openskill, internal)      | 0        | Performance variability passed to `osRate()`. Zero assumed noise — ratings update aggressively per match. Safe for text quality ranking where 2-pass reversal mitigates judge noise. See [`docs/analysis/judging_accuracy_20260412.md`](../../docs/analysis/judging_accuracy_20260412.md) for empirical calibration data. |
 
 ### Core Functions
 
@@ -531,6 +531,67 @@ The admin **Match Viewer** (`/admin/evolution/matches/[comparisonId]`, match_vie
 - Supports an optional `customPromptOverride` and `explainReasoning` on `buildComparisonPrompt` (sandbox-only; the default pipeline path is byte-for-byte unchanged). The override replaces only the rubric block — the two texts are still rendered in per-pass swapped positions so the reversal/`flipWinner` framing stays valid. A custom prompt is NOT forced verdict-only (so it can request an explanation), and any free-form output (custom prompt or reasoning toggle) is parsed with the reasoning-tolerant `parseVerdictFromReasoning`, which scans the **last** verdict marker instead of `parseWinner`'s start-anchored / bare-substring matching (a reasoning paragraph mentioning "equal"/"draw" would false-trigger `parseWinner`).
 
 ---
+
+## Rubric-Based Judging (structured_judging_evolution_20260610)
+
+A strategy can opt into **rubric-based pairwise judging**: instead of one holistic
+A/B/TIE verdict, the judge returns which text wins each of N named **dimensions**, and
+the per-dimension winners are combined by weight into the overall match result. Dimensions
+are **existing `evolution_criteria` rows** (reused, not redefined) bundled into a reusable
+**judge rubric**.
+
+**Data model.** `evolution_judge_rubrics` (thin entity: name/label/description/status/
+soft-delete) + `evolution_judge_rubric_dimensions` junction (`rubric_id` FK CASCADE,
+`criteria_id` FK→`evolution_criteria` **ON DELETE RESTRICT**, `weight`, `position`). Weights
+are **normalized at read time** (`getJudgeRubricForEvaluation` in `services/judgeRubricActions.ts`),
+which is robust to a criterion being archived after the rubric was built (soft-deleted/archived
+criteria are dropped, survivors renormalize; zero survivors → null → holistic fallback). A
+strategy references a rubric via `StrategyConfig.judgeRubricId` (config-hashed; validated by
+`validateJudgeRubricId`, which requires ≥1 active dimension). Hard-deleting a rubric is blocked
+while an active strategy references it (`config->>judgeRubricId` count gate); archive instead.
+
+**Mode is an orthogonal overlay (Design Y).** `comparisonMode` ('article'/'paragraph') still
+selects the text framing; the rubric is passed as an optional `rubricContext` to
+`compareWithBiasMitigation`. So a rubric judge exists in both article- and paragraph-framed
+forms. There is **no new `ComparisonMode` value**. Per-slot `paragraph_recombine` ranking is
+**article-rubric-free** — `ParagraphRecombineAgent` strips `judgeRubric` from its per-slot config.
+
+**Aggregation (`evolution/src/lib/shared/rubricJudge.ts`, unit-tested).** Still the 2-pass
+A/B reversal, **2 LLM calls/match** (all dimensions judged in one response):
+
+1. `buildRubricComparisonPrompt` emits per-dimension blocks (`name` + `description` + anchors
+   **reframed as Excellent/Adequate/Weak tiers** from their score position within `[min,max]`)
+   + a per-line `dimension: A|B|TIE` instruction.
+2. `parseRubricVerdict` tolerantly extracts a verdict per dimension (one missing/ambiguous
+   dimension → null for that dim only; the rest survive — E3).
+3. `scorePass`: per pass, `scoreA/scoreB = Σ weight of dims that pass marked A/B`; **TIE & null
+   dims contribute nothing**; pass winner = higher score (TIE if equal & ≥1 parsed; null only if
+   the pass parsed nothing).
+4. `reconcilePasses(forwardWinner, reverseWinner)` applies the **same 5-value table** as
+   `aggregateWinners` (agree→1.0, one-TIE→0.7, A-vs-B→TIE 0.5, one-null→0.3, both-null→0.0). So
+   confidence = "did both passes pick the same overall winner," on the same scale + the same
+   `<0.3 → draw` Elo gate as holistic. All-unparseable falls out as the both-null limit (TIE,
+   conf 0 → draw).
+
+`compareWithBiasMitigation` takes the rubric branch only when a resolved `rubricContext` is
+passed — the **no-rubric path is byte-identical** to before. The comparison cache key is
+suffixed with the rubric id so rubric verdicts never collide with holistic (or another rubric)
+on the same text pair.
+
+**Persistence + viewing.** The result carries a `rubricBreakdown` snapshot
+(`{rubricId, dimensions:[{criteriaId,name,weight,forwardVerdict,reverseVerdict}], forwardPass,
+reversePass, overall}`), threaded `ComparisonResult → V2Match → MergeRatingsAgent`. It is
+**oriented to the entry_a/entry_b frame** (`orientBreakdownToEntries`) and persisted to the new
+nullable `evolution_arena_comparisons.rubric_breakdown` JSONB + indexed `judge_rubric_id` column.
+The Match Viewer detail page renders the **full two-pass breakdown** (per-dimension forward/
+reverse + weight, each pass's score, overall winner/confidence); the match list shows a rubric
+indicator + filter-by-rubric. Pre-rubric matches (null breakdown) render exactly as before.
+
+**Rollout.** Kill switch `EVOLUTION_RUBRIC_JUDGING_ENABLED='false'` short-circuits resolution in
+`buildRunContext` → all judging reverts to holistic with no redeploy. Admin CRUD lives at
+`/admin/evolution/judge-rubrics`; `evolution/scripts/seedSampleJudgeRubrics.ts` seeds two starter
+rubrics over the seeded criteria. Judge Lab integration is deferred. Cost is unchanged (2 calls/
+match, `'ranking'` phase).
 
 ## How the Pieces Connect
 

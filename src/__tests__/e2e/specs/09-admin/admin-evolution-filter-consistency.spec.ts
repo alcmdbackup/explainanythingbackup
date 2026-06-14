@@ -5,7 +5,6 @@ import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { randomUUID } from 'crypto';
-import { safeGoto } from '@/lib/testing/safe-goto';
 import { EvolutionListPage } from '../../helpers/pages/admin/EvolutionListPage';
 
 function getServiceClient() {
@@ -111,8 +110,8 @@ adminTest.describe('Evolution Filter Consistency', { tag: '@evolution' }, () => 
     const normalRunRow = adminPage.locator(`[data-testid="run-row-${runIds[1]}"]`);
     await expect(normalRunRow).toBeVisible();
 
-    // --- Experiments page: filter is functional (chained nav — use safeGoto) ---
-    await safeGoto(adminPage, '/admin/evolution/experiments');
+    // --- Experiments page: filter is functional (chained nav) ---
+    await adminPage.goto('/admin/evolution/experiments');
     await adminPage.waitForLoadState('domcontentloaded');
 
     // Verify page loads without error

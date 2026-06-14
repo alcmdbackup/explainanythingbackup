@@ -27,6 +27,8 @@ User Query → Generate Title → Vector Search → Match Found?
 | `postprocessNewExplanationContent()` | Enhances content with tags, links, headings |
 | `applyTagsToExplanation()` | Applies AI-evaluated tags to explanation |
 
+> **Structured output:** the structured `callLLM` sites in this pipeline — `generateTitleFromUserQuery` (`title1`), `extractLinkCandidates`, `evaluateTags`, and `findBestMatchFromList` — pass a Zod `response_obj`. In `llms.ts` these become schema-enforced output: OpenAI uses `zodResponseFormat` (`json_schema`, strict); **OpenRouter models flagged `supportsJsonSchema`** (Gemini) use `json_schema` with `strict:false`; DeepSeek/Local/unflagged-OpenRouter fall back to (unenforced) `json_object`. This is why forcing a non-flagged OpenRouter model for title-gen would fail to produce a valid `title1`. See `fix_openrouter_json_schema_structured_output_20260608`.
+
 ### Pipeline Flow
 
 1. **Validate Input**: Check user query is valid

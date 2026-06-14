@@ -66,6 +66,18 @@ function categorizeError(error: unknown): ErrorResponse {
 
   const message = error.message.toLowerCase();
 
+  // Match 'timeout' before the 'api'/'openai' check: a provider timeout whose message also
+  // mentions "API" should be classified as a (transient) timeout, not collapsed into the
+  // generic LLM_API_ERROR. `details` always carries the full underlying message so callers
+  // can surface the real provider error.
+  if (message.includes('timeout')) {
+    return {
+      code: ERROR_CODES.TIMEOUT_ERROR,
+      message: 'Request timed out!',
+      details: error.message
+    };
+  }
+
   // Word-boundary match (\b) so phrases like "OPENROUTER_API_KEY not found" — where `api`
   // is glued to `_` — fall through to UNKNOWN_ERROR with the raw message intact, instead of
   // collapsing into the opaque "Error communicating with AI service" string. Standalone
@@ -78,15 +90,7 @@ function categorizeError(error: unknown): ErrorResponse {
       details: error.message
     };
   }
-  
-  if (message.includes('timeout')) {
-    return {
-      code: ERROR_CODES.TIMEOUT_ERROR,
-      message: 'Request timed out!',
-      details: error.message
-    };
-  }
-  
+
   if (message.includes('database') || message.includes('sql')) {
     return {
       code: ERROR_CODES.DATABASE_ERROR,

@@ -34,6 +34,8 @@ const createStrategySchema = z.object({
   description: z.string().max(2000).optional(),
   generationModel: z.string().min(1).max(100),
   judgeModel: z.string().min(1).max(100),
+  /** Optional rubric-set id for rubric-based pairwise judging (validated below). */
+  judgeRubricId: z.string().uuid().optional(),
   /** Iterative-editing Proposer model (optional). Falls back to generationModel at runtime. */
   editingModel: z.string().max(100).optional(),
   /** Iterative-editing Approver model (optional). Falls back to editingModel (which falls back
@@ -166,9 +168,16 @@ export const createStrategyAction = adminAction(
       }
     }
 
+    // Validate the judge rubric (must exist, be active, and have ≥1 active dimension).
+    if (parsed.judgeRubricId) {
+      const { validateJudgeRubricId } = await import('./judgeRubricActions');
+      await validateJudgeRubricId(parsed.judgeRubricId, ctx.supabase);
+    }
+
     const config: StrategyConfig = {
       generationModel: parsed.generationModel,
       judgeModel: parsed.judgeModel,
+      judgeRubricId: parsed.judgeRubricId,
       editingModel: parsed.editingModel,
       approverModel: parsed.approverModel,
       iterationConfigs: parsed.iterationConfigs,

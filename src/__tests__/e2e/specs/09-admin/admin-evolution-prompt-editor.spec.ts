@@ -4,7 +4,6 @@
 // format chips (output still shown), and temperature disabled for a null-maxTemperature model.
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
-import { safeGoto } from '@/lib/testing/safe-goto';
 
 const MOCK_RESULT = {
   configs: [
@@ -24,7 +23,7 @@ const MOCK_RESULT = {
 
 adminTest.describe('Prompt Editor', { tag: '@evolution' }, () => {
   adminTest('navigates from the sidebar and renders the builder', async ({ adminPage }) => {
-    await safeGoto(adminPage, '/admin/evolution-dashboard');
+    await adminPage.goto('/admin/evolution-dashboard');
     await adminPage.getByTestId('evolution-sidebar-nav-prompt-editor').click();
     await expect(adminPage).toHaveURL(/\/admin\/evolution\/prompt-editor/);
     // Hydration proof: the source textarea + run button are present and interactive.
@@ -33,7 +32,7 @@ adminTest.describe('Prompt Editor', { tag: '@evolution' }, () => {
   });
 
   adminTest('renders the "Load recent" picker with an originals/rewritten toggle', async ({ adminPage }) => {
-    await safeGoto(adminPage, '/admin/evolution/prompt-editor');
+    await adminPage.goto('/admin/evolution/prompt-editor');
     await expect(adminPage.getByTestId('prompt-editor-load-recent')).toBeVisible();
     await expect(adminPage.getByTestId('prompt-editor-load-mode-rewritten')).toBeVisible();
     await expect(adminPage.getByTestId('prompt-editor-load-mode-original')).toBeVisible();
@@ -48,7 +47,7 @@ adminTest.describe('Prompt Editor', { tag: '@evolution' }, () => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MOCK_RESULT) });
     });
 
-    await safeGoto(adminPage, '/admin/evolution/prompt-editor');
+    await adminPage.goto('/admin/evolution/prompt-editor');
     await expect(adminPage.getByTestId('prompt-editor-source')).toBeVisible();
 
     await adminPage.getByTestId('prompt-editor-source').fill('# Source\n\nA paragraph with two sentences. And a second.');
@@ -78,7 +77,7 @@ adminTest.describe('Prompt Editor', { tag: '@evolution' }, () => {
   });
 
   adminTest('disables the temperature input for a null-maxTemperature model (o3-mini)', async ({ adminPage }) => {
-    await safeGoto(adminPage, '/admin/evolution/prompt-editor');
+    await adminPage.goto('/admin/evolution/prompt-editor');
     await expect(adminPage.getByTestId('prompt-editor-source')).toBeVisible();
 
     const temp = adminPage.getByTestId('prompt-editor-temp-0');

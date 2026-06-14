@@ -81,6 +81,21 @@ describe('errorHandling', () => {
       });
     });
 
+    it('should classify a timeout that also mentions "API" as TIMEOUT_ERROR (not LLM_API_ERROR)', () => {
+      // Regression guard: 'timeout' must be matched before the broad 'api'/'openai'
+      // substring, otherwise a provider timeout is masked as a generic LLM_API_ERROR.
+      const error = new Error('OpenAI API request timeout');
+      const context = 'judge_eval';
+
+      const result = handleError(error, context);
+
+      expect(result).toEqual({
+        code: ERROR_CODES.TIMEOUT_ERROR,
+        message: 'Request timed out!',
+        details: 'OpenAI API request timeout'
+      });
+    });
+
     it('should handle database errors', () => {
       const error = new Error('Database connection failed');
       const context = 'db_query';

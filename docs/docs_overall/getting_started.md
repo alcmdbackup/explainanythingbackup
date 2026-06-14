@@ -20,6 +20,7 @@ Welcome to ExplainAnything documentation. Start here to navigate the codebase.
 | [debugging.md](debugging.md) | Debugging tools: local logs, Sentry, Honeycomb, prod DB queries |
 | [testing_overview.md](testing_overview.md) | Testing rules and four-tier strategy |
 | [cloud_env.md](cloud_env.md) | Claude Code web environment: proxy, NODE_USE_ENV_PROXY, test setup |
+| [/docs/analysis/](../analysis/) | Durable, reproducible analysis reports (data findings + exact dataset + queries), produced by the `/analysis` skill |
 
 ### Process & Workflow
 | Document | Purpose |

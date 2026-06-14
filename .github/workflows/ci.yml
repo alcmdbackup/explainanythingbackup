@@ -548,13 +548,13 @@ jobs:
     environment: staging
     strategy:
       fail-fast: false
-      # max-parallel: 1 — both browsers run sequentially against the same staging
-      # DB. Without this, parallel rows race when seeding identically-named test
-      # data (admin-content.spec.ts "Admin Test Visible") and trip strict-mode
-      # violations on getByRole row lookups. Matches nightly's matrix config.
+      # max-parallel: 1 preserved for future matrix additions — currently a no-op
+      # under a single-row matrix. Originally added so multiple browser rows did
+      # not race when seeding identically-named test data against the same staging
+      # DB (admin-content.spec.ts "Admin Test Visible").
       max-parallel: 1
       matrix:
-        browser: [chromium, firefox]
+        browser: [chromium]
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
@@ -608,10 +608,7 @@ jobs:
         run: npx playwright install-deps ${{ matrix.browser }}
 
       - name: Run Evolution E2E Tests (${{ matrix.browser }})
-        # Inline command, NOT `npm run test:e2e:evolution` — that script hardcodes
-        # --project=chromium (package.json:29); appending --project=firefox would
-        # double the flag and run both browsers per matrix row.
-        run: npx playwright test --project=${{ matrix.browser }} --grep=@evolution --grep-invert='@skip-prod'
+        run: npx playwright test --project=chromium --grep=@evolution --grep-invert='@skip-prod'
 
       - uses: actions/upload-artifact@v4
         if: always()

@@ -296,75 +296,6 @@ done
 gh pr view --json mergeable,mergeStateStatus
 ```
 
-#### 7.5 Migration-Present Warning (Conditional)
-
-After confirming PR is mergeable, detect whether this PR touches any migration files. **Fail-loud semantics throughout: capture exit codes explicitly, surface failures with WARNING text — silently swallowing errors here would reproduce the exact failure mode this guard exists to prevent.** (Do NOT use `set -e` — it would abort the snippet before the `DIFF_EXIT=$?` capture on the next line, defeating the explicit-check pattern.)
-
-```bash
-# Get the PR number (must be defined; this skill does not maintain it as a global)
-PR_NUMBER=$(gh pr view --json number -q .number)
-if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
-  echo "WARNING: unable to determine PR number — migration-presence check skipped. Inspect manually before merging."
-else
-  # Fetch the file list. Capture stdout AND exit code separately so we can fail loud on API failure.
-  DIFF_OUTPUT=$(gh pr diff "$PR_NUMBER" --name-only)
-  DIFF_EXIT=$?
-  if [ "$DIFF_EXIT" -ne 0 ]; then
-    echo "WARNING: 'gh pr diff $PR_NUMBER --name-only' exited $DIFF_EXIT — migration-presence check could not run. Run manually before merging:"
-    echo "  git diff origin/production..HEAD -- supabase/migrations/"
-  else
-    MIGRATION_FILES=$(echo "$DIFF_OUTPUT" | grep '^supabase/migrations/' || true)
-    if [ -z "$MIGRATION_FILES" ]; then
-      :  # No migrations in this PR — no banner needed.
-    else
-      MIGRATION_COUNT=$(echo "$MIGRATION_FILES" | wc -l | tr -d ' ')
-      # MUST emit the banner below as the FINAL message to the user. Claude (the
-      # skill runner) MUST include this banner literally in its final response
-      # message — do not summarize or paraphrase. Render as a fenced code block
-      # so ASCII rules display verbatim and aren't reflowed.
-      echo "================================================================================"
-      echo "!! POST-MERGE MIGRATION VERIFICATION REQUIRED !!"
-      echo "================================================================================"
-      echo ""
-      echo "This PR ships $MIGRATION_COUNT migration file(s):"
-      echo ""
-      echo "$MIGRATION_FILES" | sed 's/^/  /'
-      echo ""
-      echo "After you merge this PR, you MUST run these commands to confirm migrations"
-      echo "applied successfully to production:"
-      echo ""
-      echo "  # Wait ~5-10 seconds after merge for GitHub to populate the merge commit SHA"
-      echo "  MERGE_SHA=\$(gh pr view $PR_NUMBER --json mergeCommit -q '.mergeCommit.oid')"
-      echo "  if [ -z \"\$MERGE_SHA\" ] || [ \"\$MERGE_SHA\" = \"null\" ]; then"
-      echo "    echo 'Merge SHA not yet populated — wait 10s and re-run.'"
-      echo "  else"
-      echo "    gh run list --workflow=supabase-migrations.yml --branch=production \\"
-      echo "      --commit=\"\$MERGE_SHA\" --limit=1"
-      echo "  fi"
-      echo ""
-      echo "EXPECTED: conclusion=success."
-      echo ""
-      echo "IF FAILURE: do NOT release further code until the migration is fixed. A non-"
-      echo "idempotent migration aborts the entire deploy queue and leaves prod app code"
-      echo "running against stale schema. Inspect logs with:"
-      echo "  gh run view <id> --log-failed"
-      echo ""
-      echo "This exact scenario caused a 2-month silent prod-schema drift in May 2026."
-      echo "See: docs/planning/smoke_test_and_nightly_e2e_failing_20260523/"
-      echo "================================================================================"
-    fi
-  fi
-fi
-```
-
-If `gh pr diff` itself fails for an unknown reason, the fallback manual check is:
-
-```bash
-git diff origin/production..HEAD -- supabase/migrations/ | head -1
-```
-
-A non-empty result means migrations are present and the post-merge verification is required regardless.
-
 ```bash
 # Return to original branch
 git checkout <original-branch>
@@ -459,6 +390,112 @@ fi
 If the backport branch has its own conflicts against main (e.g., main has changed
 the same test file since divergence), the `git push` succeeds but a future merge
 needs manual resolution. That's a one-off cleanup — accept it and resolve in PR review.
+
+### 8. Post-Merge Backup Sync (Conditional, non-fatal)
+
+Safety net. The Step 6.1 / 6.2 backup pushes capture the deploy-branch HEAD (which holds
+the full release tree) but they run BEFORE the PR is merged, so the backup mirror's
+`production` ref still points at the pre-merge SHA. This step refreshes the mirror's
+`production` (and `main`) refs to the canonical post-merge commit AND re-pushes them in
+case any earlier backup push failed (e.g. a transient network error logged as a WARNING).
+
+> **Note:** This is belt-and-suspenders, not data safety — the release CODE is already in
+> the mirror via the `deploy/*` branch pushed in 6.1/6.2. This step only freshens branch
+> refs and back-fills the merge commit. It is always non-fatal.
+
+The PR merge is a manual human action that usually happens AFTER this skill finishes
+monitoring CI, so this step is conditional on the PR actually being merged:
+
+```bash
+PR_NUMBER=$(gh pr view --json number -q .number 2>/dev/null)
+MERGED_AT=$(gh pr view "$PR_NUMBER" --json mergedAt -q '.mergedAt' 2>/dev/null || echo "")
+
+if [ -z "$MERGED_AT" ] || [ "$MERGED_AT" = "null" ]; then
+  # Not merged yet — emit a copy-paste block for the user to run AFTER they merge.
+  echo "PR #$PR_NUMBER not merged yet. After you merge it, run this to refresh the backup mirror:"
+  echo "  git fetch origin production main --quiet"
+  echo "  git -c http.postBuffer=524288000 push backup origin/production:refs/heads/production --no-verify"
+  echo "  git -c http.postBuffer=524288000 push backup origin/main:refs/heads/main --no-verify"
+else
+  # Merged — refresh the mirror now. Each push is non-fatal.
+  git fetch origin production main --quiet 2>/dev/null || true
+
+  git -c http.postBuffer=524288000 push backup origin/production:refs/heads/production --no-verify
+  RC=$?; [ "$RC" -ne 0 ] && echo "WARNING: Backup sync (production ref) failed with exit code $RC" || echo "Backup production ref synced"
+
+  git -c http.postBuffer=524288000 push backup origin/main:refs/heads/main --no-verify
+  RC=$?; [ "$RC" -ne 0 ] && echo "WARNING: Backup sync (main ref) failed with exit code $RC" || echo "Backup main ref synced"
+fi
+```
+
+### 9. Migration-Present Warning (Conditional)
+
+After confirming PR is mergeable (Step 7) and syncing the backup mirror (Step 8), detect whether this PR touches any migration files. **This is intentionally the LAST step so the banner is the final message the user sees.** **Fail-loud semantics throughout: capture exit codes explicitly, surface failures with WARNING text — silently swallowing errors here would reproduce the exact failure mode this guard exists to prevent.** (Do NOT use `set -e` — it would abort the snippet before the `DIFF_EXIT=$?` capture on the next line, defeating the explicit-check pattern.)
+
+```bash
+# Get the PR number (must be defined; this skill does not maintain it as a global)
+PR_NUMBER=$(gh pr view --json number -q .number)
+if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+  echo "WARNING: unable to determine PR number — migration-presence check skipped. Inspect manually before merging."
+else
+  # Fetch the file list. Capture stdout AND exit code separately so we can fail loud on API failure.
+  DIFF_OUTPUT=$(gh pr diff "$PR_NUMBER" --name-only)
+  DIFF_EXIT=$?
+  if [ "$DIFF_EXIT" -ne 0 ]; then
+    echo "WARNING: 'gh pr diff $PR_NUMBER --name-only' exited $DIFF_EXIT — migration-presence check could not run. Run manually before merging:"
+    echo "  git diff origin/production..HEAD -- supabase/migrations/"
+  else
+    MIGRATION_FILES=$(echo "$DIFF_OUTPUT" | grep '^supabase/migrations/' || true)
+    if [ -z "$MIGRATION_FILES" ]; then
+      :  # No migrations in this PR — no banner needed.
+    else
+      MIGRATION_COUNT=$(echo "$MIGRATION_FILES" | wc -l | tr -d ' ')
+      # MUST emit the banner below as the FINAL message to the user. Claude (the
+      # skill runner) MUST include this banner literally in its final response
+      # message — do not summarize or paraphrase. Render as a fenced code block
+      # so ASCII rules display verbatim and aren't reflowed.
+      echo "================================================================================"
+      echo "!! POST-MERGE MIGRATION VERIFICATION REQUIRED !!"
+      echo "================================================================================"
+      echo ""
+      echo "This PR ships $MIGRATION_COUNT migration file(s):"
+      echo ""
+      echo "$MIGRATION_FILES" | sed 's/^/  /'
+      echo ""
+      echo "After you merge this PR, you MUST run these commands to confirm migrations"
+      echo "applied successfully to production:"
+      echo ""
+      echo "  # Wait ~5-10 seconds after merge for GitHub to populate the merge commit SHA"
+      echo "  MERGE_SHA=\$(gh pr view $PR_NUMBER --json mergeCommit -q '.mergeCommit.oid')"
+      echo "  if [ -z \"\$MERGE_SHA\" ] || [ \"\$MERGE_SHA\" = \"null\" ]; then"
+      echo "    echo 'Merge SHA not yet populated — wait 10s and re-run.'"
+      echo "  else"
+      echo "    gh run list --workflow=supabase-migrations.yml --branch=production \\"
+      echo "      --commit=\"\$MERGE_SHA\" --limit=1"
+      echo "  fi"
+      echo ""
+      echo "EXPECTED: conclusion=success."
+      echo ""
+      echo "IF FAILURE: do NOT release further code until the migration is fixed. A non-"
+      echo "idempotent migration aborts the entire deploy queue and leaves prod app code"
+      echo "running against stale schema. Inspect logs with:"
+      echo "  gh run view <id> --log-failed"
+      echo ""
+      echo "This exact scenario caused a 2-month silent prod-schema drift in May 2026."
+      echo "See: docs/planning/smoke_test_and_nightly_e2e_failing_20260523/"
+      echo "================================================================================"
+    fi
+  fi
+fi
+```
+
+If `gh pr diff` itself fails for an unknown reason, the fallback manual check is:
+
+```bash
+git diff origin/production..HEAD -- supabase/migrations/ | head -1
+```
+
+A non-empty result means migrations are present and the post-merge verification is required regardless.
 
 ## Conflict Resolution Strategy
 

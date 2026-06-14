@@ -358,6 +358,12 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
     ],
     atPropagation: [],
   },
+  // Judge rubric is a thin config entity (no metrics) — see JudgeRubricEntity.
+  judge_rubric: {
+    duringExecution: [],
+    atFinalization: [],
+    atPropagation: [],
+  },
 };
 
 // ─── Build-time validation ──────────────────────────────────────

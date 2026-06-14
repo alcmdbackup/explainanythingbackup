@@ -2,29 +2,6 @@
 
 Guide to debugging issues across all environments — local development, deployed preview, and production.
 
-## `NS_BINDING_ABORTED` on Firefox during chained `page.goto`
-
-Symptom: a Playwright E2E test on Firefox fails with `page.goto: NS_BINDING_ABORTED; maybe frame was detached?` Chromium passes the same test. Test stack trace points at a chained `page.goto()` that runs after a `click → detail-page` sequence.
-
-Root cause: the detail page mounts `useEffect` server-action fetches; Firefox aborts these in-flight fetches when the next top-level navigation arrives, then propagates the abort to Playwright. Chromium silently coalesces. Diagnosed in `docs/planning/nightly_e2e_still_failing_20260530/`.
-
-Fix (test-side):
-```ts
-import { safeGoto } from '@/lib/testing/safe-goto';
-// instead of: await page.goto('/admin/evolution/strategies');
-await safeGoto(adminPage, '/admin/evolution/strategies');
-```
-
-Fix (app-side, defense-in-depth — for evolution detail pages):
-```ts
-import { abortableEffectController } from '@evolution/lib/utils/abortableEffect';
-useEffect(() => {
-  const ctl = abortableEffectController();
-  serverAction().then(r => { if (!ctl.cancelled) setState(r); });
-  return () => ctl.abort();
-}, [deps]);
-```
-
 ## Quick Reference
 
 | What You Need | Tool | Command / Access |
