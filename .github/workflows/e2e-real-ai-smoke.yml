@@ -34,6 +34,11 @@ jobs:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      # Embeddings (vector search / findMatchesInVectorDb) always use OpenAI regardless of
+      # TEST_LLM_MODEL — that override only redirects chat completions, not embeddings. Without
+      # this the real generation pipeline fails at vector search ("Missing OPENAI_API_KEY").
+      # Embeddings are ~$0.00002/query, so the cheap-model cost goal is unaffected.
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
       PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}

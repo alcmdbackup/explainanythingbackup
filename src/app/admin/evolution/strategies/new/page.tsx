@@ -24,6 +24,7 @@ const DEFAULT_SEED_CHARS = 8000;
 import { TACTICS_BY_CATEGORY, TACTIC_PALETTE } from '@evolution/lib/core/tactics';
 import { DispatchPlanView } from '@evolution/components/evolution/DispatchPlanView';
 import { listCriteriaAction, type CriteriaListItem } from '@evolution/services/criteriaActions';
+import { listJudgeRubricsAction, type JudgeRubricListItem } from '@evolution/services/judgeRubricActions';
 import { CriteriaMultiSelect } from './CriteriaMultiSelect';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -114,6 +115,8 @@ interface StrategyFormState {
   description: string;
   generationModel: string;
   judgeModel: string;
+  /** Optional rubric-set id for rubric-based judging. Empty → holistic judging. */
+  judgeRubricId: string;
   /** Iterative-editing Proposer model. Empty string → falls back to generationModel. */
   editingModel: string;
   /** Iterative-editing Approver model. Empty string → falls back to editingModel.
@@ -436,6 +439,7 @@ export default function NewStrategyPage(): JSX.Element {
     description: '',
     generationModel: '',
     judgeModel: DEFAULT_JUDGE_MODEL,
+    judgeRubricId: '',
     editingModel: '',
     approverModel: '',
     generationTemperature: '',
@@ -450,12 +454,15 @@ export default function NewStrategyPage(): JSX.Element {
   const [tacticEditorIdx, setTacticEditorIdx] = useState<number | null>(null);
   const [criteriaEditorIdx, setCriteriaEditorIdx] = useState<number | null>(null);
   const [availableCriteria, setAvailableCriteria] = useState<CriteriaListItem[]>([]);
+  const [availableRubrics, setAvailableRubrics] = useState<JudgeRubricListItem[]>([]);
 
-  // Fetch active criteria once on mount for the criteria multi-select.
+  // Fetch active criteria + judge rubrics once on mount.
   useEffect(() => {
     (async () => {
       const result = await listCriteriaAction({ status: 'active', filterTestContent: true, limit: 200 });
       if (result.success && result.data) setAvailableCriteria(result.data.items);
+      const rubrics = await listJudgeRubricsAction({ status: 'active', filterTestContent: true, limit: 200 });
+      if (rubrics.success && rubrics.data) setAvailableRubrics(rubrics.data.items);
     })();
   }, []);
 
@@ -783,6 +790,7 @@ export default function NewStrategyPage(): JSX.Element {
         description: form.description.trim() || undefined,
         generationModel: form.generationModel,
         judgeModel: form.judgeModel,
+        judgeRubricId: form.judgeRubricId || undefined,
         editingModel: form.editingModel || undefined,
         approverModel: form.approverModel || undefined,
         budgetUsd: parseFloat(form.budgetUsd),
@@ -902,6 +910,21 @@ export default function NewStrategyPage(): JSX.Element {
                     <option value="">Select a model...</option>
                     {MODEL_OPTIONS.map(opt => (
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="judge-rubric" className={labelClasses}>Judge Rubric (optional)</label>
+                  <select
+                    id="judge-rubric"
+                    data-testid="judge-rubric-select"
+                    value={form.judgeRubricId}
+                    onChange={e => updateForm({ judgeRubricId: e.target.value })}
+                    className={inputCls(false)}
+                  >
+                    <option value="">Holistic (no rubric)</option>
+                    {availableRubrics.map(r => (
+                      <option key={r.id} value={r.id}>{r.name} ({r.dimension_count} dims)</option>
                     ))}
                   </select>
                 </div>

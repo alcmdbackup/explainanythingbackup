@@ -4,6 +4,9 @@
 import { z } from 'zod';
 import { _INTERNAL_DEFAULT_SIGMA } from './shared/computeRatings';
 import { getModelMaxTemperature, getModelInfo, MODEL_REGISTRY } from '@/config/modelRegistry';
+// Type-only imports (erased at runtime → no cycle with rubricJudge, which imports
+// only types from this file).
+import type { RubricBreakdown, ResolvedJudgeRubric } from './shared/rubricJudge';
 
 // ═══════════════════════════════════════════════════════════════════
 // Shared enums & helpers
@@ -145,6 +148,54 @@ export type EvaluationGuidanceAnchor = z.infer<typeof evaluationGuidanceAnchorSc
 export type EvaluationGuidance = z.infer<typeof evaluationGuidanceSchema>;
 export type EvolutionCriteriaInsert = z.infer<typeof evolutionCriteriaInsertSchema>;
 export type EvolutionCriteriaFullDb = z.infer<typeof evolutionCriteriaFullDbSchema>;
+
+// ─── 2c. evolution_judge_rubrics ─────────────────────────────────
+// Reusable named bundle of judging DIMENSIONS for rubric-based pairwise judging.
+// Thin entity (identity + metadata); the dimensions live in the
+// evolution_judge_rubric_dimensions junction, each a real FK to evolution_criteria
+// plus a weight. Weights are NOT constrained to sum to 1 — they are normalized at
+// read time (getJudgeRubricForEvaluation), which is robust to a criterion being
+// archived after the rubric was built.
+
+export const judgeRubricStatusEnum = z.enum(['active', 'archived']);
+
+/** One rubric dimension on input: which criterion + its (un-normalized) weight. */
+export const judgeRubricDimensionInputSchema = z.object({
+  criteria_id: z.string().uuid(),
+  weight: z.number().min(0).refine(Number.isFinite, { message: 'weight must be finite' }),
+  position: z.number().int().min(0).optional(),
+});
+
+export const evolutionJudgeRubricInsertSchema = z
+  .object({
+    name: z.string().min(1).max(200),
+    label: z.string().max(200).optional(),
+    description: z.string().nullable().optional(),
+    status: judgeRubricStatusEnum.optional().default('active'),
+    /** At least one dimension; unique criteria_id. */
+    dimensions: z.array(judgeRubricDimensionInputSchema).min(1),
+  })
+  .refine(
+    (r) => new Set(r.dimensions.map((d) => d.criteria_id)).size === r.dimensions.length,
+    { message: 'duplicate criteria_id in rubric dimensions', path: ['dimensions'] },
+  );
+
+export const evolutionJudgeRubricRowSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  label: z.string(),
+  description: z.string().nullable(),
+  status: judgeRubricStatusEnum,
+  is_test_content: z.boolean(),
+  archived_at: z.string().nullable(),
+  deleted_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export type JudgeRubricDimensionInput = z.infer<typeof judgeRubricDimensionInputSchema>;
+export type EvolutionJudgeRubricInsert = z.infer<typeof evolutionJudgeRubricInsertSchema>;
+export type EvolutionJudgeRubricRow = z.infer<typeof evolutionJudgeRubricRowSchema>;
 
 // ─── 3. evolution_experiments ────────────────────────────────────
 
@@ -319,6 +370,14 @@ export const evolutionArenaComparisonInsertSchema = z.object({
   confidence: z.number().min(0).max(1),
   run_id: z.string().uuid().nullable().optional(),
   status: z.string().max(50).optional(),
+  // Rubric judging (20260610000004). rubric_breakdown is a JSONB snapshot whose
+  // authoritative shape is RubricBreakdown (evolution/src/lib/shared/rubricJudge.ts);
+  // kept loose here since it is validated at creation by the pure aggregator.
+  // NOTE: this insert schema intentionally does NOT model the mu/sigma/iteration/
+  // invocation columns that MergeRatingsAgent inserts via the raw client — that
+  // pre-existing gap is out of scope; only the 2 rubric columns are added here.
+  rubric_breakdown: z.unknown().nullable().optional(),
+  judge_rubric_id: z.string().uuid().nullable().optional(),
 });
 
 export const evolutionArenaComparisonFullDbSchema = evolutionArenaComparisonInsertSchema.extend({
@@ -808,6 +867,11 @@ export const MAX_ITERATION_CONFIGS = 20;
 const strategyConfigBaseSchema = z.object({
   generationModel: z.string(),
   judgeModel: z.string(),
+  /** Optional rubric-set id for rubric-based pairwise judging. When set, the ranking
+   *  judge returns a per-dimension verdict combined by the rubric's weights instead of
+   *  a single holistic A/B/TIE. Strategy-level (applies to all ranking), config-hashed,
+   *  validated by validateJudgeRubricId. Omit for holistic judging. */
+  judgeRubricId: z.string().uuid().optional(),
   /** Total budget for the run in USD. Per-iteration amounts computed from iterationConfigs[].budgetPercent. */
   budgetUsd: z.number().min(0).optional(),
   generationGuidance: generationGuidanceSchema.optional(),
@@ -975,6 +1039,11 @@ const evolutionConfigBaseSchema = z.object({
    *  (set on the per-slot config by ParagraphRecombineAgent). Run-internal override — never set
    *  at strategy level, so it is NOT part of the strategy config_hash. Default/omitted = 'article'. */
   comparisonMode: z.enum(['article', 'paragraph']).optional(),
+  /** Rubric-set id (from StrategyConfig). Resolved to `judgeRubric` in buildRunContext. */
+  judgeRubricId: z.string().uuid().optional(),
+  /** Resolved rubric (dimensions + normalized weights + criteria text). Present only
+   *  when judgeRubricId resolved AND the kill switch is on; undefined → holistic. */
+  judgeRubric: z.custom<ResolvedJudgeRubric>().optional(),
 });
 
 export const evolutionConfigSchema = z.preprocess(preprocessBudgetFloor, evolutionConfigBaseSchema);
@@ -990,6 +1059,8 @@ export const v2MatchSchema = z.object({
   confidence: z.number().min(0).max(1),
   judgeModel: z.string(),
   reversed: z.boolean(),
+  /** Per-dimension rubric snapshot when this match was rubric-judged (else absent). */
+  rubricBreakdown: z.custom<RubricBreakdown>().optional(),
 });
 
 export type V2MatchSchema = z.infer<typeof v2MatchSchema>;

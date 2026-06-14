@@ -1,0 +1,16 @@
+{
+  "branch": "feat/improve_judge_lab_evolution_20260707",
+  "created_at": "2026-06-07T22:08:26Z",
+  "prerequisites": {
+    "testing_overview_read": "2026-06-08T01:57:44Z",
+    "testing_setup_read": "2026-06-08T01:57:45Z",
+    "todos_created": "2026-06-08T02:11:10Z"
+  },
+  "relevantDocs": [
+    "docs/feature_deep_dives/judge_evaluation.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/reference.md",
+    "evolution/docs/visualization.md",
+    "evolution/docs/data_model.md"
+  ]
+}

@@ -712,7 +712,11 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
   // paragraph-level comparison prompt (B1, investigate_matchmaking_paragraph_recombine_20260528)
   // so the judge evaluates single paragraphs with paragraph-appropriate criteria. Article-level
   // ranking (Step 6) keeps ctx.config unmodified → 'article' mode.
-  const perSlotConfig = { ...slotConfig, maxComparisonsPerVariant: maxComparisonsPerParagraph, comparisonMode: 'paragraph' as const };
+  // Rubric judging is ARTICLE-ONLY: strip judgeRubric so per-slot paragraph ranking
+  // keeps its specialized paragraph rubric (article dimensions like "structure" are
+  // mismatched at paragraph scale). structured_judging_evolution_20260610.
+  const { judgeRubric: _droppedRubric, ...slotConfigNoRubric } = slotConfig;
+  const perSlotConfig = { ...slotConfigNoRubric, maxComparisonsPerVariant: maxComparisonsPerParagraph, comparisonMode: 'paragraph' as const };
   const slotMatches: import('../../../pipeline/infra/types').V2Match[] = [];
   // Phase 9 retrofit R3: ranking calls inside this slot's loop get a
   // 'slot.N.ranking' subagent_name path.

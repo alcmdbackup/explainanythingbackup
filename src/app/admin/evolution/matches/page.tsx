@@ -62,6 +62,12 @@ const COLUMNS: ColumnDef<MatchListItem>[] = [
   // Match ID is the clickable link (clearer than the date); full UUID on hover.
   { key: 'id', header: 'Match ID', render: (m) => <span className="font-mono text-xs" title={m.id}>{m.id.substring(0, 8)}</span> },
   { key: 'kind', header: 'Type', skipLink: true, render: (m) => <KindBadge kind={m.kind} /> },
+  {
+    key: 'has_rubric', header: 'Rubric', skipLink: true,
+    render: (m) => m.has_rubric
+      ? <span className="text-xs px-1.5 py-0.5 rounded-page bg-[var(--accent-gold)] text-[var(--text-on-primary)]">yes</span>
+      : <span className="text-xs text-[var(--text-muted)]">—</span>,
+  },
   { key: 'created_at', header: 'Created', skipLink: true, render: (m) => formatDate(m.created_at) },
   {
     key: 'run_id', header: 'Run', skipLink: true,

@@ -138,7 +138,17 @@ export class SwissRankingAgent extends Agent<
       if (!a || !b) {
         throw new Error(`SwissRankingAgent: variant not found in pool: ${!a ? idA : idB}`);
       }
-      const result = await compareWithBiasMitigation(a.text, b.text, callLLM, cache);
+      // Swiss ranking is article-level: pass the (article) comparison mode + the
+      // strategy's resolved rubric (undefined → holistic). ctx.config is the
+      // EvolutionConfig, which already carries judgeRubric from buildRunContext.
+      const result = await compareWithBiasMitigation(
+        a.text,
+        b.text,
+        callLLM,
+        cache,
+        'article',
+        ctx.config.judgeRubric,
+      );
       const isDraw = result.winner !== 'A' && result.winner !== 'B';
       const winnerId = result.winner === 'B' ? idB : idA;
       const loserId = result.winner === 'B' ? idA : idB;
@@ -149,6 +159,7 @@ export class SwissRankingAgent extends Agent<
         confidence: result.confidence,
         judgeModel: ctx.config.judgeModel,
         reversed: false,
+        rubricBreakdown: result.rubricBreakdown,
       };
       return { match, idA, idB };
     };

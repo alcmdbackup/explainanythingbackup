@@ -224,6 +224,43 @@ describe('llms', () => {
       );
     });
 
+    it('uses schema-enforced json_schema (strict:false) for a flagged OpenRouter model (Gemini)', async () => {
+      // fix_openrouter_json_schema_structured_output: flagged OpenRouter models get json_schema.
+      process.env.OPENROUTER_API_KEY = 'test-or-key';
+      const responseSchema = z.object({ title1: z.string() });
+      // zodResponseFormat is mocked; return a realistic json_schema shape so the strict override applies.
+      (zodResponseFormat as jest.Mock).mockReturnValue({
+        type: 'json_schema',
+        json_schema: { name: 'TitleQuery', schema: { type: 'object' }, strict: true },
+      });
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: '{"title1":"Hi"}' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
+        model: 'google/gemini-2.5-flash',
+      });
+
+      await callLLM('p', 'test_source', '00000000-0000-4000-8000-000000000001', 'google/gemini-2.5-flash', false, null, responseSchema, 'TitleQuery', true);
+
+      const req = mockCreateSpy.mock.calls[0]![0];
+      expect(req.response_format.type).toBe('json_schema');
+      expect(req.response_format.json_schema.strict).toBe(false); // strict dropped for OpenRouter/Gemini
+    });
+
+    it('keeps json_object for an UNFLAGGED OpenRouter model (qwen)', async () => {
+      process.env.OPENROUTER_API_KEY = 'test-or-key';
+      const responseSchema = z.object({ answer: z.string() });
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: '{"answer":"x"}' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
+        model: 'qwen/qwen-2.5-7b-instruct',
+      });
+
+      await callLLM('p', 'test_source', '00000000-0000-4000-8000-000000000001', 'qwen-2.5-7b-instruct', false, null, responseSchema, 'Ans', true);
+
+      const req = mockCreateSpy.mock.calls[0]![0];
+      expect(req.response_format).toEqual({ type: 'json_object' });
+    });
+
     it('should validate model parameter', async () => {
       await expect(
         callLLM(
@@ -1145,6 +1182,40 @@ describe('llms', () => {
       const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
       expect(request.reasoning).toBeUndefined();
       expect(request.reasoning_effort).toBeUndefined();
+    });
+
+    it('does NOT send a reasoning param for non-reasoning OpenRouter gemini-2.5-flash-lite even when effort=none is requested', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'resp' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'google/gemini-2.5-flash-lite',
+      });
+      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'google/gemini-2.5-flash-lite', false, null, null, null, false, { reasoningEffort: 'none' });
+      const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
+      expect(request.reasoning).toBeUndefined();
+      expect(request.include_reasoning).toBeUndefined();
+    });
+
+    it('does NOT send a reasoning param for non-reasoning OpenRouter qwen-2.5-7b-instruct with effort=none', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'resp' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'qwen/qwen-2.5-7b-instruct',
+      });
+      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'qwen-2.5-7b-instruct', false, null, null, null, false, { reasoningEffort: 'none' });
+      const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
+      expect(request.reasoning).toBeUndefined();
+    });
+
+    it('coerces effort=none to the registry default for mandatory-reasoning gpt-oss-20b (never sends none)', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'resp' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'openai/gpt-oss-20b',
+      });
+      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'gpt-oss-20b', false, null, null, null, false, { reasoningEffort: 'none' });
+      const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
+      expect(request.reasoning).toEqual({ effort: 'low' }); // coerced, NOT { effort: 'none' }
     });
   });
 

@@ -244,7 +244,8 @@ Create `$PROJECT_PATH/_status.json` using the **Write tool**. Include the `relev
   "relevantDocs": [
     "docs/feature_deep_dives/tag_system.md",
     "docs/docs_overall/architecture.md"
-  ]
+  ],
+  "analyses": []
 }
 ```
 
@@ -252,6 +253,7 @@ Create `$PROJECT_PATH/_status.json` using the **Write tool**. Include the `relev
 - Never include paths under `docs/planning/`
 - Populate from the user-confirmed list in step 2.7
 - **Core docs are pre-read** (Step 2.5) and intentionally excluded from `relevantDocs` to avoid flooding `/finalize` Step 6 with phantom doc-update prompts; `.claude/doc-mapping.json` handles them via file-pattern matching when actually relevant
+- `analyses` is seeded as an empty array `[]`. The `/analysis` skill **appends** the directory path of each formal analysis report it promotes from this project's research doc (e.g. `"docs/analysis/<name>/"`). It is additive/optional — projects predating this field are valid and `/analysis` treats a missing key as `[]`.
 
 ### 3.8. Ask for GitHub Issue Summary and Detailed Requirements
 

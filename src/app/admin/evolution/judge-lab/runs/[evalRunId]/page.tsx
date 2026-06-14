@@ -5,11 +5,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
 import { getEvalRunDetailAction } from '@evolution/services/judgeEvalActions';
 import { computeMetrics } from '@evolution/lib/judgeEval/metrics';
-import type { JudgeEvalCallResult } from '@evolution/lib/judgeEval/schemas';
+import type { JudgeEvalCallCore } from '@evolution/lib/judgeEval/schemas';
 
 type Kind = 'article' | 'paragraph';
 
@@ -23,34 +24,15 @@ interface RunRow {
   repeats: number;
 }
 
-function toResult(r: Record<string, unknown>): JudgeEvalCallResult {
-  return {
-    pair_label: r.pair_label as string,
-    pair_kind: r.pair_kind as Kind,
-    comparison_mode: r.comparison_mode as Kind,
-    repeat_index: r.repeat_index as number,
-    forward_winner: (r.forward_winner as 'A' | 'B' | 'TIE' | null) ?? null,
-    reverse_winner: (r.reverse_winner as 'A' | 'B' | 'TIE' | null) ?? null,
-    winner: r.winner as 'A' | 'B' | 'TIE',
-    confidence: r.confidence as number,
-    wall_ms: (r.wall_ms as number | null) ?? null,
-    fwd_ms: (r.fwd_ms as number | null) ?? null,
-    rev_ms: (r.rev_ms as number | null) ?? null,
-    prompt_tokens: (r.prompt_tokens as number | null) ?? null,
-    output_tokens: (r.output_tokens as number | null) ?? null,
-    reasoning_tokens: (r.reasoning_tokens as number | null) ?? null,
-    cost_usd: (r.cost_usd as number | null) ?? null,
-    forward_raw: (r.forward_raw as string | null) ?? null,
-    reverse_raw: (r.reverse_raw as string | null) ?? null,
-    error: (r.error as string | null) ?? null,
-  };
-}
+// This page reads only the lightweight Core columns (verdict + metrics + ground-truth snapshot) —
+// never the heavy audit payload (prompts/reasoning/raw), which the match-history view fetches per-row.
+type RunCall = JudgeEvalCallCore;
 
 function pct(v: number | null): string {
   return v == null ? '—' : `${(v * 100).toFixed(0)}%`;
 }
 
-function KindBlock({ kind, calls }: { kind: Kind; calls: JudgeEvalCallResult[] }): JSX.Element {
+function KindBlock({ kind, calls }: { kind: Kind; calls: RunCall[] }): JSX.Element {
   const m = computeMetrics(calls);
   return (
     <div className="flex-1 min-w-[240px] space-y-1" data-testid={`kind-block-${kind}`}>
@@ -71,7 +53,7 @@ export default function EvalRunDetailPage(): JSX.Element {
   const params = useParams<{ evalRunId: string }>();
   const runId = params.evalRunId;
   const [run, setRun] = useState<RunRow | null>(null);
-  const [calls, setCalls] = useState<JudgeEvalCallResult[]>([]);
+  const [calls, setCalls] = useState<RunCall[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -80,7 +62,7 @@ export default function EvalRunDetailPage(): JSX.Element {
     const res = await getEvalRunDetailAction({ runId, kind: 'both' });
     if (res.success && res.data) {
       setRun(res.data.run as unknown as RunRow);
-      setCalls((res.data.calls as Record<string, unknown>[]).map(toResult));
+      setCalls(res.data.calls);
     } else if (!res.success) {
       toast.error(res.error?.message ?? 'Failed to load run');
     }
@@ -100,7 +82,7 @@ export default function EvalRunDetailPage(): JSX.Element {
 
   // Per-pair summary (within whichever kinds are present).
   const perPair = useMemo(() => {
-    const byLabel = new Map<string, JudgeEvalCallResult[]>();
+    const byLabel = new Map<string, RunCall[]>();
     for (const c of calls) {
       const arr = byLabel.get(c.pair_label) ?? [];
       arr.push(c);
@@ -121,10 +103,38 @@ export default function EvalRunDetailPage(): JSX.Element {
           { label: `Run ${runId?.substring(0, 8) ?? ''}` },
         ]}
       />
+      <div className="flex items-center gap-2 text-xs font-mono text-[var(--text-muted)]">
+        <span>Run ID:</span>
+        <button
+          type="button"
+          data-testid="run-id"
+          title="Click to copy"
+          className="underline decoration-dotted hover:text-[var(--text-primary)]"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(runId ?? '');
+              toast.success('Run ID copied');
+            } catch {
+              toast.error('Copy failed');
+            }
+          }}
+        >
+          {runId}
+        </button>
+      </div>
       {run && (
-        <div className="text-xs text-[var(--text-muted)] font-mono">
-          {run.judge_model} · temp {run.temperature} · reasoning {run.reasoning_effort ?? 'none'} ·{' '}
-          {run.prompt_variant ? 'custom rubric' : 'baseline rubric'} · repeats {run.repeats} · kind {run.kind_filter}
+        <div className="flex items-center justify-between gap-4">
+          <div className="text-xs text-[var(--text-muted)] font-mono">
+            {run.judge_model} · temp {run.temperature} · reasoning {run.reasoning_effort ?? 'none'} ·{' '}
+            {run.prompt_variant ? 'custom rubric' : 'baseline rubric'} · repeats {run.repeats} · kind {run.kind_filter}
+          </div>
+          <Link
+            className="text-xs underline whitespace-nowrap"
+            data-testid="view-match-history"
+            href={`/admin/evolution/judge-lab/runs/${runId}/matches`}
+          >
+            View match history →
+          </Link>
         </div>
       )}
 

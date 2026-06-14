@@ -6,9 +6,11 @@ import {
   getModelInfo,
   getModelMaxTemperature,
   getEvolutionModelIds,
+  getDeployableEvolutionModelIds,
   getModelOptions,
   isOpenRouterModel,
   getOpenRouterApiModelId,
+  modelSupportsJsonSchema,
   type ModelInfo,
   type ModelProvider,
 } from './modelRegistry';
@@ -89,6 +91,23 @@ describe('modelRegistry', () => {
       // Invariant: a non-reasoning model must not declare a default reasoning effort
       expect(info!.supportsReasoning).toBe(false);
       expect(info!.defaultReasoningEffort).toBeUndefined();
+    });
+  });
+
+  describe('modelSupportsJsonSchema', () => {
+    it('is true for the Gemini OpenRouter models (schema-enforced structured output)', () => {
+      expect(modelSupportsJsonSchema('google/gemini-2.5-flash')).toBe(true);
+      expect(modelSupportsJsonSchema('google/gemini-2.5-flash-lite')).toBe(true);
+    });
+
+    it('is false for OpenRouter models not verified for json_schema, and for OpenAI/DeepSeek/unknown', () => {
+      // Unflagged OpenRouter (judge default + gpt-oss) must stay on json_object.
+      expect(modelSupportsJsonSchema('qwen-2.5-7b-instruct')).toBe(false);
+      expect(modelSupportsJsonSchema('gpt-oss-20b')).toBe(false);
+      // Non-OpenRouter providers (the flag is irrelevant; helper returns false).
+      expect(modelSupportsJsonSchema('gpt-4.1-mini')).toBe(false);
+      expect(modelSupportsJsonSchema('deepseek-chat')).toBe(false);
+      expect(modelSupportsJsonSchema('nonexistent-model')).toBe(false);
     });
   });
 
@@ -239,6 +258,29 @@ describe('modelRegistry', () => {
     it('routes to openrouter with qwen/qwen-2.5-7b-instruct api model', () => {
       expect(isOpenRouterModel('qwen-2.5-7b-instruct')).toBe(true);
       expect(getOpenRouterApiModelId('qwen-2.5-7b-instruct')).toBe('qwen/qwen-2.5-7b-instruct');
+    });
+  });
+
+  describe('getDeployableEvolutionModelIds', () => {
+    const ORIGINAL = process.env.LOCAL_LLM_BASE_URL;
+    afterEach(() => {
+      if (ORIGINAL === undefined) delete process.env.LOCAL_LLM_BASE_URL;
+      else process.env.LOCAL_LLM_BASE_URL = ORIGINAL;
+    });
+
+    it('excludes provider:local models when LOCAL_LLM_BASE_URL is unset', () => {
+      delete process.env.LOCAL_LLM_BASE_URL;
+      const ids = getDeployableEvolutionModelIds();
+      expect(getEvolutionModelIds()).toContain('LOCAL_qwen2.5:14b'); // present in the raw list
+      expect(ids).not.toContain('LOCAL_qwen2.5:14b'); // but curated out
+      // non-local evolution models still present
+      expect(ids).toContain('deepseek-v4-flash');
+      expect(ids).toContain('google/gemini-2.5-flash-lite');
+    });
+
+    it('includes local models when LOCAL_LLM_BASE_URL is set', () => {
+      process.env.LOCAL_LLM_BASE_URL = 'http://localhost:11434/v1';
+      expect(getDeployableEvolutionModelIds()).toContain('LOCAL_qwen2.5:14b');
     });
   });
 });

@@ -1,0 +1,11 @@
+{
+  "branch": "fix/fix_openrouter_json_schema_structured_output_20260608",
+  "created_at": "2026-06-09T02:00:17Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/feature_deep_dives/search_generation_pipeline.md",
+    "docs/feature_deep_dives/judge_evaluation.md",
+    "docs/docs_overall/llm_provider_limits.md",
+    "docs/docs_overall/testing_overview.md"
+  ]
+}

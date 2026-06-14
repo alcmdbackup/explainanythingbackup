@@ -37,7 +37,7 @@ the leaderboard slices Article / Paragraph / Both.
 | `judge_eval_test_sets` | Frozen sample def: strategy, seed, per-kind sizes. |
 | `judge_eval_test_set_members` | Frozen membership (PK `(test_set_id, pair_label)`). |
 | `judge_eval_runs` | One row per settings tuple; UNIQUE `settings_key`. |
-| `judge_eval_calls` | Per-(run × pair × repeat) verdict; `decisive` GENERATED `(confidence > 0.6)`. |
+| `judge_eval_calls` | Per-(run × pair × repeat) verdict; `decisive` GENERATED `(confidence > 0.6)`. Also stores the full **audit payload** (`forward_prompt`/`reverse_prompt` = exact rendered judge input incl. custom rubric; `forward_reasoning`/`reverse_reasoning` + `reasoning_trace_format` ∈ {verbatim,summary,unavailable}/NULL; `forward_raw`/`reverse_raw` = raw output) and a frozen **ground-truth snapshot** (`mu_a`/`mu_b`, `sigma_a`/`sigma_b`, `baseline_confidence`, `gap_kind`, `expected_winner`, `variant_a_id`/`variant_b_id`) — see migration `20260610000001`. The snapshot is copied from the resolved pair at write time so match-history analysis is durable against pair-bank re-seeding. All these columns are nullable (errored passes + pre-migration rows). |
 | `judge_eval_settings_leaderboard` (VIEW) | Best settings by decisive rate, scoped to a test set, split by `pair_kind`. RLS-locked (REVOKE PUBLIC/anon/authenticated; GRANT service_role). |
 
 All tables: deny-all RLS + `service_role_all` (mirrors evolution convention). Separate from
@@ -61,6 +61,18 @@ a text-only cache). The LLM call is injected (`JudgeFn`) for unit-testability;
 `evolution_judge_eval` → inherits the shared LLM semaphore + global spending gate) with the
 `E2E_TEST_MODE` stub + prod guard. Writes nothing to ratings/arena/metrics. Parser selection:
 `explainReasoning || customPrompt` → `parseVerdictFromReasoning`, else `parseWinner`.
+
+**Reliability (improve_judge_lab_evolution_20260707).** Provider clients are built `maxRetries:0`,
+so `createCallLLMJudge` wraps `callLLM` in a **bounded retry** (`MAX_JUDGE_RETRIES=3`, exponential
+backoff, reusing `isTransientError`); budget/kill-switch errors are never retried, and each retry
+re-enters the global spending gate. On failure the engine attaches **combined `partialResults`** to
+the thrown error and `executeSweep` persists them via `replaceCalls` so a failed cell becomes a real
+errored run (`judge_eval_calls.error` set; excluded from the decisive-rate VIEW which filters
+`error IS NULL`) rather than a 0-call orphan. The server action now passes `trackingDb` so judge
+calls also write `llmCallTracking` rows. Note: the generic UI string "error communicating with AI
+model" was an **error-masking** artifact — `categorizeError` (`src/lib/errorHandling.ts`) matched
+`'api'` before `'timeout'` and the UI dropped `res.error.details`; both are fixed, so the real
+provider error now surfaces in the sweep-failure toast.
 
 ## Cost safety (`settings.ts`)
 
@@ -88,12 +100,59 @@ npx tsx evolution/scripts/judge-eval.ts sweep --test-set fr2-smoke \
 
 Under the evolution "Tools" sidebar group:
 - `/admin/evolution/judge-lab` — sweep launcher (test set + kind + models × temps × reasoning +
-  custom prompt) + per-kind decisive-rate leaderboard scoped to the test set.
-- `/admin/evolution/judge-lab/runs/[evalRunId]` — per-kind aggregates + per-pair breakdown.
+  custom prompt) + per-kind decisive-rate leaderboard scoped to the test set. The judge-model
+  dropdown is curated server-side (`getJudgeModelOptionsAction` → `getDeployableEvolutionModelIds`)
+  to drop `provider:'local'` models when `LOCAL_LLM_BASE_URL` is unset. The **custom-prompt** box is
+  pre-filled with the real default paragraph rubric (`PARAGRAPH_SANDBOX_RUBRIC` from
+  `evolution/src/lib/shared/judgeRubrics.ts`) — editable + submittable directly — with a separate,
+  default-off **Explain reasoning** checkbox (decoupled from the textarea). The leaderboard's
+  **Prompt** column shows whether a custom prompt was used and the text (expandable), enriched from
+  `judge_eval_runs.prompt_variant`.
+  The leaderboard's first column is the **Run** id (8-char, full UUID in `title`) — that is the link to
+  the run detail page (the model name is plain text); the eval-run id is the tracking handle throughout.
+- `/admin/evolution/judge-lab/runs/[evalRunId]` — per-kind aggregates + per-pair breakdown (reads
+  light **Core** columns only — `getEvalRunDetailAction` selects an explicit column list, never `*`,
+  so the heavy audit text never ships with the aggregates). Header shows the full run id (click-to-copy).
+  Links to ↓.
+- `/admin/evolution/judge-lab/runs/[evalRunId]/matches` — **match history**: every (pair × repeat)
+  call, paginated (`getJudgeEvalCallsAction`, Core rows). Expand a row to lazily load the audit
+  payload (`getJudgeEvalCallDetailAction`): both input content pieces, the winner, and the full judge
+  input (incl. custom prompt) + raw output + reasoning for each pass, with the `reasoning_trace_format`
+  state surfaced ("not requested" vs "provider dropped the trace"). All model/user text is rendered as
+  plain (auto-escaped) `<pre>` — never `dangerouslySetInnerHTML`. Each row also has **Open in Match
+  Viewer**: judge-eval pairs are seeded from `evolution_arena_comparisons`, so
+  `findArenaComparisonForVariantsAction` resolves the call's snapshotted `variant_a_id`/`variant_b_id`
+  (either entry order, newest) to a comparison id and opens `/admin/evolution/matches/[comparisonId]` in
+  a new tab (toasts if none / if the row predates the variant-id snapshot).
 - `/admin/evolution/judge-lab/pair-banks` — list + seed-from-topic.
-- `/admin/evolution/judge-lab/test-sets` — list + create (size/strategy/seed → frozen).
+- `/admin/evolution/judge-lab/test-sets` — list + create (size/strategy/seed → frozen), plus
+  **View** / **Edit** / **Clone** row actions.
+- `/admin/evolution/judge-lab/test-sets/[testSetId]` — **view contents**: per-pair table showing
+  **display Elo ± uncertainty** (not raw mu) + Elo-gap, with snapshot texts fetched lazily per row,
+  and an orphan warning when frozen members no longer resolve in a re-seeded bank
+  (`getTestSetContentsAction` / `getTestSetPairTextsAction`).
 
-Interactive single-match re-judge stays in the Match Viewer (`/admin/evolution/matches`).
+**Editing a frozen set is metadata-only** (`updateTestSetMetaAction`: name/description; `23505`→
+friendly error). Membership/strategy/seed/size are NOT editable in place — they determine the frozen
+membership and `settings_key` embeds `test_set_id`, so an in-place change would silently break
+cross-run comparability. The only safe membership change is **Clone** (`cloneTestSetAction`): it
+re-samples the source's *current* bank into a NEW set (new id → new `settings_key`s), leaving the
+source and its eval runs intact; it errors on name collision (never aliases an existing set).
+
+**Clone & curate** (`CloneCuratePanel` on the test-set detail page) is the membership-editing path:
+it lists the source's **bank** (the available universe of existing recorded pairs) via
+`getBankPairsForCurationAction` → `loadBankPairsForCuration` — each pair projected to Elo,
+text-stripped, and flagged `isMember`, filtered by Kind · Membership · Gap-kind · **Elo both-sides
+min/max** · label search, paginated. Current members are pre-checked (seeded from the load's
+`memberLabels` — one round-trip); uncheck to remove, check a non-member to add. "Clone with N pairs"
+calls `cloneTestSetAction({ strategy:'manual', manualLabels, newName })`, which freezes exactly the
+chosen labels into a new set (per-kind selected counts stored as its sizes). It curates **existing
+pairs only** — it never constructs novel pairs from individual variants (that would null out
+`baseline_confidence`), and it never mutates the source.
+
+Interactive single-match re-judge stays in the Match Viewer (`/admin/evolution/matches`) — whose
+custom-prompt box is pre-filled with the mode-appropriate default rubric (article/paragraph) from
+`judgeRubrics.ts`, editable and directly submittable (parity with the Judge Lab launcher).
 
 ## Key files
 
@@ -102,4 +161,4 @@ Interactive single-match re-judge stays in the Match Viewer (`/admin/evolution/m
 - `evolution/src/services/judgeEvalActions.ts` — server actions (cap-gated).
 - `evolution/scripts/judge-eval.ts` — CLI.
 - `src/app/admin/evolution/judge-lab/**` — admin pages.
-- `supabase/migrations/20260606000001_judge_eval_tables.sql` — schema.
+- `supabase/migrations/20260606000001_judge_eval_tables.sql` — schema; `20260610000001_judge_eval_calls_audit_and_snapshot.sql` — additive audit + ground-truth-snapshot columns on `judge_eval_calls`.

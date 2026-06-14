@@ -1,0 +1,19 @@
+{
+  "branch": "feat/structured_judging_evolution_20260610",
+  "created_at": "2026-06-10T22:33:01Z",
+  "prerequisites": {
+    "testing_overview_read": "2026-06-11T01:15:44Z",
+    "testing_setup_read": "2026-06-11T01:15:44Z",
+    "todos_created": "2026-06-11T13:39:05Z"
+  },
+  "relevantDocs": [
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/criteria_agents.md",
+    "evolution/docs/arena.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/visualization.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/strategies_and_experiments.md",
+    "docs/feature_deep_dives/judge_evaluation.md"
+  ]
+}

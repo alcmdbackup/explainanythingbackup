@@ -22,9 +22,60 @@ import {
   modelSupportsReasoning,
   DEFAULT_JUDGE_MODEL,
 } from '@/config/modelRegistry';
+import { ARTICLE_SANDBOX_RUBRIC, PARAGRAPH_SANDBOX_RUBRIC } from '@evolution/lib/shared/judgeRubrics';
+import type { RubricBreakdown } from '@evolution/lib/shared/rubricJudge';
 
 const SECTION = 'border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)] p-5';
+
+/** Full two-pass rubric breakdown: per-dimension forward/reverse verdicts + weight,
+ *  each pass's weighted score, and the overall weighted winner + confidence. Only
+ *  rendered for rubric-judged matches (null for holistic). */
+function RubricBreakdownSection({ breakdown }: { breakdown: RubricBreakdown }): JSX.Element {
+  const pct = (w: number): string => `${Math.round(w * 100)}%`;
+  const score = (n: number): string => n.toFixed(2);
+  return (
+    <div className={SECTION} data-testid="rubric-breakdown">
+      <div className="text-sm font-semibold mb-2">
+        Rubric Breakdown — WINNER {breakdown.overall.winner}
+        <span className="font-normal text-[var(--text-muted)]"> · confidence {breakdown.overall.confidence.toFixed(2)} · both passes {breakdown.forwardPass.winner === breakdown.reversePass.winner ? 'agree' : 'disagree'}</span>
+      </div>
+      <table className="w-full text-xs border-collapse">
+        <thead>
+          <tr className="text-left text-[var(--text-muted)]">
+            <th className="py-1 pr-3">Dimension</th>
+            <th className="py-1 pr-3">Weight</th>
+            <th className="py-1 pr-3">Forward</th>
+            <th className="py-1 pr-3">Reverse</th>
+          </tr>
+        </thead>
+        <tbody>
+          {breakdown.dimensions.map((d) => (
+            <tr key={d.criteriaId} className="border-t border-[var(--border-subtle)]" data-testid="rubric-dim-row">
+              <td className="py-1 pr-3 font-medium">{d.name}</td>
+              <td className="py-1 pr-3">{pct(d.weight)}</td>
+              <td className="py-1 pr-3 font-mono">{d.forwardVerdict ?? '—'}</td>
+              <td className="py-1 pr-3 font-mono">{d.reverseVerdict ?? '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-[var(--border-default)] text-[var(--text-muted)]">
+            <td className="py-1 pr-3">Pass score (A / B)</td>
+            <td className="py-1 pr-3"></td>
+            <td className="py-1 pr-3 font-mono">{score(breakdown.forwardPass.scoreA)} / {score(breakdown.forwardPass.scoreB)} → {breakdown.forwardPass.winner ?? '—'}</td>
+            <td className="py-1 pr-3 font-mono">{score(breakdown.reversePass.scoreA)} / {score(breakdown.reversePass.scoreB)} → {breakdown.reversePass.winner ?? '—'}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
 const MODEL_OPTIONS = getModelOptions();
+
+/** The default rubric block the custom prompt overrides, for the given comparison mode. */
+function rubricFor(mode: 'article' | 'paragraph'): string {
+  return mode === 'paragraph' ? PARAGRAPH_SANDBOX_RUBRIC : ARTICLE_SANDBOX_RUBRIC;
+}
 
 function storedToVerdict(winner: 'a' | 'b' | 'draw'): 'A' | 'B' | 'TIE' {
   return winner === 'a' ? 'A' : winner === 'b' ? 'B' : 'TIE';
@@ -86,8 +137,17 @@ export default function MatchDetailPage(): JSX.Element {
   const [temperature, setTemperature] = useState(0);
   const [explainReasoning, setExplainReasoning] = useState(false);
   const [showCustom, setShowCustom] = useState(false);
-  const [customPrompt, setCustomPrompt] = useState('');
+  // Pre-filled with the real default rubric for the current mode so it's visible + directly editable.
+  const [customPrompt, setCustomPrompt] = useState(() => rubricFor('article'));
   const [rejudging, setRejudging] = useState(false);
+
+  // Mode-aware: when the rubric toggle changes, swap the box to that mode's default rubric — but
+  // only if the user hasn't hand-edited it (i.e. it still equals one of the two presets).
+  useEffect(() => {
+    setCustomPrompt((cur) =>
+      cur === ARTICLE_SANDBOX_RUBRIC || cur === PARAGRAPH_SANDBOX_RUBRIC ? rubricFor(mode) : cur,
+    );
+  }, [mode]);
   // Stable id per result so prepending new cards doesn't reshuffle React keys.
   const resultIdRef = useRef(0);
   const [results, setResults] = useState<{ id: number; result: RejudgeResult }[]>([]);
@@ -169,8 +229,12 @@ export default function MatchDetailPage(): JSX.Element {
           Stored result: <span className="font-semibold">WINNER {stored}</span>
           {' · '}confidence {detail.confidence.toFixed(2)}
           {' · '}status {detail.status}
+          {detail.judge_rubric_id && <span className="ml-2 text-xs px-1.5 py-0.5 rounded-page bg-[var(--accent-gold)] text-[var(--text-on-primary)]">rubric</span>}
         </div>
       </div>
+
+      {/* Rubric breakdown (rubric-judged matches only; holistic → omitted) */}
+      {detail.rubric_breakdown && <RubricBreakdownSection breakdown={detail.rubric_breakdown} />}
 
       {/* Text comparison — word diff (default) or raw side-by-side */}
       {(() => {
@@ -296,20 +360,32 @@ export default function MatchDetailPage(): JSX.Element {
 
         <div className="mt-3">
           <button
+            data-testid="rejudge-toggle-custom"
             className="text-xs text-[var(--accent-gold)] hover:underline"
             onClick={() => setShowCustom((s) => !s)}
           >
             {showCustom ? '▾' : '▸'} Custom judge prompt (optional)
           </button>
           {showCustom && (
-            <textarea
-              data-testid="rejudge-custom-prompt"
-              className="mt-1 w-full bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded px-2 py-1 text-xs font-mono"
-              rows={4}
-              placeholder="Rubric/instructions only — the two texts and a verdict line are appended automatically."
-              value={customPrompt}
-              onChange={(e) => setCustomPrompt(e.target.value)}
-            />
+            <>
+              <p className="mt-1 text-xs text-[var(--text-muted)]">
+                Pre-filled with the default {mode} rubric — edit and run it directly. Overrides only
+                the rubric block; the two texts and a verdict line are appended automatically.
+              </p>
+              <textarea
+                data-testid="rejudge-custom-prompt"
+                className="mt-1 w-full bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded px-2 py-1 text-xs font-mono"
+                rows={6}
+                value={customPrompt}
+                onChange={(e) => setCustomPrompt(e.target.value)}
+              />
+              <button
+                className="mt-1 text-xs text-[var(--text-muted)] underline"
+                onClick={() => setCustomPrompt(rubricFor(mode))}
+              >
+                Reset to default {mode} rubric
+              </button>
+            </>
           )}
         </div>
 

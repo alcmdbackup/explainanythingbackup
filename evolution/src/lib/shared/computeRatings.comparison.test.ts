@@ -7,6 +7,7 @@ import {
   compareWithBiasMitigation,
   ComparisonResult,
 } from './computeRatings';
+import type { ResolvedJudgeRubric } from './rubricJudge';
 
 describe('buildComparisonPrompt', () => {
   it('includes both texts in correct order', () => {
@@ -384,5 +385,115 @@ describe('compareWithBiasMitigation', () => {
     expect(calls[0]).toContain('## Text B\nTEXT_TWO');
     expect(calls[1]).toContain('## Text A\nTEXT_TWO');
     expect(calls[1]).toContain('## Text B\nTEXT_ONE');
+  });
+});
+
+// structured_judging_evolution_20260610: the rubric branch of compareWithBiasMitigation.
+// Verifies the 2-pass machinery, the rubric-suffixed cache key (no collision with holistic
+// or a different rubric), and — load-bearing for backward compat — that the no-rubric path
+// stays byte-identical (no stray rubricBreakdown key).
+describe('compareWithBiasMitigation — rubric judging', () => {
+  function mockCallLLM(responses: string[]): (prompt: string) => Promise<string> {
+    let idx = 0;
+    return jest.fn(async () => {
+      const resp = responses[idx % responses.length]!;
+      idx++;
+      return resp;
+    });
+  }
+
+  // conciseness .30 / structure .40 / style .30 — the plan's worked example.
+  const RUBRIC: ResolvedJudgeRubric = {
+    rubricId: 'rub-1',
+    dimensions: [
+      { criteriaId: 'c1', name: 'conciseness', description: null, minRating: 1, maxRating: 5, evaluationGuidance: null, weight: 0.3 },
+      { criteriaId: 'c2', name: 'structure', description: null, minRating: 1, maxRating: 5, evaluationGuidance: null, weight: 0.4 },
+      { criteriaId: 'c3', name: 'style', description: null, minRating: 1, maxRating: 5, evaluationGuidance: null, weight: 0.3 },
+    ],
+  };
+  const RUBRIC2: ResolvedJudgeRubric = { ...RUBRIC, rubricId: 'rub-2' };
+
+  // Per-line verdict response matching buildRubricComparisonPrompt's contract.
+  const verdict = (c: string, s: string, st: string): string =>
+    `conciseness: ${c}\nstructure: ${s}\nstyle: ${st}`;
+
+  it('makes exactly 2 LLM calls and returns the per-dimension breakdown (the .70 example → A @ 1.0)', async () => {
+    // Forward (A shown first): A wins conciseness+structure (.70), B wins style.
+    // Reverse (B shown first): to agree on real-A winning, reverse-as-shown picks B for those.
+    const callLLM = mockCallLLM([verdict('A', 'A', 'B'), verdict('B', 'B', 'A')]);
+    const result = await compareWithBiasMitigation('t1', 't2', callLLM, undefined, 'article', RUBRIC);
+
+    expect(callLLM).toHaveBeenCalledTimes(2);
+    expect(result.winner).toBe('A');
+    expect(result.confidence).toBe(1.0);
+    expect(result.turns).toBe(2);
+    expect(result.rubricBreakdown).toBeDefined();
+    expect(result.rubricBreakdown!.rubricId).toBe('rub-1');
+    expect(result.rubricBreakdown!.forwardPass.scoreA).toBeCloseTo(0.7, 5);
+    expect(result.rubricBreakdown!.forwardPass.scoreB).toBeCloseTo(0.3, 5);
+    expect(result.rubricBreakdown!.dimensions).toHaveLength(3);
+  });
+
+  it('routes the rubric prompt (per-line verdict contract) to the judge, not the holistic prompt', async () => {
+    const seen: string[] = [];
+    const callLLM = jest.fn(async (prompt: string) => { seen.push(prompt); return verdict('A', 'A', 'A'); });
+    await compareWithBiasMitigation('t1', 't2', callLLM, undefined, 'article', RUBRIC);
+    expect(seen).toHaveLength(2);
+    expect(seen.every((s) => s.includes('conciseness: <A|B|TIE>'))).toBe(true);
+    expect(seen.some((s) => s.includes('Compare the following two text variations'))).toBe(false);
+  });
+
+  it('a position-biased judge (always favors first-shown) nets out to TIE @ 0.5', async () => {
+    const callLLM = mockCallLLM([verdict('A', 'A', 'A'), verdict('A', 'A', 'A')]);
+    const result = await compareWithBiasMitigation('t1', 't2', callLLM, undefined, 'article', RUBRIC);
+    expect(result.winner).toBe('TIE');
+    expect(result.confidence).toBe(0.5);
+  });
+
+  describe('cache key — rubric identity suffix', () => {
+    it('holistic and rubric verdicts on the SAME pair do not collide (both stored)', async () => {
+      const cache = new Map<string, ComparisonResult>();
+      const holisticLLM = mockCallLLM(['A', 'B']);
+      const rubricLLM = mockCallLLM([verdict('A', 'A', 'B'), verdict('B', 'B', 'A')]);
+
+      const holistic = await compareWithBiasMitigation('t1', 't2', holisticLLM, cache);
+      const rubric = await compareWithBiasMitigation('t1', 't2', rubricLLM, cache, 'article', RUBRIC);
+
+      expect(cache.size).toBe(2);
+      expect(holistic.rubricBreakdown).toBeUndefined();
+      expect(rubric.rubricBreakdown).toBeDefined();
+    });
+
+    it('two DIFFERENT rubrics on the same pair produce different keys', async () => {
+      const cache = new Map<string, ComparisonResult>();
+      const llm1 = mockCallLLM([verdict('A', 'A', 'B'), verdict('B', 'B', 'A')]);
+      const llm2 = mockCallLLM([verdict('A', 'A', 'B'), verdict('B', 'B', 'A')]);
+
+      await compareWithBiasMitigation('t1', 't2', llm1, cache, 'article', RUBRIC);
+      await compareWithBiasMitigation('t1', 't2', llm2, cache, 'article', RUBRIC2);
+
+      expect(cache.size).toBe(2);
+      expect(llm1).toHaveBeenCalledTimes(2);
+      expect(llm2).toHaveBeenCalledTimes(2);
+    });
+
+    it('the same rubric on the same pair hits the cache (zero new LLM calls)', async () => {
+      const cache = new Map<string, ComparisonResult>();
+      const callLLM = mockCallLLM([verdict('A', 'A', 'B'), verdict('B', 'B', 'A')]);
+
+      const r1 = await compareWithBiasMitigation('t1', 't2', callLLM, cache, 'article', RUBRIC);
+      expect(callLLM).toHaveBeenCalledTimes(2);
+
+      const r2 = await compareWithBiasMitigation('t1', 't2', callLLM, cache, 'article', RUBRIC);
+      expect(callLLM).toHaveBeenCalledTimes(2); // cache hit, no new calls
+      expect(r2).toEqual(r1);
+    });
+  });
+
+  it('regression guard: the no-rubric result is byte-identical (no rubricBreakdown key)', async () => {
+    const callLLM = mockCallLLM(['A', 'B']);
+    const result = await compareWithBiasMitigation('t1', 't2', callLLM);
+    expect(result).toEqual({ winner: 'A', confidence: 1.0, turns: 2 });
+    expect('rubricBreakdown' in result).toBe(false);
   });
 });

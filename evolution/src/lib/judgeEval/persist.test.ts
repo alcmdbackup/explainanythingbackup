@@ -1,0 +1,358 @@
+// Tests for the test-set contents helpers: loadTestSetContents (Elo projection + text stripping +
+// orphan counting) and getTestSetPairTexts (lazy per-pair text fetch). A hand-rolled chainable/
+// awaitable db mock serves the table-specific queries these run (mirrors criteriaActions.test.ts).
+
+import {
+  loadTestSetContents,
+  getTestSetPairTexts,
+  updateTestSetMetadata,
+  cloneTestSet,
+  loadBankPairsForCuration,
+} from './persist';
+import type { JudgeEvalPair } from './schemas';
+
+const VA = '00000000-0000-4000-8000-0000000000a1';
+const VB = '00000000-0000-4000-8000-0000000000b1';
+
+function pair(label: string, overrides: Partial<JudgeEvalPair> = {}): JudgeEvalPair {
+  return {
+    label,
+    pair_kind: 'article',
+    variant_a_id: VA,
+    variant_b_id: VB,
+    text_a: `TEXT_A for ${label}`,
+    text_b: `TEXT_B for ${label}`,
+    mu_a: 30,
+    mu_b: 25,
+    sigma_a: 5,
+    sigma_b: 5,
+    expected_winner: 'A',
+    gap_kind: 'large',
+    baseline_confidence: 1.0,
+    ...overrides,
+  };
+}
+
+interface DbConfig {
+  testSet: Record<string, unknown>;
+  bankPairs: JudgeEvalPair[];
+  members: Array<{ pair_label: string; pair_kind: string }>;
+}
+
+// Builds a db whose builder is both chainable (.select/.eq) and awaitable (.then), returning
+// table-appropriate payloads. Count queries are detected via the {count:'exact', head:true}
+// select options; everything else resolves to list/single data.
+function makeDb(config: DbConfig): never {
+  function makeBuilder(table: string) {
+    const state: { table: string; count?: string; head?: boolean; eqs: Record<string, unknown> } = {
+      table,
+      eqs: {},
+    };
+    const resolveList = () => {
+      if (state.table === 'judge_eval_test_set_members') {
+        if (state.head && state.count === 'exact') {
+          const kind = state.eqs['pair_kind'] as string | undefined;
+          const count = config.members.filter((m) => !kind || m.pair_kind === kind).length;
+          return { data: null, count, error: null };
+        }
+        return { data: config.members, count: null, error: null };
+      }
+      return { data: [], count: null, error: null };
+    };
+    const resolveSingle = () => {
+      if (state.table === 'judge_eval_test_sets') return { data: config.testSet, error: null };
+      if (state.table === 'judge_eval_pair_banks') return { data: { pairs: config.bankPairs }, error: null };
+      return { data: null, error: null };
+    };
+    const b: Record<string, unknown> = {
+      select: (_cols: string, opts?: { count?: string; head?: boolean }) => {
+        if (opts) {
+          state.count = opts.count;
+          state.head = opts.head;
+        }
+        return b;
+      },
+      eq: (col: string, val: unknown) => {
+        state.eqs[col] = val;
+        return b;
+      },
+      single: () => Promise.resolve(resolveSingle()),
+      maybeSingle: () => Promise.resolve(resolveSingle()),
+      then: (onF: (v: unknown) => unknown, onR?: (e: unknown) => unknown) =>
+        Promise.resolve(resolveList()).then(onF, onR),
+    };
+    return b;
+  }
+  return { from: (table: string) => makeBuilder(table) } as never;
+}
+
+const TS = {
+  id: 'ts-1',
+  pair_bank_id: 'bank-1',
+  name: 'fr2-smoke',
+  description: 'smoke set',
+  strategy: 'stratified_confidence',
+  seed: 1,
+  size_article: 2,
+  size_paragraph: 0,
+};
+
+describe('loadTestSetContents', () => {
+  it('projects mu/sigma to display Elo and omits snapshot texts from the list', async () => {
+    const db = makeDb({
+      testSet: TS,
+      bankPairs: [pair('art#1'), pair('art#2', { mu_a: 28, mu_b: 28 })],
+      members: [
+        { pair_label: 'art#1', pair_kind: 'article' },
+        { pair_label: 'art#2', pair_kind: 'article' },
+      ],
+    });
+    const out = await loadTestSetContents(db, 'ts-1', 'both');
+
+    expect(out.pairs).toHaveLength(2);
+    const p = out.pairs[0]!;
+    // Elo present and numeric; NO raw mu/sigma or texts on the row.
+    expect(typeof p.elo_a).toBe('number');
+    expect(typeof p.elo_b).toBe('number');
+    expect(p.elo_gap).toBe(Math.abs((p.elo_a as number) - (p.elo_b as number)));
+    expect(p).not.toHaveProperty('mu_a');
+    expect(p).not.toHaveProperty('text_a');
+    expect(p).not.toHaveProperty('text_b');
+    expect(out.memberCount).toBe(2);
+    expect(out.resolvedCount).toBe(2);
+    expect(out.orphanCount).toBe(0);
+  });
+
+  it('flags orphans when a frozen member is missing from the (re-seeded) bank', async () => {
+    const db = makeDb({
+      testSet: TS,
+      bankPairs: [pair('art#1')], // art#ORPHAN no longer in the bank
+      members: [
+        { pair_label: 'art#1', pair_kind: 'article' },
+        { pair_label: 'art#ORPHAN', pair_kind: 'article' },
+      ],
+    });
+    const out = await loadTestSetContents(db, 'ts-1', 'both');
+    expect(out.memberCount).toBe(2);
+    expect(out.resolvedCount).toBe(1);
+    expect(out.orphanCount).toBe(1);
+  });
+
+  it('renders null Elo when a pair has no rating (null mu/sigma)', async () => {
+    const db = makeDb({
+      testSet: TS,
+      bankPairs: [pair('art#1', { mu_a: null, sigma_a: null })],
+      members: [{ pair_label: 'art#1', pair_kind: 'article' }],
+    });
+    const out = await loadTestSetContents(db, 'ts-1', 'both');
+    expect(out.pairs[0]!.elo_a).toBeNull();
+    expect(out.pairs[0]!.elo_gap).toBeNull();
+    expect(out.pairs[0]!.elo_b).toBe(Math.round(out.pairs[0]!.elo_b as number)); // b still computed
+  });
+});
+
+describe('getTestSetPairTexts', () => {
+  it('returns the snapshot texts for a member pair', async () => {
+    const db = makeDb({
+      testSet: TS,
+      bankPairs: [pair('art#1'), pair('art#2')],
+      members: [
+        { pair_label: 'art#1', pair_kind: 'article' },
+        { pair_label: 'art#2', pair_kind: 'article' },
+      ],
+    });
+    const out = await getTestSetPairTexts(db, 'ts-1', 'art#2');
+    expect(out.text_a).toBe('TEXT_A for art#2');
+    expect(out.text_b).toBe('TEXT_B for art#2');
+  });
+
+  it('throws when the pair label is not in the test set', async () => {
+    const db = makeDb({
+      testSet: TS,
+      bankPairs: [pair('art#1')],
+      members: [{ pair_label: 'art#1', pair_kind: 'article' }],
+    });
+    await expect(getTestSetPairTexts(db, 'ts-1', 'missing')).rejects.toThrow(/Pair not found/);
+  });
+});
+
+describe('updateTestSetMetadata', () => {
+  function updateDb(result: { data: unknown; error: unknown }): never {
+    const b: Record<string, unknown> = {};
+    b.update = () => b;
+    b.eq = () => b;
+    b.select = () => b;
+    b.single = () => Promise.resolve(result);
+    return { from: () => b } as never;
+  }
+
+  it('updates name/description and returns the row', async () => {
+    const updated = { id: 'ts-1', name: 'renamed', description: 'd' };
+    const out = await updateTestSetMetadata(updateDb({ data: updated, error: null }), {
+      testSetId: 'ts-1',
+      name: 'renamed',
+      description: 'd',
+    });
+    expect(out).toEqual(updated);
+  });
+
+  it('maps a 23505 unique-name violation to a friendly error', async () => {
+    const db = updateDb({ data: null, error: { code: '23505', message: 'duplicate key' } });
+    await expect(
+      updateTestSetMetadata(db, { testSetId: 'ts-1', name: 'taken' }),
+    ).rejects.toThrow(/already exists/);
+  });
+});
+
+describe('cloneTestSet', () => {
+  // Differentiates single() (source-by-id + the insert) from maybeSingle() (get-or-create name check).
+  function cloneDb(cfg: { source: Record<string, unknown>; bank: Record<string, unknown>; existingByName: unknown }): never {
+    function builder(table: string) {
+      const eqs: Record<string, unknown> = {};
+      const b: Record<string, unknown> = {
+        select: () => b,
+        eq: (c: string, v: unknown) => {
+          eqs[c] = v;
+          return b;
+        },
+        insert: () => b,
+        single: () =>
+          Promise.resolve(
+            table === 'judge_eval_test_sets'
+              ? { data: cfg.source, error: null }
+              : table === 'judge_eval_pair_banks'
+                ? { data: cfg.bank, error: null }
+                : { data: null, error: null },
+          ),
+        maybeSingle: () =>
+          Promise.resolve(
+            table === 'judge_eval_test_sets' && 'name' in eqs
+              ? { data: cfg.existingByName, error: null }
+              : { data: null, error: null },
+          ),
+        then: (f: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(f),
+      };
+      return b;
+    }
+    return { from: builder } as never;
+  }
+
+  const bank = { id: 'bank-1', name: 'b', description: null, source_topic_id: null, pairs: [pair('art#1')], created_at: 't' };
+  const source = { id: 'ts-1', pair_bank_id: 'bank-1', name: 'src', description: null, strategy: 'stratified_confidence', seed: 1, size_article: 1, size_paragraph: 0 };
+
+  it('throws on name collision (never mutates/aliases the existing set)', async () => {
+    const db = cloneDb({ source, bank, existingByName: { id: 'other', name: 'taken' } });
+    await expect(
+      cloneTestSet(db, { sourceTestSetId: 'ts-1', newName: 'taken' }),
+    ).rejects.toThrow(/already exists/);
+  });
+
+  it('creates a NEW frozen set when the name is free', async () => {
+    const db = cloneDb({ source, bank, existingByName: null });
+    const out = await cloneTestSet(db, { sourceTestSetId: 'ts-1', newName: 'fresh' });
+    expect(out.created).toBe(true);
+  });
+
+  it('manual clone records the per-kind selected counts as the new set sizes', async () => {
+    // Capture the test-set INSERT payload so we can assert size_article/size_paragraph.
+    const captured: { insert?: Record<string, unknown> } = {};
+    const bankAP = {
+      id: 'bank-1',
+      name: 'b',
+      description: null,
+      source_topic_id: null,
+      pairs: [pair('art#1'), pair('par#1', { pair_kind: 'paragraph' })],
+      created_at: 't',
+    };
+    function captureDb(): never {
+      function builder(table: string) {
+        const eqs: Record<string, unknown> = {};
+        const b: Record<string, unknown> = {
+          select: () => b,
+          eq: (c: string, v: unknown) => {
+            eqs[c] = v;
+            return b;
+          },
+          insert: (payload: unknown) => {
+            if (table === 'judge_eval_test_sets' && !Array.isArray(payload)) {
+              captured.insert = payload as Record<string, unknown>;
+            }
+            return b;
+          },
+          single: () =>
+            Promise.resolve(
+              table === 'judge_eval_test_sets'
+                ? { data: source, error: null }
+                : table === 'judge_eval_pair_banks'
+                  ? { data: bankAP, error: null }
+                  : { data: null, error: null },
+            ),
+          maybeSingle: () => Promise.resolve({ data: null, error: null }),
+          then: (f: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(f),
+        };
+        return b;
+      }
+      return { from: builder } as never;
+    }
+
+    await cloneTestSet(captureDb(), {
+      sourceTestSetId: 'ts-1',
+      newName: 'curated',
+      strategy: 'manual',
+      manualLabels: ['art#1', 'par#1'],
+    });
+    expect(captured.insert?.strategy).toBe('manual');
+    expect(captured.insert?.size_article).toBe(1);
+    expect(captured.insert?.size_paragraph).toBe(1);
+  });
+});
+
+describe('loadBankPairsForCuration', () => {
+  const cfg = {
+    testSet: TS,
+    bankPairs: [
+      pair('art#1', { mu_a: 40, mu_b: 20 }), // elo 1440 vs 1120
+      pair('art#2', { mu_a: 30, mu_b: 30 }), // elo 1280 vs 1280
+      pair('par#1', { pair_kind: 'paragraph', mu_a: 28, mu_b: 26, gap_kind: 'close' }),
+    ],
+    members: [{ pair_label: 'art#1', pair_kind: 'article' }],
+  };
+
+  it('flags isMember and strips snapshot texts', async () => {
+    const out = await loadBankPairsForCuration(makeDb(cfg), 'ts-1', {});
+    expect(out.total).toBe(3);
+    expect(out.memberCount).toBe(1);
+    expect(out.memberLabels).toEqual(['art#1']); // seeds the picker selection without a 2nd query
+    const a1 = out.pairs.find((p) => p.label === 'art#1')!;
+    expect(a1.isMember).toBe(true);
+    expect(out.pairs.find((p) => p.label === 'art#2')!.isMember).toBe(false);
+    expect(a1).not.toHaveProperty('text_a');
+    expect(typeof a1.elo_a).toBe('number');
+  });
+
+  it('filters by membership', async () => {
+    const m = await loadBankPairsForCuration(makeDb(cfg), 'ts-1', { membership: 'member' });
+    expect(m.filteredLabels).toEqual(['art#1']);
+    const n = await loadBankPairsForCuration(makeDb(cfg), 'ts-1', { membership: 'non_member' });
+    expect(new Set(n.filteredLabels)).toEqual(new Set(['art#2', 'par#1']));
+  });
+
+  it('filters by kind and by gapKind', async () => {
+    expect((await loadBankPairsForCuration(makeDb(cfg), 'ts-1', { kind: 'paragraph' })).filteredLabels).toEqual(['par#1']);
+    expect((await loadBankPairsForCuration(makeDb(cfg), 'ts-1', { gapKind: 'close' })).filteredLabels).toEqual(['par#1']);
+  });
+
+  it('Elo filter requires BOTH sides within bounds', async () => {
+    // eloMin 1200: art#1 B-side 1120 < 1200 → excluded; art#2 (1280/1280) + par#1 (1248/1216) pass.
+    const out = await loadBankPairsForCuration(makeDb(cfg), 'ts-1', { eloMin: 1200 });
+    expect(out.filteredLabels).not.toContain('art#1');
+    expect(out.filteredLabels).toEqual(expect.arrayContaining(['art#2', 'par#1']));
+  });
+
+  it('matches label substring and paginates', async () => {
+    expect((await loadBankPairsForCuration(makeDb(cfg), 'ts-1', { search: 'par' })).filteredLabels).toEqual(['par#1']);
+    const page = await loadBankPairsForCuration(makeDb(cfg), 'ts-1', { limit: 2, offset: 0 });
+    expect(page.pairs).toHaveLength(2);
+    expect(page.total).toBe(3);
+  });
+});
