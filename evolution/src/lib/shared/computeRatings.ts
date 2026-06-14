@@ -11,6 +11,9 @@ import type {
   RubricBreakdown,
   Verdict,
 } from './rubricJudge';
+// Type-only imports (erased at runtime → no import cycle with judgeEnsemble).
+import type { AggregationRule, SubVerdict } from './judgeEnsemble/types';
+import type { EscalationChain } from './judgeEnsemble/planner';
 
 // ═══════════════════════════════════════════════════════════════════
 // Rating (OpenSkill / Weng-Lin Bayesian — internal adapter)
@@ -321,6 +324,38 @@ export interface ComparisonResult {
    *  snapshot (winner per dimension, per-pass scores, overall). Holistic
    *  comparisons leave this undefined. */
   rubricBreakdown?: RubricBreakdown;
+  /** Present ONLY when an ensembleRunner dispatched a multi-judge chain (Phase 4).
+   *  Holistic/single-judge comparisons leave this undefined. */
+  submatches?: EnsembleSubmatches;
+}
+
+/** One judge's consolidated 2-pass result within an ensemble match (prod path). Leaner than the
+ *  Judge Lab SubmatchRecord — the prod path tracks cost/tokens via agent invocations, not here. */
+export interface ProdSubmatchRecord {
+  model: string;
+  escalationStep: number;
+  triggeredEscalation: boolean;
+  winner: 'A' | 'B' | 'TIE';
+  confidence: number;
+  /** Rubric-mode only: this judge's per-dimension breakdown. */
+  rubricBreakdown?: RubricBreakdown;
+}
+
+/** The ensemble fold attached to a ComparisonResult: the chain composition + rule + the submatches. */
+export interface EnsembleSubmatches {
+  chainConfigId: string;
+  ruleId: string;
+  ruleVersion: number;
+  members: ProdSubmatchRecord[];
+}
+
+/** Injected into compareWithBiasMitigation to dispatch a multi-model escalation chain. When this is
+ *  UNDEFINED the comparison is byte-identical to the single-judge path. `makeJudge(model)` yields a
+ *  per-model 2-pass LLM caller; the chain selects models per mode and folds via `rule`. */
+export interface EnsembleRunner {
+  makeJudge: (model: string) => (prompt: string) => Promise<string>;
+  chain: EscalationChain;
+  rule: AggregationRule;
 }
 
 /** Which comparison prompt to use. 'article' is the default whole-text rubric;
@@ -570,32 +605,20 @@ export function aggregateWinners(
  * Runs the comparison twice with positions swapped to detect position bias.
  * Makes 2 parallel LLM calls. Does NOT catch errors — callers handle failures.
  */
-export async function compareWithBiasMitigation(
+/** One judge's bias-mitigated 2-pass comparison (rubric or holistic). Extracted unchanged from the
+ *  body of compareWithBiasMitigation so a single ensemble member reuses the exact same logic. */
+async function runSingleComparison(
   textA: string,
   textB: string,
   callLLM: (prompt: string) => Promise<string>,
-  cache?: Map<string, ComparisonResult>,
-  mode: ComparisonMode = 'article',
+  mode: ComparisonMode,
   rubricContext?: ResolvedJudgeRubric,
 ): Promise<ComparisonResult> {
-  // NOTE (B029/B039): makeCacheKey is keyed on the texts only, NOT on `mode`. This is safe
-  // because each call site uses a mode-homogeneous cache. When a rubric is in play the key
-  // is additionally suffixed with the rubric id so rubric verdicts never collide with a
-  // holistic verdict (or a different rubric) on the same text pair.
-  const keyOf = (a: string, b: string): string =>
-    rubricContext ? `${makeCacheKey(a, b)}|rubric:${rubricContext.rubricId}` : makeCacheKey(a, b);
-
-  if (cache) {
-    const cached = cache.get(keyOf(textA, textB));
-    if (cached) return cached;
-  }
-
-  let result: ComparisonResult;
   if (rubricContext) {
     // Rubric branch: per-dimension verdicts, per-pass weighted scoring, top-level
     // reversal. Still exactly 2 LLM calls (all dimensions judged inside one response).
     const dimensionNames = rubricContext.dimensions.map((d) => d.name);
-    result = await run2PassReversal<Record<string, Verdict | null>, RubricComparisonResult>({
+    return run2PassReversal<Record<string, Verdict | null>, RubricComparisonResult>({
       buildPrompts: () => ({
         forward: buildRubricComparisonPrompt(textA, textB, rubricContext, mode),
         reverse: buildRubricComparisonPrompt(textB, textA, rubricContext, mode),
@@ -604,17 +627,122 @@ export async function compareWithBiasMitigation(
       parseResponse: (resp) => parseRubricVerdict(resp, dimensionNames),
       aggregate: (fwd, rev) => aggregateRubric(fwd, rev, rubricContext),
     });
-  } else {
-    result = await run2PassReversal<string | null, ComparisonResult>({
-      buildPrompts: () => ({
-        forward: buildComparisonPrompt(textA, textB, mode),
-        reverse: buildComparisonPrompt(textB, textA, mode),
-      }),
-      callLLM,
-      parseResponse: parseWinner,
-      aggregate: aggregateWinners,
-    });
   }
+  return run2PassReversal<string | null, ComparisonResult>({
+    buildPrompts: () => ({
+      forward: buildComparisonPrompt(textA, textB, mode),
+      reverse: buildComparisonPrompt(textB, textA, mode),
+    }),
+    callLLM,
+    parseResponse: parseWinner,
+    aggregate: aggregateWinners,
+  });
+}
+
+function toEnsembleSubVerdict(rec: ProdSubmatchRecord): SubVerdict {
+  return {
+    sourceKind: 'judge',
+    sourceId: rec.model,
+    winner: rec.winner,
+    confidence: rec.confidence,
+    weight: 1,
+    escalationStep: rec.escalationStep,
+    triggeredEscalation: rec.triggeredEscalation,
+  };
+}
+
+/** Dispatch the multi-model escalation chain for ONE pair: each chain model runs a 2-pass comparison,
+ *  folded after each step by the rule; stop on the first decisive consolidation or at the cap. Mirrors
+ *  the Judge Lab evaluatePairWithEscalation, in the prod ComparisonResult shape. Falls back to the
+ *  caller's single judge when the chain has no models for this mode (so a match is never empty). */
+async function dispatchEnsembleComparison(
+  textA: string,
+  textB: string,
+  callLLM: (prompt: string) => Promise<string>,
+  mode: ComparisonMode,
+  rubricContext: ResolvedJudgeRubric | undefined,
+  runner: EnsembleRunner,
+): Promise<ComparisonResult> {
+  const models = (runner.chain.models[mode] ?? []).slice(0, runner.chain.cap);
+  if (models.length === 0) {
+    return runSingleComparison(textA, textB, callLLM, mode, rubricContext);
+  }
+  const members: ProdSubmatchRecord[] = [];
+  for (const model of models) {
+    const one = await runSingleComparison(textA, textB, runner.makeJudge(model), mode, rubricContext);
+    members.push({
+      model,
+      escalationStep: members.length,
+      triggeredEscalation: false,
+      winner: one.winner,
+      confidence: one.confidence,
+      rubricBreakdown: one.rubricBreakdown,
+    });
+    // Stop once the rule resolves the consolidated verdict (winner !== 'TIE'); else escalate.
+    if (runner.rule.aggregate(members.map(toEnsembleSubVerdict)).winner !== 'TIE') break;
+  }
+  // Every submatch except the last triggered the next escalation.
+  for (let i = 0; i < members.length - 1; i += 1) {
+    const m = members[i];
+    if (m) m.triggeredEscalation = true;
+  }
+  const consolidated = runner.rule.aggregate(members.map(toEnsembleSubVerdict));
+  const deciding = members[members.length - 1];
+  return {
+    winner: consolidated.winner,
+    confidence: consolidated.confidence,
+    turns: 2 * members.length,
+    // Keep the deciding judge's breakdown so the rubric_breakdown JSONB read-cache still populates.
+    rubricBreakdown: deciding?.rubricBreakdown,
+    submatches: {
+      chainConfigId: runner.chain.id,
+      ruleId: runner.rule.id,
+      ruleVersion: runner.rule.version,
+      members,
+    },
+  };
+}
+
+/** On a cache hit, give the caller its OWN submatch member array so each persisted match keeps >=1
+ *  distinct submatch row (the cached objects are shared). Non-ensemble results return as-is. */
+function cloneOnCacheHit(result: ComparisonResult): ComparisonResult {
+  if (!result.submatches) return result;
+  return {
+    ...result,
+    submatches: { ...result.submatches, members: result.submatches.members.map((m) => ({ ...m })) },
+  };
+}
+
+export async function compareWithBiasMitigation(
+  textA: string,
+  textB: string,
+  callLLM: (prompt: string) => Promise<string>,
+  cache?: Map<string, ComparisonResult>,
+  mode: ComparisonMode = 'article',
+  rubricContext?: ResolvedJudgeRubric,
+  /** Phase 4 (gated, default OFF): when set, dispatch a multi-judge escalation chain instead of the
+   *  single callLLM. Undefined ⇒ byte-identical to the legacy single-judge path. */
+  ensembleRunner?: EnsembleRunner,
+): Promise<ComparisonResult> {
+  // NOTE (B029/B039): makeCacheKey is keyed on the texts only, NOT on `mode`. This is safe
+  // because each call site uses a mode-homogeneous cache. When a rubric is in play the key
+  // is additionally suffixed with the rubric id so rubric verdicts never collide with a
+  // holistic verdict (or a different rubric) on the same text pair. The ensemble chain + rule
+  // are added too so an ensemble verdict never collides with a single-judge verdict.
+  const keyOf = (a: string, b: string): string => {
+    let key = rubricContext ? `${makeCacheKey(a, b)}|rubric:${rubricContext.rubricId}` : makeCacheKey(a, b);
+    if (ensembleRunner) key += `|chain:${ensembleRunner.chain.id}|rule:${ensembleRunner.rule.id}.${ensembleRunner.rule.version}`;
+    return key;
+  };
+
+  if (cache) {
+    const cached = cache.get(keyOf(textA, textB));
+    if (cached) return cloneOnCacheHit(cached);
+  }
+
+  const result = ensembleRunner
+    ? await dispatchEnsembleComparison(textA, textB, callLLM, mode, rubricContext, ensembleRunner)
+    : await runSingleComparison(textA, textB, callLLM, mode, rubricContext);
 
   // B033: cache partial-failure results at `confidence >= 0.3` (was `> 0.3`). The 0.3
   // boundary result (one forward pass succeeded + one null) is deterministic once
