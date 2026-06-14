@@ -3,10 +3,11 @@
 // makeJudge (no LLM/DB). The fake distinguishes forward vs reverse passes by which text appears first.
 
 import { GlobalBudgetExceededError } from '@/lib/errors/serviceError';
-import { firstDecisive, unanimousAmongDecisive } from '../shared/judgeEnsemble/aggregation';
+import { firstDecisive, unanimousAmongDecisive, criteriaWeighted } from '../shared/judgeEnsemble/aggregation';
 import { evaluatePairWithEscalation, type EscalationConfig } from './escalation';
 import type { JudgeFn, JudgeCallOutput } from './runJudgeEval';
 import type { JudgeEvalPair } from './schemas';
+import type { ResolvedJudgeRubric } from '../shared/rubricJudge';
 
 function mkPair(kind: 'article' | 'paragraph' = 'article'): JudgeEvalPair {
   return {
@@ -139,5 +140,146 @@ describe('evaluatePairWithEscalation (unanimous_among_decisive)', () => {
     expect(out.consolidated.winner).toBe('A');
     expect(out.submatches).toHaveLength(3);
     expect(out.consolidated.breakdown.votesA).toBe(2);
+  });
+});
+
+describe('evaluatePairWithEscalation (rubric mode)', () => {
+  const RUBRIC: ResolvedJudgeRubric = {
+    rubricId: 'rub-1',
+    dimensions: [
+      { criteriaId: 'c1', name: 'clarity', description: null, minRating: 1, maxRating: 5, evaluationGuidance: null, weight: 0.5 },
+      { criteriaId: 'c2', name: 'depth', description: null, minRating: 1, maxRating: 5, evaluationGuidance: null, weight: 0.5 },
+    ],
+  };
+
+  // Per-dimension verdict text; the fake picks forward vs reverse by which text appears first.
+  function fakeRubricJudge(behavior: Record<string, { forward: string; reverse: string }>): (m: string) => JudgeFn {
+    return (model: string): JudgeFn => async (prompt: string): Promise<JudgeCallOutput> => {
+      const b = behavior[model];
+      if (!b) throw new Error(`no behavior for ${model}`);
+      const isForward = prompt.indexOf('AAA') < prompt.indexOf('BBB');
+      return { text: isForward ? b.forward : b.reverse, costUsd: 0.001, promptTokens: 30, outputTokens: 5, reasoningTokens: 0 };
+    };
+  }
+
+  it('produces a per-dimension breakdown + resolves the match', async () => {
+    const out = await evaluatePairWithEscalation(
+      mkPair(),
+      { chainModels: ['m1'], rule: firstDecisive, rubric: RUBRIC },
+      fakeRubricJudge({ m1: { forward: 'clarity: A\ndepth: A', reverse: 'clarity: B\ndepth: B' } }),
+    );
+    expect(out.consolidated.winner).toBe('A');
+    const s = out.submatches[0]!;
+    expect(s.judgeRubricId).toBe('rub-1');
+    expect(s.rubricBreakdown?.dimensions.map((d) => d.name)).toEqual(['clarity', 'depth']);
+    expect(s.winner).toBe('A');
+    expect(s.confidence).toBe(1.0);
+  });
+
+  it('escalates past an abstaining rubric submatch (position-biased -> TIE 0.5)', async () => {
+    const out = await evaluatePairWithEscalation(
+      mkPair(),
+      { chainModels: ['m1', 'm2'], rule: firstDecisive, rubric: RUBRIC },
+      fakeRubricJudge({
+        m1: { forward: 'clarity: A\ndepth: A', reverse: 'clarity: A\ndepth: A' }, // both passes pick slot A -> TIE
+        m2: { forward: 'clarity: A\ndepth: A', reverse: 'clarity: B\ndepth: B' }, // decisive A
+      }),
+    );
+    expect(out.consolidated.winner).toBe('A');
+    expect(out.submatches).toHaveLength(2);
+    expect(out.submatches[0]?.confidence).toBe(0.5);
+    expect(out.submatches[1]?.rubricBreakdown?.dimensions).toHaveLength(2);
+  });
+});
+
+describe('evaluatePairWithEscalation (criteria_split planner)', () => {
+  const RUBRIC = (wClarity: number, wDepth: number): ResolvedJudgeRubric => ({
+    rubricId: 'rub-cs',
+    dimensions: [
+      { criteriaId: 'c1', name: 'clarity', description: null, minRating: 1, maxRating: 5, evaluationGuidance: null, weight: wClarity },
+      { criteriaId: 'c2', name: 'depth', description: null, minRating: 1, maxRating: 5, evaluationGuidance: null, weight: wDepth },
+    ],
+  });
+
+  // model -> (criterionName -> {f,r}) as-shown verdicts. Each criteria_split prompt names exactly
+  // one dimension (single-criterion sub-rubric), so the fake answers about whichever it sees.
+  function fakeCriteriaJudge(
+    behavior: Record<string, Record<string, { f: string; r: string }>>,
+  ): (m: string) => JudgeFn {
+    return (model: string): JudgeFn => async (prompt: string): Promise<JudgeCallOutput> => {
+      const b = behavior[model];
+      if (!b) throw new Error(`no behavior for ${model}`);
+      const name = Object.keys(b).find((n) => prompt.includes(n));
+      if (!name) throw new Error(`no criterion named in prompt for ${model}`);
+      const isForward = prompt.indexOf('AAA') < prompt.indexOf('BBB');
+      const v = isForward ? b[name]!.f : b[name]!.r;
+      return { text: `${name}: ${v}`, costUsd: 0.001, promptTokens: 30, outputTokens: 5, reasoningTokens: 0 };
+    };
+  }
+
+  it('runs ONE submatch per criterion (no early stop), round-robins models, folds by weight', async () => {
+    const out = await evaluatePairWithEscalation(
+      mkPair(),
+      { chainModels: ['m1', 'm2'], rule: criteriaWeighted, rubric: RUBRIC(0.7, 0.3), planner: 'criteria_split' },
+      fakeCriteriaJudge({
+        m1: { clarity: { f: 'A', r: 'B' } }, // clarity decisive A (round-robin: c1 -> m1)
+        m2: { depth: { f: 'B', r: 'A' } }, // depth decisive B   (round-robin: c2 -> m2)
+      }),
+    );
+    // every criterion runs even though clarity alone is decisive
+    expect(out.submatches).toHaveLength(2);
+    expect(out.submatches.map((s) => s.sourceKind)).toEqual(['criterion', 'criterion']);
+    expect(out.submatches.map((s) => s.criteriaId)).toEqual(['c1', 'c2']);
+    expect(out.submatches.map((s) => s.model)).toEqual(['m1', 'm2']); // round-robin assignment
+    expect(out.submatches.map((s) => s.weight)).toEqual([0.7, 0.3]);
+    expect(out.submatches.every((s) => s.rubricBreakdown?.dimensions.length === 1)).toBe(true);
+    // weighted fold: clarity(0.7)=A vs depth(0.3)=B -> A, confidence = 0.7/1.0
+    expect(out.consolidated.winner).toBe('A');
+    expect(out.consolidated.confidence).toBeCloseTo(0.7, 6);
+  });
+
+  it('an even weighted split across criteria is a TIE', async () => {
+    const out = await evaluatePairWithEscalation(
+      mkPair(),
+      { chainModels: ['m1'], rule: criteriaWeighted, rubric: RUBRIC(0.5, 0.5), planner: 'criteria_split' },
+      fakeCriteriaJudge({
+        m1: { clarity: { f: 'A', r: 'B' }, depth: { f: 'B', r: 'A' } }, // clarity A, depth B, equal weight
+      }),
+    );
+    expect(out.submatches).toHaveLength(2);
+    expect(out.consolidated.winner).toBe('TIE');
+  });
+
+  it('routes a criterion to an explicit model; an abstaining criterion drops out of the fold', async () => {
+    const out = await evaluatePairWithEscalation(
+      mkPair(),
+      {
+        chainModels: ['m1'],
+        rule: criteriaWeighted,
+        rubric: RUBRIC(0.5, 0.5),
+        planner: 'criteria_split',
+        criteriaModelMap: { c2: 'specialist' },
+      },
+      fakeCriteriaJudge({
+        m1: { clarity: { f: 'A', r: 'B' } }, // clarity decisive A (default model)
+        specialist: { depth: { f: 'A', r: 'A' } }, // depth position-biased -> TIE, abstains
+      }),
+    );
+    expect(out.submatches[0]?.model).toBe('m1');
+    expect(out.submatches[1]?.model).toBe('specialist'); // explicit map honored
+    expect(out.submatches[1]?.confidence).toBe(0.5); // abstained
+    // only clarity decides -> winner A at full share of the decided weight
+    expect(out.consolidated.winner).toBe('A');
+    expect(out.consolidated.confidence).toBeCloseTo(1.0, 6);
+  });
+
+  it('throws if criteria_split is selected without a rubric', async () => {
+    await expect(
+      evaluatePairWithEscalation(
+        mkPair(),
+        { chainModels: ['m1'], rule: criteriaWeighted, planner: 'criteria_split' },
+        fakeCriteriaJudge({}),
+      ),
+    ).rejects.toThrow(/criteria_split requires a rubric/);
   });
 });

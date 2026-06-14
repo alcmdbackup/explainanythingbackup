@@ -17,6 +17,7 @@ import {
   getEvalLeaderboardAction,
   getJudgeModelOptionsAction,
 } from '@evolution/services/judgeEvalActions';
+import { listJudgeRubricsAction } from '@evolution/services/judgeRubricActions';
 
 type EscalationRule = 'first_decisive' | 'unanimous_among_decisive' | 'confidence_weighted';
 const ESCALATION_RULES: EscalationRule[] = [
@@ -124,12 +125,22 @@ export default function JudgeLabPage(): JSX.Element {
   const [escRule, setEscRule] = useState<EscalationRule>('first_decisive');
   const [escCap, setEscCap] = useState(3);
   const [escTemperature, setEscTemperature] = useState(0);
+  // Optional structured rubric for escalation submatches (per-dimension verdicts persisted). '' = holistic.
+  const [escRubrics, setEscRubrics] = useState<Array<{ id: string; name: string }>>([]);
+  const [escRubricId, setEscRubricId] = useState<string>('');
+  // Dispatch: sequential ladder vs one judge per rubric dimension (criteria_split needs a rubric).
+  const [escPlanner, setEscPlanner] = useState<'escalation' | 'criteria_split'>('escalation');
 
   // Mode-aware: when Kind changes, swap the box to that Kind's default rubric — but only if the user
   // hasn't hand-edited it (it still equals one of the presets), mirroring the Match Viewer.
   useEffect(() => {
     setCustomPrompt((cur) => (isDefaultRubric(cur) ? defaultRubricFor(kind) : cur));
   }, [kind]);
+
+  // criteria_split needs a rubric: clearing the rubric falls back to the escalation ladder.
+  useEffect(() => {
+    if (!escRubricId) setEscPlanner('escalation');
+  }, [escRubricId]);
 
   const [viewKind, setViewKind] = useState<Kind>('both');
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
@@ -145,6 +156,12 @@ export default function JudgeLabPage(): JSX.Element {
         if (res.data.length > 0) setTestSetId((res.data[0] as TestSetOption).id);
       } else if (!res.success) {
         toast.error(res.error?.message ?? 'Failed to load test sets');
+      }
+    })();
+    void (async () => {
+      const res = await listJudgeRubricsAction({ status: 'active' });
+      if (res.success && res.data) {
+        setEscRubrics(res.data.items.map((r) => ({ id: r.id, name: r.name })));
       }
     })();
   }, []);
@@ -241,6 +258,8 @@ export default function JudgeLabPage(): JSX.Element {
       promptVariant,
       explainReasoning,
       repeats,
+      judgeRubricId: escRubricId || null,
+      planner: escPlanner,
       dryRun,
     });
     setLaunching(false);
@@ -561,7 +580,38 @@ export default function JudgeLabPage(): JSX.Element {
             onChange={(e) => setRepeats(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
             className="w-16 bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded px-2 py-1 text-xs"
           />
+          <span className="text-sm font-ui ml-4">Rubric</span>
+          <select
+            data-testid="escalation-rubric"
+            className="bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded px-2 py-1 text-xs"
+            value={escRubricId}
+            onChange={(e) => setEscRubricId(e.target.value)}
+            title="Judge each submatch per-dimension via a registered rubric (dimension verdicts persisted)."
+          >
+            <option value="">Holistic (no rubric)</option>
+            {escRubrics.map((r) => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+          <span className="text-sm font-ui ml-4">Planner</span>
+          <select
+            data-testid="escalation-planner"
+            className="bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded px-2 py-1 text-xs"
+            value={escPlanner}
+            onChange={(e) => setEscPlanner(e.target.value as 'escalation' | 'criteria_split')}
+            title="criteria_split runs one judge per rubric dimension (folded by weight); requires a rubric."
+          >
+            <option value="escalation">escalation (ladder)</option>
+            <option value="criteria_split" disabled={!escRubricId}>criteria_split (per-criterion)</option>
+          </select>
         </div>
+        {escPlanner === 'criteria_split' && (
+          <p className="text-xs text-[var(--text-muted)]">
+            criteria_split judges each rubric dimension separately (round-robin over the chain models),
+            then folds the per-criterion winners by weight (<code>criteria_weighted</code>). The Rule
+            selector is ignored in this mode.
+          </p>
+        )}
 
         <details>
           <summary className="text-xs cursor-pointer text-[var(--text-muted)]">Custom judge prompt (rubric override)</summary>

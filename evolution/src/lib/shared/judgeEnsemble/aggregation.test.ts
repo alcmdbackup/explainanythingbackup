@@ -8,6 +8,7 @@ import {
   firstDecisive,
   unanimousAmongDecisive,
   confidenceWeighted,
+  criteriaWeighted,
   getAggregationRule,
   listAggregationRules,
   DEFAULT_AGGREGATION_RULE,
@@ -29,6 +30,11 @@ function sub(
     triggeredEscalation: false,
     ...overrides,
   };
+}
+
+/** One criterion sub-verdict (criteria-split): weighted, sourceKind 'criterion'. */
+function crit(winner: Verdict | null, weight: number, confidence = 1.0, step = 0): SubVerdict {
+  return sub(winner, confidence, step, { sourceKind: 'criterion', sourceId: `c${step}`, weight });
 }
 
 describe('isDecisiveVote / tally', () => {
@@ -110,6 +116,42 @@ describe('confidence_weighted', () => {
   it('a thin margin stays TIE', () => {
     const r = confidenceWeighted.aggregate([sub('A', 0.7, 0), sub('B', 0.7, 1)]);
     expect(r.winner).toBe('TIE');
+  });
+});
+
+describe('criteria_weighted (criteria-split)', () => {
+  it('picks the heavier weighted side; abstaining (TIE/null) criteria do not contribute', () => {
+    // clarity(0.6)=A, depth(0.3)=B, novelty(0.1)=TIE -> A by 0.6 vs 0.3
+    const r = criteriaWeighted.aggregate([crit('A', 0.6, 1.0, 0), crit('B', 0.3, 1.0, 1), crit('TIE', 0.1, 0.5, 2)]);
+    expect(r.winner).toBe('A');
+    expect(r.confidence).toBeCloseTo(0.6 / 0.9, 6); // winner share of the DECIDED weight
+  });
+
+  it('full confidence when every deciding criterion agrees (TIE criteria ignored)', () => {
+    const r = criteriaWeighted.aggregate([crit('A', 0.5, 1.0, 0), crit('A', 0.4, 0.7, 1), crit('TIE', 0.1, 0.5, 2)]);
+    expect(r.winner).toBe('A');
+    expect(r.confidence).toBeCloseTo(1.0, 6);
+  });
+
+  it('weights raw winners (a 0.7-confidence criterion still carries full weight)', () => {
+    // Unlike confidence_weighted: depth's 0.7 confidence does NOT down-weight it below clarity.
+    const r = criteriaWeighted.aggregate([crit('A', 0.4, 1.0, 0), crit('B', 0.6, 0.7, 1)]);
+    expect(r.winner).toBe('B'); // 0.6 > 0.4 regardless of the 0.7 vs 1.0 confidences
+  });
+
+  it('an even weighted split is a low-confidence TIE; all-abstain is a 0-confidence TIE', () => {
+    expect(criteriaWeighted.aggregate([crit('A', 0.5, 1.0, 0), crit('B', 0.5, 1.0, 1)])).toMatchObject({
+      winner: 'TIE',
+      confidence: 0.5,
+    });
+    expect(criteriaWeighted.aggregate([crit('TIE', 0.5, 0.5, 0), crit(null, 0.5, 0, 1)])).toMatchObject({
+      winner: 'TIE',
+      confidence: 0,
+    });
+  });
+
+  it('is resolvable from the registry by id@version', () => {
+    expect(getAggregationRule('criteria_weighted', 1)).toBe(criteriaWeighted);
   });
 });
 

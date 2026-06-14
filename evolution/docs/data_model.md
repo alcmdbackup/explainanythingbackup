@@ -364,6 +364,21 @@ from the resolved pair at write time so match-history analysis survives pair-ban
 Plus VIEW `judge_eval_settings_leaderboard` (best settings by decisive rate, scoped to a test set,
 split by `pair_kind`; RLS-locked to `service_role`). All tables: deny-all + `service_role_all` RLS.
 
+**Escalation / ensemble sweeps** (Judge Lab): a "match" can consolidate MULTIPLE `judge_eval_calls`
+rows — one per **submatch** (one judge's 2-pass result) — tied together by `submatch_group_key`
+(`<pair_label>#<repeat_index>`) and ordered by `escalation_step`/`triggered_escalation` (migration
+`20260613000001`; the table-wide unique constraint was replaced by partial unique indexes in
+`20260614000002` so multi-submatch matches are allowed). `judge_eval_chains` records the chain
+composition (`article_models`/`paragraph_models`, `aggregation_rule`+`version`, `cap`). For
+**rubric-mode** submatches each call also gets N rows in **`judge_eval_dimension_verdicts`** (migration
+`20260614000003`; FK → `judge_eval_calls(id)` `ON DELETE CASCADE`): `criteria_id` (UUID, no FK — Judge
+Lab tolerates synthetic/test rubrics), `criteria_name` snapshot, `weight`, `forward_verdict`/
+`reverse_verdict`, `dimension_winner`, `favored_match_winner` (BOOLEAN, NULL on a TIE dimension —
+precomputed relative to the consolidated MATCH winner), `position`. This makes "which criterion picked
+the winner" a queryable table instead of a JSONB blob. The **`criteria_split`** planner emits one
+submatch per rubric dimension (each judging a single-criterion sub-rubric, possibly on a different
+model), folded by the `criteria_weighted` aggregation rule.
+
 ## Entity Relationships
 
 For a visual diagram, see [`entities.md`](./entities.md) and [`entity_diagram.png`](./entity_diagram.png).

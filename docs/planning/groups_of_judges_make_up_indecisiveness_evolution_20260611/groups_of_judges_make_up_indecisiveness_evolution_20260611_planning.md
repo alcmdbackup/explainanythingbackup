@@ -405,11 +405,11 @@ If any bar fails, stop at Phase 3 (Judge Lab) and iterate on chain composition /
 - [ ] Run live escalation sweeps; confirm they reproduce offline predictions (real escalation trigger rate + cost).
 
 ### Phase 3: Rubric-mode submatches + criteria-partitioned aggregation
-- [ ] Submatches support **rubric mode**: thread `judgeRubric`/`judge_rubric_id` per submatch through the escalation `JudgeFn`; reuse `compareWithBiasMitigation`'s rubric branch (`buildRubricComparisonPrompt`/`aggregateRubric`).
-- [ ] Judge Lab dimension breakout: migration `judge_eval_dimension_verdicts` (FK -> `judge_eval_calls` ON DELETE CASCADE): `criteria_id, criteria_name, weight, forward_verdict, reverse_verdict, dimension_winner, favored_match_winner, position`. Persist for any rubric-mode call (mirrors the prod `evolution_submatch_dimension_verdicts`).
-- [ ] `criteria_split` Planner: map each rubric dimension (`evolution_criteria`) to a model; dispatch per-criterion submatches (`sourceKind:'criterion'`).
-- [ ] `criteria_weighted` Aggregator generalizing `rubricJudge.ts` weighting into the registry (one engine for both). Ships no new aggregation engine — a new Planner + a registered rule.
-- [ ] Validate in Judge Lab vs holistic chain + single-model rubric baselines (decisive, accuracy, cost); confirm per-dimension rows reconstruct the JSONB breakdown exactly.
+- [x] Submatches support **rubric mode**: thread `judgeRubric`/`judge_rubric_id` per submatch through the escalation `JudgeFn`; reuse `compareWithBiasMitigation`'s rubric branch (`buildRubricComparisonPrompt`/`aggregateRubric`). *(Phase 3a — escalation.ts EscalationConfig.rubric + per-pass aggregateRubric.)*
+- [x] Judge Lab dimension breakout: migration `judge_eval_dimension_verdicts` (FK -> `judge_eval_calls` ON DELETE CASCADE): `criteria_id, criteria_name, weight, forward_verdict, reverse_verdict, dimension_winner, favored_match_winner, position`. Persist for any rubric-mode call (mirrors the prod `evolution_submatch_dimension_verdicts`). *(Phase 3b — migration 20260614000003 + dimensionVerdictRows/insertDimensionVerdicts.)*
+- [x] `criteria_split` Planner: map each rubric dimension (`evolution_criteria`) to a model; dispatch per-criterion submatches (`sourceKind:'criterion'`). *(escalation.ts evaluatePairWithCriteriaSplit — one 2-pass judge per dimension, round-robin over chain models or explicit criteriaModelMap; each criterion is a SubmatchRecord with a 1-dim breakdown.)*
+- [x] `criteria_weighted` Aggregator generalizing `rubricJudge.ts` weighting into the registry (one engine for both). Ships no new aggregation engine — a new Planner + a registered rule. *(aggregation.ts criteriaWeighted — folds per-criterion SubVerdicts by weight; winner-share confidence. Sweep forces this rule whenever planner=criteria_split.)*
+- [x] Validate in Judge Lab vs holistic chain + single-model rubric baselines (decisive, accuracy, cost); confirm per-dimension rows reconstruct the JSONB breakdown exactly. *(Phase 3c — integration test reconstructs the breakdown + CASCADE; CLI `--rubric` + UI selector for live validation.)*
 
 ### Phase 4: Production wiring (gated, default OFF)
 - [ ] Compute->persist plumbing (see seams G1/G2): add `submatches: SubVerdict[]` (+ chain/rule ids) to `ComparisonResult`, `v2MatchSchema`, `RankSingleVariantComparisonRecord`; copy onto the match at BOTH compute sites (`SwissRankingAgent.ts` ~L144, `rankSingleVariant.ts` ~L317); client-generate comparison `id` so submatch rows FK without a returning insert.
@@ -462,13 +462,13 @@ If any bar fails, stop at Phase 3 (Judge Lab) and iterate on chain composition /
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `docs/feature_deep_dives/judge_evaluation.md` — escalation sweep mode, Planner/Aggregator seams, offline simulator, submatch persistence, terminology.
+- [x] `docs/feature_deep_dives/judge_evaluation.md` — escalation sweep mode, Planner/Aggregator seams, offline simulator, submatch persistence, terminology. *(Added "Escalation & criteria-split sweeps" section: planner/rule seams, criteria_split + criteria_weighted, rubric-mode dimension breakout.)*
 - [ ] `evolution/docs/rating_and_comparison.md` — escalation/aggregation as an overlay on the 2-pass reversal / confidence table; the `first_decisive` rule (+ registry alternates); submatch vs match.
 - [ ] `evolution/docs/cost_optimization.md` — cost-per-decisive + avg chain depth vs single strong judge; mode-aware chains.
 - [ ] `evolution/docs/criteria_agents.md` / structured-judging section — criteria-split planner generalizing `rubricJudge.ts`.
 - [ ] `evolution/docs/agents/overview.md` — when escalation reaches the ranking path used by agents.
 - [ ] `evolution/docs/metrics.md` — submatch / chain metrics (decisive, cost_per_decisive, avg depth, unanimous-but-wrong).
-- [ ] `evolution/docs/data_model.md` — `judge_eval_calls` submatch cols + `judge_eval_dimension_verdicts`; `evolution_arena_submatches` + `evolution_submatch_dimension_verdicts` + parent summary cols; SDR-1.
+- [x] `evolution/docs/data_model.md` — `judge_eval_calls` submatch cols + `judge_eval_dimension_verdicts` documented. *(The prod `evolution_arena_submatches`/`evolution_submatch_dimension_verdicts` tables are Phase 4 — deferred/gated.)*
 - [ ] `evolution/docs/rating_and_comparison.md` (structured-judging section) — per-dimension verdicts now normalized rows (rubric_breakdown JSONB = transitional read-cache).
 - [ ] `docs/docs_overall/llm_provider_limits.md` — cheap judge model availability/limits used by chains.
 

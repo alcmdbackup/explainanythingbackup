@@ -26,6 +26,7 @@ import {
   type EscalationSweepOutcome,
 } from '@evolution/lib/judgeEval/executeEscalationSweep';
 import { seedPairBankFromTopic } from '@evolution/lib/judgeEval/seed';
+import { getJudgeRubricForEvaluation } from './judgeRubricActions';
 import {
   kindFilterSchema,
   reasoningEffortSchema,
@@ -293,6 +294,10 @@ const createEscalationSweepSchema = z.object({
   promptVariant: z.string().max(4000).nullable().default(null),
   explainReasoning: z.boolean().default(false),
   repeats: z.number().int().min(1).max(50).default(10),
+  /** Optional: judge each submatch via this rubric (per-dimension verdicts persisted). */
+  judgeRubricId: z.string().uuid().nullable().default(null),
+  /** Dispatch: 'escalation' (sequential ladder) or 'criteria_split' (one judge per rubric dimension). */
+  planner: z.enum(['escalation', 'criteria_split']).default('escalation'),
   dryRun: z.boolean().default(false),
 });
 
@@ -315,7 +320,23 @@ export const createEscalationSweepAction = adminAction(
     const testSet = await loadTestSetByName(db(ctx), parsed.testSetName);
     if (!testSet) throw new Error(`Test set not found: ${parsed.testSetName}`);
 
+    // Resolve the optional rubric: each submatch then judges per-dimension (verdicts persisted).
+    const rubric = parsed.judgeRubricId
+      ? (await getJudgeRubricForEvaluation(db(ctx), parsed.judgeRubricId)) ?? undefined
+      : undefined;
+    if (parsed.judgeRubricId && !rubric) {
+      throw new Error(`Judge rubric not found or has no active criteria: ${parsed.judgeRubricId}`);
+    }
+    if (parsed.planner === 'criteria_split' && !rubric) {
+      throw new Error('criteria_split planner requires a judge rubric (judgeRubricId)');
+    }
+
     const customPrompt = parsed.promptVariant?.trim() || null;
+
+    // criteria_split MUST fold per-criterion verdicts with criteria_weighted (the evaluator uses the
+    // chain rule); force it so a stale escalation rule can't mis-aggregate a split.
+    const rule = parsed.planner === 'criteria_split' ? 'criteria_weighted' : parsed.rule;
+    const ruleVersion = parsed.planner === 'criteria_split' ? 1 : parsed.ruleVersion;
 
     // executeEscalationSweep enforces the worst-case (chainCap) cost ceiling before any LLM call.
     return executeEscalationSweep(
@@ -324,18 +345,20 @@ export const createEscalationSweepAction = adminAction(
         testSetId: testSet.id,
         kindFilter: parsed.kindFilter,
         chain: {
-          name: `${parsed.rule}@${parsed.ruleVersion} cap${parsed.cap}`,
+          name: `${rule}@${ruleVersion} cap${parsed.cap}`,
           article: parsed.articleModels,
           paragraph: parsed.paragraphModels,
-          rule: parsed.rule,
-          ruleVersion: parsed.ruleVersion,
+          rule,
+          ruleVersion,
           cap: parsed.cap,
+          planner: parsed.planner,
         },
         temperature: parsed.temperature,
         reasoningEffort: parsed.reasoningEffort as JudgeReasoningEffort | null,
         promptVariant: customPrompt,
         explainReasoning: parsed.explainReasoning,
         repeats: parsed.repeats,
+        rubric,
       },
       { dryRun: parsed.dryRun, userId: ctx.adminUserId, trackingDb: db(ctx) },
     );

@@ -75,7 +75,29 @@ export const confidenceWeighted: AggregationRule = rule('confidence_weighted', 1
   return { winner: 'TIE', confidence: scoreA > 0 && scoreB > 0 ? 0.5 : 0 };
 });
 
-const RULES: AggregationRule[] = [firstDecisive, unanimousAmongDecisive, confidenceWeighted];
+/** criteria_weighted (criteria-split rubric mode): fold per-CRITERION sub-verdicts by weight.
+ *  Each criterion contributes its full weight to its 2-pass reconciled winner side; TIE/null
+ *  criteria abstain (contribute to neither). Winner = heavier side; confidence = the winner's
+ *  share of the DECIDED weight (1.0 when every deciding criterion agrees, 0.5 on an even split,
+ *  0 when all abstain). Generalizes rubricJudge.scorePass's weighting into the registry so a
+ *  rubric split across models folds with the same engine the single-model rubric judge uses.
+ *  NB: unlike confidence_weighted it weights raw criterion winners, not isDecisiveVote tallies —
+ *  a 0.7-confidence criterion winner still carries its full weight (matches scorePass). */
+export const criteriaWeighted: AggregationRule = rule('criteria_weighted', 1, (subs) => {
+  let scoreA = 0;
+  let scoreB = 0;
+  for (const s of subs) {
+    if (s.winner === 'A') scoreA += s.weight;
+    else if (s.winner === 'B') scoreB += s.weight;
+  }
+  const decided = scoreA + scoreB;
+  if (decided === 0) return { winner: 'TIE', confidence: 0 };
+  if (scoreA > scoreB) return { winner: 'A', confidence: scoreA / decided };
+  if (scoreB > scoreA) return { winner: 'B', confidence: scoreB / decided };
+  return { winner: 'TIE', confidence: 0.5 };
+});
+
+const RULES: AggregationRule[] = [firstDecisive, unanimousAmongDecisive, confidenceWeighted, criteriaWeighted];
 const registry = new Map<string, AggregationRule>(RULES.map((r) => [`${r.id}@${r.version}`, r]));
 
 /** The live production default. */

@@ -4,6 +4,7 @@
 import { runEscalationOverPairs, type EscalationChainSpec } from './executeEscalationSweep';
 import type { JudgeFn, JudgeCallOutput } from './runJudgeEval';
 import type { JudgeEvalPair } from './schemas';
+import type { ResolvedJudgeRubric } from '../shared/rubricJudge';
 
 function mkPair(label: string, kind: 'article' | 'paragraph'): JudgeEvalPair {
   return {
@@ -44,7 +45,7 @@ const chain: EscalationChainSpec = {
 
 describe('runEscalationOverPairs', () => {
   it('emits one row per submatch and picks the mode-appropriate chain', async () => {
-    const rows = await runEscalationOverPairs(
+    const { callRows: rows } = await runEscalationOverPairs(
       [mkPair('art#1', 'article'), mkPair('para#1', 'paragraph')],
       chain,
       1,
@@ -65,7 +66,7 @@ describe('runEscalationOverPairs', () => {
   });
 
   it('groups submatches of a match by (pair, repeat) and separates repeats', async () => {
-    const rows = await runEscalationOverPairs(
+    const { callRows: rows } = await runEscalationOverPairs(
       [mkPair('art#1', 'article')],
       chain,
       2,
@@ -77,9 +78,44 @@ describe('runEscalationOverPairs', () => {
     expect(groups).toEqual(new Set(['art#1#0', 'art#1#1']));
   });
 
+  it('criteria_split: emits one call row + one dimension row per criterion, folded by weight', async () => {
+    const rubric: ResolvedJudgeRubric = {
+      rubricId: 'r-cs',
+      dimensions: [
+        { criteriaId: 'c1', name: 'clarity', description: null, minRating: 1, maxRating: 5, evaluationGuidance: null, weight: 0.5 },
+        { criteriaId: 'c2', name: 'depth', description: null, minRating: 1, maxRating: 5, evaluationGuidance: null, weight: 0.5 },
+      ],
+    };
+    // Single-criterion prompts name exactly one dimension; both criteria decide A (forward A / reverse B).
+    const judge = (): JudgeFn => async (prompt: string): Promise<JudgeCallOutput> => {
+      const name = prompt.includes('clarity') ? 'clarity' : 'depth';
+      const v = prompt.indexOf('AAA') < prompt.indexOf('BBB') ? 'A' : 'B';
+      return { text: `${name}: ${v}`, costUsd: 0.001, promptTokens: 10, outputTokens: 1, reasoningTokens: 0 };
+    };
+    const csChain: EscalationChainSpec = {
+      name: 'cs', article: ['m1'], paragraph: [], rule: 'criteria_weighted', ruleVersion: 1, cap: 3, planner: 'criteria_split',
+    };
+    const { callRows, dimensionRows } = await runEscalationOverPairs(
+      [mkPair('art#1', 'article')],
+      csChain,
+      1,
+      judge,
+      undefined,
+      rubric,
+    );
+    expect(callRows).toHaveLength(2); // one submatch per criterion (not a ladder)
+    expect(callRows.map((r) => r.judge_model)).toEqual(['m1', 'm1']);
+    expect(callRows.every((r) => r.escalation_step >= 0)).toBe(true);
+    expect(dimensionRows).toHaveLength(2); // one dimension row per criterion submatch
+    expect(dimensionRows.map((d) => d.criteria_name)).toEqual(['clarity', 'depth']);
+    expect(dimensionRows.map((d) => d.weight)).toEqual([0.5, 0.5]);
+    // both criteria favored A (the consolidated winner) -> favored_match_winner true
+    expect(dimensionRows.every((d) => d.favored_match_winner === true)).toBe(true);
+  });
+
   it('skips a pair whose mode has no chain models', async () => {
     const noPara: EscalationChainSpec = { ...chain, paragraph: [] };
-    const rows = await runEscalationOverPairs(
+    const { callRows: rows } = await runEscalationOverPairs(
       [mkPair('para#1', 'paragraph')],
       noPara,
       1,

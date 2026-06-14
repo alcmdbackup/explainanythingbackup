@@ -3,16 +3,21 @@
 // rule), and replace its call rows. The pure mapper (submatchToCallRow) is unit-tested; the DB
 // wrappers mirror persist.ts (delete-then-insert / upsert-by-settings_key).
 
+import { randomUUID } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import type { JudgeEvalCallResult, JudgeEvalPair, JudgeKindFilter, JudgeReasoningEffort } from './schemas';
 import type { SubmatchRecord } from './escalation';
 import { buildEscalationSettingsKey, buildPromptVariantHash } from './settings';
+import { reconcilePasses, type RubricBreakdown } from '../shared/rubricJudge';
+import type { Verdict } from '../shared/judgeEnsemble/types';
 
 type Db = SupabaseClient<Database>;
 
-/** A judge_eval_calls row for one submatch (the existing call shape + the submatch identity cols). */
+/** A judge_eval_calls row for one submatch (the existing call shape + the submatch identity cols).
+ *  `id` is client-generated so rubric-mode dimension-verdict rows can FK to it without a returning insert. */
 export interface EscalationCallRow extends JudgeEvalCallResult {
+  id: string;
   submatch_group_key: string;
   escalation_step: number;
   triggered_escalation: boolean;
@@ -32,6 +37,7 @@ export function submatchToCallRow(
   repeatIndex: number,
 ): EscalationCallRow {
   return {
+    id: randomUUID(),
     pair_label: pair.label,
     pair_kind: pair.pair_kind,
     comparison_mode: pair.pair_kind,
@@ -143,5 +149,50 @@ export async function replaceEscalationCalls(
   if (rows.length === 0) return;
   const insert = rows.map((r) => ({ eval_run_id: runId, ...r }));
   const { error } = await db.from('judge_eval_calls').insert(insert);
+  if (error) throw error;
+}
+
+/** A per-dimension verdict row for a rubric-mode submatch (judge_eval_dimension_verdicts). */
+export interface DimensionVerdictRow {
+  judge_eval_call_id: string;
+  criteria_id: string | null;
+  criteria_name: string;
+  weight: number;
+  forward_verdict: string | null;
+  reverse_verdict: string | null;
+  dimension_winner: string | null;
+  favored_match_winner: boolean | null;
+  position: number;
+}
+
+/** Build the per-dimension verdict rows for a rubric-mode submatch. `matchWinner` is the
+ *  consolidated escalation verdict, so `favored_match_winner` is relative to the MATCH (not the
+ *  submatch). `dimension_winner` reconciles the two passes (both already real-frame). Pure. */
+export function dimensionVerdictRows(
+  callId: string,
+  breakdown: RubricBreakdown,
+  matchWinner: Verdict,
+): DimensionVerdictRow[] {
+  return breakdown.dimensions.map((d, i) => {
+    const dimWinner = reconcilePasses(d.forwardVerdict, d.reverseVerdict).winner;
+    return {
+      judge_eval_call_id: callId,
+      criteria_id: d.criteriaId,
+      criteria_name: d.name,
+      weight: d.weight,
+      forward_verdict: d.forwardVerdict,
+      reverse_verdict: d.reverseVerdict,
+      dimension_winner: dimWinner,
+      favored_match_winner: dimWinner === 'TIE' ? null : dimWinner === matchWinner,
+      position: i,
+    };
+  });
+}
+
+/** Insert dimension-verdict rows. The CASCADE from judge_eval_calls handles deletion on re-run, so
+ *  callers `replaceEscalationCalls` first (which clears the old calls + their dimension rows). */
+export async function insertDimensionVerdicts(db: Db, rows: DimensionVerdictRow[]): Promise<void> {
+  if (rows.length === 0) return;
+  const { error } = await db.from('judge_eval_dimension_verdicts').insert(rows);
   if (error) throw error;
 }

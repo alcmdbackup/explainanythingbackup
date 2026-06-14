@@ -1,8 +1,9 @@
 // Unit tests for the pure submatch -> judge_eval_calls row mapper + group key.
 
-import { submatchToCallRow, submatchGroupKey } from './escalationPersist';
+import { submatchToCallRow, submatchGroupKey, dimensionVerdictRows } from './escalationPersist';
 import type { SubmatchRecord } from './escalation';
 import type { JudgeEvalPair } from './schemas';
+import type { RubricBreakdown } from '../shared/rubricJudge';
 
 const pair: JudgeEvalPair = {
   label: 'art#001',
@@ -83,5 +84,44 @@ describe('submatchToCallRow', () => {
     expect(r.winner).toBe('TIE');
     expect(r.error).toBe('timeout');
     expect(r.repeat_index).toBe(2);
+  });
+});
+
+describe('dimensionVerdictRows', () => {
+  const breakdown: RubricBreakdown = {
+    rubricId: 'rub-1',
+    dimensions: [
+      { criteriaId: 'c1', name: 'clarity', weight: 0.5, forwardVerdict: 'A', reverseVerdict: 'A' }, // agree -> A
+      { criteriaId: 'c2', name: 'depth', weight: 0.5, forwardVerdict: 'A', reverseVerdict: 'B' }, // disagree -> TIE
+    ],
+    forwardPass: { scoreA: 1, scoreB: 0, winner: 'A' },
+    reversePass: { scoreA: 0.5, scoreB: 0.5, winner: 'TIE' },
+    overall: { winner: 'A', confidence: 0.7 },
+  };
+
+  it('reconciles per-dimension winners and flags favored_match_winner vs the MATCH winner', () => {
+    const rows = dimensionVerdictRows('call-1', breakdown, 'A');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      judge_eval_call_id: 'call-1',
+      criteria_id: 'c1',
+      criteria_name: 'clarity',
+      weight: 0.5,
+      dimension_winner: 'A',
+      favored_match_winner: true,
+      position: 0,
+    });
+    expect(rows[1]).toMatchObject({
+      criteria_name: 'depth',
+      dimension_winner: 'TIE',
+      favored_match_winner: null, // TIE -> null
+      position: 1,
+    });
+  });
+
+  it('marks a dimension that favored the loser as favored_match_winner=false', () => {
+    // matchWinner B, but clarity reconciles to A -> favored=false
+    const rows = dimensionVerdictRows('call-2', breakdown, 'B');
+    expect(rows[0]?.favored_match_winner).toBe(false);
   });
 });

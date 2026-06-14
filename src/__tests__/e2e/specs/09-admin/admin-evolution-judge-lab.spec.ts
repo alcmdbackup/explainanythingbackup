@@ -142,5 +142,12 @@ adminTest.describe('Judge Lab', { tag: '@evolution' }, () => {
     await escMode.click();
     await expect(adminPage.getByTestId('judge-lab-escalation')).toBeVisible({ timeout: 30000 });
     await expect(adminPage.getByTestId('judge-lab-escalation-launch')).toBeVisible();
+
+    // Phase 3: rubric + planner selectors render; criteria_split is disabled until a rubric is chosen.
+    await expect(adminPage.getByTestId('escalation-rubric')).toBeVisible();
+    const planner = adminPage.getByTestId('escalation-planner');
+    await expect(planner).toBeVisible();
+    const criteriaSplitOption = planner.locator('option[value="criteria_split"]');
+    await expect(criteriaSplitOption).toBeDisabled(); // no rubric selected yet
   });
 });

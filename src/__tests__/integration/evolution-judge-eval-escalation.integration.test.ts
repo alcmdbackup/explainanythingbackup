@@ -14,8 +14,11 @@ import {
   replaceEscalationCalls,
   submatchToCallRow,
   submatchGroupKey,
+  dimensionVerdictRows,
+  insertDimensionVerdicts,
 } from '@evolution/lib/judgeEval/escalationPersist';
 import type { SubmatchRecord } from '@evolution/lib/judgeEval/escalation';
+import type { RubricBreakdown } from '@evolution/lib/shared/rubricJudge';
 import type { JudgeEvalPair } from '@evolution/lib/judgeEval/schemas';
 
 function makeClient(): SupabaseClient<Database> | null {
@@ -169,5 +172,92 @@ const TS = `[TEST] judge-eval escalation ts ${Date.now()}`;
       .select('eval_run_id, pair_kind, n_calls, decisive_rate')
       .eq('eval_run_id', runId);
     expect((board ?? []).length).toBeGreaterThan(0);
+  });
+
+  it('persists per-dimension verdicts for a rubric-mode submatch and reconstructs the breakdown', async () => {
+    if (!db || !enabled) {
+      console.warn('judge_eval submatch column absent — skipping (deploy migration first)');
+      return;
+    }
+    // Probe the dimension table (migration 20260614000003); skip until deployed.
+    const probe = await db.from('judge_eval_dimension_verdicts').select('id').limit(1);
+    if (probe.error) {
+      console.warn('judge_eval_dimension_verdicts absent — skipping (deploy migration 20260614000003)');
+      return;
+    }
+
+    const { data: chainRow } = await db
+      .from('judge_eval_chains')
+      .insert({
+        name: 'esc-int-rubric',
+        article_models: ['m1'],
+        paragraph_models: [],
+        aggregation_rule: 'first_decisive',
+        aggregation_rule_version: 1,
+        cap: 3,
+      })
+      .select('id')
+      .single();
+    const { runId } = await upsertEscalationRun(db, {
+      testSetId,
+      chainId: chainRow!.id,
+      chainModels: { article: ['m1'], paragraph: [] },
+      aggregationRule: 'first_decisive',
+      aggregationRuleVersion: 1,
+      cap: 3,
+      temperature: 0,
+      reasoningEffort: null,
+      kindFilter: 'article',
+      promptVariant: null,
+      repeats: 1,
+      notes: 'rubric',
+    });
+
+    // One decisive rubric submatch; MATCH winner = A. clarity agrees (A/A -> A, favored); depth
+    // disagrees across passes (A/B -> TIE, favored=null).
+    const gk = submatchGroupKey(PAIR.label, 0);
+    const callRow = submatchToCallRow(PAIR, sub('m1', 0, 'A', 1.0), gk, 0);
+    await replaceEscalationCalls(db, runId, [callRow]);
+
+    const breakdown: RubricBreakdown = {
+      rubricId: 'rub-int',
+      dimensions: [
+        { criteriaId: '33333333-3333-4333-8333-333333333333', name: 'clarity', weight: 0.5, forwardVerdict: 'A', reverseVerdict: 'A' },
+        { criteriaId: '44444444-4444-4444-8444-444444444444', name: 'depth', weight: 0.5, forwardVerdict: 'A', reverseVerdict: 'B' },
+      ],
+      forwardPass: { scoreA: 1, scoreB: 0, winner: 'A' },
+      reversePass: { scoreA: 0.5, scoreB: 0.5, winner: 'TIE' },
+      overall: { winner: 'A', confidence: 1.0 },
+    };
+    const dimRows = dimensionVerdictRows(callRow.id, breakdown, 'A');
+    await insertDimensionVerdicts(db, dimRows);
+
+    const { data: persisted, error } = await db
+      .from('judge_eval_dimension_verdicts')
+      .select('criteria_name, weight, forward_verdict, reverse_verdict, dimension_winner, favored_match_winner, position')
+      .eq('judge_eval_call_id', callRow.id)
+      .order('position');
+    expect(error).toBeNull();
+    expect(persisted).toHaveLength(2);
+    expect(persisted![0]).toMatchObject({
+      criteria_name: 'clarity',
+      dimension_winner: 'A',
+      favored_match_winner: true,
+      position: 0,
+    });
+    expect(persisted![1]).toMatchObject({
+      criteria_name: 'depth',
+      dimension_winner: 'TIE',
+      favored_match_winner: null,
+      position: 1,
+    });
+
+    // CASCADE: deleting the call removes its dimension rows.
+    await db.from('judge_eval_calls').delete().eq('id', callRow.id);
+    const after = await db
+      .from('judge_eval_dimension_verdicts')
+      .select('id')
+      .eq('judge_eval_call_id', callRow.id);
+    expect(after.data ?? []).toHaveLength(0);
   });
 });

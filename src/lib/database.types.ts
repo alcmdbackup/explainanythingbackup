@@ -110,6 +110,56 @@ export type Database = {
           }
         ]
       }
+      judge_eval_dimension_verdicts: {
+        Row: {
+          id: string
+          judge_eval_call_id: string
+          criteria_id: string | null
+          criteria_name: string
+          weight: number
+          forward_verdict: string | null
+          reverse_verdict: string | null
+          dimension_winner: string | null
+          favored_match_winner: boolean | null
+          position: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          judge_eval_call_id: string
+          criteria_id?: string | null
+          criteria_name: string
+          weight: number
+          forward_verdict?: string | null
+          reverse_verdict?: string | null
+          dimension_winner?: string | null
+          favored_match_winner?: boolean | null
+          position?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          judge_eval_call_id?: string
+          criteria_id?: string | null
+          criteria_name?: string
+          weight?: number
+          forward_verdict?: string | null
+          reverse_verdict?: string | null
+          dimension_winner?: string | null
+          favored_match_winner?: boolean | null
+          position?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "judge_eval_dimension_verdicts_judge_eval_call_id_fkey"
+            columns: ["judge_eval_call_id"]
+            isOneToOne: false
+            referencedRelation: "judge_eval_calls"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       judge_eval_chains: {
         Row: {
           id: string

@@ -18,6 +18,7 @@ import { seedPairBankFromTopic } from '@evolution/lib/judgeEval/seed';
 import { loadPairBankByName, loadTestSetByName, getOrCreateTestSet } from '@evolution/lib/judgeEval/persist';
 import { executeSweep } from '@evolution/lib/judgeEval/executeSweep';
 import { executeEscalationSweep } from '@evolution/lib/judgeEval/executeEscalationSweep';
+import { getJudgeRubricForEvaluation } from '@evolution/services/judgeRubricActions';
 import { computeMetrics } from '@evolution/lib/judgeEval/metrics';
 import type { JudgeReasoningEffort, JudgeKindFilter } from '@evolution/lib/judgeEval/schemas';
 
@@ -151,30 +152,45 @@ async function main(): Promise<void> {
     const cap = num(flag(args, 'cap'), 3);
     const dryRun = has(args, 'dry-run');
 
+    // Optional rubric: each submatch judges per-dimension (verdicts persisted to judge_eval_dimension_verdicts).
+    const rubricId = flag(args, 'rubric');
+    const rubric = rubricId ? ((await getJudgeRubricForEvaluation(db, rubricId)) ?? undefined) : undefined;
+    if (rubricId && !rubric) throw new Error(`Judge rubric not found or has no active criteria: ${rubricId}`);
+
+    const planner = (flag(args, 'planner') ?? 'escalation') as 'escalation' | 'criteria_split';
+    if (planner === 'criteria_split' && !rubric) {
+      throw new Error('--planner criteria_split requires --rubric <id>');
+    }
+    // criteria_split MUST fold per-criterion verdicts with criteria_weighted (the evaluator uses the chain rule).
+    const effectiveRule = planner === 'criteria_split' ? 'criteria_weighted' : rule;
+    const effectiveRuleVersion = planner === 'criteria_split' ? 1 : num(flag(args, 'rule-version'), 1);
+
     const outcome = await executeEscalationSweep(
       db,
       {
         testSetId: testSet.id,
         kindFilter: (flag(args, 'kind') as JudgeKindFilter) ?? 'both',
         chain: {
-          name: flag(args, 'chain-name') ?? `${rule} cap${cap}`,
+          name: flag(args, 'chain-name') ?? `${effectiveRule} cap${cap}`,
           article: list(flag(args, 'article-models')),
           paragraph: list(flag(args, 'paragraph-models')),
-          rule,
-          ruleVersion: num(flag(args, 'rule-version'), 1),
+          rule: effectiveRule,
+          ruleVersion: effectiveRuleVersion,
           cap,
+          planner,
         },
         temperature: num(flag(args, 'temperature'), 0),
         reasoningEffort: (reasoning && reasoning !== 'none' ? reasoning : null) as JudgeReasoningEffort | null,
         promptVariant,
         explainReasoning: has(args, 'explain-reasoning'),
         repeats: num(flag(args, 'repeats'), 10),
+        rubric,
       },
       { dryRun, trackingDb: db, userId: undefined },
     );
 
     console.log(`Test set ${testSetName} (${outcome.testSetId}) · ${outcome.pairCount} pairs`);
-    console.log(`Chain "${rule} cap${cap}" · worst-case ${outcome.plannedCalls} calls · est $${outcome.estimate.estimatedCostUsd.toFixed(4)}`);
+    console.log(`Chain "${effectiveRule} cap${cap}" planner=${planner} · worst-case ${outcome.plannedCalls} calls · est $${outcome.estimate.estimatedCostUsd.toFixed(4)}`);
     if (dryRun || outcome.runId == null) {
       console.log('(dry run — no LLM calls made)');
       return;
