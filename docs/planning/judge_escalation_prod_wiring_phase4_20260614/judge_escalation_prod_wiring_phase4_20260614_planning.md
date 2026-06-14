@@ -8,12 +8,12 @@ The acceptance gate (decisiveness uplift / accuracy guardrail / lone-decisive sa
 ## Phased Execution Plan
 
 ### Phase 4: Production wiring (gated, default OFF)
-- [ ] `ensembleRunner?` seam on `compareWithBiasMitigation` — byte-identical single-`callLLM` path when unset; dispatches the multi-model chain when set. `ComparisonResult.submatches`. Cache key + `chainConfigId/ruleVersion`; clone submatch members on a cache hit.
-- [ ] Migration (idempotent, additive): `evolution_arena_submatches` + `evolution_submatch_dimension_verdicts` (FK CASCADE, deny-all RLS + service_role_all) + parent summary cols (`chain_depth`, `agreement`, `aggregation_rule`, `aggregation_rule_version`) on `evolution_arena_comparisons`. Hand-add to `database.types.ts` (CI regenerates).
-- [ ] `v2MatchSchema.submatches` + strategy-config `ensembleConfigId`; carry submatches onto the match at both compute sites (`SwissRankingAgent`, `rankSingleVariant` `buildMatch`); client-generate comparison `id`.
-- [ ] Persist submatch + dimension rows at both persistence sites (`MergeRatingsAgent`, `slotTopicActions`); keep dual-writing `rubric_breakdown` JSONB as a read-cache.
-- [ ] `buildRunContext`: resolve `ensembleConfigId` + `EVOLUTION_JUDGE_ESCALATION_ENABLED` kill switch (default OFF) → `ensembleRunner` on `EvolutionConfig`. Rating path live default `first_decisive`.
-- [ ] Match-viewer UX: escalation badge (list) + per-submatch rubric tables (detail) + legacy chain-of-1 renders unchanged.
+- [x] `ensembleRunner?` seam on `compareWithBiasMitigation` — byte-identical single-`callLLM` path when unset; dispatches the multi-model chain when set. `ComparisonResult.submatches`. Cache key + `chainConfigId/ruleVersion`; clone submatch members on a cache hit.
+- [x] Migration (idempotent, additive): `evolution_arena_submatches` + `evolution_submatch_dimension_verdicts` (FK CASCADE, deny-all RLS + service_role_all) + parent summary cols (`chain_depth`, `agreement`, `aggregation_rule`, `aggregation_rule_version`) on `evolution_arena_comparisons`. Hand-add to `database.types.ts` (CI regenerates).
+- [x] `v2MatchSchema.submatches` + strategy-config `ensembleConfigId`; carry submatches onto the match at both compute sites (`SwissRankingAgent`, `rankSingleVariant` `buildMatch`); client-generate comparison `id`.
+- [x] Persist submatch + dimension rows at both persistence sites (`MergeRatingsAgent`, `slotTopicActions`); keep dual-writing `rubric_breakdown` JSONB as a read-cache.
+- [x] `buildRunContext`: resolve `ensembleConfigId` + `EVOLUTION_JUDGE_ESCALATION_ENABLED` kill switch (default OFF) → `ensembleRunner` on `EvolutionConfig`. Rating path live default `first_decisive`.
+- [x] Match-viewer UX: escalation badge (list) + per-submatch rubric tables (detail) + legacy chain-of-1 renders unchanged.
 
 ## Verification
 
