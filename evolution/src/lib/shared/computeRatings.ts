@@ -603,11 +603,6 @@ export function aggregateWinners(
   return { winner: 'TIE', confidence: 0.5, turns: 2 };
 }
 
-/**
- * Bias-mitigated pairwise comparison using 2-pass A/B reversal.
- * Runs the comparison twice with positions swapped to detect position bias.
- * Makes 2 parallel LLM calls. Does NOT catch errors — callers handle failures.
- */
 /** One judge's bias-mitigated 2-pass comparison (rubric or holistic). Extracted unchanged from the
  *  body of compareWithBiasMitigation so a single ensemble member reuses the exact same logic. */
 async function runSingleComparison(
@@ -717,6 +712,11 @@ function cloneOnCacheHit(result: ComparisonResult): ComparisonResult {
   };
 }
 
+/**
+ * Bias-mitigated pairwise comparison using 2-pass A/B reversal.
+ * Runs the comparison twice with positions swapped to detect position bias.
+ * Makes 2 parallel LLM calls. Does NOT catch errors — callers handle failures.
+ */
 export async function compareWithBiasMitigation(
   textA: string,
   textB: string,
