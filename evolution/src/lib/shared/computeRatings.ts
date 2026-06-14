@@ -346,6 +346,9 @@ export interface EnsembleSubmatches {
   chainConfigId: string;
   ruleId: string;
   ruleVersion: number;
+  /** Consolidated match winner in the textA(=A)/textB(=B) frame — the same frame the submatch and
+   *  per-dimension winners use, so favored_match_winner is computed consistently at persistence. */
+  matchWinner: 'A' | 'B' | 'TIE';
   members: ProdSubmatchRecord[];
 }
 
@@ -698,6 +701,7 @@ async function dispatchEnsembleComparison(
       chainConfigId: runner.chain.id,
       ruleId: runner.rule.id,
       ruleVersion: runner.rule.version,
+      matchWinner: consolidated.winner,
       members,
     },
   };
