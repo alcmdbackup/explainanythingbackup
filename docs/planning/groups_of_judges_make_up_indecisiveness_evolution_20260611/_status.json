@@ -1,0 +1,18 @@
+{
+  "branch": "feat/groups_of_judges_make_up_indecisiveness_evolution_20260611",
+  "created_at": "2026-06-11T23:51:05Z",
+  "prerequisites": {
+    "todos_created": "2026-06-13T21:17:21Z"
+  },
+  "relevantDocs": [
+    "docs/feature_deep_dives/judge_evaluation.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/criteria_agents.md",
+    "evolution/docs/arena.md",
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/agents/overview.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/data_model.md",
+    "docs/docs_overall/llm_provider_limits.md"
+  ]
+}
