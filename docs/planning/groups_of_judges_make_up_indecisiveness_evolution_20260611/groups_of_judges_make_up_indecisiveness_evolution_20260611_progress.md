@@ -107,11 +107,17 @@ Articles clear all bars cleanly and are production-promising. Paragraphs clear d
 - [x] **Sweep orchestration** `executeEscalationSweep.ts`: `runEscalationOverPairs` (pure mode-aware per-pair chain run over injected makeJudge) + `executeEscalationSweep` (load pairs -> worst-case cost gate via chainCap -> insert chain + upsert run -> createCallLLMJudge per model -> persist submatch rows). 3 unit tests.
 - Full Phase-2 code path now implemented + unit-tested (53 tests, 7 suites). Typecheck + eslint clean.
 
-### Remaining (Phase 2) — entry point + live run + viewing
-- [ ] CLI/action entry to launch an escalation sweep (`judge-eval.ts sweep --chain ... --rule ...` + `judgeEvalActions.ts`).
-- [ ] Small real-AI ARTICLE sweep on the pinned set to confirm offline numbers (modest spend, authorized).
-- [ ] Admin UI (chain + rule selector + leaderboard VIEW with chain decisive/accuracy/cost/avg-depth).
-- [ ] Integration/E2E tests (judge-eval-escalation persists submatch rows; E2E sweep launcher).
+### Phase 2 entry points + UI + viewing — DONE
+- [x] CLI `escalation-sweep` (`judge-eval.ts`) with inline match-level summary; server action `createEscalationSweepAction` (admin, cap-gated).
+- [x] Leaderboard VIEW (`20260614000001`): UNION single-judge (per-call) + escalation (per-match by submatch_group_key; consolidated = final submatch).
+- [x] **Constraint fix** (`20260614000002`): the live sweep surfaced `judge_eval_calls UNIQUE(run,pair,repeat)` blocking multi-submatch matches; replaced with partial unique indexes (single-judge keeps it; escalation unique per (run,pair,repeat,escalation_step)).
+- [x] Admin UI: single/escalation mode toggle + escalation launcher (article/paragraph chains, rule, cap) in `judge-lab/page.tsx`; leaderboard auto-works.
+- [x] Integration test (multi-submatch persistence + leaderboard; auto-skips until migrations deploy) + E2E (escalation mode toggle renders launcher).
+- [x] **Live article sweep** validated the LLM call path end-to-end (real gpt-4o-mini + deepseek-chat calls succeeded); persistence validated by the constraint fix + CI (deploy-migrations applies it before integration tests).
+- Phase 2 unit suite: 58 tests. All additive; escalation NOT wired into the live Elo ranking path (that is Phase 4, gated on the human go/no-go).
+
+### Phase 3-5 (future, gated)
+- Phase 3 (rubric-mode submatches + criteria-split) and Phase 4 (production ranking wiring) remain. **Phase 4 stays gated on the human go/no-go** (paragraph lone-decisive bar underpowered at n=20 — widen corpus first).
 
 ### (historical) Remaining (Phase 2) — was BLOCKED on a dev-schema apply (types dependency)
 - [ ] Persistence DB glue: `upsertRun` escalation variant (chain/rule cols) + `replaceCalls`/persist submatch rows (the new `submatch_group_key`/`escalation_step`/`triggered_escalation`/`judge_model` columns). **Needs `database.types.ts` regenerated from the applied migration** — the typed insert can't be written until the columns exist in the generated types.
