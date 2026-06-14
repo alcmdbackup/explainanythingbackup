@@ -110,6 +110,39 @@ export type Database = {
           }
         ]
       }
+      judge_eval_chains: {
+        Row: {
+          id: string
+          name: string
+          article_models: Json
+          paragraph_models: Json
+          aggregation_rule: string
+          aggregation_rule_version: number
+          cap: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          article_models?: Json
+          paragraph_models?: Json
+          aggregation_rule?: string
+          aggregation_rule_version?: number
+          cap?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          article_models?: Json
+          paragraph_models?: Json
+          aggregation_rule?: string
+          aggregation_rule_version?: number
+          cap?: number
+          created_at?: string
+        }
+        Relationships: []
+      }
       judge_eval_runs: {
         Row: {
           id: string
@@ -124,6 +157,9 @@ export type Database = {
           settings_key: string
           notes: string | null
           created_at: string
+          chain_id: string | null
+          aggregation_rule: string | null
+          aggregation_rule_version: number | null
         }
         Insert: {
           id?: string
@@ -138,6 +174,9 @@ export type Database = {
           settings_key: string
           notes?: string | null
           created_at?: string
+          chain_id?: string | null
+          aggregation_rule?: string | null
+          aggregation_rule_version?: number | null
         }
         Update: {
           id?: string
@@ -152,8 +191,18 @@ export type Database = {
           settings_key?: string
           notes?: string | null
           created_at?: string
+          chain_id?: string | null
+          aggregation_rule?: string | null
+          aggregation_rule_version?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "judge_eval_runs_chain_id_fkey"
+            columns: ["chain_id"]
+            isOneToOne: false
+            referencedRelation: "judge_eval_chains"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "judge_eval_runs_test_set_id_fkey"
             columns: ["test_set_id"]
@@ -201,6 +250,10 @@ export type Database = {
           expected_winner: string | null
           variant_a_id: string | null
           variant_b_id: string | null
+          submatch_group_key: string | null
+          escalation_step: number | null
+          triggered_escalation: boolean | null
+          judge_model: string | null
         }
         Insert: {
           id?: string
@@ -238,6 +291,10 @@ export type Database = {
           expected_winner?: string | null
           variant_a_id?: string | null
           variant_b_id?: string | null
+          submatch_group_key?: string | null
+          escalation_step?: number | null
+          triggered_escalation?: boolean | null
+          judge_model?: string | null
         }
         Update: {
           id?: string
@@ -275,6 +332,10 @@ export type Database = {
           expected_winner?: string | null
           variant_a_id?: string | null
           variant_b_id?: string | null
+          submatch_group_key?: string | null
+          escalation_step?: number | null
+          triggered_escalation?: boolean | null
+          judge_model?: string | null
         }
         Relationships: [
           {
