@@ -44,10 +44,11 @@ const ENSEMBLE: EnsembleSubmatches = {
       winner: 'A',
       confidence: 1.0,
       rubricBreakdown: {
-        rubricId: 'rub-int',
+        // judge_rubric_id + criteria_id are UUID columns — use valid UUIDs (prod values are real ids).
+        rubricId: '99999999-9999-4999-8999-999999999999',
         dimensions: [
-          { criteriaId: 'c1', name: 'clarity', weight: 0.5, forwardVerdict: 'A', reverseVerdict: 'A' },
-          { criteriaId: 'c2', name: 'depth', weight: 0.5, forwardVerdict: 'A', reverseVerdict: 'B' },
+          { criteriaId: '33333333-3333-4333-8333-333333333333', name: 'clarity', weight: 0.5, forwardVerdict: 'A', reverseVerdict: 'A' },
+          { criteriaId: '44444444-4444-4444-8444-444444444444', name: 'depth', weight: 0.5, forwardVerdict: 'A', reverseVerdict: 'B' },
         ],
         forwardPass: { scoreA: 1, scoreB: 0, winner: 'A' },
         reversePass: { scoreA: 0.5, scoreB: 0.5, winner: 'TIE' },
