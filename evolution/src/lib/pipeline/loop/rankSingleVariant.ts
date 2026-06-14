@@ -12,7 +12,7 @@
 
 import type { Variant, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import { BudgetExceededError } from '../../types';
-import type { Rating, ComparisonResult } from '../../shared/computeRatings';
+import type { Rating, ComparisonResult, EnsembleRunner } from '../../shared/computeRatings';
 import {
   createRating, updateRating, updateDraw,
   compareWithBiasMitigation, DEFAULT_UNCERTAINTY, DEFAULT_CONVERGENCE_UNCERTAINTY,
@@ -190,6 +190,28 @@ function makeCallLLM(
   };
 }
 
+/** Phase 4 (gated, default OFF): build the ensemble runner when the strategy resolved a chain.
+ *  `makeJudge(model)` reuses the same ranking completion path per model. */
+function makeEnsembleRunner(
+  llm: EvolutionLLMClient,
+  config: EvolutionConfig,
+  invocationId: string,
+): EnsembleRunner | undefined {
+  if (!config.ensemble) return undefined;
+  return {
+    makeJudge: (model: string) => (prompt: string): Promise<string> => {
+      const opts: LLMCompletionOptions = {
+        model: model as LLMCompletionOptions['model'],
+        invocationId,
+        taskType: 'comparison',
+      };
+      return llm.complete(prompt, 'ranking', opts);
+    },
+    chain: config.ensemble.chain,
+    rule: config.ensemble.rule,
+  };
+}
+
 /** Build a V2Match from a comparison result. */
 function buildMatch(
   result: ComparisonResult,
@@ -210,6 +232,8 @@ function buildMatch(
     // Carries the per-dimension snapshot through to MergeRatingsAgent persistence
     // when this match was rubric-judged (undefined for holistic).
     rubricBreakdown: result.rubricBreakdown,
+    // Phase 4: carries the multi-judge fold through to persistence (undefined for single-judge).
+    submatches: result.submatches,
   };
 }
 
@@ -264,6 +288,7 @@ export async function rankSingleVariant(
   const localPoolVariantIds = pool.map(v => v.id);
 
   const callLLM = makeCallLLM(llm, config, invocationId, () => {});
+  const ensembleRunner = makeEnsembleRunner(llm, config, invocationId);
 
   let status: RankSingleVariantStatus = 'no_more_opponents';
   let round = 0;
@@ -321,6 +346,7 @@ export async function rankSingleVariant(
           cache,
           config.comparisonMode,
           config.judgeRubric,
+          ensembleRunner,
         );
       } catch (e) {
         if (e instanceof BudgetExceededError) {

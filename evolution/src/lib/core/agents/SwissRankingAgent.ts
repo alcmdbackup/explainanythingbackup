@@ -12,7 +12,7 @@ import type { ExecutionDetailBase, Variant, EvolutionLLMClient, LLMCompletionOpt
 import { METRIC_CATALOG } from '../metricCatalog';
 import { computeTotalComparisons } from '../../metrics/computations/finalizationInvocation';
 import { BudgetExceededError } from '../../types';
-import type { Rating, ComparisonResult } from '../../shared/computeRatings';
+import type { Rating, ComparisonResult, EnsembleRunner } from '../../shared/computeRatings';
 import { compareWithBiasMitigation } from '../../shared/computeRatings';
 import type { V2Match } from '../../pipeline/infra/types';
 import { swissPairing, MAX_PAIRS_PER_ROUND, pairKey } from '../../pipeline/loop/swissPairing';
@@ -132,6 +132,22 @@ export class SwissRankingAgent extends Agent<
       });
     };
 
+    // Phase 4 (gated, default OFF): when the strategy resolved an ensemble chain, dispatch a
+    // multi-model escalation instead of the single judge. `makeJudge(model)` reuses the same
+    // ranking completion path per model. Undefined ⇒ byte-identical single-judge ranking.
+    const ensembleRunner: EnsembleRunner | undefined = ctx.config.ensemble
+      ? {
+          makeJudge: (model: string) => (prompt: string) =>
+            llm.complete(prompt, 'ranking', {
+              model: model as LLMCompletionOptions['model'],
+              invocationId: ctx.invocationId,
+              taskType: 'comparison',
+            }),
+          chain: ctx.config.ensemble.chain,
+          rule: ctx.config.ensemble.rule,
+        }
+      : undefined;
+
     const compareOne = async (idA: string, idB: string): Promise<SwissRankingMatchEntry> => {
       const a = poolMap.get(idA);
       const b = poolMap.get(idB);
@@ -148,6 +164,7 @@ export class SwissRankingAgent extends Agent<
         cache,
         'article',
         ctx.config.judgeRubric,
+        ensembleRunner,
       );
       const isDraw = result.winner !== 'A' && result.winner !== 'B';
       const winnerId = result.winner === 'B' ? idB : idA;
@@ -160,6 +177,7 @@ export class SwissRankingAgent extends Agent<
         judgeModel: ctx.config.judgeModel,
         reversed: false,
         rubricBreakdown: result.rubricBreakdown,
+        submatches: result.submatches,
       };
       return { match, idA, idB };
     };
