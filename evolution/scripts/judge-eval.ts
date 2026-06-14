@@ -17,6 +17,7 @@ import type { Database } from '@/lib/database.types';
 import { seedPairBankFromTopic } from '@evolution/lib/judgeEval/seed';
 import { loadPairBankByName, loadTestSetByName, getOrCreateTestSet } from '@evolution/lib/judgeEval/persist';
 import { executeSweep } from '@evolution/lib/judgeEval/executeSweep';
+import { executeEscalationSweep } from '@evolution/lib/judgeEval/executeEscalationSweep';
 import { computeMetrics } from '@evolution/lib/judgeEval/metrics';
 import type { JudgeReasoningEffort, JudgeKindFilter } from '@evolution/lib/judgeEval/schemas';
 
@@ -137,7 +138,79 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.error('Unknown command. Use: seed | create-test-set | sweep');
+  if (cmd === 'escalation-sweep') {
+    const testSetName = flag(args, 'test-set');
+    if (!testSetName) throw new Error('escalation-sweep requires --test-set');
+    const testSet = await loadTestSetByName(db, testSetName);
+    if (!testSet) throw new Error(`Test set not found: ${testSetName}`);
+
+    const promptFile = flag(args, 'prompt-file');
+    const promptVariant = promptFile ? fs.readFileSync(promptFile, 'utf8') : null;
+    const reasoning = flag(args, 'reasoning');
+    const rule = flag(args, 'rule') ?? 'first_decisive';
+    const cap = num(flag(args, 'cap'), 3);
+    const dryRun = has(args, 'dry-run');
+
+    const outcome = await executeEscalationSweep(
+      db,
+      {
+        testSetId: testSet.id,
+        kindFilter: (flag(args, 'kind') as JudgeKindFilter) ?? 'both',
+        chain: {
+          name: flag(args, 'chain-name') ?? `${rule} cap${cap}`,
+          article: list(flag(args, 'article-models')),
+          paragraph: list(flag(args, 'paragraph-models')),
+          rule,
+          ruleVersion: num(flag(args, 'rule-version'), 1),
+          cap,
+        },
+        temperature: num(flag(args, 'temperature'), 0),
+        reasoningEffort: (reasoning && reasoning !== 'none' ? reasoning : null) as JudgeReasoningEffort | null,
+        promptVariant,
+        explainReasoning: has(args, 'explain-reasoning'),
+        repeats: num(flag(args, 'repeats'), 10),
+      },
+      { dryRun, trackingDb: db, userId: undefined },
+    );
+
+    console.log(`Test set ${testSetName} (${outcome.testSetId}) · ${outcome.pairCount} pairs`);
+    console.log(`Chain "${rule} cap${cap}" · worst-case ${outcome.plannedCalls} calls · est $${outcome.estimate.estimatedCostUsd.toFixed(4)}`);
+    if (dryRun || outcome.runId == null) {
+      console.log('(dry run — no LLM calls made)');
+      return;
+    }
+    console.log(`Run ${outcome.runId} · ${outcome.callCount} submatch rows`);
+
+    // Match-level summary (group submatch rows by submatch_group_key; the final submatch = the
+    // consolidated verdict). Computed inline so it works before the leaderboard VIEW migration deploys.
+    const { data: calls } = await db.from('judge_eval_calls').select('*').eq('eval_run_id', outcome.runId);
+    const rows = calls ?? [];
+    for (const kind of ['article', 'paragraph'] as const) {
+      const kRows = rows.filter((r) => r.pair_kind === kind);
+      if (kRows.length === 0) continue;
+      const finals = new Map<string, { step: number; decisive: boolean }>();
+      let cost = 0;
+      for (const r of kRows) {
+        cost += r.cost_usd ?? 0;
+        const gk = r.submatch_group_key ?? `${r.pair_label}#${r.repeat_index}`;
+        const step = r.escalation_step ?? 0;
+        const cur = finals.get(gk);
+        if (!cur || step >= cur.step) finals.set(gk, { step, decisive: r.confidence > 0.6 });
+      }
+      const matches = [...finals.values()];
+      const decisive = matches.filter((m) => m.decisive).length;
+      const rate = matches.length ? decisive / matches.length : 0;
+      const avgDepth = matches.length ? kRows.length / matches.length : 0;
+      const costPerDec = decisive ? cost / decisive : null;
+      console.log(
+        `  [${kind}] matches=${matches.length} decisive=${(rate * 100).toFixed(0)}% ` +
+          `cost/dec=${costPerDec != null ? '$' + costPerDec.toFixed(5) : '∞'} avgDepth=${avgDepth.toFixed(2)}`,
+      );
+    }
+    return;
+  }
+
+  console.error('Unknown command. Use: seed | create-test-set | sweep | escalation-sweep');
   process.exitCode = 1;
 }
 
