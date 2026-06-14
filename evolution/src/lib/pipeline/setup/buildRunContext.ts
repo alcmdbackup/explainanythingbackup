@@ -6,6 +6,7 @@ import type { EvolutionConfig } from '../infra/types';
 import type { Rating } from '../../shared/computeRatings';
 import { dbToRating, _INTERNAL_DEFAULT_MU, _INTERNAL_DEFAULT_SIGMA } from '../../shared/computeRatings';
 import { getJudgeRubricForEvaluation } from '../../../services/judgeRubricActions';
+import { resolveEnsembleConfig } from '../../shared/judgeEnsemble/chainRegistry';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { createEntityLogger } from '../infra/createEntityLogger';
 import { strategyConfigSchema } from '../../schemas';
@@ -389,12 +390,24 @@ export async function buildRunContext(
       ? (await getJudgeRubricForEvaluation(db, stratConfig.judgeRubricId)) ?? undefined
       : undefined;
 
+  // Multi-judge escalation in the PROD ranking path (judge_escalation_prod_wiring_phase4). GATED,
+  // DEFAULT OFF: resolve the strategy's ensembleConfigId to a chain + rule ONLY when the kill switch
+  // is explicitly 'true'. Unset/'false'/anything-else → undefined → byte-identical single-judge
+  // ranking. Flipping EVOLUTION_JUDGE_ESCALATION_ENABLED='true' in prod is the deliberate go-live step.
+  const ensembleEnabled = process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED === 'true';
+  const ensemble =
+    ensembleEnabled && stratConfig.ensembleConfigId
+      ? resolveEnsembleConfig(stratConfig.ensembleConfigId) ?? undefined
+      : undefined;
+
   const config: EvolutionConfig = {
     iterationConfigs: stratConfig.iterationConfigs,
     budgetUsd: claimedRun.budget_cap_usd ?? 1.0,
     judgeModel: stratConfig.judgeModel,
     judgeRubricId: stratConfig.judgeRubricId,
     judgeRubric,
+    ensembleConfigId: stratConfig.ensembleConfigId,
+    ensemble,
     generationModel: stratConfig.generationModel,
     calibrationOpponents: 5,
     tournamentTopK: 5,
