@@ -133,4 +133,14 @@ adminTest.describe('Judge Lab', { tag: '@evolution' }, () => {
     await expect(adminPage.getByTestId('match-audit-detail')).toBeVisible({ timeout: 30000 });
     await expect(adminPage.getByTestId('reasoning-format-state')).toContainText(/not requested/i);
   });
+
+  adminTest('escalation mode toggle reveals the escalation chain launcher', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/judge-lab');
+    // The mode toggle is client state only (no escalation migration needed to render the launcher).
+    const escMode = adminPage.getByTestId('judge-lab-mode-escalation');
+    await expect(escMode).toBeVisible({ timeout: 30000 }); // hydration proof before interacting
+    await escMode.click();
+    await expect(adminPage.getByTestId('judge-lab-escalation')).toBeVisible({ timeout: 30000 });
+    await expect(adminPage.getByTestId('judge-lab-escalation-launch')).toBeVisible();
+  });
 });

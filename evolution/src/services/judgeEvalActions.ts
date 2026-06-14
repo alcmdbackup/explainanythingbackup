@@ -21,6 +21,10 @@ import {
   loadBankPairsForCuration,
 } from '@evolution/lib/judgeEval/persist';
 import { executeSweep, type SweepOutcome } from '@evolution/lib/judgeEval/executeSweep';
+import {
+  executeEscalationSweep,
+  type EscalationSweepOutcome,
+} from '@evolution/lib/judgeEval/executeEscalationSweep';
 import { seedPairBankFromTopic } from '@evolution/lib/judgeEval/seed';
 import {
   kindFilterSchema,
@@ -271,6 +275,68 @@ export const createEvalRunAction = adminAction(
       },
       // trackingDb makes each judge call write an llmCallTracking row (matches the CLI);
       // without it, even successful Judge Lab sweeps leave no per-call cost/audit trail.
+      { dryRun: parsed.dryRun, userId: ctx.adminUserId, trackingDb: db(ctx) },
+    );
+  },
+);
+
+const createEscalationSweepSchema = z.object({
+  testSetName: z.string().min(1),
+  kindFilter: kindFilterSchema.default('both'),
+  articleModels: z.array(z.string().min(1)).max(20).default([]),
+  paragraphModels: z.array(z.string().min(1)).max(20).default([]),
+  rule: z.string().min(1).default('first_decisive'),
+  ruleVersion: z.number().int().min(1).default(1),
+  cap: z.number().int().min(1).max(10).default(3),
+  temperature: z.number().min(0).max(2).default(0),
+  reasoningEffort: reasoningEffortSchema.nullable().default(null),
+  promptVariant: z.string().max(4000).nullable().default(null),
+  explainReasoning: z.boolean().default(false),
+  repeats: z.number().int().min(1).max(50).default(10),
+  dryRun: z.boolean().default(false),
+});
+
+export const createEscalationSweepAction = adminAction(
+  'createEscalationSweep',
+  async (
+    input: z.input<typeof createEscalationSweepSchema>,
+    ctx: AdminContext,
+  ): Promise<EscalationSweepOutcome> => {
+    const parsed = createEscalationSweepSchema.parse(input);
+
+    const allowed = new Set(getEvolutionModelIds());
+    for (const m of [...parsed.articleModels, ...parsed.paragraphModels]) {
+      if (!allowed.has(m)) throw new Error(`Invalid judgeModel: ${m}`);
+    }
+    if (parsed.articleModels.length === 0 && parsed.paragraphModels.length === 0) {
+      throw new Error('At least one article or paragraph chain model is required');
+    }
+
+    const testSet = await loadTestSetByName(db(ctx), parsed.testSetName);
+    if (!testSet) throw new Error(`Test set not found: ${parsed.testSetName}`);
+
+    const customPrompt = parsed.promptVariant?.trim() || null;
+
+    // executeEscalationSweep enforces the worst-case (chainCap) cost ceiling before any LLM call.
+    return executeEscalationSweep(
+      db(ctx),
+      {
+        testSetId: testSet.id,
+        kindFilter: parsed.kindFilter,
+        chain: {
+          name: `${parsed.rule}@${parsed.ruleVersion} cap${parsed.cap}`,
+          article: parsed.articleModels,
+          paragraph: parsed.paragraphModels,
+          rule: parsed.rule,
+          ruleVersion: parsed.ruleVersion,
+          cap: parsed.cap,
+        },
+        temperature: parsed.temperature,
+        reasoningEffort: parsed.reasoningEffort as JudgeReasoningEffort | null,
+        promptVariant: customPrompt,
+        explainReasoning: parsed.explainReasoning,
+        repeats: parsed.repeats,
+      },
       { dryRun: parsed.dryRun, userId: ctx.adminUserId, trackingDb: db(ctx) },
     );
   },
