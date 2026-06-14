@@ -123,6 +123,34 @@ export interface ArenaComparison {
   // Viewer breakdown) + the rubric id (indexed filtering). Null for holistic matches.
   rubric_breakdown?: RubricBreakdown | null;
   judge_rubric_id?: string | null;
+  // Phase 4 ensemble summary (null/absent for single-judge matches = a chain-of-1).
+  chain_depth?: number | null;
+  agreement?: number | null;
+  aggregation_rule?: string | null;
+  aggregation_rule_version?: number | null;
+}
+
+/** One per-dimension verdict row of an ensemble submatch (Match Viewer). */
+export interface ComparisonSubmatchDimension {
+  criteria_name: string;
+  weight: number;
+  forward_verdict: string | null;
+  reverse_verdict: string | null;
+  dimension_winner: string | null;
+  favored_match_winner: boolean | null;
+  position: number;
+}
+
+/** One submatch (one judge's consolidated verdict) of an ensemble match, + its dimension verdicts. */
+export interface ComparisonSubmatch {
+  id: string;
+  judge_model: string;
+  escalation_step: number;
+  triggered_escalation: boolean;
+  winner: string | null;
+  confidence: number | null;
+  judge_rubric_id: string | null;
+  dimensions: ComparisonSubmatchDimension[];
 }
 
 // ─── Schemas ────────────────────────────────────────────────────
@@ -383,6 +411,8 @@ export interface MatchListItem extends ArenaComparison {
   kind: MatchKind | null;
   /** True when this match was rubric-judged (drives the list's rubric indicator). */
   has_rubric: boolean;
+  /** True when this match was ensemble-judged (Phase 4); drives the escalation badge. */
+  is_escalation: boolean;
 }
 
 /** List recent judge matches. Unlike getArenaComparisonsAction (prompt_id only), this filters
@@ -481,6 +511,7 @@ export const getRecentMatchesAction = adminAction(
         judge_rubric_id: r.judge_rubric_id ?? null,
         rubric_breakdown: r.rubric_breakdown ?? null,
         has_rubric: r.judge_rubric_id != null || r.rubric_breakdown != null,
+        is_escalation: r.aggregation_rule != null,
         entry_a_preview: previewContent(contentById.get(r.entry_a)),
         entry_b_preview: previewContent(contentById.get(r.entry_b)),
       };
@@ -495,6 +526,53 @@ export interface ComparisonDetail extends ArenaComparison {
   entry_b_content: string | null;
   entry_a_elo: number | null;
   entry_b_elo: number | null;
+  /** Phase 4: the escalation chain's submatches (empty for legacy single-judge matches). */
+  submatches: ComparisonSubmatch[];
+}
+
+/** Fetch a comparison's ensemble submatches + their per-dimension verdicts. Returns [] for a legacy
+ *  single-judge match (no submatch rows) or if the Phase-4 tables aren't deployed yet (fails soft). */
+async function fetchComparisonSubmatches(
+  supabase: AdminContext['supabase'],
+  comparisonId: string,
+): Promise<ComparisonSubmatch[]> {
+  const { data: subs, error } = await supabase
+    .from('evolution_arena_submatches')
+    .select('id, judge_model, escalation_step, triggered_escalation, winner, confidence, judge_rubric_id')
+    .eq('arena_comparison_id', comparisonId)
+    .order('escalation_step');
+  if (error || !subs || subs.length === 0) return [];
+
+  const ids = subs.map((s) => s.id);
+  const dimsBySubmatch = new Map<string, ComparisonSubmatchDimension[]>();
+  const { data: dims } = await supabase
+    .from('evolution_submatch_dimension_verdicts')
+    .select('submatch_id, criteria_name, weight, forward_verdict, reverse_verdict, dimension_winner, favored_match_winner, position')
+    .in('submatch_id', ids)
+    .order('position');
+  for (const d of dims ?? []) {
+    const list = dimsBySubmatch.get(d.submatch_id) ?? [];
+    list.push({
+      criteria_name: d.criteria_name,
+      weight: d.weight,
+      forward_verdict: d.forward_verdict,
+      reverse_verdict: d.reverse_verdict,
+      dimension_winner: d.dimension_winner,
+      favored_match_winner: d.favored_match_winner,
+      position: d.position,
+    });
+    dimsBySubmatch.set(d.submatch_id, list);
+  }
+  return subs.map((s) => ({
+    id: s.id,
+    judge_model: s.judge_model,
+    escalation_step: s.escalation_step,
+    triggered_escalation: s.triggered_escalation,
+    winner: s.winner,
+    confidence: s.confidence,
+    judge_rubric_id: s.judge_rubric_id,
+    dimensions: dimsBySubmatch.get(s.id) ?? [],
+  }));
 }
 
 /** Fetch a single comparison + both variants' full content/elo for the detail view. Missing
@@ -521,12 +599,15 @@ export const getComparisonDetailAction = adminAction(
     const a = byId.get(c.entry_a);
     const b = byId.get(c.entry_b);
 
+    const submatches = await fetchComparisonSubmatches(ctx.supabase, c.id);
+
     return {
       ...c,
       entry_a_content: (a?.variant_content as string | undefined) ?? null,
       entry_b_content: (b?.variant_content as string | undefined) ?? null,
       entry_a_elo: (a?.elo_score as number | undefined) ?? null,
       entry_b_elo: (b?.elo_score as number | undefined) ?? null,
+      submatches,
     };
   },
 );
