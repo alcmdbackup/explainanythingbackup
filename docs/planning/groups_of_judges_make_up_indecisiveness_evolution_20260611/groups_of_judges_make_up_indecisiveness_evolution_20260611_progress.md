@@ -101,7 +101,19 @@ Articles clear all bars cleanly and are production-promising. Paragraphs clear d
 ### Done (pure logic, tested)
 - [x] **Escalation-aware cost gate + chain settings key** (`settings.ts`): `plannedCalls(...,chainCap)` worst-case; `assertWithinJudgeEvalCap` gates on worst case (chainCap=1 byte-identical); `buildEscalationSettingsKey` (chain+rule+version+cap, never collides with single-judge). 9 tests + existing settings regression green.
 
-### Remaining (Phase 2) — BLOCKED on a dev-schema apply (types dependency)
+### Phase 2 DB glue — DONE (after PR #1213 merged + migration deployed to staging)
+- [x] Regenerated `database.types.ts` for the merged migration (surgical add in main's format — avoids CLI-version reformat churn). Done after authenticating Supabase + `npm run db:types`.
+- [x] **Persistence mapping** `escalationPersist.ts`: `submatchToCallRow` (pure) + `upsertEscalationRun` (chain_id/aggregation_rule, escalation settings_key) + `replaceEscalationCalls`. 5 unit tests.
+- [x] **Sweep orchestration** `executeEscalationSweep.ts`: `runEscalationOverPairs` (pure mode-aware per-pair chain run over injected makeJudge) + `executeEscalationSweep` (load pairs -> worst-case cost gate via chainCap -> insert chain + upsert run -> createCallLLMJudge per model -> persist submatch rows). 3 unit tests.
+- Full Phase-2 code path now implemented + unit-tested (53 tests, 7 suites). Typecheck + eslint clean.
+
+### Remaining (Phase 2) — entry point + live run + viewing
+- [ ] CLI/action entry to launch an escalation sweep (`judge-eval.ts sweep --chain ... --rule ...` + `judgeEvalActions.ts`).
+- [ ] Small real-AI ARTICLE sweep on the pinned set to confirm offline numbers (modest spend, authorized).
+- [ ] Admin UI (chain + rule selector + leaderboard VIEW with chain decisive/accuracy/cost/avg-depth).
+- [ ] Integration/E2E tests (judge-eval-escalation persists submatch rows; E2E sweep launcher).
+
+### (historical) Remaining (Phase 2) — was BLOCKED on a dev-schema apply (types dependency)
 - [ ] Persistence DB glue: `upsertRun` escalation variant (chain/rule cols) + `replaceCalls`/persist submatch rows (the new `submatch_group_key`/`escalation_step`/`triggered_escalation`/`judge_model` columns). **Needs `database.types.ts` regenerated from the applied migration** — the typed insert can't be written until the columns exist in the generated types.
 - [ ] `executeSweep` escalation mode (build `makeJudge` from `createCallLLMJudge` per model; per-pair `evaluatePairWithEscalation`; pass `chainCap` to the gate); leaderboard VIEW gains chain decisive/accuracy/cost/avg-depth.
 - [ ] Admin UI (chain + rule selector + leaderboard) + CLI `sweep --chain ... --rule ...`.
