@@ -67,8 +67,17 @@ from the versioned registry in `judgeEnsemble/aggregation.ts`, keyed `ruleId@ver
 `dimension_winner`, `favored_match_winner` vs the consolidated MATCH winner) — see
 `evolution/docs/data_model.md`. Wired into the sweep via the action (`judgeRubricId` + `planner`), the
 CLI (`judge-eval.ts escalation-sweep --rubric <id> [--planner criteria_split]`), and the Judge Lab
-escalation launcher (rubric + planner selectors). All additive/inert — NOT wired into the live Elo
-ranking path.
+escalation launcher (rubric + planner selectors).
+
+**Production wiring (Phase 4, gated default OFF):** the escalation chain is also wired into the live
+evolution ranking path via an optional `ensembleRunner` on `compareWithBiasMitigation` (byte-identical
+single-judge path when unset). `buildRunContext` resolves a strategy's `ensembleConfigId` to a chain +
+rule (`evolution/src/lib/shared/judgeEnsemble/chainRegistry.ts`) ONLY when
+`EVOLUTION_JUDGE_ESCALATION_ENABLED === 'true'`; otherwise production Elo is unchanged. Ensemble matches
+persist normalized submatch + per-dimension rows (`evolution_arena_submatches` /
+`evolution_submatch_dimension_verdicts`; see `evolution/docs/data_model.md`) and surface in the Match
+Viewer (escalation badge + per-submatch dimension tables; legacy single-judge matches render
+unchanged). Flipping the env var in prod is the deliberate go-live step.
 
 ## Metrics (`evolution/src/lib/judgeEval/metrics.ts`)
 
