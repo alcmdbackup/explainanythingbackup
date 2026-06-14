@@ -18,7 +18,7 @@ The acceptance gate (decisiveness uplift / accuracy guardrail / lone-decisive sa
 ## Verification
 
 ### A) Playwright Verification
-- [ ] Match Viewer renders an escalation match (submatch tables) + a legacy single-judge match unchanged (`@evolution`).
+- [x] Match Viewer renders an escalation match (submatch tables) + a legacy single-judge match unchanged (`@evolution`).
 
 ### B) Automated Tests
-- [ ] `npm run test` (unit, incl. computeRatings ensembleRunner byte-identical-when-unset + persistence mapping) + evolution integration specs.
+- [x] `npm run test` (unit, incl. computeRatings ensembleRunner byte-identical-when-unset + persistence mapping) + evolution integration specs.
