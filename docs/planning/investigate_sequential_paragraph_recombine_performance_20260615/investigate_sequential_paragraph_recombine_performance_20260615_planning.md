@@ -3,7 +3,7 @@
 ## Background
 Investigate performance of most recent 4 paragraph recombine runs on stage and understand why performance is generally negative.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1220)
 Investigate performance of most recent 4 paragraph recombine runs on stage and understand why performance is generally negative.
 
 ## Problem
