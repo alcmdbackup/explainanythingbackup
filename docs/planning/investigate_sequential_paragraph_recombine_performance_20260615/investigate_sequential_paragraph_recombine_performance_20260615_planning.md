@@ -333,4 +333,35 @@ The following docs were identified as relevant and may need updates:
 - [ ] Other docs from `_status.json relevantDocs` — verified to not need updates: judge_evaluation.md (judge unchanged), metrics_analytics.md, admin_panel.md (no new admin surface), search_generation_pipeline.md, request_tracing_observability.md, error_handling.md, testing_pipeline.md, debugging_skill.md, rating_and_comparison.md, arena.md, architecture.md, data_model.md, metrics.md, criteria_agents.md, editing_agents.md, multi_iteration_strategies.md, variant_lineage.md, strategies_and_experiments.md, logging.md.
 
 ## Review & Discussion
-_This section is populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration._
+
+### Iteration 1 (8 critical gaps surfaced)
+
+| Perspective | Score | Critical Gaps |
+|---|---|---|
+| Security & Technical | 4/5 | 2 |
+| Architecture & Integration | 3/5 | 4 |
+| Testing & CI/CD | 3/5 | 2 |
+
+**Critical gaps addressed in iter-1 → iter-2 fix:**
+1. **[Security] try/catch wrapping** — Phase 2c now explicitly wraps the replan call inside `runSequentialLoop` with a try/catch that names BOTH `CoordinatorLLMError` AND `CoordinatorParseError` and does not rethrow. Prevents replan failure from propagating to `ParagraphRecombineAgent.ts:349` and destroying slot 0's work.
+2. **[Security] ordering** — Phase 2c states the replan call comes AFTER `pushSanitized(slot 0 winner)` at line 146, so `priorPicks[0]` is sanitized when the replan reads it.
+3. **[Architecture] persistence drift** — `SequentialLoopResult` extended with `mergedCoordinatorPlan?: CoordinatorPlan`; agent persists both `execution_detail.coordinatorPlan` (original) AND `execution_detail.coordinatorPlanReplanned` (merged) for forensics.
+4. **[Architecture] schema path** — corrected from `evolution/src/lib/core/schemas/...` (which doesn't exist) to `evolution/src/lib/schemas.ts` (flat file, `sequentialCounters` at line 2405, `slotRecombineExecutionDetailSchema` at line 2259).
+5. **[Architecture] slot-0 predicate** — replan triggers ONLY when `replanEnabled && slots.length > 1 && budgetExhaustedAt === undefined && !slot0Result.allRewritesFailed && !slot0Result.winnerIsOriginal`; each non-trigger branch records a `replanSkippedReason` enum value (`disabled | single_slot | budget_exhausted | slot0_all_failed | slot0_parent_won | budget_floor`).
+6. **[Architecture] DRY** — extract `COORDINATOR_STRATEGIES_BLOCK` as a shared exported const from `buildCoordinatorPrompt.ts`; both initial and replan prompt builders import it. Phase 3a test 2(e) asserts string-equality against the const.
+7. **[Testing] integration test target** — corrected to existing `src/__tests__/integration/evolution-paragraph-recombine-sequential.integration.test.ts` (uses `makeLlmStub`).
+8. **[Testing] observability surfaces** — counters surface in (a) admin slot-leaderboard view via `execution_detail.sequentialCounters` (same path as `parentFallbackCount`), (b) run-level metric rollup via `paragraph_recombine_replan_rate` / `paragraph_recombine_replan_failure_rate` (registered in `metricCatalog.ts` + `RunEntity` + `StrategyEntity` + `ExperimentEntity` mirroring `parent_fallback_rate`), (c) Honeycomb via OTEL auto-emit.
+
+**Subsidiary improvements made on the same pass:** Non-goals + Rollback subsections added; test file layout note (`__tests__/` subdir, not colocated); A/B verification specifies N=3 replicates per arm with noise math; cost-regression assertion + counter sanity check added; `REPLAN_MIN_CAP_USD` derivation pinned to `SEQUENTIAL_LOW_CAP_THRESHOLD_USD + 0.014 = 0.030`; replan phase label split (`paragraph_recombine_coordinator_replan`); ESM smoke added to Verification §B.
+
+### Iteration 2 (consensus reached)
+
+| Perspective | Score | Critical Gaps |
+|---|---|---|
+| Security & Technical | 5/5 | 0 |
+| Architecture & Integration | 5/5 | 0 |
+| Testing & CI/CD | 5/5 | 0 |
+
+All three reviewers verified the iter-1 fixes addressed every critical gap. Remaining items flagged were cosmetic (e.g., "six new tests" header should read "nine"; `replanThrow` unused variable in the security illustrative snippet; line-number drift; safety-margin consistency note between `PROJECTED_REPLAN_COST_USD × 2.0` and `REPLAN_MIN_CAP_USD = SEQUENTIAL_LOW_CAP_THRESHOLD_USD + 0.014`). These are tracked for implementer cleanup but do not block execution.
+
+**Verdict: 5/5 unanimous, plan ready for execution.**
