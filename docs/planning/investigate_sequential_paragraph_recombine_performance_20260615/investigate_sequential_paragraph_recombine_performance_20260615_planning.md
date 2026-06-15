@@ -16,7 +16,7 @@ This plan implements two primary fixes the user explicitly chose, plus two subsi
 
 - **Fix 1** — strengthen the per-slot rewrite-generation prompt with an explicit continuity-emphasis block covering tone, register, metaphors, analogies, acronyms, vocabulary, cadence, and discipline. Cheap (zero added LLM calls), low-risk.
 - **Fix 1b** (added on user follow-up) — two further prompt-only changes: (i) make the length-cap bounds visible to the rewrite LLM so it can land inside the filter instead of being rejected (addresses the 30-49%-per-temperature drop rate); (ii) strengthen `shouldRewrite: false` guidance in the coordinator with concrete heuristics + an explicit target rate (2-4 of 8-12 slots), to cut wasted rewrite budget on near-duplicate cosmetic edits. **Note:** the third candidate (per-paragraph analogy budget) was excluded — Fix 1's continuity block already forbids introducing new analogies/metaphors regardless of paragraph boundary, so a within-paragraph budget would duplicate the rule.
-- **Fix 1c** (added on user follow-up after the rubric-mismatch analysis) — two further slot-judge-prompt changes targeting the local-vs-global optimization gap: (i) **pass forward parent context** to the slot judge alongside the existing prior-picks block so the judge can score "does this candidate hand off cleanly into the article's continuation?" — adds backward+forward visibility to a previously backward-only judge; (ii) **drop the "Fidelity" criterion** from the slot rubric since the article-level Elo (the signal we're optimizing) doesn't reward parent-paragraph fidelity, and the Fidelity penalty was structurally keeping `paragraph_recombine` variants at 34-54% verbatim with parent (vs other tactics at 0.6-2.3%).
+- **Fix 1c** (added on user follow-up after the rubric-mismatch analysis) — three slot-judge-prompt changes targeting the local-vs-global optimization gap: (i) **pass forward parent context** to the slot judge alongside the existing prior-picks block so the judge can score "does this candidate hand off cleanly into the article's continuation?" — adds backward+forward visibility to a previously backward-only judge; (ii) **drop the "Fidelity" criterion** from the slot rubric since the article-level Elo (the signal we're optimizing) doesn't reward parent-paragraph fidelity, and the Fidelity penalty was structurally keeping `paragraph_recombine` variants at 34-54% verbatim with parent (vs other tactics at 0.6-2.3%); (iii) **split Clarity-and-concision into peer criteria, add Coherence, rebalance Usefulness** — kills the one-way "added detail sharpens the point" ratchet that compounds into death-by-padding across 9 slots, and gives the judge a within-paragraph criterion for the slot-3-style "two clashing analogies" failure mode.
 - **Fix 1d** (Fix 5b promoted from non-goal to in-scope on user request) — adds a separate `paragraphJudgeRubricId` strategy config field, settable from the strategy creation wizard as a distinct dropdown next to the existing article-level Judge Rubric picker. Reuses the existing `evolution_judge_rubrics` table — no new schema. When set, the per-slot judge uses that rubric's dimensions; when unset (default), the hardcoded paragraph rubric (with Fix 1c edits) runs. Lets strategy authors design paragraph-shaped dimensions independently from the article rubric. Backwards-compatible: existing strategies behave exactly as before.
 - **Fix 2** — after slot 0 finalizes, re-call the coordinator once with `priorPicks` so the remaining slots' directives can match the chosen voice. Adds one coordinator LLM call per invocation (~$0.0014 at current model). Env-gated for safe rollout.
 
@@ -45,6 +45,7 @@ A/B isolation note: Fix 1 is unconditional (no env flag); Fix 2 is env-gated. A 
 | Fix 1b-ii (strengthened skip guidance) | Unconditional code change in `COORDINATOR_STRATEGIES_BLOCK` const | Code revert (restores the original `WHEN TO SKIP A PARAGRAPH` block). Both initial and replan coordinator prompts revert together (single source of truth). |
 | Fix 1c-i (forward parent context to slot judge) | Unconditional code change | Code revert (removes the `NEXT CONTEXT` block + the new `nextContext` param from `buildComparisonPrompt`, `rankNewVariant`, and the `sequentialExecute.ts` call site). New counters (`nextPicksSanitizationCount`, `nextPicksTruncationCount`) default to `0` in the Zod schema so historical rows remain valid. |
 | Fix 1c-ii (drop Fidelity from slot rubric) | Unconditional one-line removal | Code revert (re-adds the `- Fidelity — preserves the original claim/conclusion` line at `computeRatings.ts:416`). |
+| Fix 1c-iii (Clarity/Conciseness split + Coherence + Usefulness rebalance) | Unconditional rubric-block rewrite in `computeRatings.ts:413-417` | Code revert (restores the original 5-line criteria block: Clarity-and-concision / Fluency / Fidelity / Usefulness / Fit). All in one file; rollback is a single hunk. |
 | Fix 1d (per-paragraph rubric) | Optional strategy config field (default unset) + same kill switch as article rubric (`EVOLUTION_RUBRIC_JUDGING_ENABLED`) | Two layers: (a) **Live disable across all strategies:** set `EVOLUTION_RUBRIC_JUDGING_ENABLED='false'` — both article and paragraph rubric resolution short-circuit; slot judge falls back to hardcoded paragraph rubric for every strategy. (b) **Per-strategy disable:** clear `paragraphJudgeRubricId` via the wizard edit flow (or unset in DB) — only that strategy reverts. **No migration needed**; existing strategies without the field remain unaffected. **No schema rollback** — the optional column doesn't require a downgrade path. |
 | Fix 2 (coordinator replan) | Gated by env flag `EVOLUTION_PARAGRAPH_RECOMBINE_REPLAN_ENABLED` defaulting to `'false'` | Live disable: set env var to `'false'` (or unset) in Vercel staging/prod. No code change, no migration. Historical execution_detail rows remain valid because new `sequentialCounters` fields default to `0` in the Zod schema and are nullable in the jsonb column. |
 
@@ -268,6 +269,44 @@ So strategy `8d88a8b3`'s custom rubric `f3c1af7a-…` ("Test rubric", 4 dimensio
 
 - [ ] **Acceptance signal** (manual, post-deploy): PR variants' `sentence_verbatim_ratio` should drop. Current baseline mean: 0.34-0.54. Target Control-arm mean: ≤ 0.20 (closer to the other tactics' 0.006-0.023 range). Surface via existing `evolution_variants.sentence_verbatim_ratio` column.
 
+#### 1c-iii. Split Clarity/Concision, add Coherence, rebalance Usefulness — kill the "death by padding" ratchet
+
+**Diagnosis:** "Usefulness — any added example or detail genuinely sharpens the point" is a **one-way ratchet** — it rewards adding content with no counterweight. The current rubric does mention concision, but it's bundled inside `Clarity and concision` as a sub-clause; in head-to-head judging it loses to clarity (a positive property) most of the time. Across 9 slot picks, the bias compounds: each slot adds ~5% via a "useful" detail → 1.05⁹ ≈ **1.55× longer article**. Worse, *within* a paragraph the rubric can't catch competing imagery — slot 3 of `e2c6eee8` (the QE paragraph) won locally with TWO clashing analogies in one paragraph ("fresh water flood" + "chef telling diners the menu"). The slot judge has no criterion to score the gestalt — each addition is "useful" individually, the whole is incoherent.
+
+**Files modified:**
+- `evolution/src/lib/shared/computeRatings.ts:413-417` (the paragraph-mode rubric block).
+
+**Concrete changes — replace the criteria list with:**
+```
+## Evaluation Criteria (judge at the paragraph level)
+- Clarity — the point lands without the reader having to work
+- Conciseness — every sentence pulls its weight; no filler, no scaffolding for ideas the reader can follow on their own; added examples must justify the words they cost
+- Coherence — the paragraph reads as a single unit; if it uses an analogy or extended metaphor, it commits to one rather than introducing multiple competing ones; transitions feel inevitable, not abrupt
+- Sentence fluency and rhythm — smooth, well-varied sentences
+- Usefulness — added example or detail genuinely sharpens the point AND earns the words it costs${priorPicks && priorPicks.length > 0 ? '\n- Fit with prior context — register, vocabulary, cadence flow naturally from finalized prior paragraphs' : ''}${nextContext && nextContext.length > 0 ? '\n- Setup — sets up the article's continuation cleanly; the closing sentence flows into the next paragraph without forcing an awkward transition' : ''}
+```
+
+Three net edits on top of Phase 1c-ii (Fidelity already removed) and Phase 1c-i (Setup already added):
+- **Split:** `Clarity and concision — the point made cleanly, without padding` → two peer criteria, `Clarity` + `Conciseness`. Concision gets its own vote instead of losing inside a bundle.
+- **Add:** `Coherence` as a new fourth criterion targeting within-paragraph imagery clashes — addresses the slot-3 failure mode that the cross-paragraph continuity directive (Phase 1) doesn't cover.
+- **Reword Usefulness:** add `"AND earns the words it costs"` — explicitly bridges to the new Conciseness criterion so the judge weighs additions against bloat cost instead of treating them as pure positives.
+
+**Why this works:**
+- Restructures the rubric to have **balanced criteria**: 2 anti-bloat (Conciseness, rebalanced Usefulness) + 2 positive-property (Clarity, Coherence) + 1 stylistic (Fluency) + 2 contextual (Fit, Setup). The judge can now explicitly trade additions against their cost in tiebreaks.
+- Brings the slot rubric structurally closer to the article rubric's emphasis on whole-paragraph effectiveness — the two are now pulling in roughly the same direction without merging.
+- All three changes are static prompt text; no LLM cost increase, no env flag, no schema work.
+
+- [ ] **Tests** — extend `evolution/src/lib/shared/__tests__/computeRatings.test.ts`:
+  - (a) Paragraph-mode rendered prompt contains the literal strings `"- Clarity —"`, `"- Conciseness —"`, `"- Coherence —"`, `"- Sentence fluency and rhythm —"`, `"- Usefulness —"`, and `"AND earns the words it costs"`.
+  - (b) Paragraph-mode rendered prompt does NOT contain `"Clarity and concision —"` (regression guard against the old bundled form sneaking back).
+  - (c) Paragraph-mode rendered prompt does NOT contain `"Fidelity —"` (regression guard from Phase 1c-ii — already added but worth repeating with the new criteria block).
+  - (d) The three new criteria (Clarity, Conciseness, Coherence) appear in BOTH the `priorPicks=[]` AND `priorPicks.length > 0` cases — they're unconditional. Fit / Setup remain conditional.
+  - (e) Article-mode rendered prompt is byte-for-byte identical to baseline. Phase 1c-iii edits paragraph mode only — must not touch article mode.
+
+- [ ] **Acceptance signal** (manual, post-deploy):
+  - Per-slot rewrite text length should compress on average. Surface via existing `execution_detail.slots[*].rewrites[*].text` — compute mean rewrite char count and compare against parent slot char count. Target: surviving-rewrite mean drops from the current ~1.0–1.2× parent toward ~0.9–1.0× parent (rewrites no longer dominantly pad).
+  - Slot 3 of `e2c6eee8` was the textbook "two clashing analogies" example. On the Federal Reserve A/B re-runs, that slot's winning rewrite should no longer contain multiple competing analogies. Manual spot-read of one Treatment-arm article confirms or denies.
+
 ### Phase 1d: Per-paragraph judge rubric, settable from the strategy wizard (Fix 5b)
 
 **Promoted from non-goal to in-scope on user request.** Strategy authors today cannot configure WHAT criteria the slot judge uses — it's a hardcoded paragraph rubric inside `computeRatings.ts`. The strategy's custom rubric (`judgeRubricId`) is stripped at slot level because rubrics today have article-shaped dimensions. Phase 1d adds a parallel `paragraphJudgeRubricId` strategy config field, threads it through the same infrastructure as the article rubric, and exposes it in the strategy creation wizard as a distinct dropdown next to the existing Judge Rubric picker. **Reuses the existing `evolution_judge_rubrics` table — no new tables, no schema migrations.**
@@ -373,7 +412,12 @@ Both spots currently strip `judgeRubric` from the slot config. Replace with: str
     <p className="text-xs text-[var(--text-muted)] mt-1">
       Used by per-slot paragraph ranking in paragraph_recombine. Design dimensions
       that apply to a single paragraph (avoid article-scaled criteria like
-      "overall structure"). Leave on Default to use the built-in rubric.
+      "overall structure"). The Default rubric covers Clarity, Conciseness,
+      Coherence, Sentence fluency, Usefulness (cost-balanced), Fit with prior
+      context, and Setup of the next paragraph — custom rubrics should consider
+      including similar paragraph-shaped dimensions, especially Conciseness and
+      Coherence which guard against paragraph-by-paragraph padding accumulation.
+      Leave on Default to use the built-in rubric.
     </p>
   </div>
   ```
@@ -638,7 +682,7 @@ Both spots currently strip `judgeRubric` from the slot config. Replace with: str
 - [ ] `evolution/src/lib/core/agents/paragraphRecombine/__tests__/coordinator.test.ts` — replan path validation.
 - [ ] `evolution/src/lib/core/agents/paragraphRecombine/__tests__/sequentialExecute.test.ts` — Phase 2c orchestration (disabled / success / failure — 9 cases) + Phase 1c-i nextContext slicing (3 cases: slot 0, mid-slot, last slot).
 - [ ] `evolution/src/lib/core/agents/paragraphRecombine/__tests__/ParagraphRecombineAgent.test.ts` — counters in execution_detail (replan + nextPicks).
-- [ ] `evolution/src/lib/shared/__tests__/computeRatings.test.ts` (extend) — Phase 1c-i `NEXT CONTEXT` block assertions (7 cases including ordering, truncation, both PRIOR+NEXT coexist, article-mode ignores nextContext) + Phase 1c-ii Fidelity-removal assertions (paragraph mode has no Fidelity; article mode unchanged byte-for-byte).
+- [ ] `evolution/src/lib/shared/__tests__/computeRatings.test.ts` (extend) — Phase 1c-i `NEXT CONTEXT` block assertions (7 cases including ordering, truncation, both PRIOR+NEXT coexist, article-mode ignores nextContext) + Phase 1c-ii Fidelity-removal assertions (paragraph mode has no Fidelity; article mode unchanged byte-for-byte) + Phase 1c-iii criteria-block assertions (Clarity / Conciseness / Coherence / Usefulness-rebalanced literal-string presence; old "Clarity and concision" bundled form absent; unconditional in both `priorPicks=[]` and `priorPicks.length > 0`; article-mode unchanged byte-for-byte).
 - [ ] `evolution/src/lib/__tests__/schemas.test.ts` (or wherever StrategyConfig schema tests live) — Phase 1d-i schema accepts `paragraphJudgeRubricId` as optional UUID; rejects non-UUIDs.
 - [ ] `evolution/src/lib/pipeline/setup/__tests__/buildRunContext.test.ts` (or equivalent) — Phase 1d-ii resolution: rubric loaded when id+kill-switch on; undefined when id missing OR kill switch off.
 - [ ] `evolution/src/services/__tests__/strategyRegistryActions.test.ts` (or equivalent) — Phase 1d-v: createStrategy accepts + validates + persists `paragraphJudgeRubricId`.
@@ -662,6 +706,7 @@ Both spots currently strip `judgeRubric` from the slot config. Replace with: str
 - [ ] **Phase 1b-ii acceptance:** post-deploy, `sequentialCounters.skippedSlotCount` per invocation should land in the 2-4-of-8-12 target band more reliably. The example baseline invocation `47fc8d4e` was at 3/9 (in band) but the run mean across all baseline invocations was lower; expect the run mean to climb. Surfaces via existing `sequentialCounters` — no new instrumentation.
 - [ ] **Phase 1c-i acceptance:** seed-win rate at slot level (`winnerIsOriginal: true`) should drop from the 28% baseline toward 20% as rewrites gain credit for cleanly handing off to the parent's continuation. Surface via existing `execution_detail.slots[*].ranking.winnerIsOriginal` — no new instrumentation. Cross-check `sequentialCounters.nextPicksSanitizationCount` is non-zero on at least some invocations (confirms the new sanitization path is exercised).
 - [ ] **Phase 1c-ii acceptance:** PR variants' `evolution_variants.sentence_verbatim_ratio` mean should fall from the 0.34-0.54 baseline toward ≤ 0.20. Lower verbatim = bolder rewrites the article-level judge is more likely to evaluate on their own merits rather than as "lightly-edited parent." Cross-check on the merged-article level: `eloAttrDelta:paragraph_recombine:paragraph_recombine` should not get *more* negative even though variants drift further from parent — if delta gets worse, Fidelity was actually helping in some unmeasured way and we revisit.
+- [ ] **Phase 1c-iii acceptance:** (a) mean surviving-rewrite char count drops from ~1.0–1.2× parent toward ~0.9–1.0× parent — rewrites no longer dominantly pad; compute via `LENGTH(rw->>'text') / LENGTH(s->>'originalText')` across `execution_detail.slots[*].rewrites[*]` where status='succeeded'. (b) Manual spot-read of one Treatment-arm Federal Reserve article: the QE paragraph (slot 3 of `e2c6eee8` in the baseline) should no longer contain two clashing analogies. Pass/fail by eye.
 
 ## Verification
 
