@@ -35,6 +35,23 @@ const BUILTIN_CHAINS: Record<string, ChainDef> = {
     ruleId: 'first_decisive',
     ruleVersion: 1,
   },
+  // Tie-breaker for the incumbent gemini-2.5-flash-lite judge (judge_acceptance_gate_phase5 analysis,
+  // n=150 large-gap). Keeps gemini as the lead; escalates to gpt-4o-mini (cross-family → uncorrelated
+  // errors, best partner) only when gemini abstains; paragraphs add deepseek-v4-pro to mop up the
+  // residual ties (+8/−2 there; on articles a 3rd model hurts, so article stays at 2). Pareto-better
+  // than gemini alone (more decisive + accurate + lower lone-wrong, ~same cost). Folded by first_decisive.
+  'gemini-tiebreak-v1': {
+    chain: {
+      id: 'gemini-tiebreak-v1',
+      cap: 3,
+      models: {
+        article: ['google/gemini-2.5-flash-lite', 'gpt-4o-mini'],
+        paragraph: ['google/gemini-2.5-flash-lite', 'gpt-4o-mini', 'deepseek-v4-pro'],
+      },
+    },
+    ruleId: 'first_decisive',
+    ruleVersion: 1,
+  },
 };
 
 /** Resolve a named ensemble config to its chain + aggregation rule. Returns null on an unknown id. */
