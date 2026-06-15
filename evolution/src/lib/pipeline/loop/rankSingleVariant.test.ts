@@ -10,7 +10,8 @@ import {
   CONVERGENCE_THRESHOLD,
   BETA_ELO,
 } from './rankSingleVariant';
-import { createRating, type Rating, type ComparisonResult } from '../../shared/computeRatings';
+import { createRating, type Rating, type ComparisonResult, compareWithBiasMitigation, type EnsembleSubmatches } from '../../shared/computeRatings';
+import { firstDecisive } from '../../shared/judgeEnsemble/aggregation';
 import { BudgetExceededError } from '../../types';
 import type { Variant, EvolutionLLMClient } from '../../types';
 import type { EvolutionConfig } from '../infra/types';
@@ -236,6 +237,30 @@ describe('rankSingleVariant', () => {
     expect(result.status).toBe('no_more_opponents');
     expect(result.matches).toEqual([]);
     expect(result.comparisonsRun).toBe(0);
+  });
+
+  it('passes an ensembleRunner to the comparison and carries submatches onto the match when config.ensemble is set', async () => {
+    const submatches: EnsembleSubmatches = {
+      chainConfigId: 'c1', ruleId: 'first_decisive', ruleVersion: 1, matchWinner: 'A',
+      members: [{ model: 'm1', escalationStep: 0, triggeredEscalation: false, winner: 'A', confidence: 1.0 }],
+    };
+    mockComparisonQueue = [{ winner: 'A', confidence: 1.0, turns: 2, submatches }];
+    const params = buildParams({
+      config: {
+        ...mkConfig(),
+        ensemble: { chain: { id: 'c1', cap: 3, models: { article: ['m1'], paragraph: ['m1'] } }, rule: firstDecisive },
+      },
+    });
+    const result = await rankSingleVariant(params);
+
+    // The agent built + passed an ensembleRunner (7th positional arg) to the comparison.
+    const calls = (compareWithBiasMitigation as jest.Mock).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[0][6]).toBeDefined();
+    expect(calls[0][6].chain.id).toBe('c1');
+    // …and the result carried submatches onto the match (for downstream persistence).
+    const withSubs = result.matches.find((m) => m.submatches);
+    expect(withSubs?.submatches?.members).toHaveLength(1);
   });
 
   it('exits via converged when uncertainty drops below threshold', async () => {

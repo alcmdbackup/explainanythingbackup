@@ -3,6 +3,8 @@
 
 import { z } from 'zod';
 import { _INTERNAL_DEFAULT_SIGMA } from './shared/computeRatings';
+import type { EnsembleSubmatches } from './shared/computeRatings';
+import type { EnsembleConfig } from './shared/judgeEnsemble/chainRegistry';
 import { getModelMaxTemperature, getModelInfo, MODEL_REGISTRY } from '@/config/modelRegistry';
 // Type-only imports (erased at runtime → no cycle with rubricJudge, which imports
 // only types from this file).
@@ -872,6 +874,10 @@ const strategyConfigBaseSchema = z.object({
    *  a single holistic A/B/TIE. Strategy-level (applies to all ranking), config-hashed,
    *  validated by validateJudgeRubricId. Omit for holistic judging. */
   judgeRubricId: z.string().uuid().optional(),
+  /** Phase 4 (gated, default OFF): named multi-judge escalation chain to use for ranking. Resolved in
+   *  buildRunContext to an EnsembleRunner ONLY when EVOLUTION_JUDGE_ESCALATION_ENABLED !== 'false'.
+   *  Omit (the default) for single-judge ranking — byte-identical to today. */
+  ensembleConfigId: z.string().optional(),
   /** Total budget for the run in USD. Per-iteration amounts computed from iterationConfigs[].budgetPercent. */
   budgetUsd: z.number().min(0).optional(),
   generationGuidance: generationGuidanceSchema.optional(),
@@ -1044,6 +1050,11 @@ const evolutionConfigBaseSchema = z.object({
   /** Resolved rubric (dimensions + normalized weights + criteria text). Present only
    *  when judgeRubricId resolved AND the kill switch is on; undefined → holistic. */
   judgeRubric: z.custom<ResolvedJudgeRubric>().optional(),
+  /** Named ensemble chain id (from StrategyConfig). Resolved to `ensemble` in buildRunContext. */
+  ensembleConfigId: z.string().optional(),
+  /** Resolved ensemble chain + aggregation rule. Present ONLY when ensembleConfigId resolved AND the
+   *  EVOLUTION_JUDGE_ESCALATION_ENABLED kill switch is on; undefined → single-judge ranking. */
+  ensemble: z.custom<EnsembleConfig>().optional(),
 });
 
 export const evolutionConfigSchema = z.preprocess(preprocessBudgetFloor, evolutionConfigBaseSchema);
@@ -1061,6 +1072,9 @@ export const v2MatchSchema = z.object({
   reversed: z.boolean(),
   /** Per-dimension rubric snapshot when this match was rubric-judged (else absent). */
   rubricBreakdown: z.custom<RubricBreakdown>().optional(),
+  /** Phase 4: the multi-judge escalation fold (chain + rule + submatches) when this match was
+   *  ensemble-judged. Absent for single-judge matches (the default). */
+  submatches: z.custom<EnsembleSubmatches>().optional(),
 });
 
 export type V2MatchSchema = z.infer<typeof v2MatchSchema>;

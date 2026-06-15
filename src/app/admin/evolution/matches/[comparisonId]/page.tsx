@@ -14,6 +14,7 @@ import {
   getComparisonDetailAction,
   rejudgeComparisonAction,
   type ComparisonDetail,
+  type ComparisonSubmatch,
   type RejudgeResult,
 } from '@evolution/services/arenaActions';
 import {
@@ -67,6 +68,78 @@ function RubricBreakdownSection({ breakdown }: { breakdown: RubricBreakdown }): 
           </tr>
         </tfoot>
       </table>
+    </div>
+  );
+}
+
+/** Phase 4: the escalation chain — one card per submatch (judge), in chain order, each with its
+ *  per-dimension verdict table (rubric mode). A legacy single-judge match has no submatches and this
+ *  section is not rendered (it falls back to RubricBreakdownSection / the holistic verdict). */
+function EscalationSection({
+  submatches,
+  aggregationRule,
+  agreement,
+}: {
+  submatches: ComparisonSubmatch[];
+  aggregationRule: string | null | undefined;
+  agreement: number | null | undefined;
+}): JSX.Element {
+  const pct = (w: number): string => `${Math.round(w * 100)}%`;
+  return (
+    <div className={SECTION} data-testid="escalation-breakdown">
+      <div className="text-sm font-semibold mb-3">
+        Escalation Chain — {submatches.length} judge{submatches.length === 1 ? '' : 's'}
+        <span className="font-normal text-[var(--text-muted)]">
+          {aggregationRule ? ` · rule ${aggregationRule}` : ''}
+          {typeof agreement === 'number' ? ` · agreement ${pct(agreement)}` : ''}
+        </span>
+      </div>
+      <div className="space-y-3">
+        {submatches.map((s) => (
+          <div
+            key={s.id}
+            data-testid="escalation-submatch"
+            className="border border-[var(--border-subtle)] rounded p-3 bg-[var(--surface-secondary)]"
+          >
+            <div className="text-xs font-medium mb-1">
+              Step {s.escalation_step} · <span className="font-mono">{s.judge_model}</span> · winner{' '}
+              <span className="font-mono">{s.winner ?? '—'}</span>
+              <span className="text-[var(--text-muted)]">
+                {typeof s.confidence === 'number' ? ` · confidence ${s.confidence.toFixed(2)}` : ''}
+                {s.triggered_escalation ? ' · escalated →' : ' · decisive'}
+              </span>
+            </div>
+            {s.dimensions.length > 0 && (
+              <table className="w-full text-xs border-collapse mt-1">
+                <thead>
+                  <tr className="text-left text-[var(--text-muted)]">
+                    <th className="py-1 pr-3">Dimension</th>
+                    <th className="py-1 pr-3">Weight</th>
+                    <th className="py-1 pr-3">Forward</th>
+                    <th className="py-1 pr-3">Reverse</th>
+                    <th className="py-1 pr-3">Winner</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.dimensions.map((d) => (
+                    <tr
+                      key={`${s.id}-${d.position}`}
+                      className="border-t border-[var(--border-subtle)]"
+                      data-testid="escalation-dim-row"
+                    >
+                      <td className="py-1 pr-3 font-medium">{d.criteria_name}</td>
+                      <td className="py-1 pr-3">{pct(d.weight)}</td>
+                      <td className="py-1 pr-3 font-mono">{d.forward_verdict ?? '—'}</td>
+                      <td className="py-1 pr-3 font-mono">{d.reverse_verdict ?? '—'}</td>
+                      <td className="py-1 pr-3 font-mono">{d.dimension_winner ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -235,6 +308,13 @@ export default function MatchDetailPage(): JSX.Element {
 
       {/* Rubric breakdown (rubric-judged matches only; holistic → omitted) */}
       {detail.rubric_breakdown && <RubricBreakdownSection breakdown={detail.rubric_breakdown} />}
+      {detail.submatches.length > 0 && (
+        <EscalationSection
+          submatches={detail.submatches}
+          aggregationRule={detail.aggregation_rule}
+          agreement={detail.agreement}
+        />
+      )}
 
       {/* Text comparison — word diff (default) or raw side-by-side */}
       {(() => {

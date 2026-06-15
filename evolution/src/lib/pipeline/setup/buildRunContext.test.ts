@@ -303,6 +303,47 @@ describe('buildRunContext', () => {
     });
   });
 
+  describe('ensemble (escalation) kill switch — DEFAULT OFF', () => {
+    const configWithEnsemble = {
+      generationModel: 'gpt-4.1-nano',
+      judgeModel: 'gpt-4.1-nano',
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
+      ensembleConfigId: 'cheap-escalation-v1',
+    };
+
+    async function runWith(envValue: string | undefined): Promise<{ ensemble: unknown; ensembleConfigId: unknown }> {
+      const prev = process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED;
+      if (envValue === undefined) delete process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED;
+      else process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED = envValue;
+      try {
+        const { db } = makeMockDb({ contentText: validText, strategyConfig: configWithEnsemble });
+        const result = await buildRunContext('run-1', makeClaimedRun(), db, makeProvider());
+        if (!('context' in result)) throw new Error('expected context');
+        return { ensemble: result.context.config.ensemble, ensembleConfigId: result.context.config.ensembleConfigId };
+      } finally {
+        if (prev === undefined) delete process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED;
+        else process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED = prev;
+      }
+    }
+
+    it('unset env → ensemble undefined (single-judge ranking), id still carried', async () => {
+      const { ensemble, ensembleConfigId } = await runWith(undefined);
+      expect(ensemble).toBeUndefined();
+      expect(ensembleConfigId).toBe('cheap-escalation-v1');
+    });
+
+    it("env='false' → ensemble undefined", async () => {
+      expect((await runWith('false')).ensemble).toBeUndefined();
+    });
+
+    it("env='true' AND ensembleConfigId set → resolves the chain + rule", async () => {
+      const { ensemble } = await runWith('true') as { ensemble: { chain: { id: string }; rule: { id: string } } | undefined };
+      expect(ensemble).toBeDefined();
+      expect(ensemble!.chain.id).toBe('cheap-escalation-v1');
+      expect(ensemble!.rule.id).toBe('first_decisive');
+    });
+  });
+
   it('generated random_seed always fits in PostgreSQL signed BIGINT range', async () => {
     // Regression: prior implementation built (high<<32 | low) with both halves up to
     // 0xffffffff, which produced unsigned 64-bit values up to 2^64 - 1. PostgreSQL BIGINT

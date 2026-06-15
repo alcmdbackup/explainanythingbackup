@@ -255,6 +255,28 @@ Pairwise comparison results between arena entries.
 | `status` | TEXT | NOT NULL, CHECK `('pending','completed','failed')` | |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 
+Phase 4 (`20260614000004`) added nullable, additive **ensemble summary columns** (`chain_depth`,
+`agreement`, `aggregation_rule`, `aggregation_rule_version`) — populated only when a match was
+judged by a multi-judge escalation chain (gated, default OFF). A single-judge match leaves them NULL
+(a chain-of-1).
+
+### `evolution_arena_submatches` + `evolution_submatch_dimension_verdicts`
+
+Phase 4 (`judge_escalation_prod_wiring`, migration `20260614000004`): normalized breakout of an
+ensemble match into its **submatches** (one per judge in the escalation chain) and, for rubric-mode
+submatches, per-**dimension** verdicts. Mirrors the Judge Lab `judge_eval_calls` /
+`judge_eval_dimension_verdicts` shapes. Both deny-all RLS + `service_role_all`; written only when the
+`EVOLUTION_JUDGE_ESCALATION_ENABLED` kill switch is on (default OFF) — legacy single-judge matches
+have zero submatch rows and render from the `rubric_breakdown` JSONB unchanged.
+
+- `evolution_arena_submatches`: `id` PK, `arena_comparison_id` FK→`evolution_arena_comparisons(id)`
+  **ON DELETE CASCADE**, `judge_model`, `escalation_step`, `triggered_escalation`, `winner`,
+  `confidence`, `chain_config_id`, `judge_rubric_id` (no FK — synthetic rubrics tolerated).
+- `evolution_submatch_dimension_verdicts`: `id` PK, `submatch_id` FK→`evolution_arena_submatches(id)`
+  **ON DELETE CASCADE**, `criteria_id` (no FK), `criteria_name` snapshot, `weight`,
+  `forward_verdict`, `reverse_verdict`, `dimension_winner`, `favored_match_winner` (BOOLEAN, NULL on a
+  TIE dimension — relative to the consolidated MATCH winner), `position`.
+
 ### `evolution_explanations`
 
 Decoupled article identity table from the main app. Stores the seed text that started a run, whether sourced from an `explanations` row or generated from a prompt.
@@ -698,6 +720,7 @@ This means database rows written by older pipeline versions are transparently up
 | `20260610000002_evolution_judge_rubrics.sql` | 2026-06-10 | Rubric-based judging (structured_judging_evolution_20260610): `evolution_judge_rubrics` (named weighted rubric) + `evolution_judge_rubric_dimensions` junction (`rubric_id` FK ON DELETE CASCADE, `criteria_id` FK→`evolution_criteria` ON DELETE RESTRICT, weight ≥ 0). Three-policy RLS (deny_all / service_role_all / readonly_select) + `is_test_content` trigger, mirroring `evolution_criteria`. |
 | `20260610000003_extend_metrics_entity_type_for_judge_rubric.sql` | 2026-06-10 | Extends the `evolution_metrics.entity_type` CHECK to include `'judge_rubric'` (sibling pattern of `20260503033103`). |
 | `20260610000004_arena_comparisons_rubric_breakdown.sql` | 2026-06-10 | Adds nullable JSONB `rubric_breakdown` (per-dimension two-pass snapshot, authoritative for rendering) + nullable indexed `judge_rubric_id UUID` FK→`evolution_judge_rubrics(id)` ON DELETE SET NULL to `evolution_arena_comparisons`. Purely additive; pre-rubric matches stay NULL. |
+| `20260614000004_evolution_arena_submatches.sql` | 2026-06-14 | Phase 4 prod escalation wiring (gated, default OFF): `evolution_arena_submatches` + `evolution_submatch_dimension_verdicts` child tables (FK ON DELETE CASCADE, deny_all + service_role_all RLS) + nullable ensemble summary cols (`chain_depth`, `agreement`, `aggregation_rule`, `aggregation_rule_version`) on `evolution_arena_comparisons`. Additive; single-judge matches leave them NULL / zero submatch rows. |
 
 The V2 clean-slate migration (20260315) intentionally dropped all V1 tables, views, and functions. There is no backward migration path to V1.
 

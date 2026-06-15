@@ -777,6 +777,10 @@ export type Database = {
           run_id: string | null
           status: string
           created_at: string
+          chain_depth: number | null
+          agreement: number | null
+          aggregation_rule: string | null
+          aggregation_rule_version: number | null
         }
         Insert: {
           id?: string
@@ -788,6 +792,10 @@ export type Database = {
           run_id?: string | null
           status?: string
           created_at?: string
+          chain_depth?: number | null
+          agreement?: number | null
+          aggregation_rule?: string | null
+          aggregation_rule_version?: number | null
         }
         Update: {
           id?: string
@@ -799,6 +807,10 @@ export type Database = {
           run_id?: string | null
           status?: string
           created_at?: string
+          chain_depth?: number | null
+          agreement?: number | null
+          aggregation_rule?: string | null
+          aggregation_rule_version?: number | null
         }
         Relationships: [
           {
@@ -827,6 +839,103 @@ export type Database = {
             columns: ["run_id"]
             isOneToOne: false
             referencedRelation: "evolution_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      evolution_arena_submatches: {
+        Row: {
+          id: string
+          arena_comparison_id: string
+          judge_model: string
+          escalation_step: number
+          triggered_escalation: boolean
+          winner: string | null
+          confidence: number | null
+          chain_config_id: string | null
+          judge_rubric_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          arena_comparison_id: string
+          judge_model: string
+          escalation_step?: number
+          triggered_escalation?: boolean
+          winner?: string | null
+          confidence?: number | null
+          chain_config_id?: string | null
+          judge_rubric_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          arena_comparison_id?: string
+          judge_model?: string
+          escalation_step?: number
+          triggered_escalation?: boolean
+          winner?: string | null
+          confidence?: number | null
+          chain_config_id?: string | null
+          judge_rubric_id?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "evolution_arena_submatches_arena_comparison_id_fkey"
+            columns: ["arena_comparison_id"]
+            isOneToOne: false
+            referencedRelation: "evolution_arena_comparisons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      evolution_submatch_dimension_verdicts: {
+        Row: {
+          id: string
+          submatch_id: string
+          criteria_id: string | null
+          criteria_name: string
+          weight: number
+          forward_verdict: string | null
+          reverse_verdict: string | null
+          dimension_winner: string | null
+          favored_match_winner: boolean | null
+          position: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          submatch_id: string
+          criteria_id?: string | null
+          criteria_name: string
+          weight: number
+          forward_verdict?: string | null
+          reverse_verdict?: string | null
+          dimension_winner?: string | null
+          favored_match_winner?: boolean | null
+          position?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          submatch_id?: string
+          criteria_id?: string | null
+          criteria_name?: string
+          weight?: number
+          forward_verdict?: string | null
+          reverse_verdict?: string | null
+          dimension_winner?: string | null
+          favored_match_winner?: boolean | null
+          position?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "evolution_submatch_dimension_verdicts_submatch_id_fkey"
+            columns: ["submatch_id"]
+            isOneToOne: false
+            referencedRelation: "evolution_arena_submatches"
             referencedColumns: ["id"]
           },
         ]
