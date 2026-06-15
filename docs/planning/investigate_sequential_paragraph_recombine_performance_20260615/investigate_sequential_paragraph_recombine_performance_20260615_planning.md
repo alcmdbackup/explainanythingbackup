@@ -444,7 +444,7 @@ The following docs were identified as relevant and may need updates:
 
 **Subsidiary improvements made on the same pass:** Non-goals + Rollback subsections added; test file layout note (`__tests__/` subdir, not colocated); A/B verification specifies N=3 replicates per arm with noise math; cost-regression assertion + counter sanity check added; `REPLAN_MIN_CAP_USD` derivation pinned to `SEQUENTIAL_LOW_CAP_THRESHOLD_USD + 0.014 = 0.030`; replan phase label split (`paragraph_recombine_coordinator_replan`); ESM smoke added to Verification §B.
 
-### Iteration 2 (consensus reached)
+### Iteration 2 (consensus reached for Phases 1, 2, 3)
 
 | Perspective | Score | Critical Gaps |
 |---|---|---|
@@ -454,4 +454,30 @@ The following docs were identified as relevant and may need updates:
 
 All three reviewers verified the iter-1 fixes addressed every critical gap. Remaining items flagged were cosmetic (e.g., "six new tests" header should read "nine"; `replanThrow` unused variable in the security illustrative snippet; line-number drift; safety-margin consistency note between `PROJECTED_REPLAN_COST_USD × 2.0` and `REPLAN_MIN_CAP_USD = SEQUENTIAL_LOW_CAP_THRESHOLD_USD + 0.014`). These are tracked for implementer cleanup but do not block execution.
 
-**Verdict: 5/5 unanimous, plan ready for execution.**
+### Iteration 3 (Phase 1b added — 2 critical gaps surfaced in 1b-i)
+
+After iter-2's consensus, the plan was extended with Phase 1b on user follow-up. Iter-3 re-reviewed Phase 1b only.
+
+| Perspective | Score | Critical Gaps |
+|---|---|---|
+| Security & Technical | 4/5 | 2 (in Phase 1b-i) |
+| Architecture & Integration | 5/5 | 0 |
+| Testing & CI/CD | 5/5 | 0 |
+
+**Critical gaps addressed in iter-3 → iter-4 fix:**
+1. **[Security] bitwise-NOT bug in prompt template** — `${~parentParagraph.length}` is bitwise NOT in JS (returns `-(N+1)`), not the English "approximately" tilde. A 600-char paragraph would have rendered as "default to -601 chars" in the live LLM prompt. Fixed by replacing with `${parentParagraph.length}` and carrying "approximately" in surrounding English. Added regression test (f) asserting `${~` does not appear in the rendered prompt.
+2. **[Security] wrong illustrative constants (0.7/1.5)** — actual validator at `paragraphSlots.ts:127-128` uses `0.8`/`1.2`. Plan now promotes the existing magic numbers to exported constants `PARAGRAPH_REWRITE_MIN_RATIO=0.8` / `PARAGRAPH_REWRITE_MAX_RATIO=1.2`, refactors `validateParagraphRewrite` to use them, and imports them into the prompt builder so prompt bounds cannot drift from validator bounds (single source of truth). Tests (b) + (e) lock the parity.
+
+**Architecture + Testing minors also addressed:** explicit implementation-order note added (Phase 2a's `COORDINATOR_STRATEGIES_BLOCK` extraction MUST land first, then Phase 1b-ii edits the const); `buildCoordinatorPrompt.test.ts` clarified as "create new file" (does not exist today); positional assertion added (WHEN TO SKIP substring index < JSON schema marker); LENGTH TARGET block position nailed down as AFTER the existing IMPORTANT guard, before the DIRECTIVE (yielding the order chain PRIOR → CONTINUITY → ORIGINAL → IMPORTANT → LENGTH → DIRECTIVE); attribution note added to Manual Verification (Fix 1 and Fix 1b are both unconditional and bundle in the Control arm; mechanism-level acceptance signals are still independently attributable to Fix 1b).
+
+### Iteration 4 (final consensus)
+
+| Perspective | Score | Critical Gaps |
+|---|---|---|
+| Security & Technical | 5/5 | 0 |
+| Architecture & Integration | 5/5 (carried from iter-3) | 0 |
+| Testing & CI/CD | 5/5 (carried from iter-3) | 0 |
+
+Both iter-3 critical gaps verified addressed: the bitwise-NOT bug is eliminated (only remaining `${~` mentions are the DO-NOT warning and the regression-test guard), constants are correctly `0.8`/`1.2` and exported as named constants, the LENGTH TARGET block position is unambiguous, and the fix-up edits introduced only cosmetic redundancy (tests b and e overlap slightly).
+
+**Verdict: 5/5 unanimous across all phases (1, 1b, 2, 3), plan ready for execution.**
