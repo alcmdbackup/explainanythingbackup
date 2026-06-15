@@ -391,6 +391,11 @@ export const METRIC_CATALOG = {
     timing: 'at_propagation',
     description: 'Mean excessive_parent_fallback_abort_rate across child runs',
   },
+  avg_parent_fallback_rate: {
+    name: 'avg_parent_fallback_rate', label: 'Avg Parent-Fallback Rate', category: 'cost', formatter: 'percentValue',
+    timing: 'at_propagation',
+    description: 'Mean parent_fallback_rate across child runs',
+  },
   total_prior_picks_sanitization_count: {
     name: 'total_prior_picks_sanitization_count', label: 'Total Prior-Picks Sanitization Count', category: 'cost', formatter: 'integer',
     timing: 'at_propagation',
@@ -541,6 +546,11 @@ export const METRIC_CATALOG = {
     name: 'excessive_parent_fallback_abort_rate', label: 'Excessive Parent-Fallback Abort Rate', category: 'cost', formatter: 'percentValue',
     timing: 'during_execution',
     description: 'Fraction of paragraph_recombine invocations aborted by the >70% parent-fallback guard (recombined article was near-duplicate of parent).',
+  },
+  parent_fallback_rate: {
+    name: 'parent_fallback_rate', label: 'Parent-Fallback Rate', category: 'cost', formatter: 'percentValue',
+    timing: 'during_execution',
+    description: 'Fraction of paragraph_recombine slots whose Elo winner was the original (no rewrite was better) OR all rewrites were dropped pre-rank. Target <60%; rising values indicate the agent is regressing toward parent text.',
   },
   prior_picks_sanitization_count: {
     name: 'prior_picks_sanitization_count', label: 'Prior-Picks Sanitization Count', category: 'cost', formatter: 'integer',

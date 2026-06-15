@@ -74,6 +74,7 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
       { ...METRIC_CATALOG.coordinator_retry_rate, compute: () => 0 },
       { ...METRIC_CATALOG.coordinator_failure_rate, compute: () => 0 },
       { ...METRIC_CATALOG.excessive_parent_fallback_abort_rate, compute: () => 0 },
+      { ...METRIC_CATALOG.parent_fallback_rate, compute: () => 0 },
       { ...METRIC_CATALOG.prior_picks_sanitization_count, compute: () => 0 },
       { ...METRIC_CATALOG.prior_picks_truncation_count, compute: () => 0 },
     ],

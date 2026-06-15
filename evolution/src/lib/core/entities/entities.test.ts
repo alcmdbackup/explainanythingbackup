@@ -30,12 +30,13 @@ describe('RunEntity', () => {
     expect(entity.children.every(c => c.cascade === 'delete')).toBe(true);
   });
 
-  it('has 22 execution + 23 finalization + 0 propagation metrics', () => {
-    // 17 prior + 5 sequential context-aware generation metrics from
+  it('has 23 execution + 23 finalization + 0 propagation metrics', () => {
+    // 17 prior + 6 sequential context-aware generation metrics from
     // debug_performance_paragraph_recombine_20260612 (coordinator_retry_rate,
     // coordinator_failure_rate, excessive_parent_fallback_abort_rate,
-    // prior_picks_sanitization_count, prior_picks_truncation_count) = 22.
-    expect(entity.metrics.duringExecution).toHaveLength(22);
+    // parent_fallback_rate, prior_picks_sanitization_count,
+    // prior_picks_truncation_count) = 23.
+    expect(entity.metrics.duringExecution).toHaveLength(23);
     // 18 prior + 3 sentence-overlap percentile metrics (median, p25, min)
     // (updated_criteria_agent_20260505) + 2 paragraph_recombine per-phase
     // estimation-error rollups (paragraph_rewrite_estimation_error_pct +
@@ -79,13 +80,13 @@ describe('StrategyEntity', () => {
     expect(entity.children[0]!.cascade).toBe('delete');
   });
 
-  it('has 51 propagation metrics', () => {
-    // 46 prior + 5 sequential context-aware generation propagation metrics
+  it('has 52 propagation metrics', () => {
+    // 46 prior + 6 sequential context-aware generation propagation metrics
     // (avg_coordinator_retry_rate, avg_coordinator_failure_rate,
-    // avg_excessive_parent_fallback_abort_rate, total_prior_picks_sanitization_count,
-    // total_prior_picks_truncation_count) from
-    // debug_performance_paragraph_recombine_20260612 = 51.
-    expect(entity.metrics.atPropagation).toHaveLength(51);
+    // avg_excessive_parent_fallback_abort_rate, avg_parent_fallback_rate,
+    // total_prior_picks_sanitization_count, total_prior_picks_truncation_count)
+    // from debug_performance_paragraph_recombine_20260612 = 52.
+    expect(entity.metrics.atPropagation).toHaveLength(52);
     const names = entity.metrics.atPropagation.map(d => d.name);
     expect(names).toContain('run_count');
     expect(names).toContain('total_cost');

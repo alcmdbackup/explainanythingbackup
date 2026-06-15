@@ -1406,6 +1406,9 @@ export async function evolveArticle(
           // cost estimate. Mirror the generate-runtime pattern (no `resolveParallelFloor`
           // at runtime — only `resolveSequentialFloor` later for top-up gating).
           // For K=1 (back-compat), this collapses to the same single-dispatch behavior.
+          // Resolve EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED at the call-site so the
+          // wizard/projector matches runtime (debug_performance_paragraph_recombine_20260612).
+          const sequentialEnabled = process.env.EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED !== 'false';
           const projector = estimateParagraphRecombineCost(
             originalText.length, // best estimate when each parent has comparable length
             iterCfg.maxParagraphsPerInvocation ?? 12,
@@ -1413,6 +1416,7 @@ export async function evolveArticle(
             iterCfg.maxComparisonsPerParagraph ?? 8,
             iterCfg.paragraphRewriteModel ?? resolvedConfig.generationModel,
             resolvedConfig.judgeModel,
+            { sequentialEnabled },
           );
           const expectedPerAgent = Math.max(0.001, projector.expected);
           const availForParallel = iterTracker.getAvailableBudget();

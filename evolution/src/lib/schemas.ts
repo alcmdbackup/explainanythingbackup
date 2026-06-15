@@ -2398,6 +2398,17 @@ export const slotRecombineExecutionDetailSchema = executionDetailBaseSchema.exte
   partialAt: z.number().int().min(0).optional(),
   abortReason: z.string().optional(),
   completedSlotCount: z.number().int().min(0).optional(),
+  /** Sequential Context-Aware Generation per-invocation counters (debug_performance_paragraph_recombine_20260612).
+   *  Sourced from runSequentialLoop's SequentialCounters; missing on the legacy parallel path.
+   *  Used by metric extractors to compute parent_fallback_rate, prior_picks_sanitization_count,
+   *  prior_picks_truncation_count. */
+  sequentialCounters: z.object({
+    parentFallbackCount: z.number().int().min(0),
+    skippedSlotCount: z.number().int().min(0),
+    rewrittenSlotCount: z.number().int().min(0),
+    priorPicksSanitizationCount: z.number().int().min(0),
+    priorPicksTruncationCount: z.number().int().min(0),
+  }).optional(),
 });
 
 export type SlotRecombineExecutionDetail = z.infer<typeof slotRecombineExecutionDetailSchema>;

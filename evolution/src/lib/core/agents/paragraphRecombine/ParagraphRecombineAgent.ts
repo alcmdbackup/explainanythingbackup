@@ -470,9 +470,12 @@ export class ParagraphRecombineAgent extends Agent<
           ...(coordinatorRawResponse !== undefined && { rawResponse: coordinatorRawResponse.slice(0, 4000) }),
         },
         ...(coordinatorPlan && { coordinatorPlan }),
+        ...(sequentialCounters && { sequentialCounters }),
       }),
     };
-    void sequentialCounters;
+    // coordinatorPartialAt/AbortReason/CompletedSlotCount are assigned in Phase B's catch
+    // block (lines 351-353) and used there to build partialDetailOnThrow before re-throw —
+    // they are intentionally NOT included in the happy-path partialDetail above.
     void coordinatorPartialAt;
     void coordinatorAbortReason;
     void coordinatorCompletedSlotCount;
