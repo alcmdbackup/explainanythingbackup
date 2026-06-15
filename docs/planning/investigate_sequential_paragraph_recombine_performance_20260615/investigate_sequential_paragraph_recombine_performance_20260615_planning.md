@@ -16,7 +16,8 @@ This plan implements two primary fixes the user explicitly chose, plus two subsi
 
 - **Fix 1** — strengthen the per-slot rewrite-generation prompt with an explicit continuity-emphasis block covering tone, register, metaphors, analogies, acronyms, vocabulary, cadence, and discipline. Cheap (zero added LLM calls), low-risk.
 - **Fix 1b** (added on user follow-up) — two further prompt-only changes: (i) make the length-cap bounds visible to the rewrite LLM so it can land inside the filter instead of being rejected (addresses the 30-49%-per-temperature drop rate); (ii) strengthen `shouldRewrite: false` guidance in the coordinator with concrete heuristics + an explicit target rate (2-4 of 8-12 slots), to cut wasted rewrite budget on near-duplicate cosmetic edits. **Note:** the third candidate (per-paragraph analogy budget) was excluded — Fix 1's continuity block already forbids introducing new analogies/metaphors regardless of paragraph boundary, so a within-paragraph budget would duplicate the rule.
-- **Fix 1c** (added on user follow-up after the rubric-mismatch analysis) — two further slot-judge-prompt changes targeting the local-vs-global optimization gap: (i) **pass forward parent context** to the slot judge alongside the existing prior-picks block so the judge can score "does this candidate hand off cleanly into the article's continuation?" — adds backward+forward visibility to a previously backward-only judge; (ii) **drop the "Fidelity" criterion** from the slot rubric since the article-level Elo (the signal we're optimizing) doesn't reward parent-paragraph fidelity, and the Fidelity penalty was structurally keeping `paragraph_recombine` variants at 34-54% verbatim with parent (vs other tactics at 0.6-2.3%). **Out of scope: Fix 5b** (stop stripping the strategy's custom rubric at slot level) — flagged in `evolution/docs/paragraph_recombine.md` as a follow-up; would require strategy authors to design paragraph-mode-compatible rubric dimensions.
+- **Fix 1c** (added on user follow-up after the rubric-mismatch analysis) — two further slot-judge-prompt changes targeting the local-vs-global optimization gap: (i) **pass forward parent context** to the slot judge alongside the existing prior-picks block so the judge can score "does this candidate hand off cleanly into the article's continuation?" — adds backward+forward visibility to a previously backward-only judge; (ii) **drop the "Fidelity" criterion** from the slot rubric since the article-level Elo (the signal we're optimizing) doesn't reward parent-paragraph fidelity, and the Fidelity penalty was structurally keeping `paragraph_recombine` variants at 34-54% verbatim with parent (vs other tactics at 0.6-2.3%).
+- **Fix 1d** (Fix 5b promoted from non-goal to in-scope on user request) — adds a separate `paragraphJudgeRubricId` strategy config field, settable from the strategy creation wizard as a distinct dropdown next to the existing article-level Judge Rubric picker. Reuses the existing `evolution_judge_rubrics` table — no new schema. When set, the per-slot judge uses that rubric's dimensions; when unset (default), the hardcoded paragraph rubric (with Fix 1c edits) runs. Lets strategy authors design paragraph-shaped dimensions independently from the article rubric. Backwards-compatible: existing strategies behave exactly as before.
 - **Fix 2** — after slot 0 finalizes, re-call the coordinator once with `priorPicks` so the remaining slots' directives can match the chosen voice. Adds one coordinator LLM call per invocation (~$0.0014 at current model). Env-gated for safe rollout.
 
 These are orthogonal to the structural Fix 3 (`qualityCutoff` change) which is deferred to a follow-up project.
@@ -33,7 +34,7 @@ A/B isolation note: Fix 1 is unconditional (no env flag); Fix 2 is env-gated. A 
 - **Legacy parallel path is unchanged.** The non-sequential `processSlot` codepath in `ParagraphRecombineAgent.ts` (the `else` branch around line 369) does NOT get the continuity directive or the replan. The Sequential path is the only one that exposes `priorPicks`, so both fixes are no-ops outside it. Reviewers asked this be stated explicitly.
 - **`qualityCutoff` parent-selection (Fix 3 from the research doc) is deferred** to a follow-up project. The structural negativity in `eloAttrDelta` will still partly persist after Fixes 1+2 land; this plan accepts that and measures the coherence-loss component independently.
 - **Cost projector is NOT updated in this PR.** `estimateParagraphRecombineCost` will under-project by ~$0.0014 per invocation when replan is enabled. This is acknowledged in `evolution/docs/cost_optimization.md` ("Option L"); fixing the projector is the next item on the cost-undershoot project's backlog.
-- **Fix 5b (un-strip the custom rubric at slot level) is deferred.** The strategy-configured `judgeRubric` is intentionally stripped before slot-level paragraph judging (`ParagraphRecombineAgent.ts:880` + `sequentialExecute.ts:446-447`). Un-stripping would require strategy authors to design paragraph-mode-compatible rubric dimensions OR an LLM-mediated article→paragraph rubric translator — both are bigger design changes. Phase 1c only edits the hardcoded paragraph rubric (Fix 5a). Documented in `evolution/docs/paragraph_recombine.md` as a follow-up.
+- **Fix 5b is now implemented via Phase 1d** (was previously deferred). Strategy authors now have a `paragraphJudgeRubricId` field separate from `judgeRubricId`. The article rubric still gets stripped at slot level (its article-shaped dimensions don't apply at paragraph scale), but the per-paragraph rubric — if set — replaces the hardcoded paragraph rubric. See Phase 1d for the full design.
 
 ### Rollback plan (explicit)
 
@@ -44,6 +45,7 @@ A/B isolation note: Fix 1 is unconditional (no env flag); Fix 2 is env-gated. A 
 | Fix 1b-ii (strengthened skip guidance) | Unconditional code change in `COORDINATOR_STRATEGIES_BLOCK` const | Code revert (restores the original `WHEN TO SKIP A PARAGRAPH` block). Both initial and replan coordinator prompts revert together (single source of truth). |
 | Fix 1c-i (forward parent context to slot judge) | Unconditional code change | Code revert (removes the `NEXT CONTEXT` block + the new `nextContext` param from `buildComparisonPrompt`, `rankNewVariant`, and the `sequentialExecute.ts` call site). New counters (`nextPicksSanitizationCount`, `nextPicksTruncationCount`) default to `0` in the Zod schema so historical rows remain valid. |
 | Fix 1c-ii (drop Fidelity from slot rubric) | Unconditional one-line removal | Code revert (re-adds the `- Fidelity — preserves the original claim/conclusion` line at `computeRatings.ts:416`). |
+| Fix 1d (per-paragraph rubric) | Optional strategy config field (default unset) + same kill switch as article rubric (`EVOLUTION_RUBRIC_JUDGING_ENABLED`) | Two layers: (a) **Live disable across all strategies:** set `EVOLUTION_RUBRIC_JUDGING_ENABLED='false'` — both article and paragraph rubric resolution short-circuit; slot judge falls back to hardcoded paragraph rubric for every strategy. (b) **Per-strategy disable:** clear `paragraphJudgeRubricId` via the wizard edit flow (or unset in DB) — only that strategy reverts. **No migration needed**; existing strategies without the field remain unaffected. **No schema rollback** — the optional column doesn't require a downgrade path. |
 | Fix 2 (coordinator replan) | Gated by env flag `EVOLUTION_PARAGRAPH_RECOMBINE_REPLAN_ENABLED` defaulting to `'false'` | Live disable: set env var to `'false'` (or unset) in Vercel staging/prod. No code change, no migration. Historical execution_detail rows remain valid because new `sequentialCounters` fields default to `0` in the Zod schema and are nullable in the jsonb column. |
 
 ## Phased Execution Plan
@@ -265,6 +267,149 @@ So strategy `8d88a8b3`'s custom rubric `f3c1af7a-…` ("Test rubric", 4 dimensio
   - (c) Article-mode rendered prompt is byte-for-byte identical to baseline (Fix 7 must not touch article mode).
 
 - [ ] **Acceptance signal** (manual, post-deploy): PR variants' `sentence_verbatim_ratio` should drop. Current baseline mean: 0.34-0.54. Target Control-arm mean: ≤ 0.20 (closer to the other tactics' 0.006-0.023 range). Surface via existing `evolution_variants.sentence_verbatim_ratio` column.
+
+### Phase 1d: Per-paragraph judge rubric, settable from the strategy wizard (Fix 5b)
+
+**Promoted from non-goal to in-scope on user request.** Strategy authors today cannot configure WHAT criteria the slot judge uses — it's a hardcoded paragraph rubric inside `computeRatings.ts`. The strategy's custom rubric (`judgeRubricId`) is stripped at slot level because rubrics today have article-shaped dimensions. Phase 1d adds a parallel `paragraphJudgeRubricId` strategy config field, threads it through the same infrastructure as the article rubric, and exposes it in the strategy creation wizard as a distinct dropdown next to the existing Judge Rubric picker. **Reuses the existing `evolution_judge_rubrics` table — no new tables, no schema migrations.**
+
+When set, the paragraph rubric replaces the hardcoded paragraph rubric at slot level. When unset (default), the hardcoded paragraph rubric (with Phase 1c's Fix 4 + Fix 7 edits applied) is what runs — backwards-compatible for every existing strategy.
+
+#### 1d-i. Strategy config schema extension
+
+**File:** `evolution/src/lib/schemas.ts`
+
+- [ ] At line 876 (next to `judgeRubricId: z.string().uuid().optional()` inside the strategy config schema), add:
+  ```ts
+  /** Optional rubric-set id for PER-PARAGRAPH rubric-based judging at the slot level
+   *  (paragraph_recombine). When set, the per-slot judge uses this rubric's dimensions
+   *  instead of the hardcoded paragraph rubric (Clarity / Fluency / Usefulness / Fit
+   *  with prior context / Setup). Independent of judgeRubricId, which applies to
+   *  article-level ranking. Strategy authors should design paragraph-shaped dimensions
+   *  here (avoid article-scaled criteria like "overall structure" — those don't
+   *  apply at single-paragraph scale). Omit for the hardcoded default. */
+  paragraphJudgeRubricId: z.string().uuid().optional(),
+  ```
+
+- [ ] At line 1049-1052 (`EvolutionConfig` resolved-shape), add the resolved version alongside `judgeRubric`:
+  ```ts
+  /** Resolved paragraph rubric (dimensions + normalized weights + criteria text).
+   *  Present only when paragraphJudgeRubricId resolved AND the kill switch
+   *  (EVOLUTION_RUBRIC_JUDGING_ENABLED) is on; undefined → hardcoded paragraph rubric. */
+  paragraphJudgeRubricId: z.string().uuid().optional(),
+  paragraphJudgeRubric: z.custom<ResolvedJudgeRubric>().optional(),
+  ```
+
+- [ ] Add `paragraphJudgeRubricId` to the strategy's `config_hash` computation if the hash is not already over the full config object. Verify in `strategyRegistryActions.ts` — strategies with different paragraph rubrics MUST be considered distinct.
+
+#### 1d-ii. `buildRunContext` resolution (mirror the article-rubric path)
+
+**File:** `evolution/src/lib/pipeline/setup/buildRunContext.ts:387-391` + `:403-414`
+
+- [ ] Resolve `paragraphJudgeRubricId` the SAME way `judgeRubricId` is resolved at lines 388-391, **gated by the SAME kill switch `EVOLUTION_RUBRIC_JUDGING_ENABLED`** (consistent rollback — one flag turns off both rubric paths):
+  ```ts
+  const paragraphJudgeRubric =
+    rubricEnabled && stratConfig.paragraphJudgeRubricId
+      ? (await getJudgeRubricForEvaluation(db, stratConfig.paragraphJudgeRubricId)) ?? undefined
+      : undefined;
+  ```
+- [ ] Add `paragraphJudgeRubricId` + `paragraphJudgeRubric` to the `EvolutionConfig` object built at lines 403-414 (adjacent to `judgeRubric` / `judgeRubricId`).
+
+#### 1d-iii. Slot-level wire-up — replace strip with swap
+
+**Files:**
+- `evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts:877-881`
+- `evolution/src/lib/core/agents/paragraphRecombine/sequentialExecute.ts:445-448`
+
+Both spots currently strip `judgeRubric` from the slot config. Replace with: strip the article-level `judgeRubric` (still correct — its dimensions don't apply at paragraph scale) AND attach `paragraphJudgeRubric` as the slot's `judgeRubric` field if set.
+
+- [ ] **Update `ParagraphRecombineAgent.ts:877-881`:**
+  ```ts
+  // Per-slot rubric: use strategy's paragraphJudgeRubric if set; else undefined →
+  // judge falls back to the hardcoded paragraph rubric in computeRatings.ts (with
+  // Phase 1c's Fix 4 + Fix 7 edits applied). The article-level judgeRubric (with
+  // article-shaped dimensions) is stripped because it's not appropriate at the
+  // single-paragraph scale. See docs/planning/investigate_sequential_paragraph_
+  // recombine_performance_20260615/ for the full rationale.
+  const { judgeRubric: _droppedArticleRubric, ...slotConfigNoRubric } = slotConfig;
+  const perSlotConfig = {
+    ...slotConfigNoRubric,
+    judgeRubric: slotConfig.paragraphJudgeRubric, // explicit attach (undefined OK)
+    maxComparisonsPerVariant: maxComparisonsPerParagraph,
+    comparisonMode: 'paragraph' as const,
+  };
+  ```
+
+- [ ] **Apply the same change to `sequentialExecute.ts:445-448`** — symmetric edit.
+
+- [ ] **Verify priorPicks/nextContext threading in rubric-judging code path.** The rubric-judging path (when `config.judgeRubric` is set) goes through a separate code path from the holistic `buildComparisonPrompt`. Before landing, verify that whatever per-dimension prompt builder the rubric path uses ALSO receives `priorPicks` (Fix 1 / existing Sequential) AND `nextContext` (Phase 1c-i) so the new paragraph rubric inherits the same forward+backward visibility. If the rubric path's prompt builder does NOT currently receive these, thread them through — without this, setting a paragraph rubric would silently disable Phase 1c-i's forward-context signal. Add a unit test asserting both contexts reach the rubric path.
+
+- [ ] **Update the code comment at `ParagraphRecombineAgent.ts:877-879`** — the existing comment says "Rubric judging is ARTICLE-ONLY"; Phase 1d invalidates that. Replace with: "Article rubric is stripped at slot level (article-shaped dimensions don't apply to a single-paragraph snippet). Slot level uses the optional `paragraphJudgeRubric` if the strategy configured one; else undefined → hardcoded paragraph rubric. See structured_judging_evolution_20260610 for the original strip rationale and investigate_sequential_paragraph_recombine_performance_20260615 for the per-paragraph rubric addition."
+
+#### 1d-iv. Strategy creation wizard UI
+
+**File:** `src/app/admin/evolution/strategies/new/page.tsx`
+
+- [ ] At line 119 (the form's TypeScript type), add `paragraphJudgeRubricId: string;` next to `judgeRubricId: string;`.
+- [ ] At line 442 (initial form state), add `paragraphJudgeRubricId: ''`.
+- [ ] At line 793 (submit payload), add `paragraphJudgeRubricId: form.paragraphJudgeRubricId || undefined`.
+- [ ] At lines 916-930 (existing Judge Rubric dropdown), add a NEW sibling dropdown immediately below for the paragraph rubric. Mirror the existing select but with a different `data-testid` (`paragraph-judge-rubric-select`) and a clarifying helper:
+  ```tsx
+  <div>
+    <label htmlFor="paragraph-judge-rubric" className={labelClasses}>
+      Paragraph Judge Rubric (optional)
+    </label>
+    <select
+      id="paragraph-judge-rubric"
+      data-testid="paragraph-judge-rubric-select"
+      value={form.paragraphJudgeRubricId}
+      onChange={e => updateForm({ paragraphJudgeRubricId: e.target.value })}
+      className={inputCls(false)}
+    >
+      <option value="">Default paragraph rubric (Clarity, Fluency, Usefulness, Fit, Setup)</option>
+      {availableRubrics.map(r => (
+        <option key={r.id} value={r.id}>{r.name} ({r.dimension_count} dims)</option>
+      ))}
+    </select>
+    <p className="text-xs text-[var(--text-muted)] mt-1">
+      Used by per-slot paragraph ranking in paragraph_recombine. Design dimensions
+      that apply to a single paragraph (avoid article-scaled criteria like
+      "overall structure"). Leave on Default to use the built-in rubric.
+    </p>
+  </div>
+  ```
+  Reuses the existing `availableRubrics` list — same `evolution_judge_rubrics` table; no new fetch.
+
+- [ ] **Strategy detail page** at `src/app/admin/evolution/strategies/[strategyId]/page.tsx` — display the resolved `paragraphJudgeRubricId` (or "Default paragraph rubric" when undefined) below the existing article rubric display. Read-only; no edit affordance needed in this PR (mirroring the existing pattern).
+
+#### 1d-v. Server action validation
+
+**File:** `evolution/src/services/strategyRegistryActions.ts:38,172-180`
+
+- [ ] Add `paragraphJudgeRubricId: z.string().uuid().optional()` to the input schema at line 38 (next to `judgeRubricId`).
+- [ ] At lines 172-174 (where `judgeRubricId` is validated against `validateJudgeRubricId`), add the symmetric validation for `paragraphJudgeRubricId`. Reuses the existing `validateJudgeRubricId` helper — no new validator needed.
+- [ ] At line 180 (the strategy config payload assembled for `evolution_strategies.config`), add `paragraphJudgeRubricId` next to `judgeRubricId` so it persists into the jsonb column.
+
+#### 1d-vi. Backwards-compatibility (explicit)
+
+- Existing strategies in `evolution_strategies.config` have no `paragraphJudgeRubricId` field. Zod's `.optional()` accepts the absence → resolves to `undefined` → slot judge uses the hardcoded paragraph rubric (with Phase 1c's Fix 4 + Fix 7 applied). **No migration, no backfill, no breaking change to historical runs.**
+- The `config_hash` of existing strategies stays stable as long as `undefined` fields are excluded from the hash. Verify the existing hash function does this (skip `undefined` values OR omits absent keys). If it doesn't, the hash will silently change for every strategy on first load post-deploy → re-runs would NOT collide with prior runs. **Pin this behavior in a test before landing.**
+- Strategies created BEFORE this PR continue to behave exactly as they do today. Strategies created AFTER this PR may opt into the per-paragraph rubric via the wizard.
+
+#### 1d-vii. Tests
+
+- [ ] `evolution/src/lib/schemas.test.ts` (or wherever StrategyConfig schema tests live) — schema accepts `paragraphJudgeRubricId` as an optional UUID; rejects non-UUIDs.
+- [ ] `evolution/src/lib/pipeline/setup/__tests__/buildRunContext.test.ts` (or equivalent) — when `paragraphJudgeRubricId` is set and kill switch is on, `paragraphJudgeRubric` is resolved and attached to `EvolutionConfig`; when kill switch is off OR id is missing, `paragraphJudgeRubric` is `undefined`.
+- [ ] `evolution/src/lib/core/agents/paragraphRecombine/__tests__/sequentialExecute.test.ts` — when `config.paragraphJudgeRubric` is set, the per-slot config passed to `rankNewVariant` carries it as `judgeRubric`; when unset, `judgeRubric` is `undefined`. Asserts the swap (not strip).
+- [ ] Rubric path threading test — a stub `paragraphJudgeRubric` with one dimension; verify the per-dimension comparison prompt builder receives `priorPicks` AND `nextContext` (regression guard against the user-flagged "silent disable" risk).
+- [ ] `evolution/src/services/__tests__/strategyRegistryActions.test.ts` (or equivalent) — createStrategy accepts + validates `paragraphJudgeRubricId`; rejects invalid UUIDs; persists into `evolution_strategies.config`.
+- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-strategy-crud.spec.ts` (or the strategy-creation E2E spec) — create a strategy with both `judgeRubricId` AND `paragraphJudgeRubricId` set; verify both selectors appear (`judge-rubric-select` + `paragraph-judge-rubric-select`); verify the saved strategy detail page shows both rubrics. **This is the E2E acceptance for "settable from the wizard distinct from article level."**
+- [ ] Config-hash stability test (per 1d-vi) — generating a strategy WITHOUT `paragraphJudgeRubricId` after this PR produces the same `config_hash` as a strategy generated BEFORE this PR with the same other fields. Pins backwards-compatible behavior.
+
+#### 1d-viii. Documentation
+
+- [ ] `evolution/docs/paragraph_recombine.md` — add section "Per-paragraph judge rubric" describing the new field, the swap behavior, and how to design paragraph-shaped dimensions (avoid article-scaled criteria). Remove the "Fix 5b deferred" non-goal note (now implemented).
+- [ ] `evolution/docs/strategies_and_experiments.md` — document the new wizard field.
+- [ ] `evolution/docs/rating_and_comparison.md` — describe the slot-level rubric resolution path (now mirrors the article-level path).
 
 ### Phase 2: Mid-sequence coordinator re-plan (Fix 2)
 
@@ -494,13 +639,18 @@ So strategy `8d88a8b3`'s custom rubric `f3c1af7a-…` ("Test rubric", 4 dimensio
 - [ ] `evolution/src/lib/core/agents/paragraphRecombine/__tests__/sequentialExecute.test.ts` — Phase 2c orchestration (disabled / success / failure — 9 cases) + Phase 1c-i nextContext slicing (3 cases: slot 0, mid-slot, last slot).
 - [ ] `evolution/src/lib/core/agents/paragraphRecombine/__tests__/ParagraphRecombineAgent.test.ts` — counters in execution_detail (replan + nextPicks).
 - [ ] `evolution/src/lib/shared/__tests__/computeRatings.test.ts` (extend) — Phase 1c-i `NEXT CONTEXT` block assertions (7 cases including ordering, truncation, both PRIOR+NEXT coexist, article-mode ignores nextContext) + Phase 1c-ii Fidelity-removal assertions (paragraph mode has no Fidelity; article mode unchanged byte-for-byte).
+- [ ] `evolution/src/lib/__tests__/schemas.test.ts` (or wherever StrategyConfig schema tests live) — Phase 1d-i schema accepts `paragraphJudgeRubricId` as optional UUID; rejects non-UUIDs.
+- [ ] `evolution/src/lib/pipeline/setup/__tests__/buildRunContext.test.ts` (or equivalent) — Phase 1d-ii resolution: rubric loaded when id+kill-switch on; undefined when id missing OR kill switch off.
+- [ ] `evolution/src/services/__tests__/strategyRegistryActions.test.ts` (or equivalent) — Phase 1d-v: createStrategy accepts + validates + persists `paragraphJudgeRubricId`.
+- [ ] Phase 1d-vi config-hash stability test — strategy WITHOUT `paragraphJudgeRubricId` post-PR produces identical `config_hash` to pre-PR strategy with the same other fields (regression guard against silent hash drift breaking re-run dedup).
+- [ ] Phase 1d-iii rubric-path threading test — when a `paragraphJudgeRubric` is set, the per-dimension comparison prompt builder still receives `priorPicks` AND `nextContext` (guards against silent disable of Fix 1c-i / Fix 1 signals when a paragraph rubric is in play).
 
 ### Integration Tests
 - [ ] `src/__tests__/integration/evolution-paragraph-recombine-sequential.integration.test.ts` (existing file; uses `makeLlmStub` for deterministic sequenced LLM responses) — add the two test cases listed in Phase 3b: `'replan: merges plan into coordinatorPlanReplanned and triggers continuity-aware directives'` and `'replan: cost lands in invocationScope, slotScope unchanged'`.
 - [ ] All new tests use fully-stubbed `EvolutionLLMClient` (`makeLlmStub`) — no `setTimeout`, no `sleep`, no `networkidle`, no real network calls. Affirms `testing_overview.md` Rules 2 (no sleep) and 9 (no networkidle).
 
 ### E2E Tests
-- [ ] None required (no UI change). The existing `src/__tests__/e2e/specs/09-admin/admin-evolution-run-pipeline.spec.ts` provides ambient coverage.
+- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-strategy-crud.spec.ts` (or the existing strategy-creation spec) — Phase 1d-iv: create a strategy via the wizard with BOTH `judgeRubricId` AND `paragraphJudgeRubricId` set; assert both selectors visible (`data-testid="judge-rubric-select"` + `data-testid="paragraph-judge-rubric-select"`); assert strategy detail page shows both rubrics distinctly. **Acceptance for "settable from the wizard distinct from article level."** Run-pipeline E2E coverage unchanged — `admin-evolution-run-pipeline.spec.ts` provides ambient coverage of the agent path.
 
 ### Manual Verification
 
