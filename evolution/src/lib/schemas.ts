@@ -2216,6 +2216,38 @@ export const iterationSnapshotSchema = z.object({
 
 export type IterationSnapshot = z.infer<typeof iterationSnapshotSchema>;
 
+// ─── Sequential Coordinator (debug_performance_paragraph_recombine_20260612) ─
+//
+// The coordinator's output drives Phase B's sequential per-paragraph loop. One
+// per-paragraph plan with M variation directives + temperatures + skip flag.
+// No structured analogy/acronym/voice fields — coordinator embeds article-level
+// intent in directive TEXT.
+
+const coordinatorCandidateSchema = z.object({
+  /** Bespoke instruction for this variation (embeds analogy/acronym/voice guidance inline). */
+  directive: z.string(),
+  /** 0.7 conservative ... 1.2 generative. The coordinator picks per directive. */
+  temperature: z.number().min(0).max(2),
+});
+
+const coordinatorParagraphPlanSchema = z.object({
+  paragraphIndex: z.number().int().min(0),
+  role: z.enum(['lede', 'body', 'closer', 'sub_opener', 'technical_dense', 'header']),
+  /** When false, parent paragraph flows onto priorPicks unchanged; no generation calls fire. */
+  shouldRewrite: z.boolean(),
+  priority: z.enum(['high', 'medium', 'low']),
+  M: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  candidates: z.array(coordinatorCandidateSchema),
+  rationale: z.string(),
+});
+
+export const coordinatorPlanSchema = z.object({
+  paragraphPlans: z.array(coordinatorParagraphPlanSchema),
+});
+
+export type CoordinatorPlan = z.infer<typeof coordinatorPlanSchema>;
+export type CoordinatorParagraphPlan = z.infer<typeof coordinatorParagraphPlanSchema>;
+
 // ─── slotRecombineExecutionDetailSchema ──────────────────────────
 //
 // Per D11/D14/D20 of rank_individual_paragraphs_evolution_20260525.
@@ -2343,6 +2375,39 @@ export const slotRecombineExecutionDetailSchema = executionDetailBaseSchema.exte
     estimatedCost: z.number().min(0),
     cost: z.number().min(0),
     estimationErrorPct: z.number().optional(),
+  }).optional(),
+  // ─── Sequential Coordinator (debug_performance_paragraph_recombine_20260612) ─
+  /** Per-phase coordinator rollup mirroring paragraph_rewrite + paragraph_rank shape.
+   *  Populated on the sequential path; absent on the legacy parallel path.
+   *  rawResponse + parseError are populated only on coordinator throw paths
+   *  (truncated to 4K chars for storage efficiency). */
+  coordinator: z.object({
+    estimatedCost: z.number().min(0),
+    cost: z.number().min(0),
+    estimationErrorPct: z.number().optional(),
+    retried: z.boolean().optional(),
+    rawResponse: z.string().optional(),
+    parseError: z.string().optional(),
+  }).optional(),
+  /** The full coordinator plan returned by Phase A — persisted for admin UI rendering
+   *  + post-hoc analysis. Absent when sequential is disabled (legacy path). Absent
+   *  also when the coordinator threw before producing a valid plan. */
+  coordinatorPlan: coordinatorPlanSchema.optional(),
+  /** Phase B mid-loop throw markers (B.7 partial-detail-on-throw invariant). When set,
+   *  `slots` is truncated to length === completedSlotCount (NOT N-with-nulls). */
+  partialAt: z.number().int().min(0).optional(),
+  abortReason: z.string().optional(),
+  completedSlotCount: z.number().int().min(0).optional(),
+  /** Sequential Context-Aware Generation per-invocation counters (debug_performance_paragraph_recombine_20260612).
+   *  Sourced from runSequentialLoop's SequentialCounters; missing on the legacy parallel path.
+   *  Used by metric extractors to compute parent_fallback_rate, prior_picks_sanitization_count,
+   *  prior_picks_truncation_count. */
+  sequentialCounters: z.object({
+    parentFallbackCount: z.number().int().min(0),
+    skippedSlotCount: z.number().int().min(0),
+    rewrittenSlotCount: z.number().int().min(0),
+    priorPicksSanitizationCount: z.number().int().min(0),
+    priorPicksTruncationCount: z.number().int().min(0),
   }).optional(),
 });
 

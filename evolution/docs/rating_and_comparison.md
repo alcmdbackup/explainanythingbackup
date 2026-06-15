@@ -511,6 +511,19 @@ might bias the judge.
 > investigate_matchmaking_paragraph_recombine_20260528 to counter the judge's near-total
 > position bias on quality-equivalent paragraph rewrites (which froze per-slot Elo at 1200).
 
+> **Prior-picks-aware paragraph mode (sequential context-aware, debug_performance_paragraph_recombine_20260612).**
+> When `EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED='true'` (default), the agent
+> threads an optional `priorPicks?: readonly string[]` array through
+> `rankNewVariant` → `rankSingleVariant` → `compareWithBiasMitigation` →
+> `buildComparisonPrompt`. When present in paragraph mode, the prompt interpolates an
+> `<UNTRUSTED_PRIOR>` block (paragraphs 0..i-1 verbatim) BEFORE the Text A/Text B
+> framing — so the judge picks between candidate paragraphs WITH context on what
+> already flows into the article. The block is delimiter-tagged and sanitized via
+> `sanitizeForPriorContext` (REDACTS untrusted tag mirrors with
+> `[UNTRUSTED_TAG_REDACTED]`). The article-mode path, swiss, debate, generate, and
+> the legacy paragraph-mode default (no `priorPicks`) are byte-for-byte unchanged —
+> `priorPicks` is opt-in and only the sequential path passes it.
+
 In the reverse pass, the texts swap positions: what was Text A becomes Text B and vice
 versa. The `flipWinner()` function translates the reverse-pass response back to the
 original frame before aggregation.
