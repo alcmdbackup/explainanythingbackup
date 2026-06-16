@@ -59,10 +59,60 @@ Your answer:`;
     it('uses paragraph framing + paragraph-level criteria, drops article-scale criteria', () => {
       expect(p).toContain('SAME single paragraph');
       expect(p).toContain('Sentence fluency and rhythm');
-      expect(p).toContain('Fidelity');
       // Article-scale criteria are gone.
       expect(p).not.toContain('Structure and flow');
       expect(p).not.toContain('Overall effectiveness');
+    });
+
+    // investigate_sequential_paragraph_recombine_performance_20260615 Phase 1c-ii:
+    // Fidelity removed from the slot rubric. The article-level Elo we're optimizing
+    // does NOT reward parent-paragraph fidelity, and the Fidelity penalty was structurally
+    // keeping paragraph_recombine variants at 34-54% verbatim with parent.
+    it('does not include the Fidelity criterion (Phase 1c-ii regression guard)', () => {
+      expect(p).not.toContain('Fidelity');
+      expect(p).not.toContain('preserves the original claim');
+    });
+
+    // investigate_sequential_paragraph_recombine_performance_20260615 Phase 1c-iii:
+    // Split Clarity-and-concision into peer criteria, added Coherence, rebalanced
+    // Usefulness with "AND earns the words it costs". Together these kill the
+    // "death by padding" one-way ratchet (Usefulness rewards additions; nothing
+    // counterweighs them today).
+    it('includes the rebalanced criteria block (Phase 1c-iii regression guard)', () => {
+      // New peer criteria
+      expect(p).toContain('- Clarity —');
+      expect(p).toContain('- Conciseness —');
+      expect(p).toContain('- Coherence —');
+      // Rebalanced Usefulness
+      expect(p).toContain('Usefulness —');
+      expect(p).toContain('AND earns the words it costs');
+      // Old bundled form must NOT come back
+      expect(p).not.toContain('Clarity and concision —');
+    });
+
+    it('Phase 1c-iii criteria are unconditional (present regardless of priorPicks)', () => {
+      const withoutPrior = buildComparisonPrompt('AAA', 'BBB', 'paragraph');
+      const withPrior = buildComparisonPrompt('AAA', 'BBB', 'paragraph', undefined, false, ['prior 1', 'prior 2']);
+      for (const text of [withoutPrior, withPrior]) {
+        expect(text).toContain('- Clarity —');
+        expect(text).toContain('- Conciseness —');
+        expect(text).toContain('- Coherence —');
+      }
+      // Fit-with-prior-context IS conditional.
+      expect(withoutPrior).not.toContain('Fit with prior context');
+      expect(withPrior).toContain('Fit with prior context');
+    });
+
+    it('article-mode rubric is unaffected by Phase 1c-ii / 1c-iii edits', () => {
+      // Article mode must remain byte-equal to its baseline criteria block.
+      const a = buildComparisonPrompt('AAA', 'BBB', 'article');
+      expect(a).toContain('Clarity and readability');
+      expect(a).toContain('Structure and flow');
+      expect(a).toContain('Engagement and impact');
+      expect(a).toContain('Overall effectiveness');
+      // Article mode should NOT pick up paragraph-mode criteria.
+      expect(a).not.toContain('Conciseness —');
+      expect(a).not.toContain('Coherence —');
     });
 
     it('discourages TIE (counteracts over-tying)', () => {

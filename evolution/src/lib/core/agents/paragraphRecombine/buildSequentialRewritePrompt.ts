@@ -2,9 +2,16 @@
 // (debug_performance_paragraph_recombine_20260612). The prompt has TWO load-bearing
 // untrusted blocks: ORIGINAL PARAGRAPH i (the specific slot to rewrite) + PRIOR
 // CONTEXT (every previously chosen paragraph verbatim). The LLM rewrites block 1
-// only; it reads block 2 for voice + continuity. No numeric voice targets, no
-// explicit acronym/analogy enumeration — we trust the LLM to read PRIOR CONTEXT
-// and produce something that fits.
+// only; it reads block 2 for voice + continuity.
+//
+// investigate_sequential_paragraph_recombine_performance_20260615 Phase 1: added
+// an explicit CONTINUITY DIRECTIVE block (interpolated only when priorPicks.length > 0)
+// that enumerates the continuity dimensions the rewrite must honor — tone, register,
+// voice, metaphors, analogies, acronyms, vocabulary, cadence, discipline. The plain
+// "flow naturally from PRIOR CONTEXT" instruction was too soft; the new block makes
+// the dimensions concrete. Block is static instruction text, OUTSIDE any
+// <UNTRUSTED_*> tag — the priorPicks values themselves still live inside the
+// <UNTRUSTED_PRIOR> data block.
 
 /** Maximum chars of PRIOR CONTEXT to interpolate verbatim. When `priorPicks.join` is
  *  larger, truncate to the most-recent `MAX_PRIOR_PARAGRAPHS_FOR_CONTEXT` entries.
@@ -57,6 +64,27 @@ export function buildSequentialRewritePrompt(
     ? `\n(Note: PRIOR CONTEXT shows the last ${MAX_PRIOR_PARAGRAPHS_FOR_CONTEXT} paragraphs; the article has ${priorPicks.length} finalized paragraphs total.)\n`
     : '';
 
+  // Phase 1 — CONTINUITY DIRECTIVE block. Fires only when priorPicks.length > 0
+  // (slot 0 has nothing to continue). Static instruction text, outside any
+  // <UNTRUSTED_*> tag. The continuity dimensions are enumerated concretely so the
+  // LLM doesn't have to infer them.
+  const continuityDirective = priorPicks.length > 0
+    ? `
+CONTINUITY DIRECTIVE — match the article already established in PRIOR CONTEXT:
+- Tone & register: read PRIOR CONTEXT's tone (formal/playful/clinical/journalistic/literary) and match it. Do not shift register.
+- Voice & POV: keep the same narrator stance (objective third person, second-person address, first-person plural, etc.).
+- Metaphors: if PRIOR CONTEXT uses an extended metaphor or sustained imagery (e.g., nautical, architectural, biological), CONTINUE it. Do NOT introduce a new metaphor system. If PRIOR CONTEXT has no metaphors, do not add one here.
+- Analogies: do not repeat an analogy already used upstream. Do not introduce a new analogy if the article already has one.
+- Acronyms: if an acronym was defined in PRIOR CONTEXT, use the bare acronym here; do NOT redefine it. If not yet introduced, only define if you must use it.
+- Vocabulary: match the Latinate-vs-Anglo-Saxon balance, level of contractions (none / some / many), and use of jargon already established.
+- Sentence cadence: match the average sentence length and rhythm of PRIOR CONTEXT (long winding sentences vs short punchy ones).
+- Discipline: match the level of factual density, hedge language, and numeric specificity already established.
+
+Continuity overrides novelty when they conflict: a fresh idea that breaks voice is worse than a familiar idea that lands cleanly.
+
+`
+    : '';
+
   const prompt = `You are rewriting ${slotLabel} of ${totalParagraphs} in a longer article. The article so
 far (paragraphs 0 to ${paragraphIndex}) has been finalized and is included as PRIOR
 CONTEXT below. Your job: rewrite ONLY ${slotLabel} (shown below as ORIGINAL ${slotLabel.toUpperCase()}).
@@ -67,7 +95,7 @@ PRIOR CONTEXT — paragraphs 0..${paragraphIndex} already finalized (FOR REFEREN
 <UNTRUSTED_PRIOR>
 ${priorContextBlock}
 </UNTRUSTED_PRIOR>
-
+${continuityDirective}
 ORIGINAL ${slotLabel.toUpperCase()} — the SPECIFIC slot you are rewriting:
 <UNTRUSTED_PARENT>
 ${parentParagraph}
