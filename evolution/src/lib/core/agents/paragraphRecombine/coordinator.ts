@@ -21,6 +21,7 @@ import {
   type CoordinatorPlan,
 } from '../../../schemas';
 import { buildCoordinatorPrompt } from './buildCoordinatorPrompt';
+import { buildCoordinatorReplanPrompt } from './buildCoordinatorReplanPrompt';
 
 export class CoordinatorLLMError extends Error {
   readonly rawResponse?: string;
@@ -48,19 +49,49 @@ export type RunCoordinatorOptions = {
   llm: EvolutionLLMClient;
   generationModel: string;
   invocationId?: string;
+  /** investigate_sequential_paragraph_recombine_performance_20260615 Phase 2 (Fix 2):
+   *  REPLAN path. When BOTH `priorPicks` and `firstSlot` are provided AND `firstSlot > 0`,
+   *  the coordinator builds the replan prompt (buildCoordinatorReplanPrompt) instead of
+   *  the initial prompt, asking for a PARTIAL plan covering paragraphIndex in
+   *  [firstSlot, paragraphCount). Validation expects exactly `paragraphCount - firstSlot`
+   *  entries with each paragraphIndex in [firstSlot, paragraphCount). */
+  priorPicks?: readonly string[];
+  firstSlot?: number;
 };
 
 export type RunCoordinatorResult = {
   plan: CoordinatorPlan;
   retried: boolean;
   rawResponse: string;
+  /** Phase 2 (Fix 2): discriminator for the agent to persist alongside the plan
+   *  for forensics. 'initial' = up-front plan; 'replan' = mid-sequence re-plan. */
+  kind: 'initial' | 'replan';
 };
 
 export async function runCoordinator(opts: RunCoordinatorOptions): Promise<RunCoordinatorResult> {
-  const prompt = buildCoordinatorPrompt({
-    parentText: opts.parentText,
-    paragraphCount: opts.paragraphCount,
-  });
+  // Phase 2: select prompt + label + validation shape based on whether this is the
+  // initial plan or a mid-sequence replan.
+  const isReplan = opts.priorPicks !== undefined && opts.firstSlot !== undefined && opts.firstSlot > 0;
+  const kind: 'initial' | 'replan' = isReplan ? 'replan' : 'initial';
+  const firstSlot = isReplan ? opts.firstSlot! : 0;
+  const expectedSlotCount = opts.paragraphCount - firstSlot;
+  const prompt = isReplan
+    ? buildCoordinatorReplanPrompt({
+        parentText: opts.parentText,
+        paragraphCount: opts.paragraphCount,
+        priorPicks: opts.priorPicks!,
+        firstSlot,
+      })
+    : buildCoordinatorPrompt({
+        parentText: opts.parentText,
+        paragraphCount: opts.paragraphCount,
+      });
+
+  // Phase 2: split the LLM call label so cost-error tracking does not conflate
+  // the initial-plan call with the replan call.
+  const callLabel = isReplan
+    ? 'paragraph_recombine_coordinator_replan'
+    : 'paragraph_recombine_coordinator';
 
   const callOptions: LLMCompletionOptions = {
     model: opts.generationModel as LLMCompletionOptions['model'],
@@ -69,21 +100,21 @@ export async function runCoordinator(opts: RunCoordinatorOptions): Promise<RunCo
 
   let response: string;
   try {
-    response = await opts.llm.complete(prompt, 'paragraph_recombine_coordinator', callOptions);
+    response = await opts.llm.complete(prompt, callLabel, callOptions);
   } catch (err) {
     throw new CoordinatorLLMError(
       `Coordinator LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
-  const firstAttempt = parseAndValidate(response, opts.paragraphCount);
+  const firstAttempt = parseAndValidate(response, opts.paragraphCount, firstSlot);
   if (firstAttempt.ok) {
-    return { plan: firstAttempt.plan, retried: false, rawResponse: response };
+    return { plan: firstAttempt.plan, retried: false, rawResponse: response, kind };
   }
 
   let retryResponse: string;
   try {
-    retryResponse = await opts.llm.complete(prompt, 'paragraph_recombine_coordinator', callOptions);
+    retryResponse = await opts.llm.complete(prompt, callLabel, callOptions);
   } catch (err) {
     throw new CoordinatorLLMError(
       `Coordinator retry LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -91,9 +122,9 @@ export async function runCoordinator(opts: RunCoordinatorOptions): Promise<RunCo
     );
   }
 
-  const retryAttempt = parseAndValidate(retryResponse, opts.paragraphCount);
+  const retryAttempt = parseAndValidate(retryResponse, opts.paragraphCount, firstSlot);
   if (retryAttempt.ok) {
-    return { plan: retryAttempt.plan, retried: true, rawResponse: retryResponse };
+    return { plan: retryAttempt.plan, retried: true, rawResponse: retryResponse, kind };
   }
 
   throw new CoordinatorParseError(
@@ -102,13 +133,26 @@ export async function runCoordinator(opts: RunCoordinatorOptions): Promise<RunCo
     retryResponse,
     retryAttempt.error,
   );
+
+  // Reference expectedSlotCount so the parameter is consumed (unused-var lint).
+  void expectedSlotCount;
 }
 
 type ParseResult =
   | { ok: true; plan: CoordinatorPlan }
   | { ok: false; error: string };
 
-function parseAndValidate(rawResponse: string, expectedSlotCount: number): ParseResult {
+/** Parse + validate a coordinator plan response. Accepts both the initial-plan shape
+ *  (paragraphIndex range [0, paragraphCount), exactly paragraphCount entries) and the
+ *  replan shape (paragraphIndex range [firstSlot, paragraphCount), exactly
+ *  paragraphCount - firstSlot entries). Each entry's paragraphIndex must lie in the
+ *  expected range AND the entire range must be covered exactly once (no duplicates,
+ *  no gaps). Phase 2 — replan path validation. */
+function parseAndValidate(
+  rawResponse: string,
+  paragraphCount: number,
+  firstSlot: number,
+): ParseResult {
   // Strip common LLM wrappers: ```json ... ``` fences or "Return JSON:" preambles.
   const stripped = rawResponse
     .replace(/^```(?:json)?\s*/i, '')
@@ -130,14 +174,30 @@ function parseAndValidate(rawResponse: string, expectedSlotCount: number): Parse
     return { ok: false, error: `Zod validation: ${result.error.message}` };
   }
 
+  const expectedSlotCount = paragraphCount - firstSlot;
   if (result.data.paragraphPlans.length !== expectedSlotCount) {
     return {
       ok: false,
-      error: `Plan has ${result.data.paragraphPlans.length} entries; expected ${expectedSlotCount}`,
+      error: `Plan has ${result.data.paragraphPlans.length} entries; expected ${expectedSlotCount} (firstSlot=${firstSlot}, paragraphCount=${paragraphCount})`,
     };
   }
 
+  // Verify paragraphIndex range + uniqueness for the expected [firstSlot, paragraphCount) interval.
+  const seenIndices = new Set<number>();
   for (const plan of result.data.paragraphPlans) {
+    if (plan.paragraphIndex < firstSlot || plan.paragraphIndex >= paragraphCount) {
+      return {
+        ok: false,
+        error: `Paragraph index ${plan.paragraphIndex} out of expected range [${firstSlot}, ${paragraphCount})`,
+      };
+    }
+    if (seenIndices.has(plan.paragraphIndex)) {
+      return {
+        ok: false,
+        error: `Duplicate paragraphIndex ${plan.paragraphIndex} in plan`,
+      };
+    }
+    seenIndices.add(plan.paragraphIndex);
     if (plan.candidates.length !== plan.M) {
       return {
         ok: false,

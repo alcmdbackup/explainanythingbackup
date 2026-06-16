@@ -279,6 +279,9 @@ export class ParagraphRecombineAgent extends Agent<
 
     // Sequential coordinator detail accumulator (only populated on sequential path).
     let coordinatorPlan: CoordinatorPlan | undefined;
+    /** Phase 2 (Fix 2): post-replan merged plan, persisted alongside the original
+     *  coordinatorPlan in execution_detail for forensics. */
+    let coordinatorPlanReplanned: CoordinatorPlan | undefined;
     let coordinatorRetried = false;
     let coordinatorRawResponse: string | undefined;
     let coordinatorPartialAt: number | undefined;
@@ -329,6 +332,10 @@ export class ParagraphRecombineAgent extends Agent<
       // B.7 try/catch wraps the loop so a mid-loop throw persists execution_detail.slots[0..i-1]
       // + partialAt + abortReason + completedSlotCount BEFORE re-throwing.
       try {
+        // Phase 2 (Fix 2): mid-sequence coordinator replan is UNCONDITIONAL — the env
+        // flag was removed after the initial rollout validation. When the slot-0 success
+        // predicate holds inside the loop, the coordinator is called again with
+        // priorPicks + firstSlot=1 to re-strategize slots 1..N-1.
         const seqResult = await runSequentialLoop({
           slots,
           paragraphCount,
@@ -340,12 +347,18 @@ export class ParagraphRecombineAgent extends Agent<
           invocationScope,
           ctx,
           llm,
+          parentText,
+          generationModelForReplan: rewriteModelForProjector,
         });
         slotDetails = seqResult.slotDetails;
         for (const [idx, text] of seqResult.slotWinnerTexts) {
           slotWinnerTexts.set(idx, text);
         }
         sequentialCounters = seqResult.counters;
+        // Phase 2: persist the post-replan merged plan if it landed.
+        if (seqResult.mergedCoordinatorPlan !== undefined) {
+          coordinatorPlanReplanned = seqResult.mergedCoordinatorPlan;
+        }
       } catch (err) {
         const completed = slotDetails.length;
         coordinatorPartialAt = completed;
@@ -470,6 +483,7 @@ export class ParagraphRecombineAgent extends Agent<
           ...(coordinatorRawResponse !== undefined && { rawResponse: coordinatorRawResponse.slice(0, 4000) }),
         },
         ...(coordinatorPlan && { coordinatorPlan }),
+        ...(coordinatorPlanReplanned && { coordinatorPlanReplanned }),
         ...(sequentialCounters && { sequentialCounters }),
       }),
     };
@@ -874,11 +888,19 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
   // paragraph-level comparison prompt (B1, investigate_matchmaking_paragraph_recombine_20260528)
   // so the judge evaluates single paragraphs with paragraph-appropriate criteria. Article-level
   // ranking (Step 6) keeps ctx.config unmodified → 'article' mode.
-  // Rubric judging is ARTICLE-ONLY: strip judgeRubric so per-slot paragraph ranking
-  // keeps its specialized paragraph rubric (article dimensions like "structure" are
-  // mismatched at paragraph scale). structured_judging_evolution_20260610.
+  // Article rubric is stripped at slot level (article-shaped dimensions like "structure"
+  // don't apply at single-paragraph scale). investigate_sequential_paragraph_recombine_
+  // performance_20260615 Phase 1d (Fix 5b): if the strategy configured a
+  // paragraphJudgeRubric, attach it here so the slot judge uses paragraph-shaped
+  // dimensions instead of the hardcoded paragraph rubric. Undefined → hardcoded.
+  // See structured_judging_evolution_20260610 for the original strip rationale.
   const { judgeRubric: _droppedRubric, ...slotConfigNoRubric } = slotConfig;
-  const perSlotConfig = { ...slotConfigNoRubric, maxComparisonsPerVariant: maxComparisonsPerParagraph, comparisonMode: 'paragraph' as const };
+  const perSlotConfig = {
+    ...slotConfigNoRubric,
+    judgeRubric: slotConfig.paragraphJudgeRubric,
+    maxComparisonsPerVariant: maxComparisonsPerParagraph,
+    comparisonMode: 'paragraph' as const,
+  };
   const slotMatches: import('../../../pipeline/infra/types').V2Match[] = [];
   // Phase 9 retrofit R3: ranking calls inside this slot's loop get a
   // 'slot.N.ranking' subagent_name path.

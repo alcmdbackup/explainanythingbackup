@@ -874,6 +874,15 @@ const strategyConfigBaseSchema = z.object({
    *  a single holistic A/B/TIE. Strategy-level (applies to all ranking), config-hashed,
    *  validated by validateJudgeRubricId. Omit for holistic judging. */
   judgeRubricId: z.string().uuid().optional(),
+  /** investigate_sequential_paragraph_recombine_performance_20260615 Phase 1d (Fix 5b):
+   *  Optional rubric-set id for PER-PARAGRAPH rubric-based judging at the slot level
+   *  (paragraph_recombine). When set, the per-slot judge uses this rubric's dimensions
+   *  instead of the hardcoded paragraph rubric in computeRatings.ts. Independent of
+   *  judgeRubricId — that one applies to article-level ranking only (and is stripped
+   *  at slot level because article-shaped dimensions like "structure" don't apply at
+   *  single-paragraph scale). Strategy authors should design paragraph-shaped
+   *  dimensions here. Omit for the hardcoded default. */
+  paragraphJudgeRubricId: z.string().uuid().optional(),
   /** Phase 4 (gated, default OFF): named multi-judge escalation chain to use for ranking. Resolved in
    *  buildRunContext to an EnsembleRunner ONLY when EVOLUTION_JUDGE_ESCALATION_ENABLED !== 'false'.
    *  Omit (the default) for single-judge ranking — byte-identical to today. */
@@ -1050,6 +1059,15 @@ const evolutionConfigBaseSchema = z.object({
   /** Resolved rubric (dimensions + normalized weights + criteria text). Present only
    *  when judgeRubricId resolved AND the kill switch is on; undefined → holistic. */
   judgeRubric: z.custom<ResolvedJudgeRubric>().optional(),
+  /** Phase 1d (Fix 5b): per-paragraph rubric id from StrategyConfig. Resolved to
+   *  `paragraphJudgeRubric` in buildRunContext (same kill switch as the article rubric).
+   *  At slot level the article-rubric is stripped (article-shaped dimensions don't
+   *  apply at single-paragraph scale) and this one is attached instead. Omit → slot
+   *  judge falls back to the hardcoded paragraph rubric. */
+  paragraphJudgeRubricId: z.string().uuid().optional(),
+  /** Phase 1d: resolved per-paragraph rubric. Present only when paragraphJudgeRubricId
+   *  resolved AND EVOLUTION_RUBRIC_JUDGING_ENABLED is on; undefined → hardcoded paragraph rubric. */
+  paragraphJudgeRubric: z.custom<ResolvedJudgeRubric>().optional(),
   /** Named ensemble chain id (from StrategyConfig). Resolved to `ensemble` in buildRunContext. */
   ensembleConfigId: z.string().optional(),
   /** Resolved ensemble chain + aggregation rule. Present ONLY when ensembleConfigId resolved AND the
@@ -2408,7 +2426,26 @@ export const slotRecombineExecutionDetailSchema = executionDetailBaseSchema.exte
     rewrittenSlotCount: z.number().int().min(0),
     priorPicksSanitizationCount: z.number().int().min(0),
     priorPicksTruncationCount: z.number().int().min(0),
+    // investigate_sequential_paragraph_recombine_performance_20260615 Phase 1c-i:
+    // Forward-context counters mirror the priorPicks* counters. Default 0 so
+    // historical execution_detail rows (which predate Phase 1c-i) remain valid.
+    nextPicksSanitizationCount: z.number().int().min(0).default(0),
+    nextPicksTruncationCount: z.number().int().min(0).default(0),
+    // investigate_sequential_paragraph_recombine_performance_20260615 Phase 2 (Fix 2):
+    // Replan counters. 0 or 1 per invocation today; the .max(1) cap may grow to N
+    // in a future "replan every K slots" iteration.
+    replanCount: z.number().int().min(0).max(1).default(0),
+    replanFailureCount: z.number().int().min(0).max(1).default(0),
+    replanSkippedCount: z.number().int().min(0).max(1).default(0),
+    replanSkippedReason: z.enum([
+      'single_slot', 'budget_exhausted',
+      'slot0_all_failed', 'slot0_parent_won', 'budget_floor',
+    ]).optional(),
   }).optional(),
+  /** Phase 2 (Fix 2): post-replan merged coordinator plan. Present only when the
+   *  replan ran AND succeeded. The original (pre-replan) plan stays in
+   *  `coordinatorPlan` for forensics. */
+  coordinatorPlanReplanned: coordinatorPlanSchema.optional(),
 });
 
 export type SlotRecombineExecutionDetail = z.infer<typeof slotRecombineExecutionDetailSchema>;

@@ -261,6 +261,9 @@ export interface RankSingleVariantParams {
    *  when provided AND `config.comparisonMode === 'paragraph'`, forwarded to
    *  `compareWithBiasMitigation` so the judge prompt interpolates a PRIOR CONTEXT block. */
   priorPicks?: readonly string[];
+  /** Phase 1c-i (Fix 4): forwarded to `compareWithBiasMitigation` so the judge prompt
+   *  interpolates a NEXT CONTEXT block + Setup criterion. Ignored for article mode. */
+  nextContext?: readonly string[];
 }
 
 /**
@@ -278,7 +281,7 @@ export async function rankSingleVariant(
 ): Promise<RankSingleVariantResult> {
   const {
     variant, pool, ratings, matchCounts, completedPairs,
-    cache, llm, config, invocationId, logger, priorPicks,
+    cache, llm, config, invocationId, logger, priorPicks, nextContext,
   } = params;
 
   const matchBuffer: V2Match[] = [];
@@ -352,6 +355,7 @@ export async function rankSingleVariant(
           config.judgeRubric,
           ensembleRunner,
           priorPicks,
+          nextContext,
         );
       } catch (e) {
         if (e instanceof BudgetExceededError) {

@@ -6,6 +6,7 @@ import type { EvolutionConfig } from '../infra/types';
 import type { Rating } from '../../shared/computeRatings';
 import { dbToRating, _INTERNAL_DEFAULT_MU, _INTERNAL_DEFAULT_SIGMA } from '../../shared/computeRatings';
 import { getJudgeRubricForEvaluation } from '../../../services/judgeRubricActions';
+import type { ResolvedJudgeRubric } from '../../shared/rubricJudge';
 import { resolveEnsembleConfig } from '../../shared/judgeEnsemble/chainRegistry';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { createEntityLogger } from '../infra/createEntityLogger';
@@ -390,6 +391,29 @@ export async function buildRunContext(
       ? (await getJudgeRubricForEvaluation(db, stratConfig.judgeRubricId)) ?? undefined
       : undefined;
 
+  // investigate_sequential_paragraph_recombine_performance_20260615 Phase 1d (Fix 5b):
+  // Resolve the strategy's paragraphJudgeRubricId the same way as the article rubric.
+  // Same kill switch — flipping EVOLUTION_RUBRIC_JUDGING_ENABLED='false' disables BOTH.
+  // If the id is set but resolution returns null (rubric was deleted/archived between
+  // strategy create and run time), log a warn and fall back to the hardcoded paragraph
+  // rubric so the run still proceeds rather than failing.
+  let paragraphJudgeRubric: ResolvedJudgeRubric | undefined;
+  if (rubricEnabled && stratConfig.paragraphJudgeRubricId) {
+    const resolved = await getJudgeRubricForEvaluation(db, stratConfig.paragraphJudgeRubricId);
+    if (resolved) {
+      paragraphJudgeRubric = resolved;
+    } else {
+      // TOCTOU silent-fallback observability — operator sees the fallback in logs.
+      // Without this, a deleted rubric would silently revert to the hardcoded one
+      // with no signal to the operator.
+      console.warn(
+        '[buildRunContext] paragraphJudgeRubricId set but rubric did not resolve; ' +
+        'falling back to hardcoded paragraph rubric',
+        { paragraphJudgeRubricId: stratConfig.paragraphJudgeRubricId, runId: claimedRun.id },
+      );
+    }
+  }
+
   // Multi-judge escalation in the PROD ranking path (judge_escalation_prod_wiring_phase4). GATED,
   // DEFAULT OFF: resolve the strategy's ensembleConfigId to a chain + rule ONLY when the kill switch
   // is explicitly 'true'. Unset/'false'/anything-else → undefined → byte-identical single-judge
@@ -406,6 +430,8 @@ export async function buildRunContext(
     judgeModel: stratConfig.judgeModel,
     judgeRubricId: stratConfig.judgeRubricId,
     judgeRubric,
+    paragraphJudgeRubricId: stratConfig.paragraphJudgeRubricId,
+    paragraphJudgeRubric,
     ensembleConfigId: stratConfig.ensembleConfigId,
     ensemble,
     generationModel: stratConfig.generationModel,

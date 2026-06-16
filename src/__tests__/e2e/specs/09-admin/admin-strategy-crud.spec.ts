@@ -89,6 +89,35 @@ adminTest.describe('Strategy Registry CRUD', () => {
     await expect(adminPage.locator('[data-testid="entity-list-table"]').getByText(testStrategyName)).toBeVisible({ timeout: 15000 });
   });
 
+  // investigate_sequential_paragraph_recombine_performance_20260615 Phase 1d (Fix 5b):
+  // The strategy wizard exposes TWO independent rubric dropdowns — Judge Rubric
+  // (article-level) and the new Paragraph Judge Rubric (slot-level for
+  // paragraph_recombine). Strategy authors must be able to set them distinctly.
+  adminTest('wizard exposes paragraph-judge-rubric dropdown distinct from judge-rubric (Phase 1d)', { tag: '@evolution' }, async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/strategies/new', { timeout: 30000 });
+
+    // Wait for the form to render — generation-model is the first select on Step 1.
+    await adminPage.waitForSelector('#generation-model', { timeout: 15000 });
+
+    // Both rubric pickers must be present and BE DISTINCT elements.
+    const judgeRubric = adminPage.locator('[data-testid="judge-rubric-select"]');
+    const paragraphJudgeRubric = adminPage.locator('[data-testid="paragraph-judge-rubric-select"]');
+    await expect(judgeRubric).toBeVisible({ timeout: 15000 });
+    await expect(paragraphJudgeRubric).toBeVisible({ timeout: 15000 });
+
+    // The two dropdowns are independent — they're different DOM elements with
+    // different ids. Counting matches must give exactly one of each.
+    await expect(judgeRubric).toHaveCount(1);
+    await expect(paragraphJudgeRubric).toHaveCount(1);
+
+    // The paragraph picker's default option telegraphs the hardcoded fallback rubric
+    // (Phase 1c-iii criteria — Coherence + Conciseness in particular), steering
+    // custom-rubric authors toward similar paragraph-shaped dimensions.
+    await expect(paragraphJudgeRubric).toContainText('Default paragraph rubric');
+    await expect(paragraphJudgeRubric).toContainText('Conciseness');
+    await expect(paragraphJudgeRubric).toContainText('Coherence');
+  });
+
   adminTest('model dropdown includes gpt-oss-20b without slash', async ({ adminPage }) => {
     // Strategy creation moved from dialog to wizard page (/strategies/new)
     await adminPage.goto('/admin/evolution/strategies/new', { timeout: 30000 });
