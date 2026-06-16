@@ -2431,7 +2431,21 @@ export const slotRecombineExecutionDetailSchema = executionDetailBaseSchema.exte
     // historical execution_detail rows (which predate Phase 1c-i) remain valid.
     nextPicksSanitizationCount: z.number().int().min(0).default(0),
     nextPicksTruncationCount: z.number().int().min(0).default(0),
+    // investigate_sequential_paragraph_recombine_performance_20260615 Phase 2 (Fix 2):
+    // Replan counters. 0 or 1 per invocation today; the .max(1) cap may grow to N
+    // in a future "replan every K slots" iteration.
+    replanCount: z.number().int().min(0).max(1).default(0),
+    replanFailureCount: z.number().int().min(0).max(1).default(0),
+    replanSkippedCount: z.number().int().min(0).max(1).default(0),
+    replanSkippedReason: z.enum([
+      'disabled', 'single_slot', 'budget_exhausted',
+      'slot0_all_failed', 'slot0_parent_won', 'budget_floor',
+    ]).optional(),
   }).optional(),
+  /** Phase 2 (Fix 2): post-replan merged coordinator plan. Present only when the
+   *  replan ran AND succeeded. The original (pre-replan) plan stays in
+   *  `coordinatorPlan` for forensics. */
+  coordinatorPlanReplanned: coordinatorPlanSchema.optional(),
 });
 
 export type SlotRecombineExecutionDetail = z.infer<typeof slotRecombineExecutionDetailSchema>;

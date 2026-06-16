@@ -27,6 +27,17 @@ import {
 import { buildSequentialRewritePrompt } from './buildSequentialRewritePrompt';
 import { sanitizeForPriorContext, containsDelimiterMirror } from './promptSafety';
 import { estimateParagraphRecombineCost } from '../../../pipeline/infra/estimateCosts';
+import { runCoordinator, CoordinatorLLMError, CoordinatorParseError } from './coordinator';
+
+/** Phase 2 (Fix 2): projected cost of one mid-sequence replan coordinator call.
+ *  Used by the budget-floor gate to skip replan when we can't afford it. */
+export const PROJECTED_REPLAN_COST_USD = 0.0014;
+
+/** Phase 2 (Fix 2): minimum per-invocation cap below which replan is skipped even
+ *  when the env flag is on. Derived from the existing low-cap threshold + the
+ *  projected replan cost with a 10× safety margin to avoid pushing the next slot
+ *  into budget-exhausted fallback. */
+export const REPLAN_MIN_CAP_USD = 0.030;
 
 export type SequentialCounters = {
   parentFallbackCount: number;
@@ -39,6 +50,15 @@ export type SequentialCounters = {
    *  counters so the admin slot-leaderboard surfaces them in the same panel. */
   nextPicksSanitizationCount: number;
   nextPicksTruncationCount: number;
+  /** investigate_sequential_paragraph_recombine_performance_20260615 Phase 2 (Fix 2):
+   *  Replan counters. Currently 0 or 1 per invocation (replan fires once after slot 0
+   *  succeeds); the .max(1) cap may grow to N in a future "replan every K slots"
+   *  iteration. replanSkippedReason is set when replan was eligible but skipped. */
+  replanCount: number;
+  replanFailureCount: number;
+  replanSkippedCount: number;
+  replanSkippedReason?: 'disabled' | 'single_slot' | 'budget_exhausted' |
+    'slot0_all_failed' | 'slot0_parent_won' | 'budget_floor';
 };
 
 export type SequentialLoopResult = {
@@ -50,6 +70,10 @@ export type SequentialLoopResult = {
    *  which generation stopped. Slots from this index onward are recorded with
    *  `discardReason.failurePoint = 'budget_exhausted'` (mapped to slot_budget enum). */
   budgetExhaustedAt?: number;
+  /** Phase 2 (Fix 2): the post-replan merged coordinator plan when replan ran AND
+   *  succeeded. The agent persists this as execution_detail.coordinatorPlanReplanned
+   *  alongside the original (pre-replan) plan in execution_detail.coordinatorPlan. */
+  mergedCoordinatorPlan?: CoordinatorPlan;
 };
 
 export type SequentialLoopParams = {
@@ -63,14 +87,30 @@ export type SequentialLoopParams = {
   invocationScope: AgentCostScope;
   ctx: AgentContext;
   llm: EvolutionLLMClient;
+  /** Phase 2 (Fix 2): when true AND the slot-0 success predicate holds, call the
+   *  coordinator a second time after slot 0 finalizes with priorPicks=[slot 0 winner]
+   *  + firstSlot=1 so the remaining slots' directives can match the chosen opener.
+   *  Default false (env flag EVOLUTION_PARAGRAPH_RECOMBINE_REPLAN_ENABLED). */
+  replanEnabled?: boolean;
+  /** Phase 2: parent article text passed to the replan coordinator. Required when
+   *  replanEnabled is true; ignored otherwise. The original buildCoordinatorPrompt
+   *  already received it in the agent layer — the replan path needs it here too. */
+  parentText?: string;
+  /** Phase 2: model used for the replan call. Required when replanEnabled is true. */
+  generationModelForReplan?: string;
 };
 
 export async function runSequentialLoop(params: SequentialLoopParams): Promise<SequentialLoopResult> {
   const {
-    slots, paragraphCount, parentVariantId, coordinatorPlan,
+    slots, paragraphCount, parentVariantId,
     perInvocationCapUsd, rewriteModel, judgeModel,
     invocationScope, ctx, llm,
+    replanEnabled, parentText, generationModelForReplan,
   } = params;
+  // coordinatorPlan is `let` so we can mutate-by-rebind after a successful replan
+  // (immutability invariant preserved — we never mutate the original plan in place).
+  let { coordinatorPlan } = params;
+  let mergedCoordinatorPlan: CoordinatorPlan | undefined;
 
   const slotDetails: SlotRecombineExecutionDetail['slots'] = [];
   const slotWinnerTexts = new Map<number, string>();
@@ -83,6 +123,9 @@ export async function runSequentialLoop(params: SequentialLoopParams): Promise<S
     priorPicksTruncationCount: 0,
     nextPicksSanitizationCount: 0,
     nextPicksTruncationCount: 0,
+    replanCount: 0,
+    replanFailureCount: 0,
+    replanSkippedCount: 0,
   };
 
   // Per-round amortized cost projection (used by the budget gate). Re-computed once.
@@ -169,6 +212,75 @@ export async function runSequentialLoop(params: SequentialLoopParams): Promise<S
     } else {
       counters.rewrittenSlotCount++;
     }
+
+    // ─── Phase 2 (Fix 2): mid-sequence coordinator replan ─────────
+    // Fires ONLY after slot 0 finalizes (i === 0) when ALL of the success-predicate
+    // conditions hold. Iter-1 architecture review pinned the predicate explicitly
+    // here; see planning doc Phase 2c. The call is wrapped in a try/catch so neither
+    // CoordinatorLLMError nor CoordinatorParseError can propagate to the agent's
+    // Phase B catch (which would discard slot 0's work and trigger partial-detail-on-throw).
+    if (i === 0) {
+      if (!replanEnabled) {
+        counters.replanSkippedCount = 1;
+        counters.replanSkippedReason = 'disabled';
+      } else if (slots.length <= 1) {
+        counters.replanSkippedCount = 1;
+        counters.replanSkippedReason = 'single_slot';
+      } else if (budgetExhaustedAt !== undefined) {
+        counters.replanSkippedCount = 1;
+        counters.replanSkippedReason = 'budget_exhausted';
+      } else if (result.allRewritesFailed) {
+        counters.replanSkippedCount = 1;
+        counters.replanSkippedReason = 'slot0_all_failed';
+      } else if (result.winnerIsOriginal) {
+        counters.replanSkippedCount = 1;
+        counters.replanSkippedReason = 'slot0_parent_won';
+      } else if (
+        perInvocationCapUsd < REPLAN_MIN_CAP_USD
+        || (perInvocationCapUsd - invocationScope.getOwnSpent!()) < PROJECTED_REPLAN_COST_USD * 2.0
+      ) {
+        counters.replanSkippedCount = 1;
+        counters.replanSkippedReason = 'budget_floor';
+      } else if (parentText !== undefined && generationModelForReplan !== undefined) {
+        try {
+          const replanResult = await runCoordinator({
+            parentText,
+            paragraphCount,
+            llm,
+            generationModel: generationModelForReplan,
+            ...(ctx.invocationId !== '' && { invocationId: ctx.invocationId }),
+            priorPicks,
+            firstSlot: 1,
+          });
+          // paragraphIndex-keyed merge: keep coordinatorPlan entries for index 0
+          // (slot 0's plan) and slots whose replan output didn't cover them; replace
+          // every entry whose paragraphIndex is covered by the replan plan.
+          const replanByIndex = new Map<number, CoordinatorPlan['paragraphPlans'][number]>();
+          for (const entry of replanResult.plan.paragraphPlans) {
+            replanByIndex.set(entry.paragraphIndex, entry);
+          }
+          const mergedPlans = coordinatorPlan.paragraphPlans.map((entry) =>
+            replanByIndex.get(entry.paragraphIndex) ?? entry,
+          );
+          // Build a NEW plan reference (do not mutate the original).
+          mergedCoordinatorPlan = { ...coordinatorPlan, paragraphPlans: mergedPlans };
+          coordinatorPlan = mergedCoordinatorPlan;
+          counters.replanCount = 1;
+        } catch (err) {
+          // BOTH CoordinatorLLMError AND CoordinatorParseError land here — do NOT
+          // re-throw. The slot 0 work is preserved; loop continues with the
+          // original plan. Log enough detail for postmortem.
+          counters.replanFailureCount = 1;
+          const isParse = err instanceof CoordinatorParseError;
+          const isLLM = err instanceof CoordinatorLLMError;
+          ctx.logger.warn?.('paragraph_recombine: replan failed, falling back to original plan', {
+            errorKind: isParse ? 'parse' : isLLM ? 'llm' : 'unknown',
+            error: err instanceof Error ? err.message : String(err),
+            ...(isParse && { parseError: (err as CoordinatorParseError).parseError }),
+          });
+        }
+      }
+    }
   }
 
   const result: SequentialLoopResult = {
@@ -179,6 +291,9 @@ export async function runSequentialLoop(params: SequentialLoopParams): Promise<S
   };
   if (budgetExhaustedAt !== undefined) {
     result.budgetExhaustedAt = budgetExhaustedAt;
+  }
+  if (mergedCoordinatorPlan !== undefined) {
+    result.mergedCoordinatorPlan = mergedCoordinatorPlan;
   }
   return result;
 }
