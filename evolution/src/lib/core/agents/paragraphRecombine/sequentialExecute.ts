@@ -34,6 +34,11 @@ export type SequentialCounters = {
   rewrittenSlotCount: number;
   priorPicksSanitizationCount: number;
   priorPicksTruncationCount: number;
+  /** investigate_sequential_paragraph_recombine_performance_20260615 Phase 1c-i:
+   *  counters for the new forward-context (nextContext) path. Mirror the priorPicks*
+   *  counters so the admin slot-leaderboard surfaces them in the same panel. */
+  nextPicksSanitizationCount: number;
+  nextPicksTruncationCount: number;
 };
 
 export type SequentialLoopResult = {
@@ -76,6 +81,8 @@ export async function runSequentialLoop(params: SequentialLoopParams): Promise<S
     rewrittenSlotCount: 0,
     priorPicksSanitizationCount: 0,
     priorPicksTruncationCount: 0,
+    nextPicksSanitizationCount: 0,
+    nextPicksTruncationCount: 0,
   };
 
   // Per-round amortized cost projection (used by the budget gate). Re-computed once.
@@ -127,12 +134,24 @@ export async function runSequentialLoop(params: SequentialLoopParams): Promise<S
       break;
     }
 
+    // Phase 1c-i — compute forward parent context for the slot judge. Sanitize each
+    // entry the same way priorPicks are sanitized (delimiter-tag redaction); the
+    // builder does NOT re-sanitize. Counter increment mirrors the priorPicks path.
+    const nextContext: string[] = [];
+    for (let j = i + 1; j < slots.length; j++) {
+      const remaining = slots[j]!;
+      const { sanitized, redacted } = sanitizeForPriorContext(remaining.originalText);
+      if (redacted) counters.nextPicksSanitizationCount++;
+      nextContext.push(sanitized);
+    }
+
     // 3-9. Process the round: generate M variations + judge + pick winner.
     const result = await processSequentialRound({
       slot,
       paragraphPlan,
       paragraphCount,
       priorPicks,
+      nextContext,
       parentVariantId,
       perInvocationCapUsd,
       invocationScope,
@@ -205,6 +224,8 @@ type ProcessSequentialRoundParams = {
   paragraphPlan: CoordinatorPlan['paragraphPlans'][number] | undefined;
   paragraphCount: number;
   priorPicks: readonly string[];
+  /** Phase 1c-i (Fix 4): forward parent context (sanitized) for the slot judge. */
+  nextContext: readonly string[];
   parentVariantId: string;
   perInvocationCapUsd: number;
   invocationScope: AgentCostScope;
@@ -223,7 +244,7 @@ async function processSequentialRound(
   params: ProcessSequentialRoundParams,
 ): Promise<ProcessSequentialRoundResult> {
   const {
-    slot, paragraphPlan, paragraphCount, priorPicks, parentVariantId,
+    slot, paragraphPlan, paragraphCount, priorPicks, nextContext, parentVariantId,
     perInvocationCapUsd, invocationScope, ctx, llm,
   } = params;
 
@@ -476,6 +497,7 @@ async function processSequentialRound(
         logger: rankingLogger,
         costTracker: slotScope,
         priorPicks,
+        nextContext,
       });
       for (const match of result.rankResult.matches) {
         const aBefore = beforeRatings.get(match.winnerId) ?? createRating();

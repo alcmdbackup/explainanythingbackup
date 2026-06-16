@@ -38,6 +38,12 @@ export interface RankNewVariantInput {
    *  variation that fits best given prior picks, not just the best in isolation. Ignored
    *  for article-mode comparisons. */
   priorPicks?: readonly string[];
+  /** investigate_sequential_paragraph_recombine_performance_20260615 Phase 1c-i (Fix 4):
+   *  forward parent context — paragraphs N+1..K of the parent article that come AFTER
+   *  the current slot. Lets the judge score "does this candidate hand off cleanly into
+   *  the article's continuation?" without article-level rerunning. Threaded all the way
+   *  to buildComparisonPrompt + buildRubricComparisonPrompt. Ignored for article mode. */
+  nextContext?: readonly string[];
 }
 
 export interface RankNewVariantResult {
@@ -69,6 +75,7 @@ export async function rankNewVariant({
   logger,
   costTracker,
   priorPicks,
+  nextContext,
 }: RankNewVariantInput): Promise<RankNewVariantResult> {
   localPool.push(variant);
   localRatings.set(variant.id, createRating());
@@ -93,6 +100,7 @@ export async function rankNewVariant({
     invocationId,
     logger,
     ...(priorPicks !== undefined && { priorPicks }),
+    ...(nextContext !== undefined && { nextContext }),
   });
 
   const rankingCost = getOwn() - costBeforeRank;

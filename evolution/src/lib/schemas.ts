@@ -2408,6 +2408,11 @@ export const slotRecombineExecutionDetailSchema = executionDetailBaseSchema.exte
     rewrittenSlotCount: z.number().int().min(0),
     priorPicksSanitizationCount: z.number().int().min(0),
     priorPicksTruncationCount: z.number().int().min(0),
+    // investigate_sequential_paragraph_recombine_performance_20260615 Phase 1c-i:
+    // Forward-context counters mirror the priorPicks* counters. Default 0 so
+    // historical execution_detail rows (which predate Phase 1c-i) remain valid.
+    nextPicksSanitizationCount: z.number().int().min(0).default(0),
+    nextPicksTruncationCount: z.number().int().min(0).default(0),
   }).optional(),
 });
 
