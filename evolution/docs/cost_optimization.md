@@ -338,6 +338,10 @@ The new run-level metrics that paragraph_recombine joins automatically (no final
 - `estimated_cost` — top-level projector `expected`.
 - New per-phase rollups: `paragraph_rewrite_estimation_error_pct`, `paragraph_rank_estimation_error_pct` + their `avg_*` propagation to strategy/experiment.
 
+#### Option L — Coordinator mid-sequence replan (investigate_sequential_paragraph_recombine_performance_20260615 Phase 2)
+
+After slot 0 finalizes, optionally re-call the coordinator with `priorPicks + firstSlot=1` so slots 1..N-1's directives can match the chosen opener voice. Env-gated by `EVOLUTION_PARAGRAPH_RECOMBINE_REPLAN_ENABLED` (default `'false'`). Cost impact: **~$0.0014 per invocation** when enabled — one additional `paragraph_recombine_coordinator_replan` LLM call (label split from the initial coordinator so cost-error tracking attributes them distinctly). Auto-disabled when `perInvocationCapUsd < REPLAN_MIN_CAP_USD = 0.030` to avoid pushing the next slot into budget-exhausted fallback. **Projector NOT updated in this iteration** — `estimateParagraphRecombineCost` will under-project by the replan cost when the flag is on; tracked as the next item on this project's backlog. Counters surface via `execution_detail.sequentialCounters.{replanCount, replanFailureCount, replanSkippedCount, replanSkippedReason}`. See `evolution/docs/paragraph_recombine.md` Sequential perf tuning section for the full design.
+
 ### Budget-Aware Dispatch
 
 The orchestrator computes two budget floors from strategy config:
