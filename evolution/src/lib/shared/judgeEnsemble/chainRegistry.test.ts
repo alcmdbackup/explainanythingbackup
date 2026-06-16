@@ -14,11 +14,20 @@ describe('chainRegistry', () => {
     expect(cfg!.rule.version).toBe(1);
   });
 
+  it('resolves the gemini tie-breaker config (gemini lead → gpt-4o-mini [→ deepseek-v4-pro])', () => {
+    const cfg = resolveEnsembleConfig('gemini-tiebreak-v1');
+    expect(cfg).not.toBeNull();
+    // gemini-2.5-flash-lite leads both modes (the incumbent judge); gpt-4o-mini is the partner.
+    expect(cfg!.chain.models.article).toEqual(['google/gemini-2.5-flash-lite', 'gpt-4o-mini']);
+    expect(cfg!.chain.models.paragraph).toEqual(['google/gemini-2.5-flash-lite', 'gpt-4o-mini', 'deepseek-v4-pro']);
+    expect(cfg!.rule.id).toBe('first_decisive');
+  });
+
   it('returns null for an unknown id', () => {
     expect(resolveEnsembleConfig('does-not-exist')).toBeNull();
   });
 
   it('lists the known ids', () => {
-    expect(listEnsembleConfigIds()).toContain('cheap-escalation-v1');
+    expect(listEnsembleConfigIds()).toEqual(expect.arrayContaining(['cheap-escalation-v1', 'gemini-tiebreak-v1']));
   });
 });
