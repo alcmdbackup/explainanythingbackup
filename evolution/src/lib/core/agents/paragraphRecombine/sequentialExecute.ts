@@ -463,10 +463,20 @@ async function processSequentialRound(
   }
 
   // ─── Sequential per-slot ranking with PRIOR CONTEXT (B.6) ────────
+  // investigate_sequential_paragraph_recombine_performance_20260615 Phase 1d (Fix 5b):
+  // Article rubric is stripped at slot level (article-shaped dimensions don't apply at
+  // single-paragraph scale). Slot level uses the optional paragraphJudgeRubric if the
+  // strategy configured one; else undefined → judge falls back to the hardcoded
+  // paragraph rubric (with Phase 1c-ii + 1c-iii edits applied). See structured_judging_
+  // evolution_20260610 for the original strip rationale.
   const slotConfig = ctx.config;
-  const slotConfigNoRubric = { ...slotConfig };
-  delete (slotConfigNoRubric as { judgeRubric?: unknown }).judgeRubric;
-  const perSlotConfig = { ...slotConfigNoRubric, maxComparisonsPerVariant: 6, comparisonMode: 'paragraph' as const };
+  const { judgeRubric: _droppedArticleRubric, ...slotConfigNoRubric } = slotConfig;
+  const perSlotConfig = {
+    ...slotConfigNoRubric,
+    judgeRubric: slotConfig.paragraphJudgeRubric,
+    maxComparisonsPerVariant: 6,
+    comparisonMode: 'paragraph' as const,
+  };
   const slotMatches: import('../../../pipeline/infra/types').V2Match[] = [];
   const rankingLogger = slotLogger.child?.('ranking') ?? slotLogger;
   const toRankLabel = (label: string): 'paragraph_rank' | typeof label =>

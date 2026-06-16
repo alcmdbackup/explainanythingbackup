@@ -117,6 +117,9 @@ interface StrategyFormState {
   judgeModel: string;
   /** Optional rubric-set id for rubric-based judging. Empty → holistic judging. */
   judgeRubricId: string;
+  /** Phase 1d (Fix 5b): per-paragraph rubric-set id. Empty → hardcoded paragraph
+   *  rubric. Distinct from judgeRubricId — that one applies at article level only. */
+  paragraphJudgeRubricId: string;
   /** Iterative-editing Proposer model. Empty string → falls back to generationModel. */
   editingModel: string;
   /** Iterative-editing Approver model. Empty string → falls back to editingModel.
@@ -440,6 +443,7 @@ export default function NewStrategyPage(): JSX.Element {
     generationModel: '',
     judgeModel: DEFAULT_JUDGE_MODEL,
     judgeRubricId: '',
+    paragraphJudgeRubricId: '',
     editingModel: '',
     approverModel: '',
     generationTemperature: '',
@@ -791,6 +795,7 @@ export default function NewStrategyPage(): JSX.Element {
         generationModel: form.generationModel,
         judgeModel: form.judgeModel,
         judgeRubricId: form.judgeRubricId || undefined,
+        paragraphJudgeRubricId: form.paragraphJudgeRubricId || undefined,
         editingModel: form.editingModel || undefined,
         approverModel: form.approverModel || undefined,
         budgetUsd: parseFloat(form.budgetUsd),
@@ -927,6 +932,38 @@ export default function NewStrategyPage(): JSX.Element {
                       <option key={r.id} value={r.id}>{r.name} ({r.dimension_count} dims)</option>
                     ))}
                   </select>
+                  <p className="text-xs text-[var(--text-muted)] mt-1">
+                    Used for ARTICLE-level ranking. The hardcoded article rubric
+                    (Clarity / Structure / Engagement / Style / Effectiveness) is
+                    used when no rubric is selected.
+                  </p>
+                </div>
+                <div>
+                  <label htmlFor="paragraph-judge-rubric" className={labelClasses}>
+                    Paragraph Judge Rubric (optional)
+                  </label>
+                  <select
+                    id="paragraph-judge-rubric"
+                    data-testid="paragraph-judge-rubric-select"
+                    value={form.paragraphJudgeRubricId}
+                    onChange={e => updateForm({ paragraphJudgeRubricId: e.target.value })}
+                    className={inputCls(false)}
+                  >
+                    <option value="">Default paragraph rubric (Clarity, Conciseness, Coherence, Sentence fluency, Usefulness (cost-balanced), Fit with prior context, Setup)</option>
+                    {availableRubrics.map(r => (
+                      <option key={r.id} value={r.id}>{r.name} ({r.dimension_count} dims)</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-[var(--text-muted)] mt-1">
+                    Used by per-slot paragraph ranking in paragraph_recombine. Design dimensions
+                    that apply to a single paragraph (avoid article-scaled criteria like
+                    &quot;overall structure&quot;). The Default rubric covers Clarity, Conciseness,
+                    Coherence, Sentence fluency, Usefulness (cost-balanced), Fit with prior
+                    context, and Setup of the next paragraph — custom rubrics should consider
+                    including similar paragraph-shaped dimensions, especially Conciseness and
+                    Coherence which guard against paragraph-by-paragraph padding accumulation.
+                    Leave on Default to use the built-in rubric.
+                  </p>
                 </div>
               </div>
 

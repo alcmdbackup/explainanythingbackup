@@ -36,6 +36,8 @@ const createStrategySchema = z.object({
   judgeModel: z.string().min(1).max(100),
   /** Optional rubric-set id for rubric-based pairwise judging (validated below). */
   judgeRubricId: z.string().uuid().optional(),
+  /** Phase 1d (Fix 5b): optional per-paragraph rubric-set id (validated below). */
+  paragraphJudgeRubricId: z.string().uuid().optional(),
   /** Iterative-editing Proposer model (optional). Falls back to generationModel at runtime. */
   editingModel: z.string().max(100).optional(),
   /** Iterative-editing Approver model (optional). Falls back to editingModel (which falls back
@@ -173,11 +175,19 @@ export const createStrategyAction = adminAction(
       const { validateJudgeRubricId } = await import('./judgeRubricActions');
       await validateJudgeRubricId(parsed.judgeRubricId, ctx.supabase);
     }
+    // Phase 1d (Fix 5b): validate the paragraph rubric the same way. Reuses the same
+    // helper — rubrics in evolution_judge_rubrics are not typed by article/paragraph,
+    // strategy author picks which to use where.
+    if (parsed.paragraphJudgeRubricId) {
+      const { validateJudgeRubricId } = await import('./judgeRubricActions');
+      await validateJudgeRubricId(parsed.paragraphJudgeRubricId, ctx.supabase);
+    }
 
     const config: StrategyConfig = {
       generationModel: parsed.generationModel,
       judgeModel: parsed.judgeModel,
       judgeRubricId: parsed.judgeRubricId,
+      paragraphJudgeRubricId: parsed.paragraphJudgeRubricId,
       editingModel: parsed.editingModel,
       approverModel: parsed.approverModel,
       iterationConfigs: parsed.iterationConfigs,
