@@ -250,26 +250,22 @@ Wizard UI: `src/app/admin/evolution/strategies/new/page.tsx` exposes a `paragrap
 
 ### Phase 2 (Fix 2) — Coordinator mid-sequence replan
 
-After slot 0 finalizes, optionally re-call the coordinator with `priorPicks + firstSlot=1` so the remaining slots' directives can match the chosen opener's voice. Env-gated by `EVOLUTION_PARAGRAPH_RECOMBINE_REPLAN_ENABLED` (default `'false'`). Adds ~$0.0014 per invocation when enabled. The replan call uses a separate LLM label `'paragraph_recombine_coordinator_replan'` so cost-error tracking does not conflate it with the initial coordinator call.
+After slot 0 finalizes, the coordinator is re-called with `priorPicks + firstSlot=1` so the remaining slots' directives match the chosen opener's voice. **Unconditional** — the original `EVOLUTION_PARAGRAPH_RECOMBINE_REPLAN_ENABLED` env flag was retired before this iteration shipped. Adds ~$0.0014 per invocation. The replan call uses a separate LLM label `'paragraph_recombine_coordinator_replan'` so cost-error tracking does not conflate it with the initial coordinator call.
 
 Slot-0 success predicate (replan fires ONLY when ALL hold):
-- `replanEnabled === true`
 - `slots.length > 1`
 - `budgetExhaustedAt === undefined`
 - `result.allRewritesFailed === false`
 - `result.winnerIsOriginal === false`
 - `perInvocationCapUsd >= REPLAN_MIN_CAP_USD (0.030)` AND `(cap - spent) >= PROJECTED_REPLAN_COST_USD * 2.0`
 
-Each non-trigger branch records a `replanSkippedReason` enum (`disabled` / `single_slot` / `budget_exhausted` / `slot0_all_failed` / `slot0_parent_won` / `budget_floor`). The replan call is wrapped in try/catch inside `runSequentialLoop` — both `CoordinatorLLMError` AND `CoordinatorParseError` are caught and recorded as `replanFailureCount`, never propagated to the agent's Phase B catch (which would discard slot 0's work).
+Each non-trigger branch records a `replanSkippedReason` enum (`single_slot` / `budget_exhausted` / `slot0_all_failed` / `slot0_parent_won` / `budget_floor`). The replan call is wrapped in try/catch inside `runSequentialLoop` — both `CoordinatorLLMError` AND `CoordinatorParseError` are caught and recorded as `replanFailureCount`, never propagated to the agent's Phase B catch (which would discard slot 0's work). Rollback: `git revert` the Phase 2 commit (`496d5b79d`).
 
 Plan merge is paragraphIndex-keyed: keep original `coordinatorPlan` entries for slots NOT covered by the replan output; replace entries whose `paragraphIndex` is in the replan output. Built via a NEW plan reference — original plan is never mutated. The agent persists BOTH the original (`execution_detail.coordinatorPlan`) AND the merged (`execution_detail.coordinatorPlanReplanned`) for forensics.
 
-### New env flags
+### Env flags
 
-| Flag | Default | Purpose |
-|---|---|---|
-| `EVOLUTION_PARAGRAPH_RECOMBINE_REPLAN_ENABLED` | `'false'` | Phase 2: enable mid-sequence coordinator replan after slot 0 |
-| `EVOLUTION_RUBRIC_JUDGING_ENABLED` | `!== 'false'` (default ON) | Phase 1d: same kill switch gates BOTH article + paragraph rubrics |
+This project introduced no new env flags. Phase 1d (per-paragraph rubric) reuses the existing `EVOLUTION_RUBRIC_JUDGING_ENABLED` kill switch (defaults to ON; setting `'false'` short-circuits BOTH article + paragraph rubric resolution). Phase 2 (coordinator replan) is unconditional — the env flag introduced during planning was retired before merge once local + integration tests proved out.
 
 ### New schema fields (`evolution_strategies.config` jsonb — no DDL)
 

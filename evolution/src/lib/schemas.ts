@@ -2438,7 +2438,7 @@ export const slotRecombineExecutionDetailSchema = executionDetailBaseSchema.exte
     replanFailureCount: z.number().int().min(0).max(1).default(0),
     replanSkippedCount: z.number().int().min(0).max(1).default(0),
     replanSkippedReason: z.enum([
-      'disabled', 'single_slot', 'budget_exhausted',
+      'single_slot', 'budget_exhausted',
       'slot0_all_failed', 'slot0_parent_won', 'budget_floor',
     ]).optional(),
   }).optional(),

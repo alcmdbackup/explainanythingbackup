@@ -73,14 +73,6 @@ export function isSequentialEnabled(): boolean {
   return process.env.EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED !== 'false';
 }
 
-/** investigate_sequential_paragraph_recombine_performance_20260615 Phase 2 (Fix 2):
- *  env-gated mid-sequence coordinator replan. DEFAULT OFF (positive default for safe
- *  rollout — flip to 'true' in Vercel to enable). When OFF, byte-identical to today
- *  (no second coordinator call, no plan merge). */
-export function isReplanEnabled(): boolean {
-  return process.env.EVOLUTION_PARAGRAPH_RECOMBINE_REPLAN_ENABLED === 'true';
-}
-
 /** Env-flag-aware cap function. Pass an explicit env value for projector use (so wizard
  *  preview matches runtime when the projector runs client-side). When omitted, reads
  *  process.env at runtime. */
@@ -340,10 +332,10 @@ export class ParagraphRecombineAgent extends Agent<
       // B.7 try/catch wraps the loop so a mid-loop throw persists execution_detail.slots[0..i-1]
       // + partialAt + abortReason + completedSlotCount BEFORE re-throwing.
       try {
-        // Phase 2 (Fix 2): env-gated mid-sequence replan. When enabled AND the
-        // slot-0 success predicate holds inside the loop, the coordinator is called
-        // again with priorPicks + firstSlot=1 to re-strategize slots 1..N-1.
-        const replanEnabled = isReplanEnabled();
+        // Phase 2 (Fix 2): mid-sequence coordinator replan is UNCONDITIONAL — the env
+        // flag was removed after the initial rollout validation. When the slot-0 success
+        // predicate holds inside the loop, the coordinator is called again with
+        // priorPicks + firstSlot=1 to re-strategize slots 1..N-1.
         const seqResult = await runSequentialLoop({
           slots,
           paragraphCount,
@@ -355,8 +347,8 @@ export class ParagraphRecombineAgent extends Agent<
           invocationScope,
           ctx,
           llm,
-          replanEnabled,
-          ...(replanEnabled && { parentText, generationModelForReplan: rewriteModelForProjector }),
+          parentText,
+          generationModelForReplan: rewriteModelForProjector,
         });
         slotDetails = seqResult.slotDetails;
         for (const [idx, text] of seqResult.slotWinnerTexts) {

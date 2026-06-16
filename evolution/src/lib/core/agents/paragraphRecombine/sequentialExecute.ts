@@ -53,11 +53,16 @@ export type SequentialCounters = {
   /** investigate_sequential_paragraph_recombine_performance_20260615 Phase 2 (Fix 2):
    *  Replan counters. Currently 0 or 1 per invocation (replan fires once after slot 0
    *  succeeds); the .max(1) cap may grow to N in a future "replan every K slots"
-   *  iteration. replanSkippedReason is set when replan was eligible but skipped. */
+   *  iteration. replanSkippedReason is set when replan was eligible but skipped — the
+   *  remaining 5 reasons cover legitimate skip conditions (single-slot articles, budget
+   *  exhaustion, slot-0 failures or seed-wins where replan can't anchor on a winner,
+   *  and the budget-floor gate that protects against pushing the next slot into
+   *  fallback). The 'disabled' reason was removed when the env flag was retired and
+   *  replan became unconditional. */
   replanCount: number;
   replanFailureCount: number;
   replanSkippedCount: number;
-  replanSkippedReason?: 'disabled' | 'single_slot' | 'budget_exhausted' |
+  replanSkippedReason?: 'single_slot' | 'budget_exhausted' |
     'slot0_all_failed' | 'slot0_parent_won' | 'budget_floor';
 };
 
@@ -87,17 +92,12 @@ export type SequentialLoopParams = {
   invocationScope: AgentCostScope;
   ctx: AgentContext;
   llm: EvolutionLLMClient;
-  /** Phase 2 (Fix 2): when true AND the slot-0 success predicate holds, call the
-   *  coordinator a second time after slot 0 finalizes with priorPicks=[slot 0 winner]
-   *  + firstSlot=1 so the remaining slots' directives can match the chosen opener.
-   *  Default false (env flag EVOLUTION_PARAGRAPH_RECOMBINE_REPLAN_ENABLED). */
-  replanEnabled?: boolean;
-  /** Phase 2: parent article text passed to the replan coordinator. Required when
-   *  replanEnabled is true; ignored otherwise. The original buildCoordinatorPrompt
-   *  already received it in the agent layer — the replan path needs it here too. */
-  parentText?: string;
-  /** Phase 2: model used for the replan call. Required when replanEnabled is true. */
-  generationModelForReplan?: string;
+  /** Phase 2 (Fix 2): parent article text passed to the replan coordinator. Required —
+   *  the orchestrator hands the original parent text to the agent, which forwards it
+   *  here. The replan call needs both this AND the model. */
+  parentText: string;
+  /** Phase 2: model used for the replan call. Same model as the initial coordinator. */
+  generationModelForReplan: string;
 };
 
 export async function runSequentialLoop(params: SequentialLoopParams): Promise<SequentialLoopResult> {
@@ -105,7 +105,7 @@ export async function runSequentialLoop(params: SequentialLoopParams): Promise<S
     slots, paragraphCount, parentVariantId,
     perInvocationCapUsd, rewriteModel, judgeModel,
     invocationScope, ctx, llm,
-    replanEnabled, parentText, generationModelForReplan,
+    parentText, generationModelForReplan,
   } = params;
   // coordinatorPlan is `let` so we can mutate-by-rebind after a successful replan
   // (immutability invariant preserved — we never mutate the original plan in place).
@@ -214,16 +214,14 @@ export async function runSequentialLoop(params: SequentialLoopParams): Promise<S
     }
 
     // ─── Phase 2 (Fix 2): mid-sequence coordinator replan ─────────
-    // Fires ONLY after slot 0 finalizes (i === 0) when ALL of the success-predicate
-    // conditions hold. Iter-1 architecture review pinned the predicate explicitly
-    // here; see planning doc Phase 2c. The call is wrapped in a try/catch so neither
-    // CoordinatorLLMError nor CoordinatorParseError can propagate to the agent's
-    // Phase B catch (which would discard slot 0's work and trigger partial-detail-on-throw).
+    // Fires UNCONDITIONALLY after slot 0 finalizes (i === 0) when ALL of the
+    // success-predicate conditions hold. Iter-1 architecture review pinned the
+    // predicate explicitly here; see planning doc Phase 2c. The call is wrapped in
+    // a try/catch so neither CoordinatorLLMError nor CoordinatorParseError can
+    // propagate to the agent's Phase B catch (which would discard slot 0's work
+    // and trigger partial-detail-on-throw).
     if (i === 0) {
-      if (!replanEnabled) {
-        counters.replanSkippedCount = 1;
-        counters.replanSkippedReason = 'disabled';
-      } else if (slots.length <= 1) {
+      if (slots.length <= 1) {
         counters.replanSkippedCount = 1;
         counters.replanSkippedReason = 'single_slot';
       } else if (budgetExhaustedAt !== undefined) {
@@ -241,7 +239,7 @@ export async function runSequentialLoop(params: SequentialLoopParams): Promise<S
       ) {
         counters.replanSkippedCount = 1;
         counters.replanSkippedReason = 'budget_floor';
-      } else if (parentText !== undefined && generationModelForReplan !== undefined) {
+      } else {
         try {
           const replanResult = await runCoordinator({
             parentText,
