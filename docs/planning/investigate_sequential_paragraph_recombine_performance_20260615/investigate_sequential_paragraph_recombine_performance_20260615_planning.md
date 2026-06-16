@@ -703,6 +703,184 @@ Both spots currently strip `judgeRubric` from the slot config. Replace with: str
   3. Query `execution_detail` for one paragraph_recombine invocation and assert: (a) `coordinator.rubricResolved === true` (or equivalent indicator that the paragraph rubric resolved); (b) at least one `slots[*].ranking.submatches` entry carries per-dimension verdicts from the custom rubric's dimensions (not the hardcoded `Clarity/Conciseness/Coherence/...` set); (c) `sequentialCounters.nextPicksSanitizationCount` is present (proves Phase 1c-i counter persists alongside the rubric path).
   4. If any assertion fails, the swap wire-up has a regression. Treat as a blocker for Phase 1d release; Phase 1c can ship independently because its A/B path (above) was exercised.
 
+### Phase 4: Post-PR follow-on — driving further Elo improvements on the BEST variants
+
+**Status:** added after PR #1221 merged, based on empirical analysis of the first 2 post-PR runs on the Federal Reserve prompt (`5f45d11f` / `67b6aa7d`). Post-PR top-tier variants reached Δmu ∈ [−0.10, +0.05] vs parent — at parity, sometimes slightly above. The first-ever positive parent→child delta in the dataset arrived in `5f45d11f`. The remaining gap to a robustly-positive mean is real but small.
+
+**Source of recommendations:** synthesized from three parallel research agents (coordinator-model upgrade, judge-architecture systematic improvements, orchestration/multi-pass architectures) plus a critical-synthesis review that stress-tested the combined bundle. See agent transcripts referenced by the project's `_research.md`.
+
+**Constraint (saved to memory):** do NOT propose lowering parent quality (e.g., `qualityCutoff: topN → medianN`) to improve `eloAttrDelta`. The goal is best variants, not narrower deltas. Phase 4 targets the rewrite, judging, coordinator, and orchestration layers above the parent-selection floor.
+
+**Constraint (saved to memory):** prefer systematic + scalable + simple approaches over mechanical hacks. Regex extraction, hand-coded validators, and per-failure-mode rules are out of scope here. Favor model-and-criteria approaches that apply uniformly across all runs.
+
+#### What the post-PR analysis surfaced (three blind spots)
+
+Reading the actual variant content vs parents for the 6 post-PR PR variants on `a546b7e9` revealed the slot judge is **rewarding stylistic improvements** (concrete openings, narrative transitions, question-led closings, voice consistency) and **blind to** three categories of regression:
+
+1. **Topic substitution** — slot N's rewrite replaces explanation of concept X with explanation of concept Y. The slot judge sees only that slot's candidates + prior context; it has no signal that the article lost a concept that USED TO live in slot N.
+2. **Cross-section redundancy** — slot N's rewrite covers content that already appears in slot N+k. The slot judge cannot see N+k. The article judge sees the whole article but its rubric doesn't measure redundancy.
+3. **Explanatory weight loss** — terms get listed without being defined (e.g., "unconventional measures like quantitative easing and forward guidance" with no QE definition where the parent had one). No criterion measures whether the rewrite carries the parent's informational payload.
+
+Concrete examples (file paths from `_research.md`):
+- Top variant `3b4c95e2` (Elo 1251): identical to parent in 4 of 5 sections; the one rewritten paragraph dropped 4 Fed functions (regulator, lender of last resort, fiscal agent, cash distribution) and replaced them with OMO/IORB content that already appears in 2 other sections. Judge docked only 1 Elo.
+- First positive winner `5aede203` (+0.05): gained from concrete Knickerbocker Trust opener + question-led closing; lost from listing-without-defining QE and Forward Guidance.
+
+#### Phase 4 fixes (ordered: zero-code → config → plumbing → architecture)
+
+##### 4a — One consolidated "Net informational contribution" criterion (replaces user's Fix #1 + #2 as separate proposals)
+
+Synthesis recommendation: a single fold-up criterion is preferable to two separate criteria for "informational density" and "cross-section redundancy" — two criteria would split the rubric vote and dilute each other.
+
+**Criterion text** (drop-in for `computeRatings.ts` slot rubric):
+
+> *Net informational contribution — relative to the parent paragraph and to NEXT CONTEXT, this paragraph carries its own weight: it preserves the parent's explanatory content (defined terms, mechanism, causal links) AND does not duplicate explanations the next paragraphs will deliver. Stylistic improvement without equal-or-greater informational weight is not a win.*
+
+**Two delivery paths:**
+
+- [ ] **4a-1 (recommended for first test — zero code):** custom rubric via existing `evolution_judge_rubrics` infrastructure
+  1. Create one `evolution_criteria` row named `net_informational_contribution`, description = criterion text above, weight 1.0 (name must satisfy the CHECK constraint — plain alphanumeric + underscores; no brackets/spaces).
+  2. Add the criterion to a new (or existing) judge rubric row in `evolution_judge_rubrics`.
+  3. Create a new strategy via the wizard with `paragraphJudgeRubricId` pointing at that rubric.
+  4. Run on staging; compare vs the existing post-PR baseline with the hardcoded rubric.
+  - **Why this first**: tests the criterion's signal value with zero code change, zero merge risk, and a clean A/B against the post-PR baseline.
+
+- [ ] **4a-2 (after 4a-1 validates the signal):** hardcoded path
+  - Append the criterion line to `computeRatings.ts:455-460` (slot rubric, unconditional). One-line edit.
+  - Mirror into `rubricJudge.ts:284-318` only if a custom `paragraphJudgeRubric` is set (rubric path inherits the hardcoded criterion when no custom rubric overrides it).
+  - **Why this second**: once the custom-rubric A/B shows lift, the hardcoded path makes the criterion the default for every strategy without requiring each one to opt in via custom rubric.
+
+**File pointers:**
+- `evolution/src/lib/shared/computeRatings.ts:455-460` (hardcoded slot rubric)
+- `evolution/src/lib/shared/rubricJudge.ts:284-318` (custom rubric path)
+- `evolution/src/services/judgeRubricActions.ts` (rubric CRUD)
+- `evolution/src/lib/core/agents/paragraphRecombine/sequentialExecute.ts:581-590` + `ParagraphRecombineAgent.ts:894-900` (slot-path swap)
+
+##### 4b — Enable `gemini-tiebreak-v1` judge escalation chain on paragraph_recombine strategies
+
+Pre-built infrastructure (PR #1219 acceptance gate work just landed). Zero code.
+
+- [ ] Set `EVOLUTION_JUDGE_ESCALATION_ENABLED='true'` in Vercel staging env.
+- [ ] On the test strategy from 4a-1, set `ensembleConfigId: 'gemini-tiebreak-v1'`. The chain has a purpose-built paragraph slot — `[gemini-2.5-flash-lite, gpt-4o-mini, deepseek-v4-pro]` — with deepseek-v4-pro as the 3rd-step tiebreaker that has the long-context reasoning to catch what flash-lite misses on ties.
+- [ ] Run on staging; expect lift specifically on close calls where the 8B judge would have tied.
+
+**Why now**: hardens the new criterion from 4a against weak-judge noise. Cost: per chainRegistry comment, ~10× lower than running a strong judge on every call while reaching ~1.0 accuracy on large-gap pairs. Specifically targets the failure mode where the slot judge can't reliably differentiate "polished but lighter on content" from "kept content but less polished."
+
+**File pointers:**
+- `evolution/src/lib/shared/judgeEnsemble/chainRegistry.ts:22-55` (chain definitions)
+- `evolution/src/lib/pipeline/setup/buildRunContext.ts:421-425` (resolution)
+- `evolution/src/lib/pipeline/loop/rankSingleVariant.ts:195-213, 349` (escalation runner — works for `paragraph_rank` automatically via the relabel proxy)
+
+##### 4c — Pool-mode iter-2 strategy template
+
+Configuration-only. The existing `iterationConfigSchema` already supports `sourceMode: 'pool'` + `qualityCutoff` for `paragraph_recombine` (verified at `schemas.ts:588, 679, 764-771` + `evolution/docs/multi_iteration_strategies.md:142`).
+
+- [ ] Create a strategy template with:
+  ```ts
+  iterationConfigs: [
+    { agentType: 'generate',            sourceMode: 'seed', budgetPercent: 20 },
+    { agentType: 'paragraph_recombine', sourceMode: 'pool', budgetPercent: 40, qualityCutoff: { mode: 'topN', value: 3 }, ... },
+    { agentType: 'paragraph_recombine', sourceMode: 'pool', budgetPercent: 40, qualityCutoff: { mode: 'topN', value: 1 }, ... },  // iter-2 over iter-1 winners
+  ]
+  ```
+- [ ] Iter-2 sees iter-1's top winner as parent. The polish that this PR's prompt edits couldn't fit into iter-1 (because the rewrite was anchored on the structural_transform parent's worldview) can happen in iter-2 over the iter-1 PR variant's worldview.
+
+**Why this works without code**: the existing multi-iteration architecture is content-agnostic. A second paragraph_recombine iteration over the iter-1 winner gets a free shot at refining the artifact the first iteration produced.
+
+**Risk to monitor**: confounds attribution if shipped with 4a or 4b on the same A/B. Sequence after 4a/4b are isolated.
+
+##### 4d — Decouple coordinator model from generation model
+
+Add `coordinatorModel?: string` to strategy config. Default to `generationModel` for backwards compatibility. ~80 LOC plumbing.
+
+**Why a stronger coordinator helps where 4a/4b/4c don't:**
+- 4a is *evaluative* (selects best of N candidates per slot)
+- 4b is *judge-hardening* (better resolves ties)
+- 4c is *iterative* (second pass over first pass winner)
+- **4d is *at-the-source*** — stronger coordinator produces better directives, preventing the failures the others catch downstream
+
+A long-context model (Sonnet-4 / gpt-4.1 / gemini-2.5-pro) at the coordinator can:
+- Track concept-level ownership across all 8-12 slots ("OMO is owned by slot 4; do NOT introduce it in slot 3")
+- Discriminate listed-vs-defined ("QE is mentioned in slot 2 but defined in slot 6")
+- Hold 12+ paragraphs in working memory without dropping constraints (flash-lite drops these past ~6)
+- Hit ~99% JSON schema compliance (vs flash-lite ~92% — fewer parse retries)
+
+**Plumbing (concrete edits):**
+- [ ] `evolution/src/lib/schemas.ts:909-912` — add `coordinatorModel: z.string().optional()` (same fallback semantics as `editingModel`/`approverModel`)
+- [ ] `evolution/src/lib/core/types.ts` (`AgentContext`) — thread `coordinatorModel?: string`
+- [ ] `evolution/src/lib/pipeline/loop/runIterationLoop.ts` (`makePrCtx`) — populate from resolved config
+- [ ] `evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts:295-300, 343-351` — use `ctx.coordinatorModel ?? rewriteModelForProjector` at the two `runCoordinator` call sites (initial + replan). Rewrite/judge calls keep their existing model.
+- [ ] `evolution/src/lib/core/agents/paragraphRecombine/coordinator.ts:71-97` — no change, `generationModel` is already passthrough.
+- [ ] `evolution/src/lib/pipeline/infra/estimateCosts.ts:603-665` — add optional `coordinatorModel?: string` param to `estimateParagraphRecombineCost`; default to `rewriteModel`; recompute the coordinator phase block accordingly.
+- [ ] `src/app/admin/evolution/strategies/new/page.tsx` — add a "Coordinator model (optional)" `<select>` dropdown next to the existing model pickers (form state + initial state + submit payload + render — see `judgeRubricId` pattern at lines 116, 447, 547, 795, 897).
+- [ ] `evolution/src/services/strategyRegistryActions.ts` — extend the createStrategy schema + validation if a strict model whitelist is enforced anywhere.
+
+**Recommended default for first staging A/B**: `gpt-5-mini` (5× cost vs flash-lite, safe lift). Reserve `claude-sonnet-4-20250514` for the premium tier — 30× cost on this phase, more visible quality lift, more visible cost impact.
+
+**Cost math** (corrected from initial agent estimate):
+- Per coordinator call: flash-lite **$0.0006**, gpt-5-mini **$0.0025**, sonnet-4 **$0.021**
+- Per 3-PR-invocation run (initial + replan = 6 coordinator calls): flash-lite $0.0036, gpt-5-mini $0.015, sonnet $0.126
+- Sonnet-4 cost is 20-40% of a $0.10 run budget (high). Gpt-5-mini is 15% of a $0.10 budget (manageable).
+
+**File pointers:**
+- `src/config/modelRegistry.ts:69-209` (model list + pricing)
+- `evolution/src/lib/core/agents/paragraphRecombine/coordinator.ts:71-97`
+- `evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts:295-300, 343-351`
+
+##### 4e — Post-merge polish pass (architectural — biggest lever, biggest risk)
+
+A single LLM call between `assembleRecombinedArticle()` (at `ParagraphRecombineAgent.ts:450`) and `createVariant()` (at `:539`) that reads (parent text, recombined text, coordinator plan) and emits a polished version. **Reuses `IterativeEditingRewriteAgent`'s free-rewrite mode** — already-built Proposer + Approver + drift-snap architecture battle-tested on full-article rewrites.
+
+**Why this catches what 4a/4b/4d can't:**
+- 4a's criterion is per-slot (single paragraph + prior + next). It cannot see emergent failures that only manifest across multiple sections.
+- 4b's escalation only resolves indecisive single-pair verdicts; it never sees multiple slots at once.
+- 4d's stronger coordinator works slot-by-slot from directives. It cannot see what slots 4-7 actually wrote when planning slot 2.
+- **4e reads the whole assembled article.** It catches: topic substitution (Section 3 lost the 4 functions), cross-section redundancy (OMO repeated 3×), explanatory weight loss (QE listed without definition) — all in one pass.
+
+**Implementation outline:**
+- [ ] Add a thin wrapper `PolishMergedArticleAgent` (or reuse `IterativeEditingRewriteAgent` directly with `editingMaxCycles=1`) that takes `parent`, `recombined`, `coordinatorPlan` and returns `polishedText`.
+- [ ] Insert at `ParagraphRecombineAgent.ts:450` (between assemble + createVariant). Wrap in try/catch — polish failure must NOT lose the recombined article; fall through with the unpolished version + a counter.
+- [ ] Add `polishCount` / `polishFailureCount` to `SequentialCounters`.
+- [ ] Add `polishCost` phase to `costCalibrationLoader.ts:24-44` and the cost projector.
+- [ ] Gate by a per-strategy `polishPassEnabled` flag (or per-strategy `polishModel?: string` — both let strategy authors opt in).
+- [ ] **CRITICAL**: ensure the polish-pass Approver's criteria match 4a (the slot judge). All three agents (coordinator + slot judge + polish-approver) must agree on what "informational weight" means; otherwise variants oscillate (the "more cooks" risk).
+
+**Cost**: $0.005-0.027 per polish call (10-25% of a typical $0.10 invocation budget). Per-strategy cap can disable if the per-invocation cap would be exceeded.
+
+**File pointers:**
+- `evolution/src/lib/core/agents/editing/IterativeEditingRewriteAgent.ts` (reusable rewrite-mode architecture)
+- `evolution/src/lib/core/agents/editing/proposerPromptRewrite.ts`, `approverPrompt.ts`, `recoverDrift.ts`, `snapDriftToSource.ts` (reusable building blocks)
+- `evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts:449-546` (insertion point)
+- `evolution/src/lib/pipeline/infra/costCalibrationLoader.ts:24-44` (phase registration)
+
+#### Recommended implementation order
+
+| Step | Fix | Effort | Risk | Lift signal expected |
+|---|---|---|---|---|
+| 1 | 4a-1 (custom rubric) | 1 day | Low — zero code | Test criterion value on existing pool |
+| 2 | 4b (escalation flag) | 1 day | Low — config | Harden 4a's signal under flaky 8B judge |
+| 3 | 4c (iter-2 strategy template) | 1 day | Low — strategy config | Multiplier on 4a's lift |
+| 4 | 4a-2 (hardcoded promotion) | 1 day | Low — one-line edit | Default-on for all strategies |
+| 5 | 4d (coordinator model) | 1 week | Medium — 80 LOC | At-the-source plan quality |
+| 6 | 4e (polish pass) | 1-2 weeks | High — architectural | Cross-section issues nothing else catches |
+
+Sequence zero-code → config → plumbing → architecture. Each stage attributable against the prior. **Hold seeds + criteria fixed across A/B steps to avoid the attribution-muddiness risk.**
+
+#### Risks of the combined bundle
+
+- **Attribution muddiness**: if shipped together, lift is unattributable per-fix. Mitigate via the staged sequence + held-fixed seeds.
+- **Cost amplification**: 4d (sonnet) + 4e (polish) combined push per-invocation cost +$0.07-0.09. On a $0.10 budget, this can push runs over cap → OpenRouter 402 wipeouts (per memory `project_evolution_402_arena_only_wipeout.md`). **Recommendation: cap coordinator at gpt-5-mini, not sonnet, until 4e is observed stable.**
+- **"More cooks" problem**: strong coordinator + polish pass + strong judge can pull in opposite directions if their criteria diverge. Symptom: variants oscillate in length across iterations without quality lift. **Mitigate**: align all three agents (coordinator directive language, slot judge criterion 4a, polish-pass Approver) on the SAME definition of "informational weight."
+
+#### What Phase 4 still doesn't address (the next ceiling after 4a-4e)
+
+- **Source article quality** — if the parent article has weak explanations baked in, recombine cannot rescue it. Ceiling is set by the seed/grow tactics, not by paragraph_recombine.
+- **Coordinator hallucination** — even Sonnet-4 occasionally invents slot boundaries or names non-existent paragraphs. Needs Zod schema validation (the `parseAndValidate` path already does this; deepens with a stronger model but doesn't go to zero).
+- **Judge calibration drift across criteria weights** — 4a adds one criterion. The article judge's 5 existing criteria still weight equally with the new one. If "Engagement and impact" outweighs "Net informational contribution" in practice, the criterion's signal gets diluted at aggregation time. Needs rubric-weight tuning, not new criteria.
+- **Long-form > 10-paragraph coherence** — 4e in a single polish call hits context limits past ~10-12 paragraphs. Would need chunked polish for longer articles.
+- **Adversarial robustness** — none of these protect against a coordinator producing a directive that satisfies the criterion's letter while missing its spirit (e.g., "preserve the 4 concepts" → rewrite mentions all 4 in one terse list without explaining any).
+
+These five remaining failure classes are the next research lap. Source quality + coordinator hallucination + criterion weighting are the highest-leverage of the five.
+
 ## Testing
 
 ### Unit Tests
