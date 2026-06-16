@@ -819,4 +819,33 @@ After iter-2's consensus, the plan was extended with Phase 1b on user follow-up.
 
 Both iter-3 critical gaps verified addressed: the bitwise-NOT bug is eliminated (only remaining `${~` mentions are the DO-NOT warning and the regression-test guard), constants are correctly `0.8`/`1.2` and exported as named constants, the LENGTH TARGET block position is unambiguous, and the fix-up edits introduced only cosmetic redundancy (tests b and e overlap slightly).
 
-**Verdict: 5/5 unanimous across all phases (1, 1b, 2, 3), plan ready for execution.**
+**Verdict (Phases 1, 1b, 2, 3): 5/5 unanimous, ready for execution.**
+
+### Iteration 1 — Phases 1c + 1d (fresh loop after Phase 1c-iii and 1d added)
+
+| Perspective | Score | Critical Gaps |
+|---|---|---|
+| Security & Technical | 3/5 | 2 |
+| Architecture & Integration | 4/5 | 2 |
+| Testing & CI/CD | 4/5 | 2 |
+
+**Critical gaps addressed in iter-1 → iter-2 fix:**
+1. **[Security S1] `<UNTRUSTED_NEXT>` tag injection surface** — `sanitizeForPriorContext` only redacted PRIOR/PARENT tags. A parent paragraph containing literal `</UNTRUSTED_NEXT>` would break out of the new tag scope. Phase 1c-i now explicitly extends `PROMPT_DELIMITER_TAGS` at `promptSafety.ts:14-19` to include the NEXT pair, plus tests (h, i, j) cover open/close/mirror cases.
+2. **[Security S2 / Architecture A2] Rubric-path threading was required code work, not verification** — verified at `computeRatings.ts:638-639` that `buildRubricComparisonPrompt(textA, textB, rubricContext, mode)` has no `priorPicks` param today; setting `paragraphJudgeRubricId` would silently disable both Fix 1's priorPicks AND Phase 1c-i's nextContext. Phase 1c-i now lists concrete edits: `rubricJudge.ts:272` signature extension, `computeRatings.ts:638-639` call-site update, PRIOR + NEXT block rendering in the rubric prompt with `<UNTRUSTED_*>` guards. Tests (k, l, m, n) added. Phase 1d-iii downgraded to a forwarding pointer.
+3. **[Architecture A1] Phase 1c-i caller location was wrong** — plan said sequentialExecute.ts:466 (inside `processSequentialRound`), but `nextContext` must be computed in the OUTER `runSequentialLoop` (around line 130, before the line-131 `processSequentialRound` call) where `slots[]`/`i` are in scope. `ProcessSequentialRoundParams` extension at lines 203-213 added as an explicit checklist item.
+4. **[Testing T1] Missing Phase 1d swap-path integration test** — Phase 3b now extends `evolution-paragraph-recombine-sequential.integration.test.ts` with a stub strategy + `paragraphJudgeRubricId` set + mock LLM with rubric-dimensioned responses, asserting (a) the resolved rubric reaches slot config, (b) `buildRubricComparisonPrompt` is invoked, (c) `priorPicks` + `nextContext` reach the rubric prompt, (d) judge output honors custom rubric dimensions.
+5. **[Testing T2] Missing Phase 1d manual canary verification** — baseline strategy `8d88a8b3` has no `paragraphJudgeRubricId`. Phase 3d now adds a one-time post-deploy canary: create `[TESTEVO]-1d-swap-canary-...` strategy with `paragraphJudgeRubricId` set, run once, verify rubric resolution + per-dim verdicts + `nextPicksSanitizationCount` persistence. Phase 1d release blocker if it fails; Phase 1c can ship independently.
+
+**Minor cleanups in the same pass:** E2E spec filename corrected to `admin-strategy-crud.spec.ts`; nextPicks-counter observability ride-along stated; jsonb-absorbs-new-field DDL note made explicit (zero migrations); `config_hash` test split into absent-stability + present-distinctness with concrete file paths; TOCTOU `logger.warn` for silent rubric fallback; Phase 1d dropdown option label synced with 7-criteria helper; Phase 1c-iii rubric-length tradeoff acknowledged with a fallback consolidation strategy.
+
+### Iteration 2 — Phases 1c + 1d (final consensus)
+
+| Perspective | Score | Critical Gaps |
+|---|---|---|
+| Security & Technical | 5/5 | 0 |
+| Architecture & Integration | 5/5 | 0 |
+| Testing & CI/CD | 5/5 | 0 |
+
+All three reviewers verified the iter-1 fix-up. Remaining items flagged are cosmetic (test (l)'s "byte-equal" guard is brittle; test (n) is documentation-style; schema docstring at line 344 still lists pre-1c-iii criteria names; integration test (b) could clarify invocation-tracking mechanism; manual canary should pin the `rubricResolved` indicator field; "six new tests" header still reads 6 instead of 9; rubric-path threading test listed twice with slightly different framings). All tracked for implementer in-line cleanup; none block execution.
+
+**Final verdict: 5/5 unanimous across all phases (1, 1b, 1c, 1d, 2, 3). Plan ready for execution.**
