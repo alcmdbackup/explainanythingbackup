@@ -10,12 +10,20 @@
 // (operator sees that something was redacted) and prevents tag breakouts.
 
 /** All delimiter tag literals used by the generation + judge prompts. Substring
- *  matching is case-insensitive — any case mix in chosen text gets redacted. */
+ *  matching is case-insensitive — any case mix in chosen text gets redacted.
+ *
+ *  investigate_sequential_paragraph_recombine_performance_20260615 Phase 1c-i:
+ *  added the <UNTRUSTED_NEXT> pair for the new forward-context block in the
+ *  slot-judge prompt. Without this, a parent paragraph containing a literal
+ *  </UNTRUSTED_NEXT> string would break out of the new tag scope and enable
+ *  prompt injection — same threat model as the existing PRIOR/PARENT pairs. */
 export const PROMPT_DELIMITER_TAGS: readonly string[] = [
   '<UNTRUSTED_PRIOR>',
   '</UNTRUSTED_PRIOR>',
   '<UNTRUSTED_PARENT>',
   '</UNTRUSTED_PARENT>',
+  '<UNTRUSTED_NEXT>',
+  '</UNTRUSTED_NEXT>',
 ] as const;
 
 const REDACTION_PLACEHOLDER = '[UNTRUSTED_TAG_REDACTED]';
