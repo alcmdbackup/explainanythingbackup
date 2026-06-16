@@ -303,20 +303,24 @@ describe('buildRunContext', () => {
     });
   });
 
-  describe('ensemble (escalation) kill switch — DEFAULT OFF', () => {
+  describe('ensemble (escalation) kill switch — DEFAULT ON, per-strategy opt-in', () => {
     const configWithEnsemble = {
       generationModel: 'gpt-4.1-nano',
       judgeModel: 'gpt-4.1-nano',
       iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       ensembleConfigId: 'cheap-escalation-v1',
     };
+    const configNoEnsemble = { ...configWithEnsemble, ensembleConfigId: undefined };
 
-    async function runWith(envValue: string | undefined): Promise<{ ensemble: unknown; ensembleConfigId: unknown }> {
+    async function runWith(
+      envValue: string | undefined,
+      strategyConfig: Record<string, unknown> = configWithEnsemble,
+    ): Promise<{ ensemble: unknown; ensembleConfigId: unknown }> {
       const prev = process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED;
       if (envValue === undefined) delete process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED;
       else process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED = envValue;
       try {
-        const { db } = makeMockDb({ contentText: validText, strategyConfig: configWithEnsemble });
+        const { db } = makeMockDb({ contentText: validText, strategyConfig });
         const result = await buildRunContext('run-1', makeClaimedRun(), db, makeProvider());
         if (!('context' in result)) throw new Error('expected context');
         return { ensemble: result.context.config.ensemble, ensembleConfigId: result.context.config.ensembleConfigId };
@@ -326,21 +330,26 @@ describe('buildRunContext', () => {
       }
     }
 
-    it('unset env → ensemble undefined (single-judge ranking), id still carried', async () => {
-      const { ensemble, ensembleConfigId } = await runWith(undefined);
-      expect(ensemble).toBeUndefined();
-      expect(ensembleConfigId).toBe('cheap-escalation-v1');
-    });
-
-    it("env='false' → ensemble undefined", async () => {
-      expect((await runWith('false')).ensemble).toBeUndefined();
-    });
-
-    it("env='true' AND ensembleConfigId set → resolves the chain + rule", async () => {
-      const { ensemble } = await runWith('true') as { ensemble: { chain: { id: string }; rule: { id: string } } | undefined };
+    it('unset env + ensembleConfigId set → resolves the chain (default ON)', async () => {
+      const { ensemble } = await runWith(undefined) as { ensemble: { chain: { id: string }; rule: { id: string } } | undefined };
       expect(ensemble).toBeDefined();
       expect(ensemble!.chain.id).toBe('cheap-escalation-v1');
       expect(ensemble!.rule.id).toBe('first_decisive');
+    });
+
+    it('a strategy WITHOUT ensembleConfigId → ensemble undefined (byte-identical single-judge), even with default ON', async () => {
+      const { ensemble } = await runWith(undefined, configNoEnsemble);
+      expect(ensemble).toBeUndefined();
+    });
+
+    it("env='false' → ensemble undefined (emergency kill switch disables ALL escalation)", async () => {
+      expect((await runWith('false')).ensemble).toBeUndefined();
+    });
+
+    it("env='true' (explicit) AND ensembleConfigId set → resolves the chain + rule", async () => {
+      const { ensemble } = await runWith('true') as { ensemble: { chain: { id: string }; rule: { id: string } } | undefined };
+      expect(ensemble).toBeDefined();
+      expect(ensemble!.chain.id).toBe('cheap-escalation-v1');
     });
   });
 

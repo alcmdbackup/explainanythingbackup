@@ -414,11 +414,12 @@ export async function buildRunContext(
     }
   }
 
-  // Multi-judge escalation in the PROD ranking path (judge_escalation_prod_wiring_phase4). GATED,
-  // DEFAULT OFF: resolve the strategy's ensembleConfigId to a chain + rule ONLY when the kill switch
-  // is explicitly 'true'. Unset/'false'/anything-else → undefined → byte-identical single-judge
-  // ranking. Flipping EVOLUTION_JUDGE_ESCALATION_ENABLED='true' in prod is the deliberate go-live step.
-  const ensembleEnabled = process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED === 'true';
+  // Multi-judge escalation in the PROD ranking path (judge_escalation_prod_wiring_phase4). DEFAULT ON
+  // at the infrastructure level, but per-strategy opt-in: the chain is resolved ONLY when a strategy
+  // sets `ensembleConfigId`. A strategy that doesn't set it → undefined → byte-identical single-judge
+  // ranking (unchanged). EVOLUTION_JUDGE_ESCALATION_ENABLED='false' is the EMERGENCY kill switch that
+  // disables escalation for ALL strategies without a redeploy; unset/anything-else = enabled.
+  const ensembleEnabled = process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED !== 'false';
   const ensemble =
     ensembleEnabled && stratConfig.ensembleConfigId
       ? resolveEnsembleConfig(stratConfig.ensembleConfigId) ?? undefined

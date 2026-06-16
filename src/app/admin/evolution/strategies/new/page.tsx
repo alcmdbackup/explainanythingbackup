@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 import { DEFAULT_JUDGE_MODEL, modelSupportsReasoning, MODEL_REGISTRY } from '@/config/modelRegistry';
-import { createStrategyAction } from '@evolution/services/strategyRegistryActions';
+import { createStrategyAction, listEnsembleConfigsAction } from '@evolution/services/strategyRegistryActions';
 import {
   getLastUsedPromptAction,
   getStrategyDispatchPreviewAction,
@@ -120,6 +120,8 @@ interface StrategyFormState {
   /** Phase 1d (Fix 5b): per-paragraph rubric-set id. Empty → hardcoded paragraph
    *  rubric. Distinct from judgeRubricId — that one applies at article level only. */
   paragraphJudgeRubricId: string;
+  /** Optional escalation-chain id (chainRegistry). Empty → single-judge ranking. */
+  ensembleConfigId: string;
   /** Iterative-editing Proposer model. Empty string → falls back to generationModel. */
   editingModel: string;
   /** Iterative-editing Approver model. Empty string → falls back to editingModel.
@@ -444,6 +446,7 @@ export default function NewStrategyPage(): JSX.Element {
     judgeModel: DEFAULT_JUDGE_MODEL,
     judgeRubricId: '',
     paragraphJudgeRubricId: '',
+    ensembleConfigId: '',
     editingModel: '',
     approverModel: '',
     generationTemperature: '',
@@ -459,14 +462,17 @@ export default function NewStrategyPage(): JSX.Element {
   const [criteriaEditorIdx, setCriteriaEditorIdx] = useState<number | null>(null);
   const [availableCriteria, setAvailableCriteria] = useState<CriteriaListItem[]>([]);
   const [availableRubrics, setAvailableRubrics] = useState<JudgeRubricListItem[]>([]);
+  const [availableEnsembleConfigs, setAvailableEnsembleConfigs] = useState<string[]>([]);
 
-  // Fetch active criteria + judge rubrics once on mount.
+  // Fetch active criteria + judge rubrics + escalation chain ids once on mount.
   useEffect(() => {
     (async () => {
       const result = await listCriteriaAction({ status: 'active', filterTestContent: true, limit: 200 });
       if (result.success && result.data) setAvailableCriteria(result.data.items);
       const rubrics = await listJudgeRubricsAction({ status: 'active', filterTestContent: true, limit: 200 });
       if (rubrics.success && rubrics.data) setAvailableRubrics(rubrics.data.items);
+      const ensembles = await listEnsembleConfigsAction();
+      if (ensembles.success && ensembles.data) setAvailableEnsembleConfigs(ensembles.data.ids);
     })();
   }, []);
 
@@ -796,6 +802,7 @@ export default function NewStrategyPage(): JSX.Element {
         judgeModel: form.judgeModel,
         judgeRubricId: form.judgeRubricId || undefined,
         paragraphJudgeRubricId: form.paragraphJudgeRubricId || undefined,
+        ensembleConfigId: form.ensembleConfigId || undefined,
         editingModel: form.editingModel || undefined,
         approverModel: form.approverModel || undefined,
         budgetUsd: parseFloat(form.budgetUsd),
@@ -963,6 +970,25 @@ export default function NewStrategyPage(): JSX.Element {
                     including similar paragraph-shaped dimensions, especially Conciseness and
                     Coherence which guard against paragraph-by-paragraph padding accumulation.
                     Leave on Default to use the built-in rubric.
+                  </p>
+                </div>
+                <div>
+                  <label htmlFor="ensemble-config" className={labelClasses}>Judge Escalation (optional)</label>
+                  <select
+                    id="ensemble-config"
+                    data-testid="ensemble-config-select"
+                    value={form.ensembleConfigId}
+                    onChange={e => updateForm({ ensembleConfigId: e.target.value })}
+                    className={inputCls(false)}
+                  >
+                    <option value="">Single judge (no escalation)</option>
+                    {availableEnsembleConfigs.map(id => (
+                      <option key={id} value={id}>{id}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-[var(--text-muted)]">
+                    Escalates to additional judges only when the lead judge is indecisive. Disabled globally by
+                    <code> EVOLUTION_JUDGE_ESCALATION_ENABLED=&apos;false&apos;</code>.
                   </p>
                 </div>
               </div>
