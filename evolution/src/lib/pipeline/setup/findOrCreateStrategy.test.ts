@@ -34,6 +34,27 @@ describe('V2 hashStrategyConfig', () => {
     expect(hashStrategyConfig(different)).not.toBe(hashStrategyConfig(baseConfig));
   });
 
+  // Phase 5 / 5a-1: seedSelection field added.
+  // (a) absent-field stability: strategy WITHOUT seedSelection produces the same
+  //     hash as a pre-Phase-5 strategy with same other fields (canonicalize drops
+  //     undefined keys, so back-compat is preserved for every existing strategy).
+  // (b) present-field distinctness: strategies with different seedSelection values
+  //     produce different hashes (otherwise re-run dedup would silently collide).
+  it('seedSelection absent matches a baseConfig without the field (back-compat)', () => {
+    const withoutField: StrategyConfig = { ...baseConfig };
+    const withUndefined: StrategyConfig = { ...baseConfig, seedSelection: undefined };
+    expect(hashStrategyConfig(withoutField)).toBe(hashStrategyConfig(withUndefined));
+  });
+
+  it('seedSelection distinct values produce distinct hashes', () => {
+    const highestElo: StrategyConfig = { ...baseConfig, seedSelection: 'highest_elo' };
+    const random: StrategyConfig = { ...baseConfig, seedSelection: 'random' };
+    expect(hashStrategyConfig(highestElo)).not.toBe(hashStrategyConfig(random));
+    // Same-value idempotency: two strategies with identical seedSelection share a hash.
+    const random2: StrategyConfig = { ...baseConfig, seedSelection: 'random' };
+    expect(hashStrategyConfig(random)).toBe(hashStrategyConfig(random2));
+  });
+
   it('changes hash when qualityCutoff.value differs', () => {
     const a: StrategyConfig = {
       ...baseConfig,

@@ -44,6 +44,10 @@ const createStrategySchema = z.object({
    *  to generationModel) at runtime. Same-as-editingModel surfaces a rubber-stamping warning
    *  in the wizard per Decisions §16. */
   approverModel: z.string().max(100).optional(),
+  /** Phase 5 / 5a-1: seed selection mode for multi-seed topics. Default 'highest_elo'
+   *  (omitted) preserves pre-Phase-5 behavior. 'random' picks a deterministic per-run
+   *  seed via SHA-256(run.id). See evolution/src/lib/schemas.ts strategyConfigSchema. */
+  seedSelection: z.enum(['highest_elo', 'random']).optional(),
   iterationConfigs: z.array(iterationConfigSchema).min(1).max(20),
   budgetUsd: z.number().min(0.01).max(100).optional(),
   pipeline_type: z.string().max(50).optional(),
@@ -190,6 +194,7 @@ export const createStrategyAction = adminAction(
       paragraphJudgeRubricId: parsed.paragraphJudgeRubricId,
       editingModel: parsed.editingModel,
       approverModel: parsed.approverModel,
+      seedSelection: parsed.seedSelection,
       iterationConfigs: parsed.iterationConfigs,
       budgetUsd: parsed.budgetUsd,
       generationGuidance: parsed.generationGuidance,

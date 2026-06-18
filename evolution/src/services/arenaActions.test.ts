@@ -161,9 +161,11 @@ describe('arenaActions', () => {
         (b) => {
           b.single!.mockResolvedValueOnce({ data: MOCK_TOPIC, error: null });
         },
-        // evolution_variants (seed lookup)
+        // evolution_variants (seed lookup) — Phase 5: thenable, multi-row.
         (b) => {
-          b.maybeSingle!.mockResolvedValueOnce({ data: null, error: null });
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [], error: null })
+          );
         },
       ]);
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
@@ -201,7 +203,14 @@ describe('arenaActions', () => {
       };
       const mock = createTableAwareMock([
         (b) => { b.single!.mockResolvedValueOnce({ data: MOCK_TOPIC, error: null }); },
-        (b) => { b.maybeSingle!.mockResolvedValueOnce({ data: seedRow, error: null }); },
+        // Phase 5: seed query is now multi-row (no .maybeSingle()) — the chain
+        // resolves via thenable. Return a single-row array to exercise the
+        // back-compat `seedVariant = seedVariants[0]` convenience field.
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [seedRow], error: null })
+          );
+        },
       ]);
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
@@ -212,6 +221,106 @@ describe('arenaActions', () => {
       expect(result.data!.seedVariant!.id).toBe(seedRow.id);
       expect(result.data!.seedVariant!.is_seed).toBe(true);
       expect(result.data!.seedVariant!.generation_method).toBe('seed');
+      // Phase 5: seedVariants is the new multi-seed array; single-seed back-compat.
+      expect(result.data!.seedVariants).toHaveLength(1);
+      expect(result.data!.seedVariants[0]!.id).toBe(seedRow.id);
+    });
+
+    // Phase 5: multi-seed topic returns all seeds in elo DESC order.
+    it('returns all seeds for a multi-seed topic, ordered by elo_score DESC', async () => {
+      const seedRows = [
+        {
+          id: '770e8400-e29b-41d4-a716-446655440002',
+          prompt_id: VALID_UUID,
+          run_id: '880e8400-e29b-41d4-a716-446655440003',
+          variant_content: '# Seed 1\n\nBody.',
+          synced_to_arena: true,
+          generation_method: 'seed',
+          model: null,
+          cost_usd: 0.01,
+          elo_score: 1400,
+          mu: 28,
+          sigma: 5,
+          arena_match_count: 5,
+          archived_at: null,
+          created_at: '2026-03-01T10:00:00Z',
+          generation: 0,
+          parent_variant_id: null,
+        },
+        {
+          id: '770e8400-e29b-41d4-a716-446655440003',
+          prompt_id: VALID_UUID,
+          run_id: '880e8400-e29b-41d4-a716-446655440004',
+          variant_content: '# Seed 2\n\nBody.',
+          synced_to_arena: true,
+          generation_method: 'seed',
+          model: null,
+          cost_usd: 0.01,
+          elo_score: 1300,
+          mu: 26,
+          sigma: 6,
+          arena_match_count: 4,
+          archived_at: null,
+          created_at: '2026-03-01T11:00:00Z',
+          generation: 0,
+          parent_variant_id: null,
+        },
+        {
+          id: '770e8400-e29b-41d4-a716-446655440004',
+          prompt_id: VALID_UUID,
+          run_id: '880e8400-e29b-41d4-a716-446655440005',
+          variant_content: '# Seed 3\n\nBody.',
+          synced_to_arena: true,
+          generation_method: 'seed',
+          model: null,
+          cost_usd: 0.01,
+          elo_score: 1200,
+          mu: 24,
+          sigma: 7,
+          arena_match_count: 3,
+          archived_at: null,
+          created_at: '2026-03-01T12:00:00Z',
+          generation: 0,
+          parent_variant_id: null,
+        },
+      ];
+      const mock = createTableAwareMock([
+        (b) => { b.single!.mockResolvedValueOnce({ data: MOCK_TOPIC, error: null }); },
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: seedRows, error: null })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getArenaTopicDetailAction(VALID_UUID);
+
+      expect(result.success).toBe(true);
+      expect(result.data!.seedVariants).toHaveLength(3);
+      expect(result.data!.seedVariants[0]!.id).toBe(seedRows[0]!.id);
+      expect(result.data!.seedVariants[1]!.id).toBe(seedRows[1]!.id);
+      expect(result.data!.seedVariants[2]!.id).toBe(seedRows[2]!.id);
+      // Back-compat: seedVariant = seedVariants[0] when non-empty.
+      expect(result.data!.seedVariant!.id).toBe(seedRows[0]!.id);
+    });
+
+    // Phase 5: zero-seed back-compat — seedVariant: null AND seedVariants: [].
+    it('returns empty seedVariants and null seedVariant when topic has zero seeds', async () => {
+      const mock = createTableAwareMock([
+        (b) => { b.single!.mockResolvedValueOnce({ data: MOCK_TOPIC, error: null }); },
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [], error: null })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getArenaTopicDetailAction(VALID_UUID);
+      expect(result.success).toBe(true);
+      expect(result.data!.seedVariants).toEqual([]);
+      expect(result.data!.seedVariant).toBeNull();
     });
 
     // Legacy pre-EVOLUTION_REUSE_SEED_RATING=true data may have multiple seed
@@ -229,7 +338,10 @@ describe('arenaActions', () => {
             orderCalls.push([col, opts]);
             return origOrder(col, opts);
           });
-          b.maybeSingle!.mockResolvedValueOnce({ data: null, error: null });
+          // Phase 5: seed query is multi-row, thenable.
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [], error: null })
+          );
         },
       ]);
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);

@@ -10,6 +10,9 @@ const MOCK_TOPIC = {
   name: 'Photosynthesis Explainer',
   status: 'active' as const,
   created_at: '2026-03-01T09:00:00Z',
+  // Phase 5: ArenaTopicDetail surface multi-seed shape.
+  seedVariants: [],
+  seedVariant: null,
 };
 
 const MOCK_ENTRIES = [

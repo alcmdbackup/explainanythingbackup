@@ -1,5 +1,6 @@
 // Resolves all inputs needed before the pipeline loop: content, strategy config, arena entries.
 
+import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Variant } from '../../types';
 import type { EvolutionConfig } from '../infra/types';
@@ -252,6 +253,10 @@ async function resolveContent(
   db: SupabaseClient,
   _llm: RawLLMProvider,
   logger?: EntityLogger,
+  /** Phase 5 / 5a-1: when 'random' and the topic has multiple seeds, pick a
+   *  deterministic per-run seed via SHA-256(run.id). Default 'highest_elo'
+   *  preserves pre-Phase-5 single-seed behavior. */
+  seedSelection?: 'highest_elo' | 'random',
 ): Promise<ResolvedContent> {
   if (run.explanation_id != null) {
     const { data, error } = await db.from('explanations').select('content').eq('id', run.explanation_id).single();
@@ -266,18 +271,51 @@ async function resolveContent(
     const promptText = !error && typeof data?.prompt === 'string' ? data.prompt : null;
     if (!promptText) return { originalText: null };
 
-    // Use highest-rated arena seed article if one exists; otherwise defer to CreateSeedArticleAgent.
-    // Read mu/sigma/arena_match_count too so we can reuse the seed's persisted rating in the run pool.
-    const { data: seedEntry } = await db
-      .from('evolution_variants')
-      .select('id, variant_content, mu, sigma, arena_match_count, synced_to_arena')
-      .eq('prompt_id', run.prompt_id)
-      .eq('synced_to_arena', true)
-      .eq('generation_method', 'seed')
-      .is('archived_at', null)
-      .order('elo_score', { ascending: false })
-      .limit(1)
-      .single();
+    const mode = seedSelection ?? 'highest_elo';
+    let seedEntry: {
+      id: string;
+      variant_content: string;
+      mu: number | string | null;
+      sigma: number | string | null;
+      arena_match_count: number | null;
+      synced_to_arena: boolean;
+    } | null = null;
+
+    if (mode === 'random') {
+      // Phase 5 / 5a-1: deterministic random seed selection across the multi-seed
+      // pool. Stable ordering on `id` ASC makes the array index reproducible across
+      // runs; SHA-256 of run.id (UUIDv4, 122 bits entropy) → uniform distribution
+      // over the pool. Same run.id always picks the same seed so a retried run is
+      // not a different experiment. Single-seed topics degrade gracefully to that
+      // one seed; zero-seed topics fall through to CreateSeedArticleAgent below.
+      const { data: seedRows } = await db
+        .from('evolution_variants')
+        .select('id, variant_content, mu, sigma, arena_match_count, synced_to_arena')
+        .eq('prompt_id', run.prompt_id)
+        .eq('synced_to_arena', true)
+        .eq('generation_method', 'seed')
+        .is('archived_at', null)
+        .order('id', { ascending: true });
+      if (seedRows && seedRows.length > 0) {
+        const hashed = createHash('sha256').update(run.id).digest().readUInt32BE(0);
+        seedEntry = seedRows[hashed % seedRows.length] ?? null;
+      }
+    } else {
+      // Pre-Phase-5 / default 'highest_elo': pick the single highest-elo seed.
+      // Preserves the exact byte-identical query the pre-Phase-5 code used,
+      // including `.single()` semantics (returns { data: null } when no row).
+      const { data } = await db
+        .from('evolution_variants')
+        .select('id, variant_content, mu, sigma, arena_match_count, synced_to_arena')
+        .eq('prompt_id', run.prompt_id)
+        .eq('synced_to_arena', true)
+        .eq('generation_method', 'seed')
+        .is('archived_at', null)
+        .order('elo_score', { ascending: false })
+        .limit(1)
+        .single();
+      seedEntry = data ?? null;
+    }
 
     if (seedEntry?.variant_content) {
       // Belt-and-suspenders invariant: SELECT filtered on synced_to_arena=true,
@@ -288,7 +326,10 @@ async function resolveContent(
         });
         return { originalText: null, seedPrompt: promptText };
       }
-      logger?.info('Content resolved from arena seed article', { contentLength: seedEntry.variant_content.length, source: 'arena_seed', phaseName: 'setup' });
+      logger?.info('Content resolved from arena seed article', {
+        contentLength: seedEntry.variant_content.length, source: 'arena_seed',
+        seedSelection: mode, phaseName: 'setup',
+      });
       const seedVariantRow = isSeedRatingReuseEnabled() ? buildSeedVariantRow(seedEntry) : undefined;
       return { originalText: seedEntry.variant_content, seedVariantRow };
     }
@@ -462,7 +503,9 @@ export async function buildRunContext(
     phaseName: 'setup',
   });
 
-  const { originalText, seedPrompt, seedVariantRow } = await resolveContent(claimedRun, db, llmProvider, logger);
+  const { originalText, seedPrompt, seedVariantRow } = await resolveContent(
+    claimedRun, db, llmProvider, logger, stratConfig.seedSelection,
+  );
   if (!originalText && !seedPrompt) {
     let reason: string;
     if (claimedRun.explanation_id != null) {

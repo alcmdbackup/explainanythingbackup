@@ -126,6 +126,11 @@ interface StrategyFormState {
    *  When resolved value === editingModel resolved value, the wizard surfaces a
    *  rubber-stamping warning per Decisions §16. */
   approverModel: string;
+  /** Phase 5 / 5a-1: which seed picks the parent originalText when the topic
+   *  has multiple seeds. Empty → 'highest_elo' (pre-Phase-5 default). 'random'
+   *  picks a deterministic per-run seed via SHA-256(run.id), spreading parent
+   *  selection across the seed pool for canaries. */
+  seedSelection: '' | 'highest_elo' | 'random';
   generationTemperature: string;
   budgetUsd: string;
   maxComparisonsPerVariant: string;
@@ -446,6 +451,7 @@ export default function NewStrategyPage(): JSX.Element {
     paragraphJudgeRubricId: '',
     editingModel: '',
     approverModel: '',
+    seedSelection: '',
     generationTemperature: '',
     budgetUsd: '0.05',
     maxComparisonsPerVariant: '5',
@@ -798,6 +804,7 @@ export default function NewStrategyPage(): JSX.Element {
         paragraphJudgeRubricId: form.paragraphJudgeRubricId || undefined,
         editingModel: form.editingModel || undefined,
         approverModel: form.approverModel || undefined,
+        seedSelection: form.seedSelection || undefined,
         budgetUsd: parseFloat(form.budgetUsd),
         iterationConfigs: toIterationConfigsPayload(iterations),
         maxComparisonsPerVariant: form.maxComparisonsPerVariant ? Number(form.maxComparisonsPerVariant) : undefined,
@@ -1018,6 +1025,31 @@ export default function NewStrategyPage(): JSX.Element {
                     return null;
                   })()}
                 </div>
+              </div>
+
+              <div>
+                <label htmlFor="seed-selection" className={labelClasses}>
+                  Seed Selection (optional)
+                </label>
+                <select
+                  id="seed-selection"
+                  data-testid="seed-selection-select"
+                  value={form.seedSelection}
+                  onChange={e => updateForm({ seedSelection: e.target.value as '' | 'highest_elo' | 'random' })}
+                  className={inputCls(false)}
+                >
+                  <option value="">Default (Highest Elo)</option>
+                  <option value="highest_elo">Highest Elo (explicit)</option>
+                  <option value="random">Random per run (multi-seed topics)</option>
+                </select>
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  When the topic has multiple seed variants (e.g. Federal Reserve 3), this
+                  controls which seed becomes the run&apos;s parent <code>originalText</code>.
+                  <strong> Highest Elo</strong> (default) preserves pre-Phase-5 behavior — same
+                  seed every run. <strong>Random per run</strong> picks a deterministic seed via
+                  SHA-256 of <code>run.id</code>, so a canary&apos;s 6+ invocations sample across the
+                  pool while remaining reproducible. Single-seed topics are unaffected.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
