@@ -61,6 +61,11 @@ adminTest.describe('Strategy Creation Wizard', { tag: '@evolution' }, () => {
     await expect(adminPage.locator('#judge-model')).toBeVisible();
     await expect(adminPage.locator('#budget-usd')).toBeVisible();
 
+    // Judge Escalation picker (default option = single judge; populated from chainRegistry).
+    const ensemble = adminPage.getByTestId('ensemble-config-select');
+    await expect(ensemble).toBeVisible();
+    await expect(ensemble.locator('option[value="gemini-tiebreak-v1"]')).toHaveCount(1);
+
     // Step 1 "Next" button visible
     await expect(adminPage.locator('button', { hasText: 'Next: Configure Iterations' })).toBeVisible();
   });
