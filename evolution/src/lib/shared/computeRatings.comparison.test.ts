@@ -6,7 +6,6 @@ import {
   parseWinner,
   compareWithBiasMitigation,
   ComparisonResult,
-  MAX_NEXT_PARAGRAPHS_FOR_CONTEXT,
 } from './computeRatings';
 import type { ResolvedJudgeRubric } from './rubricJudge';
 
@@ -185,19 +184,17 @@ Your answer:`;
         expect(afterClose.slice(0, guardEndIdx)).not.toContain(injection);
       });
 
-      it('truncation: more than MAX_NEXT_PARAGRAPHS_FOR_CONTEXT keeps first N', () => {
-        const nextContext = Array.from({ length: 10 }, (_, i) => `[para ${i}]`);
+      it('Phase 4e.A0 — unbounded passthrough (all N paragraphs render, no truncation note)', () => {
+        const nextContext = Array.from({ length: 20 }, (_, i) => `[para ${i}]`);
         const prompt = buildComparisonPrompt(
           'AAA', 'BBB', 'paragraph', undefined, false, [], nextContext,
         );
-        // First N should appear
-        for (let i = 0; i < MAX_NEXT_PARAGRAPHS_FOR_CONTEXT; i += 1) {
+        // EVERY paragraph renders — no slice.
+        for (let i = 0; i < 20; i += 1) {
           expect(prompt).toContain(`[para ${i}]`);
         }
-        // Later ones should be dropped
-        expect(prompt).not.toContain('[para 9]');
-        // Truncation note present
-        expect(prompt).toContain(`NEXT CONTEXT shows the next ${MAX_NEXT_PARAGRAPHS_FOR_CONTEXT} paragraphs`);
+        // Truncation note is NEVER emitted (regression guard against re-introducing a cap).
+        expect(prompt).not.toContain('NEXT CONTEXT shows the next');
       });
 
       it('both PRIOR + NEXT can coexist with their respective rubric criteria', () => {

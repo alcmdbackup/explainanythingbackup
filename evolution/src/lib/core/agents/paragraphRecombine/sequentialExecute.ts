@@ -468,6 +468,11 @@ async function processSequentialRound(
         totalParagraphs: paragraphCount,
         parentParagraph: slot.originalText,
         priorPicks,
+        // Phase 4e.A1: thread the same nextContext array the judge sees into the
+        // rewriter. Already sanitized at the boundary where it was computed (per
+        // Phase 1c-i: each entry runs through sanitizeForPriorContext before
+        // being added to the array).
+        nextContext,
         coordinatorDirective: directive,
       });
 
