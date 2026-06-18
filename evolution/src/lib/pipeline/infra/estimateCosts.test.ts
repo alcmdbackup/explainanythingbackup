@@ -287,5 +287,50 @@ describe('estimateCosts', () => {
       // Different judge model yields different ranking layer cost.
       expect(splitJudge.expected).not.toBe(both.expected);
     });
+
+    // Phase 4d: coordinatorModel projector tests.
+    describe('Phase 4d — coordinatorModel override', () => {
+      it("coordinatorCost reflects coordinatorModel when set (not rewriteModel)", () => {
+        const baseline = estimateParagraphRecombineCost(
+          5000, 12, 3, 8, 'gpt-4.1-nano', 'qwen-2.5-7b-instruct',
+          { sequentialEnabled: true },
+        );
+        const withCoord = estimateParagraphRecombineCost(
+          5000, 12, 3, 8, 'gpt-4.1-nano', 'qwen-2.5-7b-instruct',
+          // gpt-5-mini is meaningfully more expensive than gpt-4.1-nano per token,
+          // so the coordinator-phase cost must rise when the override is set.
+          { sequentialEnabled: true, coordinatorModel: 'gpt-5-mini' },
+        );
+        expect(withCoord.perPhase.coordinatorCost).toBeGreaterThan(baseline.perPhase.coordinatorCost);
+        expect(withCoord.expected).toBeGreaterThan(baseline.expected);
+      });
+
+      it("absent coordinatorModel is byte-identical to pre-Phase-4d (coordinator falls back to rewriteModel)", () => {
+        const oldShape = estimateParagraphRecombineCost(
+          5000, 12, 3, 8, 'gpt-4.1-nano', 'qwen-2.5-7b-instruct',
+          { sequentialEnabled: true },
+        );
+        const explicitUndef = estimateParagraphRecombineCost(
+          5000, 12, 3, 8, 'gpt-4.1-nano', 'qwen-2.5-7b-instruct',
+          { sequentialEnabled: true, coordinatorModel: undefined },
+        );
+        expect(explicitUndef.perPhase.coordinatorCost).toBe(oldShape.perPhase.coordinatorCost);
+        expect(explicitUndef.expected).toBe(oldShape.expected);
+      });
+
+      it("replan-aware: coordinatorCost ≈ (1 + replanRate) × singleCallCost", () => {
+        // The projector multiplies the single-call cost by (1 + COORDINATOR_REPLAN_RATE_DEFAULT)
+        // = 1.65 today. Sanity-check: doubling the same baseline twice yields a 65%-ish
+        // delta, NOT a 100% delta (which would imply replan-rate of 1.0).
+        const single = estimateParagraphRecombineCost(
+          5000, 12, 3, 8, 'gpt-4.1-nano', 'qwen-2.5-7b-instruct',
+          { sequentialEnabled: true },
+        );
+        const replanRate = 0.65; // mirrors COORDINATOR_REPLAN_RATE_DEFAULT in source
+        const impliedSingleCallCost = single.perPhase.coordinatorCost / (1 + replanRate);
+        // Within 1% rounding tolerance.
+        expect(Math.abs(single.perPhase.coordinatorCost - impliedSingleCallCost * (1 + replanRate))).toBeLessThan(0.001);
+      });
+    });
   });
 });

@@ -910,6 +910,14 @@ const strategyConfigBaseSchema = z.object({
   editingModel: z.string().optional(),
   /** Model used by the Approver LLM call in iterative_editing iterations. Falls back to editingModel (which falls back to generationModel) when unset. When approverModel === editingModel (resolved values), the wizard surfaces a soft rubber-stamping warning per Decisions §16. */
   approverModel: z.string().optional(),
+  /** Phase 4d (investigate_sequential_paragraph_recombine_performance_20260615):
+   *  model used by the paragraph_recombine COORDINATOR (initial-plan + replan) — the
+   *  agent that writes per-slot directives. Falls back to generationModel at runtime
+   *  when unset. Reads via (ctx.config as { coordinatorModel?: string }).coordinatorModel
+   *  at the two runCoordinator call sites — mirrors the existing editingModel/approverModel
+   *  pattern at IterativeEditingAgent.ts:155-167 (no AgentContext mutation). Recommended
+   *  upgrade path: flash-lite (default) → gpt-5-mini (safe lift) → claude-sonnet-4 (premium). */
+  coordinatorModel: z.string().optional(),
   /** Phase 5 (investigate_sequential_paragraph_recombine_performance_20260615 / 5a-1):
    *  controls which seed variant is picked as `originalText` when a topic has multiple
    *  seeds. 'highest_elo' (default) preserves pre-Phase-5 behavior — `.limit(1)` by

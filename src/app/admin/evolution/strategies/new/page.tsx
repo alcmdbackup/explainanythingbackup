@@ -126,6 +126,10 @@ interface StrategyFormState {
    *  When resolved value === editingModel resolved value, the wizard surfaces a
    *  rubber-stamping warning per Decisions §16. */
   approverModel: string;
+  /** Phase 4d: paragraph_recombine coordinator model. Empty → falls back to
+   *  generationModel at runtime. A stronger long-context model at-the-source
+   *  improves per-slot directives at the cost of higher coordinator-phase spend. */
+  coordinatorModel: string;
   /** Phase 5 / 5a-1: which seed picks the parent originalText when the topic
    *  has multiple seeds. Empty → 'highest_elo' (pre-Phase-5 default). 'random'
    *  picks a deterministic per-run seed via SHA-256(run.id), spreading parent
@@ -451,6 +455,7 @@ export default function NewStrategyPage(): JSX.Element {
     paragraphJudgeRubricId: '',
     editingModel: '',
     approverModel: '',
+    coordinatorModel: '',
     seedSelection: '',
     generationTemperature: '',
     budgetUsd: '0.05',
@@ -554,6 +559,9 @@ export default function NewStrategyPage(): JSX.Element {
             judgeModel: form.judgeModel,
             ...(form.editingModel ? { editingModel: form.editingModel } : {}),
             ...(form.approverModel ? { approverModel: form.approverModel } : {}),
+            // Phase 4d: thread coordinatorModel into the dispatch preview so the
+            // per-strategy cost projection reflects the chosen coordinator model.
+            ...(form.coordinatorModel ? { coordinatorModel: form.coordinatorModel } : {}),
             budgetUsd: budget,
             maxComparisonsPerVariant: maxComp,
             iterationConfigs: toIterationConfigsPayload(iterations),
@@ -804,6 +812,7 @@ export default function NewStrategyPage(): JSX.Element {
         paragraphJudgeRubricId: form.paragraphJudgeRubricId || undefined,
         editingModel: form.editingModel || undefined,
         approverModel: form.approverModel || undefined,
+        coordinatorModel: form.coordinatorModel || undefined,
         seedSelection: form.seedSelection || undefined,
         budgetUsd: parseFloat(form.budgetUsd),
         iterationConfigs: toIterationConfigsPayload(iterations),
@@ -1025,6 +1034,33 @@ export default function NewStrategyPage(): JSX.Element {
                     return null;
                   })()}
                 </div>
+              </div>
+
+              <div>
+                <label htmlFor="coordinator-model" className={labelClasses}>
+                  Coordinator Model (optional)
+                </label>
+                <select
+                  id="coordinator-model"
+                  data-testid="coordinator-model-select"
+                  value={form.coordinatorModel}
+                  onChange={e => updateForm({ coordinatorModel: e.target.value })}
+                  className={inputCls(false)}
+                >
+                  <option value="">Inherit from Generation Model</option>
+                  {MODEL_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  Used by the paragraph_recombine coordinator (initial-plan + replan).
+                  A stronger long-context model at-the-source produces better per-slot
+                  directives — preventing topic substitution and cross-section redundancy
+                  before they happen. The per-coordinator-call cost dominates premium-tier
+                  spend (Sonnet ≈ $0.021/call, gpt-5-mini ≈ $0.0025/call vs flash-lite
+                  ≈ $0.0006/call). Recommend gpt-5-mini for safe lift; reserve sonnet-4
+                  for premium-budget strategies.
+                </p>
               </div>
 
               <div>

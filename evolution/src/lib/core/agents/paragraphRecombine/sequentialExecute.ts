@@ -96,8 +96,16 @@ export type SequentialLoopParams = {
    *  the orchestrator hands the original parent text to the agent, which forwards it
    *  here. The replan call needs both this AND the model. */
   parentText: string;
-  /** Phase 2: model used for the replan call. Same model as the initial coordinator. */
+  /** Phase 2: model used for the replan call. Same model as the initial coordinator
+   *  unless 4d's coordinatorModelForReplan override is set. */
   generationModelForReplan: string;
+  /** Phase 4d: optional coordinator-model override for the replan call. When set,
+   *  takes precedence over generationModelForReplan. The agent reads the value off
+   *  ctx.config (mirrors editingModel/approverModel pattern) and threads it through
+   *  here so both the initial-plan and mid-sequence replan honor the same override —
+   *  without this, the replan would silently keep using the rewrite model while only
+   *  the initial plan respected the strategy's coordinatorModel. */
+  coordinatorModelForReplan?: string;
 };
 
 export async function runSequentialLoop(params: SequentialLoopParams): Promise<SequentialLoopResult> {
@@ -105,8 +113,11 @@ export async function runSequentialLoop(params: SequentialLoopParams): Promise<S
     slots, paragraphCount, parentVariantId,
     perInvocationCapUsd, rewriteModel, judgeModel,
     invocationScope, ctx, llm,
-    parentText, generationModelForReplan,
+    parentText, generationModelForReplan, coordinatorModelForReplan,
   } = params;
+  // Phase 4d: prefer the explicit replan override; fall back to the existing
+  // generationModelForReplan param so pre-Phase-4d call sites are byte-identical.
+  const effectiveReplanModel = coordinatorModelForReplan ?? generationModelForReplan;
   // coordinatorPlan is `let` so we can mutate-by-rebind after a successful replan
   // (immutability invariant preserved — we never mutate the original plan in place).
   let { coordinatorPlan } = params;
@@ -245,7 +256,8 @@ export async function runSequentialLoop(params: SequentialLoopParams): Promise<S
             parentText,
             paragraphCount,
             llm,
-            generationModel: generationModelForReplan,
+            // Phase 4d: honor the coordinatorModel override on the replan path too.
+            generationModel: effectiveReplanModel,
             ...(ctx.invocationId !== '' && { invocationId: ctx.invocationId }),
             priorPicks,
             firstSlot: 1,

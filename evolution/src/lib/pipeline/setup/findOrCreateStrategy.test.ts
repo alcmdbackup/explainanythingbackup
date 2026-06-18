@@ -46,6 +46,24 @@ describe('V2 hashStrategyConfig', () => {
     expect(hashStrategyConfig(withoutField)).toBe(hashStrategyConfig(withUndefined));
   });
 
+  // Phase 4d: coordinatorModel field added. Two regression cases.
+  // (a) absent-field stability: strategy WITHOUT coordinatorModel produces the same
+  //     hash as a pre-Phase-4d strategy with same other fields.
+  // (b) present-field distinctness + same-value idempotency.
+  it('coordinatorModel absent matches a baseConfig without the field (back-compat)', () => {
+    const withoutField: StrategyConfig = { ...baseConfig };
+    const withUndefined: StrategyConfig = { ...baseConfig, coordinatorModel: undefined };
+    expect(hashStrategyConfig(withoutField)).toBe(hashStrategyConfig(withUndefined));
+  });
+
+  it('coordinatorModel distinct values produce distinct hashes; same value matches itself', () => {
+    const flashLite: StrategyConfig = { ...baseConfig, coordinatorModel: 'gemini-2.5-flash-lite' };
+    const gpt5mini: StrategyConfig = { ...baseConfig, coordinatorModel: 'gpt-5-mini' };
+    expect(hashStrategyConfig(flashLite)).not.toBe(hashStrategyConfig(gpt5mini));
+    const gpt5mini2: StrategyConfig = { ...baseConfig, coordinatorModel: 'gpt-5-mini' };
+    expect(hashStrategyConfig(gpt5mini)).toBe(hashStrategyConfig(gpt5mini2));
+  });
+
   it('seedSelection distinct values produce distinct hashes', () => {
     const highestElo: StrategyConfig = { ...baseConfig, seedSelection: 'highest_elo' };
     const random: StrategyConfig = { ...baseConfig, seedSelection: 'random' };

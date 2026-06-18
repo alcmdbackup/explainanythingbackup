@@ -599,6 +599,14 @@ const COORDINATOR_PROMPT_OVERHEAD = 1500;
 /** Per-paragraph output chars in the coordinator's JSON plan. Roughly 350 chars per
  *  paragraph (directive + temperature + rationale + role + M + index + nesting). */
 const COORDINATOR_OUTPUT_CHARS_PER_PARAGRAPH = 350;
+/** Phase 4d / replan-aware coordinator projection: today's projector models 1
+ *  coordinator call (initial). Production fires up to 2 (initial + Phase 2 replan).
+ *  With flash-lite at $0.0006/call the gap is invisible; with Sonnet at $0.021/call
+ *  the gap is $0.021 the wizard hides — visible understatement on premium tier.
+ *  COORDINATOR_REPLAN_RATE_DEFAULT picks an observed fire-rate so total coordinator
+ *  cost ≈ (1 + replanRate) × singleCallCost. 0.65 derived from staging observation
+ *  of post-PR-#1221 runs; revisit when calibration accumulates. */
+const COORDINATOR_REPLAN_RATE_DEFAULT = 0.65;
 
 export function estimateParagraphRecombineCost(
   parentArticleChars: number,
@@ -612,8 +620,12 @@ export function estimateParagraphRecombineCost(
    *  triangular prior-picks growth on rewrite + rank phases. When omitted or false, the
    *  projection collapses to the legacy parallel 2-phase shape (coordinatorCost === 0).
    *  Pass an EXPLICIT param (not env.read) so wizard projection mirrors runtime even when
-   *  the projector is invoked client-side. Callers resolve env at their boundary. */
-  opts?: { sequentialEnabled?: boolean },
+   *  the projector is invoked client-side. Callers resolve env at their boundary.
+   *
+   *  Phase 4d adds `coordinatorModel`: when set, the coordinator-phase calibration row
+   *  AND pricing both use this model instead of `rewriteModel`. Falls back to rewriteModel
+   *  when omitted — byte-identical pre-Phase-4d projection. */
+  opts?: { sequentialEnabled?: boolean; coordinatorModel?: string },
 ): {
   expected: number;
   upperBound: number;
@@ -679,14 +691,24 @@ export function estimateParagraphRecombineCost(
     totalRankCost = paragraphCount * rewritesPerParagraph * perSlotRankCost;
   }
 
-  // Coordinator phase (sequential only). One LLM call, parent text input + structured output.
+  // Coordinator phase (sequential only). Phase 4d: when a per-strategy
+  // coordinatorModel is set, BOTH the calibration-row lookup AND the pricing lookup
+  // use it instead of the rewrite model — otherwise a Sonnet coordinator would be
+  // costed against flash-lite pricing (~30× under-projection). Plus replan-aware
+  // multiplier: the projector models one initial call + COORDINATOR_REPLAN_RATE
+  // expected replan calls, since Phase 2 replan fires often enough that ignoring it
+  // makes the wizard's headline cost preview under-state premium-tier spend by the
+  // most visible amount.
   let coordinatorCost = 0;
   if (sequentialEnabled) {
+    const coordinatorModel = opts?.coordinatorModel ?? rewriteModel;
+    const coordinatorPricing = getModelPricing(coordinatorModel);
     const coordinatorInputChars = parentArticleChars + COORDINATOR_PROMPT_OVERHEAD;
-    const calibratedCoordinator = getCalibrationRow('__unspecified__', rewriteModel, judgeModel, 'paragraph_recombine_coordinator');
+    const calibratedCoordinator = getCalibrationRow('__unspecified__', coordinatorModel, judgeModel, 'paragraph_recombine_coordinator');
     const coordinatorOutputChars = calibratedCoordinator?.avgOutputChars
       ?? paragraphCount * COORDINATOR_OUTPUT_CHARS_PER_PARAGRAPH;
-    coordinatorCost = calculateCost(coordinatorInputChars, coordinatorOutputChars, rewritePricing);
+    const singleCallCost = calculateCost(coordinatorInputChars, coordinatorOutputChars, coordinatorPricing);
+    coordinatorCost = singleCallCost * (1 + COORDINATOR_REPLAN_RATE_DEFAULT);
   }
 
   const expected = totalRewriteCost + totalRankCost + coordinatorCost;
