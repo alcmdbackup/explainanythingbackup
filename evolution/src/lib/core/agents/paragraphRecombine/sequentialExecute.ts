@@ -621,6 +621,10 @@ async function processSequentialRound(
         costTracker: slotScope,
         priorPicks,
         nextContext,
+        // Phase 4a-2: parent's slot-N text — sanitized at the same boundary as
+        // priorPicks/nextContext so a parent paragraph containing a literal
+        // </UNTRUSTED_ORIGINAL> tag cannot break out of the new tag scope.
+        originalParagraph: sanitizeForPriorContext(slot.originalText).sanitized,
       });
       for (const match of result.rankResult.matches) {
         const aBefore = beforeRatings.get(match.winnerId) ?? createRating();
