@@ -20,20 +20,20 @@ The codebase **already has the explicit version of this feature** and most of th
 - **Pairwise comparison infra exists**: `compareWithBiasMitigation` / `buildComparisonPrompt` / `parseWinner` / `aggregateWinners`, plus the `evolution_arena_comparisons` table (`entry_a`, `entry_b`, `winner ∈ {a,b,draw}`, `confidence`). Today the judge is an **LLM**; here the judge for the *training data* is a **human** (LLM judging is the eventual *consumer* of the inferred weights).
 - **Judge Lab (`judge_eval_*` tables)** is the closest analog: it persists pairs (pair-banks), frozen test sets, and per-call verdicts, and computes accuracy vs. an Elo-gap ground truth. This is the right architectural pattern to imitate for the human-labelling + sample-set machinery.
 
-### The core mechanic ("make the two match")
-Each article `a` has a per-criterion score vector `s(a) = [s_1 … s_K]` (from human grading on the K criteria, on each criterion's `[min,max]` scale). For a graded pair `(a, b)` the human also states a pairwise preference. We want weights `w = [w_1 … w_K] (w_i ≥ 0, Σw_i = 1)` such that the **weighted score difference predicts the pairwise winner**:
+### The core mechanic ("make the two match") — PAIR-BASED, per user revision
+The rubric works **on pairs**, exactly like the production match rubric (`rubricJudge.scorePass`): for each human-judged pair `(A, B)` the human gives a per-criterion verdict `vᵢ ∈ {A-better:+1, B-better:−1, tie:0}` for each of the K criteria, **plus** an independent **overall** verdict (A/B/tie). We want weights `w = [w₁ … w_K] (wᵢ ≥ 0, Σwᵢ = 1)` such that the **weighted vote of the per-criterion verdicts predicts the overall winner**:
 
 ```
-predicted_winner(a,b) = sign( w · (s(a) − s(b)) )
+predicted_overall(A,B) = sign( Σ wᵢ · vᵢ )
 ```
 
-This is a **logistic regression / Bradley–Terry fit** on score-*difference* features:
-- Feature vector per labelled pair = `s(a) − s(b)` (length K).
-- Label = human pairwise choice (A wins / B wins / tie).
-- Fit `w` (optionally with a non-negativity + sum-to-1 constraint, or via L2/Dirichlet regularization) maximizing agreement with the human pairwise labels.
-- The fitted coefficients, renormalized, ARE the implied rubric weights. Tie handling and per-criterion grader noise mirror existing patterns (draw threshold, 2-pass reversal for the human pairwise step is optional).
+This IS the production `scorePass` rule (`scoreA += wᵢ` where A won criterion i, `scoreB += wᵢ` where B won, TIE contributes nothing; higher score wins). So we fit a **non-negative logistic / Bradley–Terry model on the per-criterion verdict vector**:
+- Feature vector per labelled pair = `v ∈ {−1,0,+1}ᴷ` (the per-criterion winners, oriented to the stored A/B frame).
+- Label = the human's independent overall verdict.
+- Fit non-negative `w` (softmax-param or clamp-and-refit, L2-regularized) maximizing agreement; renormalize to sum-1.
+- The fitted coefficients **ARE** the implied rubric weights — and they plug straight into the existing rubric vote with **no semantic mismatch** (the prior continuous-score-difference approach was only an approximation of this discretized vote; the pair-based design removes that gap).
 
-This is the standard "learning a linear value function from pairwise comparisons + feature scores" problem (a.k.a. preference learning / RankSVM / Bradley-Terry with observed item features). It is small-K (typically 3–8 criteria), so it is cheap to fit and the open questions are about **data collection ergonomics and identifiability**, not compute.
+Key consequence: per-criterion verdicts and the overall verdict must be observed **on the same pairs** (to learn how the per-criterion winners combine into the overall), but elicited **separately/independently** to avoid anchoring. Small-K (3–8) ⇒ cheap to fit; the open questions are data-collection ergonomics + identifiability, not compute.
 
 ### The "preview of how many ratings necessary"
 Emphasized in the brief. There are **two rating types** to size independently:
@@ -55,9 +55,11 @@ Inferred weights → write/seed an `evolution_judge_rubrics` + `evolution_judge_
 - **Admin UI + nav:** append one `NavItem` to the **Tools** group `items` array in `src/components/admin/EvolutionSidebar.tsx` (`testId:'evolution-sidebar-nav-weight-inference'`) — `activeOverrides` auto-derives. Page at `src/app/admin/evolution/weight-inference/page.tsx` (`'use client'`, `EvolutionBreadcrumb`, Midnight Scholar tokens, design-system ESLint enforced). Server actions via `adminAction(name, handler)` in `evolution/src/services/` (`'use server'`, `ActionResult<T>`, `requireAdmin`). Route auto host-gated (`EVOLUTION_PREFIXES`) + admin-gated (`layout.tsx`). No API route needed (no long-running LLM); fit is local compute.
 
 ### Resolved decisions (user + research)
+- **Pair-based per-criterion verdicts (user revision):** the rubric works on pairs — "is A or B better on this criterion" — exactly like the production match rubric. Feature = per-criterion verdict vector `v∈{−1,0,+1}ᴷ`; label = independent overall verdict; fit learns the `scorePass` vote weights. Replaces the earlier absolute-score-grading approach (no continuous approximation).
 - **Article pool source = arena-topic variants** (sample N, snapshot). **Infer scope = weights for an admin-chosen criteria set**; near-zero weights flagged "barely matters" (no auto criterion discovery in v1).
-- **Constraints on `w`:** non-negative + sum-to-1 (softmax-param or clamp-and-refit); a would-be-negative coefficient is surfaced as a "barely matters / anti-correlated" warning rather than silently dropped.
-- **Tie handling:** ties dropped from the fit in v1 (noted as a simplification); pairwise label enum `('a','b','tie')`.
+- **Data shape:** a **comparison** row per pair (overall winner) + child **dimension-verdict** rows (per-criterion winner) — mirrors `evolution_arena_comparisons` + `evolution_submatch_dimension_verdicts`. Per-criterion and overall verdicts observed on the same pair but elicited in **separate steps** (anti-anchoring). A/B presentation order randomized per pair (position-bias balance; humans can't cheaply do production's 2-pass reversal).
+- **Constraints on `w`:** non-negative + sum-to-1 (softmax-param or clamp-and-refit); a would-be-negative coefficient (criterion whose verdicts oppose the overall) is surfaced as a "disagrees with overall" warning rather than silently dropped; near-zero ⇒ "barely matters."
+- **Tie handling:** overall-ties dropped from the fit in v1 (noted as a simplification); verdict enum `('a','b','tie')`.
 - **Rater:** capture `rater_id` (admin id) for future multi-rater; v1 UI is single-user.
 
 ### Remaining items for /planning + /plan-review

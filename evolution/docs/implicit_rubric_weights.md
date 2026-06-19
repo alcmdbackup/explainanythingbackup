@@ -3,7 +3,7 @@
 ## Overview
 [To be filled during implementation]
 
-Infers rubric-dimension **weights** from human preference data instead of an admin typing them in by hand. Two human inputs — per-criterion gradings on individual articles and pairwise "which is better" choices — are reconciled by fitting weights `w` such that the weighted per-criterion score difference predicts the pairwise winner (`sign(w · (s(a) − s(b)))`). Surfaces an upfront + live preview of how many ratings of each type are needed. Output weights seed an `evolution_judge_rubrics` set, closing the loop into rubric-based LLM judging.
+Infers rubric-dimension **weights** from human preference data instead of an admin typing them in by hand. The rubric works **on pairs**, exactly like the production match rubric (`rubricJudge.scorePass`): for each article pair the human gives a per-criterion verdict ("is A or B better on this criterion") plus an independent **overall** verdict, and weights `w` are fit so the weighted vote of the per-criterion verdicts predicts the overall winner (`sign(Σ wᵢ·vᵢ)`, `vᵢ∈{−1,0,+1}`). Because that IS the production voting rule, the inferred weights plug straight in with no semantic mismatch. Surfaces an upfront + live preview of how many ratings are needed. Output weights seed an `evolution_judge_rubrics` set, closing the loop into rubric-based LLM judging.
 
 ## Key Files
 - [To be filled during implementation — likely `evolution/src/lib/<weightFit>.ts`, `evolution/src/services/<weightInferenceActions>.ts`, `src/app/admin/evolution/<page>/`]
