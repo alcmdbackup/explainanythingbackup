@@ -150,9 +150,22 @@ Both arms identical otherwise. The settings mirror the **most-recent production 
 
 **Stage 1 — smoke (5 runs per arm, 10 total)**: minimum sample to confirm the splitter doesn't crash, the cost stays under budget, and `/admin/evolution/invocations/[id]` renders treatment-arm Edit Cycle tabs cleanly. Will not statistically settle anything but will catch implementation bugs and surfacing issues. Cost: ~$0.40 expected, $0.50 hard ceiling.
 
-**Stage 2 — scale (an additional 25/arm, total 30/arm = 60)**: powered to detect a 13 % → 30 % improver-rate lift at α = 0.05 two-sided, β = 0.20. Triggered only if Stage 1 passed all acceptance checks below. Cost: an additional ~$2.00, $2.50 hard ceiling.
+**Stage 2 — scale (an additional 25/arm, total 30/arm = 60)**: Triggered only if Stage 1 passed all acceptance checks below. Cost: an additional ~$2.00, $2.50 hard ceiling.
 
-**Cumulative experiment cost ceiling: $3.00 if both stages run; $0.50 if Stage 1 alone.**
+> **Honest statistical power at n=30/arm** (corrected after plan-review iteration 2). The two-proportion z-test power at α=0.05 two-sided, n=30 per arm:
+> - For 13 % → 30 % (Cohen's h ≈ 0.42): **~37 % power**. Likely under-detected even if H1 is true. Not 80 % as the prior draft claimed.
+> - For 13 % → 45 % (Cohen's h ≈ 0.75): **~83 % power**. Realistic detectable lift at this budget.
+> - To reach 80 % power for 13 % → 30 % requires ~88/arm = $7+ — outside the $3 ceiling.
+>
+> **Decision**: keep n=30/arm but reframe Stage 2 as "detect strong-signal lifts (≥ 30 percentage-point improver-rate gain, ≥ 25-point median Δ-Elo)" at 80 % power. Any modest signal (< 30 pp lift) lands in Inconclusive and triggers a budget request for an n=90/arm follow-up. This keeps the experiment honest about what 30/arm can prove.
+
+**Cumulative experiment cost ceiling: $3.00 if both stages run; $0.50 if Stage 1 alone. Follow-up n=90/arm (if Inconclusive) is an additional $5-6 — out of scope for this PR, requested as a separate budget if needed.**
+
+**Explicit statistical tests** (the analysis report MUST cite exactly these — "CIs don't cross" is too loose):
+- **Primary**: two-proportion z-test on improver rate (improver = child Elo > parent Elo), α=0.05 two-sided. Report `p-value`, `effect_size_pct_points` (treatment % − control %), and the 95 % Wilson-score CI of the difference.
+- **Secondary**: Welch's t-test on per-run mean Δ-Elo, α=0.05 two-sided. Report `t`, `p-value`, and the 95 % CI of the mean difference.
+- **Robust secondary**: Mann–Whitney U on per-run Δ-Elo distributions (no Gaussian assumption). Report `U`, `p-value`.
+- **Effect size**: bootstrap 95 % CI of the difference-in-medians via 10 000 resamples (anchored to per-run mean Δ-Elo).
 
 ### Stage 1 (smoke) acceptance checks
 
@@ -171,62 +184,76 @@ Stage 2 fires only when ALL six hold after the 10 smoke runs complete:
 
 If any check fails, fix the issue and re-run the 10 smoke runs (this is cheap enough to repeat). Do NOT proceed to Stage 2 with a partially-working setup.
 
-**Programmatic Stage 1 verification** — checks 1, 2, 3, 6 are SQL-verifiable; check 4, 5 require human eyes. Add `evolution/scripts/verifyBundleSplitStage1.ts` that runs the SQL checks and exits non-zero if any fail:
+**Programmatic Stage 1 verification** — checks 1, 2, 3, 6 are SQL-verifiable; check 4, 5 require human eyes. Add `evolution/scripts/verifyBundleSplitStage1.ts` that runs the SQL checks and exits non-zero if any fail. The script accepts the two arm strategy IDs (NOT names — `upsertStrategy` auto-generates names like `Strategy abc123 (lite, 3it)` from the config hash, so name-LIKE filters would match zero rows and the gate would pass vacuously):
 
 ```typescript
 // evolution/scripts/verifyBundleSplitStage1.ts (sketch)
-// Exits 0 if all SQL-verifiable Stage 1 checks pass for experiment $1.
-const experimentId = args._[0];
+// Exits 0 if all SQL-verifiable Stage 1 checks pass.
+//
+// Usage: npx tsx evolution/scripts/verifyBundleSplitStage1.ts \
+//          --experiment-id <expId> --control-strategy <ctlId> --treatment-strategy <trtId>
+//
+// Table & column references verified against supabase/migrations/20260322000007:
+//   - evolution_agent_invocations (NOT evolution_invocations)
+//   - execution_detail JSONB column with shape { cycles: [{proposedGroupsRaw: [...], ...}, ...] }
+//   - evolution_variants with synced_to_arena BOOLEAN
+//   - evolution_arena_comparisons with entry_a UUID, entry_b UUID
+const { experimentId, controlStrategy, treatmentStrategy } = args;
 
-const failed = await runSqlChecks(experimentId, [
-  // Check 1: no failed runs
+const failed = await runSqlChecks([
+  // Check 1: no failed runs.
   { name: 'no_failures',
-    sql: `SELECT COUNT(*) FROM evolution_runs
+    sql: `SELECT COUNT(*) AS n FROM evolution_runs
           WHERE experiment_id = $1 AND status = 'failed'`,
-    expect: (r) => Number(r.rows[0].count) === 0 },
-  // Check 2: cost ceiling
+    params: [experimentId],
+    expect: (r) => Number(r.rows[0].n) === 0 },
+  // Check 2: cost ceiling.
   { name: 'cost_under_ceiling',
-    sql: `SELECT SUM(cost_usd) AS total FROM evolution_runs WHERE experiment_id = $1`,
+    sql: `SELECT COALESCE(SUM(cost_usd), 0) AS total FROM evolution_runs
+          WHERE experiment_id = $1`,
+    params: [experimentId],
     expect: (r) => Number(r.rows[0].total) < 0.50 },
-  // Check 3a: treatment proposedGroupsRaw.length >= 15 on at least one cycle
+  // Check 3a: treatment proposedGroupsRaw.length >= 15 on at least one cycle.
+  // Tolerates empty execution_detail.cycles via COUNT(*) presence check.
   { name: 'treatment_bypass_active',
-    sql: `SELECT COUNT(*) AS n FROM evolution_invocations i
+    sql: `SELECT COUNT(*) AS n
+          FROM evolution_agent_invocations i
           JOIN evolution_runs r ON i.run_id = r.id
-          JOIN evolution_strategies s ON r.strategy_id = s.id
+          CROSS JOIN LATERAL jsonb_array_elements(COALESCE(i.execution_detail->'cycles', '[]'::jsonb)) AS c(cycle)
           WHERE r.experiment_id = $1
-            AND s.name LIKE 'ApproverFilter Off%'
-            AND jsonb_array_length((i.editing_cycles->0->'proposedGroupsRaw')) >= 15`,
+            AND r.strategy_id = $2
+            AND jsonb_array_length(COALESCE(c.cycle->'proposedGroupsRaw', '[]'::jsonb)) >= 15`,
+    params: [experimentId, treatmentStrategy],
     expect: (r) => Number(r.rows[0].n) >= 1 },
-  // Check 3b: control proposedGroupsRaw <= 10 on every cycle (cap fired)
+  // Check 3b: control proposedGroupsRaw <= 10 on every cycle (cap fired).
+  // COALESCE protects against NULL when there are no cycles at all.
   { name: 'control_cap_fired',
-    sql: `SELECT MAX(jsonb_array_length(c.cycle->'proposedGroupsRaw')) AS max_groups
-          FROM evolution_invocations i
+    sql: `SELECT COALESCE(MAX(jsonb_array_length(COALESCE(c.cycle->'proposedGroupsRaw', '[]'::jsonb))), 0) AS max_groups
+          FROM evolution_agent_invocations i
           JOIN evolution_runs r ON i.run_id = r.id
-          JOIN evolution_strategies s ON r.strategy_id = s.id
-          CROSS JOIN LATERAL jsonb_array_elements(i.editing_cycles) AS c(cycle)
-          WHERE r.experiment_id = $1
-            AND s.name LIKE 'ApproverFilter Control%'`,
+          CROSS JOIN LATERAL jsonb_array_elements(COALESCE(i.execution_detail->'cycles', '[]'::jsonb)) AS c(cycle)
+          WHERE r.experiment_id = $1 AND r.strategy_id = $2`,
+    params: [experimentId, controlStrategy],
     expect: (r) => Number(r.rows[0].max_groups) <= 10 },
-  // Check 3c: treatment every group is a singleton
+  // Check 3c: treatment every group is a singleton. COALESCE-tolerant.
   { name: 'treatment_all_singletons',
-    sql: `SELECT MAX(jsonb_array_length(g->'atomicEdits')) AS max_atomics
-          FROM evolution_invocations i
+    sql: `SELECT COALESCE(MAX(jsonb_array_length(COALESCE(g->'atomicEdits', '[]'::jsonb))), 1) AS max_atomics
+          FROM evolution_agent_invocations i
           JOIN evolution_runs r ON i.run_id = r.id
-          JOIN evolution_strategies s ON r.strategy_id = s.id
-          CROSS JOIN LATERAL jsonb_array_elements(i.editing_cycles) AS c(cycle)
-          CROSS JOIN LATERAL jsonb_array_elements(c.cycle->'proposedGroupsRaw') AS g(g)
-          WHERE r.experiment_id = $1
-            AND s.name LIKE 'ApproverFilter Off%'`,
+          CROSS JOIN LATERAL jsonb_array_elements(COALESCE(i.execution_detail->'cycles', '[]'::jsonb)) AS c(cycle)
+          CROSS JOIN LATERAL jsonb_array_elements(COALESCE(c.cycle->'proposedGroupsRaw', '[]'::jsonb)) AS g(g)
+          WHERE r.experiment_id = $1 AND r.strategy_id = $2`,
+    params: [experimentId, treatmentStrategy],
     expect: (r) => Number(r.rows[0].max_atomics) === 1 },
-  // Check 6: arena sync — at least one variant per arm reached synced=true
+  // Check 6: arena sync — at least one variant per arm reached synced_to_arena=true.
   { name: 'arena_sync_both_arms',
-    sql: `SELECT s.name, SUM(CASE WHEN v.synced_to_arena THEN 1 ELSE 0 END) AS synced
+    sql: `SELECT r.strategy_id, COUNT(*) FILTER (WHERE v.synced_to_arena) AS synced
           FROM evolution_variants v
           JOIN evolution_runs r ON v.run_id = r.id
-          JOIN evolution_strategies s ON r.strategy_id = s.id
-          WHERE r.experiment_id = $1
-          GROUP BY s.name`,
-    expect: (r) => r.rows.every((row) => Number(row.synced) >= 1) },
+          WHERE r.experiment_id = $1 AND r.strategy_id IN ($2, $3)
+          GROUP BY r.strategy_id`,
+    params: [experimentId, controlStrategy, treatmentStrategy],
+    expect: (r) => r.rows.length === 2 && r.rows.every((row) => Number(row.synced) >= 1) },
 ]);
 
 if (failed.length > 0) {
@@ -236,35 +263,56 @@ if (failed.length > 0) {
 console.log('All Stage 1 SQL checks passed. Now run the 2 manual UI checks (#4, #5).');
 ```
 
-Run with: `npx tsx evolution/scripts/verifyBundleSplitStage1.ts <experimentId>`. Stage 2 is gated by both (a) this script exits 0 AND (b) the 2 human UI checks pass.
+Run with: `npx tsx evolution/scripts/verifyBundleSplitStage1.ts --experiment-id <expId> --control-strategy <ctlId> --treatment-strategy <trtId>`. The strategy IDs are printed by the seed script at the end of `--apply`. Stage 2 is gated by both (a) this script exits 0 AND (b) the 2 human UI checks pass.
 
-**Cancel-experiment rollback drill** — if Stage 1 detects a problem mid-flight or Stage 2 needs to be aborted, cancel the experiment cleanly:
+**Cancel-experiment rollback drill** — if Stage 1 detects a problem mid-flight or Stage 2 needs to be aborted, cancel the experiment cleanly. `evolution_experiments` does NOT have a `cancelled_reason` column (verified against the live schema); the reason is logged separately to `evolution_run_logs` against each affected run for forensic preservation.
 
 ```bash
-# 1. Stop new runs from claiming
+# 1. Stop new runs from claiming.
 npx tsx evolution/scripts/cancelExperiment.ts \
   --experiment-id <experimentId> \
   --target staging \
   --reason "Stage 1 check N failed: <details>"
 
-# What it does:
-# - UPDATE evolution_runs SET status='cancelled' WHERE experiment_id = $1 AND status = 'pending'
-# - UPDATE evolution_experiments SET status='cancelled', cancelled_reason = $2 WHERE id = $1
-# - Does NOT roll back already-completed runs or already-synced arena variants (history is preserved for forensic analysis)
-# - Does NOT delete the strategies (they remain in evolution_strategies for re-use)
+# What it does (verified against migration 20260322000007):
+# - UPDATE evolution_runs SET status='cancelled', updated_at=now()
+#     WHERE experiment_id = $1 AND status = 'pending'
+# - UPDATE evolution_experiments SET status='cancelled', updated_at=now() WHERE id = $1
+# - For each affected run, INSERT a row into evolution_run_logs with
+#     log_level='info', component='cancelExperiment', message=<reason>
+#   (preserves the reason without altering the table schema)
+# - Does NOT roll back already-completed runs or already-synced arena variants
+#   (history is preserved for forensic analysis)
+# - Does NOT mark strategies — they stay in evolution_strategies for re-use
+# - Idempotent: cancel-on-already-cancelled is a no-op (returns count=0); cancel
+#   on a non-existent experiment throws a clear "experiment not found" error
+# - In-progress runs that already claimed via claim_pending_run RPC are NOT
+#   forcibly terminated. They complete (or budget-exhaust) normally. The
+#   cancellation only blocks NEW claims (claim_pending_run filters
+#   WHERE status='pending').
 
-# 2. Mark in-progress runs (rare): processRunQueue is idempotent; the cancelled
-#    flag will be checked at the start of each claim. In-flight runs complete
-#    normally — no SIGTERM, no orphaned LLM calls.
+# 2. (Optional) Soft-deprecate the experiment's strategies so the wizard hides
+#    them from future researchers (history remains for forensic inspection):
+npx tsx evolution/scripts/cancelExperiment.ts \
+  --experiment-id <experimentId> \
+  --deprecate-strategies
+# UPDATE evolution_strategies SET status='deprecated' WHERE id IN (<ctlId>, <trtId>)
 
-# 3. (Optional) Remove arena variants if the experiment was malformed and is
-#    polluting the leaderboard. ALWAYS get explicit user approval before this:
-#    DELETE FROM evolution_arena_variants WHERE run_id IN (
-#      SELECT id FROM evolution_runs WHERE experiment_id = $1
-#    );
+# 3. (Optional) Remove arena rows if the experiment was malformed and is
+#    polluting the leaderboard. ALWAYS get explicit user approval before this.
+#    Arena rows live on evolution_variants itself (synced_to_arena BOOLEAN):
+#    UPDATE evolution_variants
+#      SET synced_to_arena = false
+#      WHERE run_id IN (SELECT id FROM evolution_runs WHERE experiment_id = $1);
+#    (Do NOT DELETE evolution_variants — that breaks the foreign key from
+#     evolution_arena_comparisons.entry_a/entry_b and orphans match history.)
 ```
 
-If `cancelExperiment.ts` doesn't exist yet, add it in the same PR (the SQL above is the one-liner equivalent if running ad-hoc).
+If `cancelExperiment.ts` doesn't exist yet, add it in the same PR. The seed-script test suite covers the cancel idempotency contract:
+- Cancel on already-cancelled experiment: no-op, returns count=0
+- Cancel on a non-existent experimentId: throws "experiment not found"
+- Cancel does NOT affect runs in `status='completed'` or `status='running'`
+- `--deprecate-strategies` flips status; without it, strategies are left alone
 
 ### Stage 1 → Stage 2 decision tree
 
@@ -280,48 +328,83 @@ If `cancelExperiment.ts` doesn't exist yet, add it in the same PR (the SQL above
 - Secondary: per-arm median Δ-Elo, mean Δ-Elo, p90 Δ-Elo
 - Tertiary: per-arm `invocation_mirror_agreement_rate`-style breakdown of how often the treatment arm's approver rejects what would have been accepted in the control arm (visible by comparing accepted-group counts × n atomic edits before/after split)
 
-**Stopping rule**: run all 60. If at the 30-run mark the treatment arm has already shown ≥ 50 % improver rate (vs control's ~ 13 %), stop early and report — that's the strongest possible signal at the smallest cost. If both arms are tracking within 5 % of each other, run the full 60 to confirm null.
+**Stopping rule**: run the full Stage 2 (60 total, 30/arm). Optional early-stop check at the 15/arm mark (= 30 total runs): if treatment improver rate ≥ 50 % AND control improver rate ≤ 20 %, the two-proportion z-test is significant at n=15/arm with p < 0.05, so stop early and report. If both arms are within 5 pp of each other at the 15/arm mark, continue to the full 30/arm — 15/arm is too underpowered to confirm null.
 
 ### Implementation — single config field, one conditional
 
 The minimal code change is one new `IterationConfig` field (defaults to false → exact backward compatibility) plus a single conditional that bypasses two filter steps:
 
-**Code touch points** (paths and line numbers verified against the current branch):
+**Code touch points** (paths and line numbers verified against the current branch HEAD):
 
-1. `evolution/src/lib/pipeline/types.ts` — add `disableApproverFiltering?: boolean` to `IterationConfig` interface. Default `false`.
-2. `evolution/src/lib/schemas.ts` — add the same field to `iterationConfigSchema` Zod definition. Valid only when `agentType === 'iterative_editing_rewrite'` (Mode A's `iterative_editing` path uses a different proposer/diff architecture; bypassing filters there is out of scope for this experiment).
-3. `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts` — the Mode B post-parse pipeline is at lines 304-310:
+> **Type source of truth**: `IterationConfig` is `z.infer<typeof iterationConfigSchema>` (schemas.ts:862). There is NO `evolution/src/lib/pipeline/types.ts`. All type changes flow through the Zod schema below. An earlier draft listed a separate `pipeline/types.ts` touch point — that was wrong and is removed.
+
+1. `evolution/src/lib/schemas.ts:693` — **widen `editingProposerSoftCap` max from 5 to 10**. Current:
    ```typescript
-   // Current (unchanged) code at lines 304-310:
-   if (isRewriteMode) {
-     const coalesced = coalesceAdjacentGroups(parseResult.groups, current.text);
-     const cap = capGroupsByMagnitude(coalesced, current.text, 10);
-     parseResult.groups = cap.kept;
-     parseResult.dropped = [...parseResult.dropped, ...cap.dropped];
-   }
+   editingProposerSoftCap: z.number().int().min(1).max(5).optional(),
    ```
-   After this change, wrap the body with the bypass conditional (the variable `input.config.disableApproverFiltering` reads from the `IterationConfig` already present on `input.config`):
+   Change to:
    ```typescript
-   if (isRewriteMode) {
-     if (input.config?.disableApproverFiltering) {
-       // BYPASS: skip coalescer + magnitude cap entirely. parseResult.groups
-       // stays as the raw diff atomics (each is already its own group because
-       // Mode B's parseProposedEdits never bundles — bundling only happens in
-       // coalesceAdjacentGroups). Hard validation rules (validateEditGroups at
-       // line 429) still run and may drop groups that violate
-       // EDIT_NEWTEXT_LENGTH_CAP, heading/code-fence/quote rules, or the
-       // AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30 ceiling. No-op here.
-     } else {
-       // PRODUCTION DEFAULT (current behavior, unchanged):
+   editingProposerSoftCap: z.number().int().min(1).max(10).optional(),
+   ```
+   Without this, A3's softCap=8 fails `strategyConfigSchema.safeParse` at run-claim time (`buildRunContext.ts:349`) and marks every experiment run as `status='failed' / error_code='invalid_config'`. The widening is a hard prerequisite for the experiment to be runnable.
+2. `evolution/src/lib/schemas.ts` (same file, near the existing refines around lines 792-794) — add the new `disableApproverFiltering` field to `iterationConfigSchema` + a refine gating it to `iterative_editing_rewrite`:
+   ```typescript
+   // In iterationConfigSchema object:
+   disableApproverFiltering: z.boolean().optional(),
+   
+   // After the existing refines block:
+   .refine(
+     (c) => c.agentType === 'iterative_editing_rewrite' || c.disableApproverFiltering === undefined,
+     { message: 'disableApproverFiltering only valid when agentType is iterative_editing_rewrite', path: ['disableApproverFiltering'] },
+   )
+   ```
+3. `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts` — **two related changes**:
+   - **(a) Extend the inline structural type** at line 155-163 (where `cfg.iterationConfigs[i]` is accessed via `iterCfg`):
+     ```typescript
+     // Current line 155-163:
+     const cfg = ctx.config as {
+       …
+       iterationConfigs?: Array<{ agentType?: string; editingMaxCycles?: number; editingProposerSoftCap?: number }>;
+       …
+     };
+     const iterCfg = cfg.iterationConfigs?.[iterIdx];
+     ```
+     Add `disableApproverFiltering?: boolean` to the inline array element type so TypeScript permits the read below.
+   - **(b) Replace the Mode B post-parse block** at lines 304-310. The bypass reads from `iterCfg`, NOT from any `input.config` (which doesn't exist on `IterativeEditInput`):
+     ```typescript
+     // Current (unchanged) code at lines 304-310:
+     if (isRewriteMode) {
        const coalesced = coalesceAdjacentGroups(parseResult.groups, current.text);
        const cap = capGroupsByMagnitude(coalesced, current.text, 10);
        parseResult.groups = cap.kept;
        parseResult.dropped = [...parseResult.dropped, ...cap.dropped];
      }
-   }
-   ```
-   **Critical**: The bypass operates on the Mode B post-parse block at line 305, NOT on the `validation.approverGroups` consumer site at line 467 (the consumer reads from `validateEditGroups`'s return value `{approverGroups, droppedPreApprover, sizeExplosion}`, which is structurally a result object, not a bare array). The earlier pseudocode that called `validateEditGroups(parseResult.groups, current.text)` and treated the return as an array was incorrect — `validateEditGroups` returns `ValidateResult`. The bypass cleanly sits BEFORE the unconditional `validateEditGroups` call at line 429, so the result-object contract is unchanged.
-4. `evolution/src/lib/core/agents/editing/constants.ts` — no change. `AGENT_MAX_ATOMIC_EDITS_PER_GROUP=5` enforces the per-group atomic cap (vacuous for singletons when bypass is active). `AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30` enforces the per-cycle ceiling and applies to BOTH arms. `EDIT_NEWTEXT_LENGTH_CAP=500` applies to both arms.
+     ```
+     After this change:
+     ```typescript
+     if (isRewriteMode) {
+       if (iterCfg?.disableApproverFiltering) {
+         // BYPASS: skip coalescer + magnitude cap entirely. parseResult.groups
+         // stays as the raw diff atomics (each is already its own group because
+         // Mode B's parseProposedEdits never bundles — bundling only happens in
+         // coalesceAdjacentGroups). Hard validation rules (validateEditGroups at
+         // line 429) still run and may drop groups that violate
+         // EDIT_NEWTEXT_LENGTH_CAP, heading/code-fence/quote rules, or the
+         // AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30 ceiling. The `proposedGroupsRaw`
+         // field name is asymmetric here — under bypass it captures the true
+         // raw atomics; under the production default it captures post-coalesce/cap
+         // groups. Both arms remain internally consistent for the verifier SQL.
+       } else {
+         // PRODUCTION DEFAULT (current behavior, unchanged):
+         const coalesced = coalesceAdjacentGroups(parseResult.groups, current.text);
+         const cap = capGroupsByMagnitude(coalesced, current.text, 10);
+         parseResult.groups = cap.kept;
+         parseResult.dropped = [...parseResult.dropped, ...cap.dropped];
+       }
+     }
+     ```
+   **Critical**: The bypass uses `iterCfg?.disableApproverFiltering` — matching the existing precedent at line 172 (`iterCfg?.editingProposerSoftCap ?? 3`). The bypass operates on the Mode B post-parse block at line 305, NOT on the `validation.approverGroups` consumer site at line 467 (the consumer reads from `validateEditGroups`'s return value `{approverGroups, droppedPreApprover, sizeExplosion}`, which is structurally a result object, not a bare array). The earlier pseudocode that called `validateEditGroups(parseResult.groups, current.text)` and treated the return as an array was incorrect — `validateEditGroups` returns `ValidateResult`. The bypass cleanly sits BEFORE the unconditional `validateEditGroups` call at line 429, so the result-object contract is unchanged.
+4. `evolution/src/lib/core/agents/editing/constants.ts` — no change. `AGENT_MAX_ATOMIC_EDITS_PER_GROUP=5` enforces the per-group atomic cap (vacuous for singletons when bypass is active). `AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30` enforces the per-cycle ceiling and applies to BOTH arms. **Implication for the Treatment arm**: at softCap=8 the proposer typically emits 40-60 atomics; `validateEditGroups` will drop highest-numbered groups until ≤30 atomics remain (with reason `cycle_cap_exceeded`). So the Treatment approver sees AT MOST 30 groups, not 40-60. The bypass amplifies `cycle_cap_exceeded` drops; the verifier SQL counts RAW `proposedGroupsRaw` length (which can exceed 30 pre-drop) and `reviewDecisions.length` (which is ≤30). `EDIT_NEWTEXT_LENGTH_CAP=500` applies to both arms.
 5. `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts` (lines 49-70) — add a `FIELD_GATES` entry so the field is stripped before hashing for any agent type that can't use it:
    ```typescript
    disableApproverFiltering: (t) => t === 'iterative_editing_rewrite',
@@ -341,16 +424,31 @@ The minimal code change is one new `IterationConfig` field (defaults to false �
 - [ ] `IterativeEditingAgent.test.ts` — case: high-atomic-count rewrite (~30 atomics). With `disableApproverFiltering: false` + `capGroupsByMagnitude(K=10)`, approver sees ≤ 10 groups. With `true`, approver sees ~30 singleton groups (capped only by `AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30` if applicable).
 - [ ] `IterativeEditingAgent.test.ts` — case: an atomic edit that violates a hard rule (e.g., modifies a heading line) is filtered by `validateEditGroups` in both modes.
 
-*Spy/mock tests* — proving the bypass is mechanical, not behavioral:
-- [ ] `IterativeEditingAgent.test.ts` — `vi.spyOn(coalesceAdjacentGroupsModule, 'coalesceAdjacentGroups')` and `vi.spyOn(capGroupsByMagnitudeModule, 'capGroupsByMagnitude')`. Run a Mode B execution with `disableApproverFiltering: true`. Assert BOTH spies received `toHaveBeenCalledTimes(0)`. Same execution with `disableApproverFiltering: false` (or omitted) → both spies called exactly 1× per cycle. This proves the conditional skips, not just substitutes a no-op.
+*Spy/mock tests* — proving the bypass is mechanical, not behavioral. Named ESM imports already-bound at module-init can't be rewired by `vi.spyOn` reliably; use `vi.mock` with a partial factory:
+- [ ] `IterativeEditingAgent.test.ts`:
+  ```typescript
+  // At top of file:
+  import * as coalesceMod from '../../core/agents/editing/coalesceAdjacentGroups';
+  import * as capMod from '../../core/agents/editing/capGroupsByMagnitude';
+  
+  vi.mock('../../core/agents/editing/coalesceAdjacentGroups', async (importOriginal) => ({
+    ...await importOriginal<typeof coalesceMod>(),
+    coalesceAdjacentGroups: vi.fn(coalesceMod.coalesceAdjacentGroups),
+  }));
+  vi.mock('../../core/agents/editing/capGroupsByMagnitude', async (importOriginal) => ({
+    ...await importOriginal<typeof capMod>(),
+    capGroupsByMagnitude: vi.fn(capMod.capGroupsByMagnitude),
+  }));
+  ```
+  Then run a Mode B execution with `disableApproverFiltering: true`. Assert `vi.mocked(coalesceMod.coalesceAdjacentGroups)` and `vi.mocked(capMod.capGroupsByMagnitude)` both received `toHaveBeenCalledTimes(0)`. Same execution with `disableApproverFiltering: false` (or omitted) → both mocks called exactly 1× per cycle. This proves the conditional skips, not just substitutes a no-op.
 
 *Regression tests* — proving default behavior is unchanged:
 - [ ] `IterativeEditingAgent.test.ts` — snapshot test: an `IterationConfig` with `disableApproverFiltering` UNSET (the production default) produces a byte-identical sequence of `approverGroups` to a frozen snapshot taken before the bypass PR landed. Confirms the feature flag is a true no-op when unset.
 - [ ] `IterativeEditingAgent.test.ts` — snapshot test: same `IterationConfig` with `disableApproverFiltering: false` (explicit) produces the same byte-identical `approverGroups`. Confirms explicit-false and unset behave identically.
 
 *Hash tests*:
-- [ ] `findOrCreateStrategy.test.ts` — two configs differing only in `disableApproverFiltering` produce different `config_hash`.
-- [ ] `findOrCreateStrategy.test.ts` — a config with `disableApproverFiltering: true` AND `agentType: 'generate'` produces the same `config_hash` as the same config without the field (proves `FIELD_GATES` strips it for non-rewrite agents).
+- [ ] `findOrCreateStrategy.test.ts` — two `iterative_editing_rewrite` configs differing ONLY in `disableApproverFiltering` produce different `config_hash`.
+- [ ] `findOrCreateStrategy.test.ts` — **parametrized strip test**: for every non-rewrite agent type in `iterationAgentTypeEnum` (`generate`, `reflect_and_generate`, `criteria_and_generate`, `single_pass_evaluate_criteria_and_generate`, `proposer_approver_criteria_generate`, `debate_and_generate`, `iterative_editing` (Mode A), `paragraph_recombine`, `swiss`), a config with `disableApproverFiltering: true` on that agent type produces the SAME `config_hash` as the same config without the field. Use `it.each(ALL_NON_REWRITE_AGENT_TYPES)` so the test enumerates all 9 types — a single 'generate' case regresses silently if a new agent type is added and someone forgets the FIELD_GATES entry.
 
 *Integration*:
 - [ ] One integration test in `evolution-iterative-editing-agent.integration.test.ts` exercising the disable-filtering path end-to-end on a minimal fixture; verify `proposedGroupsRaw.length` ≈ N atomic edits and `reviewDecisions.length` = `proposedGroupsRaw.length` (every group gets a decision).
@@ -447,50 +545,68 @@ which calls `findOrCreateStrategy.upsertStrategy(config, db)` for each arm (this
 
 ```typescript
 // evolution/scripts/seedBundleSplitExperiment.ts (sketch)
+// Uses existing helpers — does NOT introduce new SQL paths:
+//   upsertStrategy(db, config)            // findOrCreateStrategy.ts:218 — note arg order (db first)
+//   createExperiment(name, promptId, db)  // imported by experimentActions.ts:9 from its setup helper
+//   evolution_runs INSERT via supabase client — addRunToExperiment helper at
+//     evolution/src/lib/pipeline/setup/addRunToExperiment.ts (used by experimentActions.ts:202+)
+//
 // CRITICAL: upsertStrategy uses ON CONFLICT (config_hash) DO UPDATE in
-// findOrCreateStrategy.ts:230-233. If a strategy with this exact config_hash
-// already exists (e.g., a teammate ran a similar experiment yesterday),
-// upsertStrategy returns the EXISTING strategy ID without warning. Runs we
-// enqueue against that ID become contaminated with that prior strategy's
-// history (its prior runs, prior invocations, prior arena variants).
-// MITIGATION: reuse-guard the seed script.
+// findOrCreateStrategy.ts. If a strategy with this exact config_hash already
+// exists (e.g., a teammate ran a similar experiment yesterday), upsertStrategy
+// returns the EXISTING strategy ID without warning. Runs we enqueue against
+// that ID become contaminated with that prior strategy's history.
+//
+// ALSO: upsertStrategy auto-generates the strategy name from the config hash
+// (e.g. "Strategy abc123 (lite, 3it)"). It does NOT accept a name argument.
+// We therefore identify arms by strategy_id throughout (seed → verifier → cancel),
+// not by name. The seed script prints both IDs at the end of --apply for paste.
 
-async function seedStrategy(name: string, cfg: StrategyConfig, db: DbClient) {
-  const existing = await db.query(
-    'SELECT id, name, created_at FROM evolution_strategies WHERE config_hash = $1',
-    [computeConfigHash(cfg)]
-  );
-  if (existing.rows.length > 0) {
-    const row = existing.rows[0];
-    // Refuse silently-reused IDs. Either bump the experiment name to force a new
-    // strategy, or pass --reuse-existing to opt in explicitly.
+async function seedStrategy(armLabel: string, cfg: StrategyConfig, db: SupabaseClient) {
+  const hash = hashStrategyConfig(cfg);
+  const { data: existing } = await db
+    .from('evolution_strategies')
+    .select('id, name, created_at')
+    .eq('config_hash', hash)
+    .maybeSingle();
+  if (existing) {
     if (!args.reuseExisting) {
       throw new Error(
-        `Strategy config_hash collision: arm "${name}" hashes identically to existing ` +
-        `strategy "${row.name}" (id=${row.id}, created ${row.created_at}). ` +
+        `Strategy config_hash collision: arm "${armLabel}" hashes identically to existing ` +
+        `strategy "${existing.name}" (id=${existing.id}, created ${existing.created_at}). ` +
         `Re-using it would contaminate this experiment with the existing strategy's ` +
         `prior runs and arena variants. Pass --reuse-existing if this is intentional, ` +
-        `or modify the strategy name/label/config to break the collision.`
+        `or modify the strategy config (e.g. tweak a benign field) to break the collision.`
       );
     }
-    console.warn(`Reusing existing strategy ${row.id} for arm "${name}" (opt-in via --reuse-existing).`);
-    return row.id;
+    console.warn(`Reusing existing strategy ${existing.id} for arm "${armLabel}" (opt-in via --reuse-existing).`);
+    return existing.id;
   }
-  const id = await upsertStrategy(cfg, db);
-  return id;
+  return await upsertStrategy(db, cfg);  // (db, config) — NOT (config, db)
 }
 
 const ctlStrategyId = await seedStrategy('AF-Ctrl', controlConfig, db);
 const trtStrategyId = await seedStrategy('AF-Off', treatmentConfig, db);
-const experiment = await createExperiment('BundleSplit A/B (federal_reserve_2)',
-                                           'a546b7e9-f066-403d-9589-f5e0d2c9fa4f', db);
+
+// Create or look up the experiment.
+const { id: experimentId } = args.append
+  ? await getExperimentByName('BundleSplit A/B (federal_reserve_2)', db)
+  : await createExperiment('BundleSplit A/B (federal_reserve_2)',
+                            'a546b7e9-f066-403d-9589-f5e0d2c9fa4f', db);
+
+// Enqueue runs. addRunToExperiment returns { runId }.
 for (let i = 0; i < args.runsPerArm; i++) {
-  await addRunToExperiment(experiment.id, { strategy_id: ctlStrategyId, budget_cap_usd: 0.05 }, db);
-  await addRunToExperiment(experiment.id, { strategy_id: trtStrategyId, budget_cap_usd: 0.05 }, db);
+  await addRunToExperiment(experimentId, { strategy_id: ctlStrategyId, budget_cap_usd: 0.05 }, db);
+  await addRunToExperiment(experimentId, { strategy_id: trtStrategyId, budget_cap_usd: 0.05 }, db);
 }
+
+console.log(`Seeded. Use these IDs in verifyBundleSplitStage1.ts:`);
+console.log(`  --experiment-id ${experimentId}`);
+console.log(`  --control-strategy ${ctlStrategyId}`);
+console.log(`  --treatment-strategy ${trtStrategyId}`);
 ```
 
-**Flags**: `--target {staging|prod}`, `--runs-per-arm N` (default 5), `--apply` (else dry-run prints SQL), `--append` (adds runs to existing experiment instead of creating new), `--reuse-existing` (opt-in to skip the collision guard).
+**Flags**: `--target {staging|prod}`, `--runs-per-arm N` (default 5), `--apply` (else dry-run prints planned writes), `--append` (adds runs to existing experiment of the same name instead of creating new), `--reuse-existing` (opt-in to skip the collision guard).
 
 **Step 3 — Run the queue from the CLI** (the standard batch runner used by the minicomputer cron):
 
@@ -515,6 +631,10 @@ If `processRunQueue.ts` doesn't accept `--target-run-id` yet, add the flag in th
 
 ```bash
 # Less preferred: requires saved cookie jar from a prior admin sign-in.
+# WARNING: ~/.cache/ea-staging-cookies.txt contains an admin Supabase session
+# cookie in plaintext. Set 0600 permissions and never commit / never sync to a
+# backed-up location. On a shared dev host this is a privilege-escalation risk.
+chmod 600 ~/.cache/ea-staging-cookies.txt
 curl -X POST https://explainanythingstage.vercel.app/api/evolution/run \
   -b ~/.cache/ea-staging-cookies.txt \
   -H 'content-type: application/json' \
@@ -522,6 +642,14 @@ curl -X POST https://explainanythingstage.vercel.app/api/evolution/run \
 ```
 
 (The API route at `src/app/api/evolution/run/route.ts` validates `{targetRunId: z.string().uuid().optional()}` and calls `requireAdmin()` before dispatch — same downstream code path the cron uses, but cookie-gated.)
+
+**Env vars** required by the seed/verify/cancel scripts (verified in `docs/docs_overall/environments.md`):
+- `SUPABASE_URL_STAGING` — staging Supabase project URL
+- `SUPABASE_SERVICE_ROLE_KEY_STAGING` — staging service-role key for writes
+- (existing — already in `.env.local` per getting_started.md; no new secret provisioning required)
+- For prod (out of scope for this experiment): the same pair with `_PROD` suffix. The `--target prod` flag is intentionally NOT documented in the seed-script flag list above; if a future researcher wants to seed against prod, they must add an explicit `--i-know-this-is-prod` confirmation flag to the script.
+
+**`processRunQueue.ts --target-run-id` flag**: this flag does not currently exist on `processRunQueue.ts`. The Code-change task list above includes adding it (same code PR as the bypass conditional) — wire it to the existing single-run code path that `/api/evolution/run` already uses. Without it, single-run smoke-testing requires the HTTP route + cookie jar.
 
 ### Result surfacing in the UI (auto, no new pages)
 
@@ -543,29 +671,40 @@ Since every variant produced enters the federal_reserve_2 arena, the leaderboard
 **Arena contamination — analyzed-result hygiene**. The federal_reserve_2 arena is a shared pool: any variant added enters the same Elo system as all historical (qwen-judged) variants. Two consequences for analysis:
 
 1. **The leaderboard view mixes regimes**. A treatment-arm variant's Elo on the leaderboard reflects matches against (a) other experiment variants under gemini-judge and (b) historical variants under qwen-judge. The qwen vs gemini judge calibration delta is unknown until measured. Use the leaderboard as a coarse signal only.
-2. **The clean Δ-Elo signal lives in `evolution_arena_comparisons` filtered by experiment**:
+2. **The clean Δ-Elo signal lives in `evolution_arena_comparisons` filtered by experiment**. The actual schema (verified in `supabase/migrations/20260322000007:201-204`): `evolution_arena_comparisons (prompt_id, entry_a UUID, entry_b UUID, winner, confidence, run_id, ...)` — `entry_a`/`entry_b` are FKs to `evolution_variants.id`. There is NO `evolution_arena_variants` table; arena rows live on `evolution_variants` itself with the `synced_to_arena BOOLEAN` flag.
    ```sql
    -- "Clean" comparisons: both sides came from THIS experiment, so both are gemini-judged.
-   SELECT * FROM evolution_arena_comparisons c
-   JOIN evolution_arena_variants v1 ON c.variant_a_id = v1.id
-   JOIN evolution_arena_variants v2 ON c.variant_b_id = v2.id
-   JOIN evolution_runs r1 ON v1.run_id = r1.id
-   JOIN evolution_runs r2 ON v2.run_id = r2.id
-   WHERE r1.experiment_id = '<exp_id>' AND r2.experiment_id = '<exp_id>';
+   SELECT c.*
+   FROM evolution_arena_comparisons c
+   JOIN evolution_variants va ON c.entry_a = va.id
+   JOIN evolution_variants vb ON c.entry_b = vb.id
+   JOIN evolution_runs ra ON va.run_id = ra.id
+   JOIN evolution_runs rb ON vb.run_id = rb.id
+   WHERE ra.experiment_id = '<exp_id>' AND rb.experiment_id = '<exp_id>';
    ```
    The analysis report (Stage 2 output) MUST cite this filtered view, not the leaderboard, when computing treatment-vs-control Δ-Elo. Document this in the report's methodology section.
-3. **Strategy-ID filter**: another safe filter is `WHERE r.strategy_id IN (<ctl>, <trt>)` to scope to the two experiment arms only — analogous to the `gen_method` label idea but anchored to the actual strategies we created.
+3. **Strategy-ID filter**: another safe filter is `WHERE ra.strategy_id IN (<ctl>, <trt>) AND rb.strategy_id IN (<ctl>, <trt>)` to scope to the two experiment arms only — analogous to the `gen_method` label idea but anchored to the actual strategies we created.
 
 ### Acceptance criteria
 
-**Confirmed H1** (proceed to a production rollout of the `splitBundlesBeforeApprover: true` default for Mode B):
-- Treatment arm improver rate ≥ 25 % AND treatment median Δ-Elo > control median Δ-Elo by ≥ 15 points AND treatment 95 % CI does not cross control 95 % CI on `eloAttrDelta`
+All three use the explicit tests defined in the Stage 2 section above (two-proportion z on improver rate; Welch's t on per-run mean Δ-Elo; bootstrap CI of the difference). The improver-rate test is the PRIMARY decision criterion; the others are corroborating.
 
-**Null H0** (revert the field to permanent `false` or remove):
-- Treatment arm improver rate within ±5 points of control AND treatment median Δ-Elo within ±10 of control
+**Confirmed H1** — proceed to a follow-up PR proposing `disableApproverFiltering: true` as the production default for Mode B (NOT a direct rollout — H1 confirmation just unlocks the C3 / B2 follow-ups needed before generalizing):
+- Two-proportion z-test p < 0.05 AND treatment improver rate ≥ control + 30 percentage points (matching the 80 %-power detectable effect at n=30/arm)
+- AND Welch's t-test on per-run mean Δ-Elo p < 0.10 (corroborating, looser threshold acceptable since secondary)
+- AND bootstrap 95 % CI of the median Δ-Elo difference excludes 0
 
-**Inconclusive** (run more samples or design follow-up):
-- Treatment arm improver rate in 14–24 % range OR Δ-Elo CIs overlap meaningfully
+**Null H0** — revert the field to permanent `false` or remove:
+- Two-proportion z-test p > 0.30 (clearly no signal, not just under-powered)
+- AND |treatment improver rate − control improver rate| < 10 percentage points
+- AND |treatment mean Δ-Elo − control mean Δ-Elo| < 5 Elo points
+
+**Inconclusive** — run the n=90/arm follow-up or design a B2 (granularity-only) experiment:
+- Two-proportion z-test p in (0.05, 0.30) (signal present but not significant at this sample size)
+- OR treatment improver rate − control improver rate in (10, 30) pp range (modest signal — exactly the regime n=30/arm can't distinguish from noise)
+- OR effect sign disagreement between primary and secondary tests
+
+**Plan-review acceptance** for the resulting analysis report PR: the methodology section MUST explicitly call out all 4 caveats (softCap=8 deviation from production default, gemini-judge calibration vs historical qwen, same-model rubber-stamping confound, arena-contamination filter applied via experiment-id-scoped SQL). Reviewer should reject the report PR if any caveat is missing.
 
 ### Cost budget — staged
 
@@ -609,20 +748,27 @@ Ranking cost is already counted in `evolution_metrics.ranking_cost` per the cost
 ### Phase 6 task list
 
 **Code change** (one PR):
-- [ ] (Code) Add `disableApproverFiltering?: boolean` field to `IterationConfig` types (`evolution/src/lib/pipeline/types.ts`) — default `false`
-- [ ] (Code) Add the same field to `iterationConfigSchema` Zod definition (`evolution/src/lib/schemas.ts`) gated to `agentType === 'iterative_editing_rewrite'`
+- [ ] (Code) Widen `editingProposerSoftCap` Zod max from 5 to 10 at `evolution/src/lib/schemas.ts:693` (prerequisite for A3's softCap=8 to parse). Update the inline comment that says "Default 3" if present.
+- [ ] (Code) Add `disableApproverFiltering?: boolean` to `iterationConfigSchema` in `evolution/src/lib/schemas.ts` + Zod refine gating it to `agentType === 'iterative_editing_rewrite'`. (No separate `pipeline/types.ts` file exists — IterationConfig is `z.infer` from this schema.)
 - [ ] (Code) Add the `FIELD_GATES` entry in `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts:49-70`: `disableApproverFiltering: (t) => t === 'iterative_editing_rewrite'`
-- [ ] (Code) Implement the filter-bypass conditional at `IterativeEditingAgent.ts:304-310` — when the flag is true, skip the Mode B post-parse `coalesceAdjacentGroups` + `capGroupsByMagnitude` block entirely; `parseResult.groups` stays as raw diff atomics; `validateEditGroups` at line 429 still runs
+- [ ] (Code) Extend the inline `iterationConfigs` element type at `IterativeEditingAgent.ts:155-163` to include `disableApproverFiltering?: boolean` so the bypass read at the new conditional compiles
+- [ ] (Code) Implement the filter-bypass conditional at `IterativeEditingAgent.ts:304-310` reading from `iterCfg?.disableApproverFiltering` (follows the existing `iterCfg?.editingProposerSoftCap ?? 3` precedent at line 172). When the flag is true, skip the Mode B post-parse `coalesceAdjacentGroups` + `capGroupsByMagnitude` block entirely; `parseResult.groups` stays as raw diff atomics; `validateEditGroups` at line 429 still runs.
+- [ ] (Code) Add `--target-run-id <uuid>` flag to `evolution/scripts/processRunQueue.ts` — wire to the existing single-run path that `/api/evolution/run` already calls into (so the smoke trigger works without a cookie jar).
 - [ ] (UI) Add the disable-filtering checkbox to the strategy wizard's per-iteration row when agent type is `iterative_editing_rewrite` (with helper text explaining behavior + cost impact)
 - [ ] (UI) Add `delete updated.disableApproverFiltering` to every non-rewrite agent-switch branch in the wizard's `updateIteration` handler (`src/app/admin/evolution/strategies/new/page.tsx` lines ~648, 681, 713)
-- [ ] (Tests) Behavior unit tests for the bypass + standard path (8-atomic case, 30-atomic case, hard-rule violation case)
-- [ ] (Tests) Spy/mock tests proving `coalesceAdjacentGroups` and `capGroupsByMagnitude` receive zero calls in bypass mode (vi.spyOn pattern)
-- [ ] (Tests) Default-false regression test — snapshot of `approverGroups` for an unset-field config must match the pre-PR baseline byte-for-byte
+- [ ] (UI optional but recommended) Add a `editingProposerSoftCap` widget to the wizard's per-iteration row for `iterative_editing_rewrite` so the wizard-reproducibility claim holds end-to-end. Max value gates to 10 per the schema change above.
+- [ ] (Tests) Behavior unit tests for the bypass + standard path (8-atomic case, 30-atomic case, hard-rule violation case, AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30 ceiling case)
+- [ ] (Tests) `vi.mock` partial-factory tests proving `coalesceAdjacentGroups` and `capGroupsByMagnitude` receive zero calls in bypass mode (the exact mock setup is documented in the Tests section above — `vi.spyOn` doesn't reliably rewire named ESM imports already bound at module-init)
+- [ ] (Tests) Default-false regression test — snapshot of `approverGroups` (derived from a frozen checked-in CriticMarkup fixture, not LLM-generated) for an unset-field config must match the pre-PR baseline byte-for-byte
 - [ ] (Tests) Explicit-false snapshot test — `disableApproverFiltering: false` produces the same `approverGroups` as the unset case
 - [ ] (Tests) Integration test exercising the bypass end-to-end
-- [ ] (Tests) Strategy wizard E2E test for the new checkbox (appears for Mode B, hidden for other agents, persists to config, cleared on agent switch)
+- [ ] (Tests) Strategy wizard E2E test (at `src/__tests__/e2e/specs/09-admin/admin-evolution-strategy-creation.spec.ts` — verified path) for the new checkbox: appears for Mode B, hidden for other agents, persists to config, cleared on agent switch
 - [ ] (Tests) `findOrCreateStrategy` `config_hash` uniqueness test — two `iterative_editing_rewrite` configs differing only in the new field hash differently
-- [ ] (Tests) `findOrCreateStrategy` `FIELD_GATES`-strip test — `disableApproverFiltering: true` on a `generate` agent hashes identically to the same config without the field
+- [ ] (Tests) `findOrCreateStrategy` `FIELD_GATES`-strip test — parametrized via `it.each` over all 9 non-rewrite agent types (the full `iterationAgentTypeEnum` minus `iterative_editing_rewrite`); each must hash identically with vs. without the field set
+- [ ] (Tests) `findOrCreateStrategy` softCap=8 hash-stability test — confirm raising `editingProposerSoftCap` from 3 to 8 actually changes the hash (otherwise the experiment Control and Treatment arms would collide silently with any historical softCap=3 strategy)
+- [ ] (Tests) Zod regression test — `editingProposerSoftCap: 8` now parses; `editingProposerSoftCap: 11` still rejects with the max(10) error
+- [ ] (CI) Confirm `evolution/scripts/**` is covered by the existing `npm run test:unit` and `npm run test:integration:evolution` glob patterns. If not, update `.github/workflows/ci.yml` to include them so future signature changes to `upsertStrategy` / `createExperiment` / `addRunToExperiment` don't silently break the seed script.
+- [ ] (Deps) Add a tiny stats helper to compute two-proportion z + Welch's t + bootstrap CI. Options: (a) use the existing `simple-statistics` package if already in `package.json`, (b) add `jstat`, (c) hand-roll the three tests — they're each ~20 lines. Decide before the analysis-report PR.
 - [ ] (PR) Land the code change + UI as a feature-flagged no-op (production behavior unchanged when field is unset)
 
 **Stage 1 — smoke (10 runs, $0.40, ~10 min wall clock at `--parallel 3`)**:
