@@ -88,7 +88,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
 
       <EntityDetailHeader title={topic.name} entityId={topic.id} />
 
-      {topic.seedVariant && <ArenaSeedPanel seed={topic.seedVariant} />}
+      <ArenaSeedPanel seeds={topic.seedVariants} />
 
       <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 space-y-4 shadow-warm-lg">
         <h2 className="text-2xl font-display font-bold text-[var(--text-primary)]">Topic Details</h2>

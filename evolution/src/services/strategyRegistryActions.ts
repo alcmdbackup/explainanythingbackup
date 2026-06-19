@@ -48,6 +48,15 @@ const createStrategySchema = z.object({
    *  to generationModel) at runtime. Same-as-editingModel surfaces a rubber-stamping warning
    *  in the wizard per Decisions §16. */
   approverModel: z.string().max(100).optional(),
+  /** Phase 4d: paragraph_recombine coordinator model (optional). Decouples the coordinator
+   *  from the rewrite generation model — a stronger long-context model at-the-source produces
+   *  better per-slot directives, preventing topic substitution / cross-section redundancy
+   *  before they happen. Falls back to generationModel at runtime when unset. */
+  coordinatorModel: z.string().max(100).optional(),
+  /** Phase 5 / 5a-1: seed selection mode for multi-seed topics. Default 'highest_elo'
+   *  (omitted) preserves pre-Phase-5 behavior. 'random' picks a deterministic per-run
+   *  seed via SHA-256(run.id). See evolution/src/lib/schemas.ts strategyConfigSchema. */
+  seedSelection: z.enum(['highest_elo', 'random']).optional(),
   iterationConfigs: z.array(iterationConfigSchema).min(1).max(20),
   budgetUsd: z.number().min(0.01).max(100).optional(),
   pipeline_type: z.string().max(50).optional(),
@@ -200,6 +209,8 @@ export const createStrategyAction = adminAction(
       ensembleConfigId: parsed.ensembleConfigId,
       editingModel: parsed.editingModel,
       approverModel: parsed.approverModel,
+      coordinatorModel: parsed.coordinatorModel,
+      seedSelection: parsed.seedSelection,
       iterationConfigs: parsed.iterationConfigs,
       budgetUsd: parsed.budgetUsd,
       generationGuidance: parsed.generationGuidance,

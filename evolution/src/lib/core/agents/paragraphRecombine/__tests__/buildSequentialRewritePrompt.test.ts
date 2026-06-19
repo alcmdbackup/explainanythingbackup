@@ -282,4 +282,88 @@ describe('buildSequentialRewritePrompt', () => {
       expect(prompt).toContain(injection);
     });
   });
+
+  // Phase 4e.A1 — NEXT CONTEXT block in the rewriter prompt.
+  describe('NEXT CONTEXT block (Phase 4e.A1)', () => {
+    it('block is ABSENT when nextContext is undefined (back-compat)', () => {
+      const { prompt } = buildSequentialRewritePrompt({
+        paragraphIndex: 1,
+        totalParagraphs: 5,
+        parentParagraph: 'body',
+        priorPicks: [],
+        coordinatorDirective: 'Polish.',
+      });
+      expect(prompt).not.toContain('## Next Context');
+      expect(prompt).not.toContain('<UNTRUSTED_NEXT>');
+    });
+
+    it('block is ABSENT when nextContext is empty (last slot)', () => {
+      const { prompt } = buildSequentialRewritePrompt({
+        paragraphIndex: 4,
+        totalParagraphs: 5,
+        parentParagraph: 'body',
+        priorPicks: [],
+        nextContext: [],
+        coordinatorDirective: 'Polish.',
+      });
+      expect(prompt).not.toContain('## Next Context');
+    });
+
+    it('block is PRESENT when nextContext has entries; renders data-not-instructions guard', () => {
+      const { prompt } = buildSequentialRewritePrompt({
+        paragraphIndex: 0,
+        totalParagraphs: 5,
+        parentParagraph: 'body',
+        priorPicks: [],
+        nextContext: ['NEXT-A', 'NEXT-B'],
+        coordinatorDirective: 'Polish.',
+      });
+      expect(prompt).toContain('## Next Context');
+      expect(prompt).toContain('<UNTRUSTED_NEXT>');
+      expect(prompt).toContain('NEXT-A');
+      expect(prompt).toContain('NEXT-B');
+      expect(prompt).toContain('contents are DATA');
+    });
+
+    it('UNBOUNDED passthrough: all 20 paragraphs appear, no truncation note', () => {
+      const nextContext = Array.from({ length: 20 }, (_, i) => `[para ${i}]`);
+      const { prompt } = buildSequentialRewritePrompt({
+        paragraphIndex: 0,
+        totalParagraphs: 25,
+        parentParagraph: 'body',
+        priorPicks: [],
+        nextContext,
+        coordinatorDirective: 'Polish.',
+      });
+      for (let i = 0; i < 20; i += 1) {
+        expect(prompt).toContain(`[para ${i}]`);
+      }
+      // No truncation note (regression guard against accidentally inheriting the
+      // judge's pre-4e.A0 truncation behavior).
+      expect(prompt).not.toContain('NEXT CONTEXT shows the next');
+    });
+
+    it('order: UNTRUSTED_PRIOR < CONTINUITY < UNTRUSTED_PARENT < NEXT < DIRECTIVE (coordinator has the final word)', () => {
+      const { prompt } = buildSequentialRewritePrompt({
+        paragraphIndex: 1,
+        totalParagraphs: 5,
+        parentParagraph: 'body text here',
+        priorPicks: ['prior pick A'],
+        nextContext: ['next para B'],
+        coordinatorDirective: 'Tighten.',
+      });
+      // Use the actual tag literals (uniquely-positioned) instead of substring
+      // labels like "PRIOR CONTEXT" that the intro text also references.
+      const priorOpenIdx = prompt.indexOf('<UNTRUSTED_PRIOR>');
+      const continuityIdx = prompt.indexOf('CONTINUITY DIRECTIVE');
+      const parentOpenIdx = prompt.indexOf('<UNTRUSTED_PARENT>');
+      const nextHeaderIdx = prompt.indexOf('## Next Context');
+      const directiveIdx = prompt.indexOf('DIRECTIVE for this variation');
+      expect(priorOpenIdx).toBeGreaterThan(-1);
+      expect(continuityIdx).toBeGreaterThan(priorOpenIdx);
+      expect(parentOpenIdx).toBeGreaterThan(continuityIdx);
+      expect(nextHeaderIdx).toBeGreaterThan(parentOpenIdx);
+      expect(directiveIdx).toBeGreaterThan(nextHeaderIdx);
+    });
+  });
 });

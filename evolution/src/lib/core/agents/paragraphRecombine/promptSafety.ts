@@ -24,6 +24,12 @@ export const PROMPT_DELIMITER_TAGS: readonly string[] = [
   '</UNTRUSTED_PARENT>',
   '<UNTRUSTED_NEXT>',
   '</UNTRUSTED_NEXT>',
+  // Phase 4a-2: the slot-judge prompt's "Original Paragraph" block wraps the
+  // parent's slot-N text in <UNTRUSTED_ORIGINAL>. Without these entries a
+  // parent paragraph containing the literal close-tag would break out of the
+  // new scope (same threat model as PRIOR/PARENT/NEXT above).
+  '<UNTRUSTED_ORIGINAL>',
+  '</UNTRUSTED_ORIGINAL>',
 ] as const;
 
 const REDACTION_PLACEHOLDER = '[UNTRUSTED_TAG_REDACTED]';

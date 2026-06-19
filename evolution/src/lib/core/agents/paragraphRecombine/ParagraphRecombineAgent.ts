@@ -260,6 +260,13 @@ export class ParagraphRecombineAgent extends Agent<
     // all invocation details agnostic to agent_name).
     const rewriteModelForProjector = ctx.defaultModel ?? 'gpt-4.1-nano';
     const judgeModelForProjector = ctx.config?.judgeModel ?? 'qwen-2.5-7b-instruct';
+    // Phase 4d: optional per-strategy coordinator-model override. Read off ctx.config
+    // — mirrors the editingModel/approverModel pattern at IterativeEditingAgent.ts:155-167.
+    // Falls back to rewriteModelForProjector at every call site (initial coordinator +
+    // replan + cost projector), preserving byte-identical behavior for every strategy
+    // that omits the field.
+    const coordinatorModelForRun =
+      (ctx.config as { coordinatorModel?: string }).coordinatorModel ?? rewriteModelForProjector;
     const projection = estimateParagraphRecombineCost(
       parentText.length,
       paragraphCount,
@@ -267,7 +274,7 @@ export class ParagraphRecombineAgent extends Agent<
       maxComparisonsPerParagraph,
       rewriteModelForProjector,
       judgeModelForProjector,
-      { sequentialEnabled },
+      { sequentialEnabled, coordinatorModel: coordinatorModelForRun },
     );
 
     // Extract H1 title from parent for the rewrite prompt's context.
@@ -296,7 +303,9 @@ export class ParagraphRecombineAgent extends Agent<
           parentText,
           paragraphCount,
           llm,
-          generationModel: rewriteModelForProjector,
+          // Phase 4d: honor the optional coordinatorModel override for the
+          // initial-plan call. Falls back to rewriteModelForProjector by construction.
+          generationModel: coordinatorModelForRun,
           ...(ctx.invocationId !== undefined && ctx.invocationId !== '' && { invocationId: ctx.invocationId }),
         });
         coordinatorPlan = coordResult.plan;
@@ -349,6 +358,11 @@ export class ParagraphRecombineAgent extends Agent<
           llm,
           parentText,
           generationModelForReplan: rewriteModelForProjector,
+          // Phase 4d: thread the per-strategy coordinator-model override into the
+          // replan path. When unset (default), effectiveReplanModel falls back to
+          // generationModelForReplan inside runSequentialLoop — byte-identical
+          // behavior for every existing strategy.
+          coordinatorModelForReplan: coordinatorModelForRun,
         });
         slotDetails = seqResult.slotDetails;
         for (const [idx, text] of seqResult.slotWinnerTexts) {

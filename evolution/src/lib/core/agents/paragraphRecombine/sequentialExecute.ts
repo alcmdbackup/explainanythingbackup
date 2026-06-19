@@ -47,7 +47,15 @@ export type SequentialCounters = {
   priorPicksTruncationCount: number;
   /** investigate_sequential_paragraph_recombine_performance_20260615 Phase 1c-i:
    *  counters for the new forward-context (nextContext) path. Mirror the priorPicks*
-   *  counters so the admin slot-leaderboard surfaces them in the same panel. */
+   *  counters so the admin slot-leaderboard surfaces them in the same panel.
+   *
+   *  Phase 4e.A1: the rewriter now ALSO consumes nextContext (previously judge-only).
+   *  Both consumers read the same already-sanitized array — sanitization happens
+   *  once at the array-construction site in runSequentialLoop (line ~198), so
+   *  `nextPicksSanitizationCount` covers both judge AND rewriter consumption.
+   *  No separate `nextContextRewriterSanitizationCount` is added — adding one
+   *  would either duplicate the existing counter or require a separate
+   *  per-consumer sanitization pass (which the architecture deliberately avoids). */
   nextPicksSanitizationCount: number;
   nextPicksTruncationCount: number;
   /** investigate_sequential_paragraph_recombine_performance_20260615 Phase 2 (Fix 2):
@@ -96,8 +104,16 @@ export type SequentialLoopParams = {
    *  the orchestrator hands the original parent text to the agent, which forwards it
    *  here. The replan call needs both this AND the model. */
   parentText: string;
-  /** Phase 2: model used for the replan call. Same model as the initial coordinator. */
+  /** Phase 2: model used for the replan call. Same model as the initial coordinator
+   *  unless 4d's coordinatorModelForReplan override is set. */
   generationModelForReplan: string;
+  /** Phase 4d: optional coordinator-model override for the replan call. When set,
+   *  takes precedence over generationModelForReplan. The agent reads the value off
+   *  ctx.config (mirrors editingModel/approverModel pattern) and threads it through
+   *  here so both the initial-plan and mid-sequence replan honor the same override —
+   *  without this, the replan would silently keep using the rewrite model while only
+   *  the initial plan respected the strategy's coordinatorModel. */
+  coordinatorModelForReplan?: string;
 };
 
 export async function runSequentialLoop(params: SequentialLoopParams): Promise<SequentialLoopResult> {
@@ -105,8 +121,11 @@ export async function runSequentialLoop(params: SequentialLoopParams): Promise<S
     slots, paragraphCount, parentVariantId,
     perInvocationCapUsd, rewriteModel, judgeModel,
     invocationScope, ctx, llm,
-    parentText, generationModelForReplan,
+    parentText, generationModelForReplan, coordinatorModelForReplan,
   } = params;
+  // Phase 4d: prefer the explicit replan override; fall back to the existing
+  // generationModelForReplan param so pre-Phase-4d call sites are byte-identical.
+  const effectiveReplanModel = coordinatorModelForReplan ?? generationModelForReplan;
   // coordinatorPlan is `let` so we can mutate-by-rebind after a successful replan
   // (immutability invariant preserved — we never mutate the original plan in place).
   let { coordinatorPlan } = params;
@@ -245,7 +264,8 @@ export async function runSequentialLoop(params: SequentialLoopParams): Promise<S
             parentText,
             paragraphCount,
             llm,
-            generationModel: generationModelForReplan,
+            // Phase 4d: honor the coordinatorModel override on the replan path too.
+            generationModel: effectiveReplanModel,
             ...(ctx.invocationId !== '' && { invocationId: ctx.invocationId }),
             priorPicks,
             firstSlot: 1,
@@ -456,6 +476,11 @@ async function processSequentialRound(
         totalParagraphs: paragraphCount,
         parentParagraph: slot.originalText,
         priorPicks,
+        // Phase 4e.A1: thread the same nextContext array the judge sees into the
+        // rewriter. Already sanitized at the boundary where it was computed (per
+        // Phase 1c-i: each entry runs through sanitizeForPriorContext before
+        // being added to the array).
+        nextContext,
         coordinatorDirective: directive,
       });
 
@@ -621,6 +646,10 @@ async function processSequentialRound(
         costTracker: slotScope,
         priorPicks,
         nextContext,
+        // Phase 4a-2: parent's slot-N text — sanitized at the same boundary as
+        // priorPicks/nextContext so a parent paragraph containing a literal
+        // </UNTRUSTED_ORIGINAL> tag cannot break out of the new tag scope.
+        originalParagraph: sanitizeForPriorContext(slot.originalText).sanitized,
       });
       for (const match of result.rankResult.matches) {
         const aBefore = beforeRatings.get(match.winnerId) ?? createRating();

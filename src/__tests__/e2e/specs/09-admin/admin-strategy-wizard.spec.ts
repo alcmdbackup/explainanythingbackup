@@ -416,4 +416,73 @@ adminTest.describe('Strategy Creation Wizard', { tag: '@evolution' }, () => {
     expect(config.iterationConfigs[1]!.sourceMode).toBe('pool');
     expect(config.iterationConfigs[1]!.qualityCutoff).toEqual({ mode: 'topN', value: 5 });
   });
+
+  // investigate_sequential_paragraph_recombine_performance_20260615:
+  // Phase 4d adds coordinator-model-select; Phase 5a-1 adds seed-selection-select.
+  // Both are optional strategy-config fields that fall back to byte-identical
+  // pre-Phase-4d/5 behavior when unset. This test verifies they render in the
+  // wizard, accept values, and persist into evolution_strategies.config.
+  let coordSeedStrategyId: string | undefined;
+  adminTest.afterAll(async () => {
+    if (!coordSeedStrategyId) return;
+    const sb = getServiceClient();
+    await sb.from('evolution_metrics').delete().eq('entity_id', coordSeedStrategyId);
+    await sb.from('evolution_strategies').delete().eq('id', coordSeedStrategyId);
+  });
+
+  adminTest('Phase 4d + 5a-1: coordinator-model-select and seed-selection-select render and persist', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/strategies/new');
+    await adminPage.waitForLoadState('domcontentloaded');
+    await expect(adminPage.locator('#strategy-name')).toBeVisible({ timeout: 15000 });
+
+    const strategyName = `${TEST_PREFIX} CoordSeed ${Date.now()}`;
+    await adminPage.locator('#strategy-name').fill(strategyName);
+    await adminPage.locator('#generation-model').selectOption({ index: 1 });
+    await adminPage.locator('#budget-usd').fill('0.10');
+
+    // Both new dropdowns visible.
+    const coordSelect = adminPage.locator('[data-testid="coordinator-model-select"]');
+    const seedSelect = adminPage.locator('[data-testid="seed-selection-select"]');
+    await expect(coordSelect).toBeVisible();
+    await expect(seedSelect).toBeVisible();
+
+    // Default values: both empty (inherit from generation model / default highest_elo).
+    await expect(coordSelect).toHaveValue('');
+    await expect(seedSelect).toHaveValue('');
+
+    // Pick the first non-default option in each — the exact model identifier
+    // doesn't matter, we only verify the wizard persists what the user chose.
+    // (Use evaluate to capture the chosen value AFTER the selectOption call has
+    //  settled — toHaveValue() is the assertion-side helper but we also need the
+    //  actual string to compare against the persisted jsonb later.)
+    await coordSelect.selectOption({ index: 1 });
+    await expect(coordSelect).not.toHaveValue('');
+    const chosenCoordModel = await coordSelect.evaluate((el) => (el as HTMLSelectElement).value);
+    expect(chosenCoordModel.length).toBeGreaterThan(0);
+
+    await seedSelect.selectOption('random');
+    await expect(seedSelect).toHaveValue('random');
+
+    // Submit
+    await adminPage.locator('button', { hasText: 'Next: Configure Iterations' }).click();
+    await expect(adminPage.locator('text=#1')).toBeVisible({ timeout: 10000 });
+    const createBtn = adminPage.locator('button', { hasText: 'Create Strategy' });
+    await expect(createBtn).toBeEnabled();
+    await createBtn.click();
+
+    await expect(adminPage).toHaveURL(/\/admin\/evolution\/strategies\/[0-9a-f-]+/, { timeout: 20000 });
+    const idMatch = adminPage.url().match(/strategies\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/);
+    expect(idMatch).toBeTruthy();
+    coordSeedStrategyId = idMatch![1]!;
+    trackEvolutionId('strategy', coordSeedStrategyId);
+
+    // Verify persistence — both fields land in evolution_strategies.config jsonb.
+    const sb = getServiceClient();
+    const { data } = await sb.from('evolution_strategies')
+      .select('config').eq('id', coordSeedStrategyId).single();
+    expect(data).toBeTruthy();
+    const config = data!.config as { coordinatorModel?: string; seedSelection?: string };
+    expect(config.coordinatorModel).toBe(chosenCoordModel);
+    expect(config.seedSelection).toBe('random');
+  });
 });

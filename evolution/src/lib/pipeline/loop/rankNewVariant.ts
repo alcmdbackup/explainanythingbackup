@@ -44,6 +44,12 @@ export interface RankNewVariantInput {
    *  the article's continuation?" without article-level rerunning. Threaded all the way
    *  to buildComparisonPrompt + buildRubricComparisonPrompt. Ignored for article mode. */
   nextContext?: readonly string[];
+  /** Phase 4a-2: parent's slot-N text (the seed both candidates rewrite). Threaded
+   *  into the judge prompt so the "Net informational contribution" criterion +
+   *  "Original Paragraph" block can render. Removes the Case-A/Case-B asymmetry
+   *  where the criterion only had a reference when one candidate happened to be
+   *  the seed. Sanitized at the call site (sequentialExecute). */
+  originalParagraph?: string;
 }
 
 export interface RankNewVariantResult {
@@ -76,6 +82,7 @@ export async function rankNewVariant({
   costTracker,
   priorPicks,
   nextContext,
+  originalParagraph,
 }: RankNewVariantInput): Promise<RankNewVariantResult> {
   localPool.push(variant);
   localRatings.set(variant.id, createRating());
@@ -101,6 +108,7 @@ export async function rankNewVariant({
     logger,
     ...(priorPicks !== undefined && { priorPicks }),
     ...(nextContext !== undefined && { nextContext }),
+    ...(originalParagraph !== undefined && { originalParagraph }),
   });
 
   const rankingCost = getOwn() - costBeforeRank;

@@ -120,14 +120,23 @@ interface StrategyFormState {
   /** Phase 1d (Fix 5b): per-paragraph rubric-set id. Empty → hardcoded paragraph
    *  rubric. Distinct from judgeRubricId — that one applies at article level only. */
   paragraphJudgeRubricId: string;
-  /** Optional escalation-chain id (chainRegistry). Empty → single-judge ranking. */
-  ensembleConfigId: string;
   /** Iterative-editing Proposer model. Empty string → falls back to generationModel. */
   editingModel: string;
   /** Iterative-editing Approver model. Empty string → falls back to editingModel.
    *  When resolved value === editingModel resolved value, the wizard surfaces a
    *  rubber-stamping warning per Decisions §16. */
   approverModel: string;
+  /** Optional escalation-chain id (chainRegistry). Empty → single-judge ranking. */
+  ensembleConfigId: string;
+  /** Phase 4d: paragraph_recombine coordinator model. Empty → falls back to
+   *  generationModel at runtime. A stronger long-context model at-the-source
+   *  improves per-slot directives at the cost of higher coordinator-phase spend. */
+  coordinatorModel: string;
+  /** Phase 5 / 5a-1: which seed picks the parent originalText when the topic
+   *  has multiple seeds. Empty → 'highest_elo' (pre-Phase-5 default). 'random'
+   *  picks a deterministic per-run seed via SHA-256(run.id), spreading parent
+   *  selection across the seed pool for canaries. */
+  seedSelection: '' | 'highest_elo' | 'random';
   generationTemperature: string;
   budgetUsd: string;
   maxComparisonsPerVariant: string;
@@ -446,9 +455,11 @@ export default function NewStrategyPage(): JSX.Element {
     judgeModel: DEFAULT_JUDGE_MODEL,
     judgeRubricId: '',
     paragraphJudgeRubricId: '',
-    ensembleConfigId: '',
     editingModel: '',
     approverModel: '',
+    ensembleConfigId: '',
+    coordinatorModel: '',
+    seedSelection: '',
     generationTemperature: '',
     budgetUsd: '0.05',
     maxComparisonsPerVariant: '5',
@@ -554,6 +565,9 @@ export default function NewStrategyPage(): JSX.Element {
             judgeModel: form.judgeModel,
             ...(form.editingModel ? { editingModel: form.editingModel } : {}),
             ...(form.approverModel ? { approverModel: form.approverModel } : {}),
+            // Phase 4d: thread coordinatorModel into the dispatch preview so the
+            // per-strategy cost projection reflects the chosen coordinator model.
+            ...(form.coordinatorModel ? { coordinatorModel: form.coordinatorModel } : {}),
             budgetUsd: budget,
             maxComparisonsPerVariant: maxComp,
             iterationConfigs: toIterationConfigsPayload(iterations),
@@ -802,9 +816,11 @@ export default function NewStrategyPage(): JSX.Element {
         judgeModel: form.judgeModel,
         judgeRubricId: form.judgeRubricId || undefined,
         paragraphJudgeRubricId: form.paragraphJudgeRubricId || undefined,
-        ensembleConfigId: form.ensembleConfigId || undefined,
         editingModel: form.editingModel || undefined,
         approverModel: form.approverModel || undefined,
+        ensembleConfigId: form.ensembleConfigId || undefined,
+        coordinatorModel: form.coordinatorModel || undefined,
+        seedSelection: form.seedSelection || undefined,
         budgetUsd: parseFloat(form.budgetUsd),
         iterationConfigs: toIterationConfigsPayload(iterations),
         maxComparisonsPerVariant: form.maxComparisonsPerVariant ? Number(form.maxComparisonsPerVariant) : undefined,
@@ -972,25 +988,6 @@ export default function NewStrategyPage(): JSX.Element {
                     Leave on Default to use the built-in rubric.
                   </p>
                 </div>
-                <div>
-                  <label htmlFor="ensemble-config" className={labelClasses}>Judge Escalation (optional)</label>
-                  <select
-                    id="ensemble-config"
-                    data-testid="ensemble-config-select"
-                    value={form.ensembleConfigId}
-                    onChange={e => updateForm({ ensembleConfigId: e.target.value })}
-                    className={inputCls(false)}
-                  >
-                    <option value="">Single judge (no escalation)</option>
-                    {availableEnsembleConfigs.map(id => (
-                      <option key={id} value={id}>{id}</option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-[var(--text-muted)]">
-                    Escalates to additional judges only when the lead judge is indecisive. Disabled globally by
-                    <code> EVOLUTION_JUDGE_ESCALATION_ENABLED=&apos;false&apos;</code>.
-                  </p>
-                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -1044,6 +1041,78 @@ export default function NewStrategyPage(): JSX.Element {
                     return null;
                   })()}
                 </div>
+              </div>
+
+              <div>
+                <label htmlFor="ensemble-config" className={labelClasses}>Judge Escalation (optional)</label>
+                <select
+                  id="ensemble-config"
+                  data-testid="ensemble-config-select"
+                  value={form.ensembleConfigId}
+                  onChange={e => updateForm({ ensembleConfigId: e.target.value })}
+                  className={inputCls(false)}
+                >
+                  <option value="">Single judge (no escalation)</option>
+                  {availableEnsembleConfigs.map(id => (
+                    <option key={id} value={id}>{id}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-[var(--text-muted)]">
+                  Escalates to additional judges only when the lead judge is indecisive. Disabled globally by
+                  <code> EVOLUTION_JUDGE_ESCALATION_ENABLED=&apos;false&apos;</code>.
+                </p>
+              </div>
+
+              <div>
+                <label htmlFor="coordinator-model" className={labelClasses}>
+                  Coordinator Model (optional)
+                </label>
+                <select
+                  id="coordinator-model"
+                  data-testid="coordinator-model-select"
+                  value={form.coordinatorModel}
+                  onChange={e => updateForm({ coordinatorModel: e.target.value })}
+                  className={inputCls(false)}
+                >
+                  <option value="">Inherit from Generation Model</option>
+                  {MODEL_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  Used by the paragraph_recombine coordinator (initial-plan + replan).
+                  A stronger long-context model at-the-source produces better per-slot
+                  directives — preventing topic substitution and cross-section redundancy
+                  before they happen. The per-coordinator-call cost dominates premium-tier
+                  spend (Sonnet ≈ $0.021/call, gpt-5-mini ≈ $0.0025/call vs flash-lite
+                  ≈ $0.0006/call). Recommend gpt-5-mini for safe lift; reserve sonnet-4
+                  for premium-budget strategies.
+                </p>
+              </div>
+
+              <div>
+                <label htmlFor="seed-selection" className={labelClasses}>
+                  Seed Selection (optional)
+                </label>
+                <select
+                  id="seed-selection"
+                  data-testid="seed-selection-select"
+                  value={form.seedSelection}
+                  onChange={e => updateForm({ seedSelection: e.target.value as '' | 'highest_elo' | 'random' })}
+                  className={inputCls(false)}
+                >
+                  <option value="">Default (Highest Elo)</option>
+                  <option value="highest_elo">Highest Elo (explicit)</option>
+                  <option value="random">Random per run (multi-seed topics)</option>
+                </select>
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  When the topic has multiple seed variants (e.g. Federal Reserve 3), this
+                  controls which seed becomes the run&apos;s parent <code>originalText</code>.
+                  <strong> Highest Elo</strong> (default) preserves pre-Phase-5 behavior — same
+                  seed every run. <strong>Random per run</strong> picks a deterministic seed via
+                  SHA-256 of <code>run.id</code>, so a canary&apos;s 6+ invocations sample across the
+                  pool while remaining reproducible. Single-seed topics are unaffected.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

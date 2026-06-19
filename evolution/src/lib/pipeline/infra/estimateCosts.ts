@@ -599,6 +599,14 @@ const COORDINATOR_PROMPT_OVERHEAD = 1500;
 /** Per-paragraph output chars in the coordinator's JSON plan. Roughly 350 chars per
  *  paragraph (directive + temperature + rationale + role + M + index + nesting). */
 const COORDINATOR_OUTPUT_CHARS_PER_PARAGRAPH = 350;
+/** Phase 4d / replan-aware coordinator projection: today's projector models 1
+ *  coordinator call (initial). Production fires up to 2 (initial + Phase 2 replan).
+ *  With flash-lite at $0.0006/call the gap is invisible; with Sonnet at $0.021/call
+ *  the gap is $0.021 the wizard hides — visible understatement on premium tier.
+ *  COORDINATOR_REPLAN_RATE_DEFAULT picks an observed fire-rate so total coordinator
+ *  cost ≈ (1 + replanRate) × singleCallCost. 0.65 derived from staging observation
+ *  of post-PR-#1221 runs; revisit when calibration accumulates. */
+const COORDINATOR_REPLAN_RATE_DEFAULT = 0.65;
 
 export function estimateParagraphRecombineCost(
   parentArticleChars: number,
@@ -612,8 +620,12 @@ export function estimateParagraphRecombineCost(
    *  triangular prior-picks growth on rewrite + rank phases. When omitted or false, the
    *  projection collapses to the legacy parallel 2-phase shape (coordinatorCost === 0).
    *  Pass an EXPLICIT param (not env.read) so wizard projection mirrors runtime even when
-   *  the projector is invoked client-side. Callers resolve env at their boundary. */
-  opts?: { sequentialEnabled?: boolean },
+   *  the projector is invoked client-side. Callers resolve env at their boundary.
+   *
+   *  Phase 4d adds `coordinatorModel`: when set, the coordinator-phase calibration row
+   *  AND pricing both use this model instead of `rewriteModel`. Falls back to rewriteModel
+   *  when omitted — byte-identical pre-Phase-4d projection. */
+  opts?: { sequentialEnabled?: boolean; coordinatorModel?: string },
 ): {
   expected: number;
   upperBound: number;
@@ -641,27 +653,39 @@ export function estimateParagraphRecombineCost(
   let totalRankCost: number;
 
   if (sequentialEnabled) {
-    // Sequential path: round i's M rewrite calls each see i × avgParagraphChars of PRIOR
-    // CONTEXT. Triangular sum across N rounds: Σ_{i=0..N-1} M × (rewriteInput + i × ppc).
-    // Same triangular pattern for rank (judge sees PRIOR CONTEXT under sequential).
+    // Sequential path: round i's M rewrite calls each see priorPicks (capped at
+    // MAX_PRIOR_PARAGRAPHS_FOR_CONTEXT = 6) AND nextContext (unbounded since
+    // Phase 4e.A1: rewriter sees ALL upcoming parent paragraphs). The judge in
+    // its hardcoded path also has unbounded NEXT now (Phase 4e.A0).
+    //
+    // Per-round extra chars contributed by context blocks:
+    //   priorPicks(i)   = min(i, PRIOR_CAP) × ppc
+    //   nextContext(i)  = (N - 1 - i) × ppc       // 4e.A1: no cap
+    // Sum over i = 0..N-1 is computed explicitly via a small loop (closed-form
+    // exists but the loop is clearer for N ≤ ~30 which covers production article
+    // sizes; cost is O(N) one-time per projection).
     const N = paragraphCount;
     const M = rewritesPerParagraph;
     const ppc = avgParagraphChars;
-    // Cost is roughly proportional to input chars; we re-derive per-round cost analytically
-    // by scaling costPerRewrite by (rewriteInputChars + i × ppc) / rewriteInputChars.
-    // Simplified: triangularSum = sum_{i=0..N-1} (rewriteInputChars + i × ppc).
-    //          = N × rewriteInputChars + ppc × (N-1)N/2.
+    const PRIOR_CAP = 6; // mirrors MAX_PRIOR_PARAGRAPHS_FOR_CONTEXT in buildSequentialRewritePrompt.ts
+    let contextExtraCharsSum = 0;
+    for (let i = 0; i < N; i += 1) {
+      contextExtraCharsSum += Math.min(i, PRIOR_CAP) * ppc;       // priorPicks (capped)
+      contextExtraCharsSum += (N - 1 - i) * ppc;                  // nextContext (unbounded)
+    }
     const baseInput = rewriteInputChars;
-    const triangularInputSum = N * baseInput + (ppc * (N - 1) * N) / 2;
+    const triangularInputSum = N * baseInput + contextExtraCharsSum;
     const avgPerRoundInputChars = triangularInputSum / N;
     const scaledRewriteCost = costPerRewrite * (avgPerRoundInputChars / baseInput);
     totalRewriteCost = N * M * scaledRewriteCost;
 
-    // Rank phase also triangular under sequential: each comparison's input includes the
-    // priorPicks block in addition to the two paragraph candidates.
+    // Rank phase: each comparison's input includes the same priorPicks (capped)
+    // + nextContext (unbounded since Phase 4e.A0) blocks the rewriter sees,
+    // alongside the two paragraph candidates. Reuse contextExtraCharsSum for
+    // parity with the rewriter projection.
     const slotPoolSize = M + 1;
     const baseRankInput = avgParagraphChars * 2 + 800; // COMPARISON_PROMPT_OVERHEAD-ish
-    const triangularRankInputSum = N * baseRankInput + (ppc * (N - 1) * N) / 2;
+    const triangularRankInputSum = N * baseRankInput + contextExtraCharsSum;
     const avgPerRoundRankInputChars = triangularRankInputSum / N;
     const baseRankCost = estimateRankingCost(avgParagraphChars, judgeModel, slotPoolSize, maxComparisonsPerParagraph);
     const scaledRankCost = baseRankCost * (avgPerRoundRankInputChars / baseRankInput);
@@ -679,14 +703,24 @@ export function estimateParagraphRecombineCost(
     totalRankCost = paragraphCount * rewritesPerParagraph * perSlotRankCost;
   }
 
-  // Coordinator phase (sequential only). One LLM call, parent text input + structured output.
+  // Coordinator phase (sequential only). Phase 4d: when a per-strategy
+  // coordinatorModel is set, BOTH the calibration-row lookup AND the pricing lookup
+  // use it instead of the rewrite model — otherwise a Sonnet coordinator would be
+  // costed against flash-lite pricing (~30× under-projection). Plus replan-aware
+  // multiplier: the projector models one initial call + COORDINATOR_REPLAN_RATE
+  // expected replan calls, since Phase 2 replan fires often enough that ignoring it
+  // makes the wizard's headline cost preview under-state premium-tier spend by the
+  // most visible amount.
   let coordinatorCost = 0;
   if (sequentialEnabled) {
+    const coordinatorModel = opts?.coordinatorModel ?? rewriteModel;
+    const coordinatorPricing = getModelPricing(coordinatorModel);
     const coordinatorInputChars = parentArticleChars + COORDINATOR_PROMPT_OVERHEAD;
-    const calibratedCoordinator = getCalibrationRow('__unspecified__', rewriteModel, judgeModel, 'paragraph_recombine_coordinator');
+    const calibratedCoordinator = getCalibrationRow('__unspecified__', coordinatorModel, judgeModel, 'paragraph_recombine_coordinator');
     const coordinatorOutputChars = calibratedCoordinator?.avgOutputChars
       ?? paragraphCount * COORDINATOR_OUTPUT_CHARS_PER_PARAGRAPH;
-    coordinatorCost = calculateCost(coordinatorInputChars, coordinatorOutputChars, rewritePricing);
+    const singleCallCost = calculateCost(coordinatorInputChars, coordinatorOutputChars, coordinatorPricing);
+    coordinatorCost = singleCallCost * (1 + COORDINATOR_REPLAN_RATE_DEFAULT);
   }
 
   const expected = totalRewriteCost + totalRankCost + coordinatorCost;

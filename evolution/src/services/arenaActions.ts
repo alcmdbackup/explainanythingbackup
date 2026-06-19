@@ -215,12 +215,16 @@ export const getArenaTopicsAction = adminAction(
 );
 
 export interface ArenaTopicDetail extends ArenaTopic {
-  /** The topic's seed variant (generation_method='seed'), or null when no seed
-   *  has been persisted yet. Sourced via a dedicated query — NOT from the paginated
-   *  leaderboard `entries` array — so the arena topic page's seed panel is always
-   *  available regardless of which leaderboard page the user is on. If legacy data
-   *  has multiple seeds for one topic (pre-EVOLUTION_REUSE_SEED_RATING), the
-   *  highest-Elo row wins (ties broken by earliest created_at). */
+  /** All seed variants for the topic (generation_method='seed', non-archived,
+   *  synced_to_arena). Sorted by elo_score DESC with created_at ASC tiebreak.
+   *  Phase 5 (investigate_sequential_paragraph_recombine_performance_20260615):
+   *  Federal Reserve 3 is the first true multi-seed topic; existing topics have
+   *  0 or 1 seed and `seedVariants` is empty or single-element accordingly. */
+  seedVariants: ArenaEntry[];
+  /** The topic's primary seed variant — convenience field = seedVariants[0]
+   *  when non-empty, null otherwise. Preserved for back-compat with consumers
+   *  written before multi-seed (most arena topic UI surfaces). New multi-seed
+   *  consumers should read `seedVariants` directly. */
   seedVariant: ArenaEntry | null;
 }
 
@@ -236,11 +240,12 @@ export const getArenaTopicDetailAction = adminAction(
     if (error) throw error;
     if (!data) throw new Error(`Arena topic not found: ${topicId}`);
 
-    // Fetch the topic's seed variant (if any). Deterministic ordering handles the
-    // legacy EVOLUTION_REUSE_SEED_RATING=false case where multiple seed rows may
-    // exist for one prompt — we pick the highest-Elo row with the earliest created_at
-    // as tiebreak. `.maybeSingle()` returns null (not an error) when no seed exists.
-    const { data: seedRow, error: seedError } = await ctx.supabase
+    // Fetch ALL seed variants for the topic. Multi-seed topics (Phase 5: FR3)
+    // need every seed visible to consumers; single-seed/zero-seed topics yield
+    // a 1-element or empty array. Deterministic ordering: elo_score DESC with
+    // created_at ASC as tiebreak — same convention as the prior single-seed
+    // query, applied to the entire seed set.
+    const { data: seedRows, error: seedError } = await ctx.supabase
       .from('evolution_variants')
       .select('*')
       .eq('prompt_id', topicId)
@@ -248,14 +253,17 @@ export const getArenaTopicDetailAction = adminAction(
       .eq('synced_to_arena', true)  // match the leaderboard query (line ~210); defensive against any future seed row with synced_to_arena=false
       .is('archived_at', null)
       .order('elo_score', { ascending: false })
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
+      .order('created_at', { ascending: true });
     if (seedError) throw seedError;
+
+    const seedVariants = (seedRows ?? []).map((row) => toArenaEntry(row as Record<string, unknown>));
 
     return {
       ...(data as ArenaTopic),
-      seedVariant: seedRow ? toArenaEntry(seedRow as Record<string, unknown>) : null,
+      seedVariants,
+      // Convenience field — first (highest-elo) seed or null. Mirrors the
+      // pre-Phase-5 shape exactly: zero seeds → null; one or more → seedVariants[0].
+      seedVariant: seedVariants.length > 0 ? seedVariants[0]! : null,
     };
   },
 );
