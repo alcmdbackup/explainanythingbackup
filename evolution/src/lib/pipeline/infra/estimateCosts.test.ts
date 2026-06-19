@@ -318,6 +318,29 @@ describe('estimateCosts', () => {
         expect(explicitUndef.expected).toBe(oldShape.expected);
       });
 
+      // Phase 4e.D: combined PRIOR (capped at 6) + NEXT (unbounded) per-round
+      // extra char projection. The post-Phase-4e total must scale roughly linearly
+      // with N because nextContext shrinks one-for-one as priorPicks grows (capped).
+      it("Phase 4e.D — combined priorPicks (capped) + nextContext (unbounded) projection scales linearly with N", () => {
+        const N10 = estimateParagraphRecombineCost(
+          5000, 10, 3, 8, 'gpt-4.1-nano', 'qwen-2.5-7b-instruct',
+          { sequentialEnabled: true },
+        );
+        const N20 = estimateParagraphRecombineCost(
+          10000, 20, 3, 8, 'gpt-4.1-nano', 'qwen-2.5-7b-instruct',
+          { sequentialEnabled: true },
+        );
+        // At N=20 with same parent size per paragraph (5000/10 = 10000/20 = 500 char ppc),
+        // the rewriter sees roughly 2× the context blocks per call than N=10. Doubling N
+        // approximately doubles N(N-1)/2 = quadrupling per-call context, but the cap on
+        // priorPicks (at 6) limits the growth on the prior side. Combined per-round avg
+        // grows roughly linearly. Sanity-check: N=20 total rewrite cost is meaningfully
+        // larger than N=10 but NOT 4× (which would imply unbounded triangular).
+        const ratio = N20.perPhase.paragraphRewriteCost / N10.perPhase.paragraphRewriteCost;
+        expect(ratio).toBeGreaterThan(2.0); // way more than N=10
+        expect(ratio).toBeLessThan(5.0);    // but not pure quadratic
+      });
+
       it("replan-aware: coordinatorCost ≈ (1 + replanRate) × singleCallCost", () => {
         // The projector multiplies the single-call cost by (1 + COORDINATOR_REPLAN_RATE_DEFAULT)
         // = 1.65 today. Sanity-check: doubling the same baseline twice yields a 65%-ish

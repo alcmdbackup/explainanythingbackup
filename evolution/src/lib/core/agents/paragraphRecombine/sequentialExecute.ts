@@ -47,7 +47,15 @@ export type SequentialCounters = {
   priorPicksTruncationCount: number;
   /** investigate_sequential_paragraph_recombine_performance_20260615 Phase 1c-i:
    *  counters for the new forward-context (nextContext) path. Mirror the priorPicks*
-   *  counters so the admin slot-leaderboard surfaces them in the same panel. */
+   *  counters so the admin slot-leaderboard surfaces them in the same panel.
+   *
+   *  Phase 4e.A1: the rewriter now ALSO consumes nextContext (previously judge-only).
+   *  Both consumers read the same already-sanitized array — sanitization happens
+   *  once at the array-construction site in runSequentialLoop (line ~198), so
+   *  `nextPicksSanitizationCount` covers both judge AND rewriter consumption.
+   *  No separate `nextContextRewriterSanitizationCount` is added — adding one
+   *  would either duplicate the existing counter or require a separate
+   *  per-consumer sanitization pass (which the architecture deliberately avoids). */
   nextPicksSanitizationCount: number;
   nextPicksTruncationCount: number;
   /** investigate_sequential_paragraph_recombine_performance_20260615 Phase 2 (Fix 2):

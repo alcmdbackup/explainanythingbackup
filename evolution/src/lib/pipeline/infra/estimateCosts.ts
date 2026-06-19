@@ -653,27 +653,39 @@ export function estimateParagraphRecombineCost(
   let totalRankCost: number;
 
   if (sequentialEnabled) {
-    // Sequential path: round i's M rewrite calls each see i × avgParagraphChars of PRIOR
-    // CONTEXT. Triangular sum across N rounds: Σ_{i=0..N-1} M × (rewriteInput + i × ppc).
-    // Same triangular pattern for rank (judge sees PRIOR CONTEXT under sequential).
+    // Sequential path: round i's M rewrite calls each see priorPicks (capped at
+    // MAX_PRIOR_PARAGRAPHS_FOR_CONTEXT = 6) AND nextContext (unbounded since
+    // Phase 4e.A1: rewriter sees ALL upcoming parent paragraphs). The judge in
+    // its hardcoded path also has unbounded NEXT now (Phase 4e.A0).
+    //
+    // Per-round extra chars contributed by context blocks:
+    //   priorPicks(i)   = min(i, PRIOR_CAP) × ppc
+    //   nextContext(i)  = (N - 1 - i) × ppc       // 4e.A1: no cap
+    // Sum over i = 0..N-1 is computed explicitly via a small loop (closed-form
+    // exists but the loop is clearer for N ≤ ~30 which covers production article
+    // sizes; cost is O(N) one-time per projection).
     const N = paragraphCount;
     const M = rewritesPerParagraph;
     const ppc = avgParagraphChars;
-    // Cost is roughly proportional to input chars; we re-derive per-round cost analytically
-    // by scaling costPerRewrite by (rewriteInputChars + i × ppc) / rewriteInputChars.
-    // Simplified: triangularSum = sum_{i=0..N-1} (rewriteInputChars + i × ppc).
-    //          = N × rewriteInputChars + ppc × (N-1)N/2.
+    const PRIOR_CAP = 6; // mirrors MAX_PRIOR_PARAGRAPHS_FOR_CONTEXT in buildSequentialRewritePrompt.ts
+    let contextExtraCharsSum = 0;
+    for (let i = 0; i < N; i += 1) {
+      contextExtraCharsSum += Math.min(i, PRIOR_CAP) * ppc;       // priorPicks (capped)
+      contextExtraCharsSum += (N - 1 - i) * ppc;                  // nextContext (unbounded)
+    }
     const baseInput = rewriteInputChars;
-    const triangularInputSum = N * baseInput + (ppc * (N - 1) * N) / 2;
+    const triangularInputSum = N * baseInput + contextExtraCharsSum;
     const avgPerRoundInputChars = triangularInputSum / N;
     const scaledRewriteCost = costPerRewrite * (avgPerRoundInputChars / baseInput);
     totalRewriteCost = N * M * scaledRewriteCost;
 
-    // Rank phase also triangular under sequential: each comparison's input includes the
-    // priorPicks block in addition to the two paragraph candidates.
+    // Rank phase: each comparison's input includes the same priorPicks (capped)
+    // + nextContext (unbounded since Phase 4e.A0) blocks the rewriter sees,
+    // alongside the two paragraph candidates. Reuse contextExtraCharsSum for
+    // parity with the rewriter projection.
     const slotPoolSize = M + 1;
     const baseRankInput = avgParagraphChars * 2 + 800; // COMPARISON_PROMPT_OVERHEAD-ish
-    const triangularRankInputSum = N * baseRankInput + (ppc * (N - 1) * N) / 2;
+    const triangularRankInputSum = N * baseRankInput + contextExtraCharsSum;
     const avgPerRoundRankInputChars = triangularRankInputSum / N;
     const baseRankCost = estimateRankingCost(avgParagraphChars, judgeModel, slotPoolSize, maxComparisonsPerParagraph);
     const scaledRankCost = baseRankCost * (avgPerRoundRankInputChars / baseRankInput);
