@@ -9,6 +9,7 @@ import type { StrategyConfig } from '@evolution/lib/pipeline/infra/types';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
 import { z } from 'zod';
 import { iterationConfigSchema, generationGuidanceSchema } from '@evolution/lib/schemas';
+import { listEnsembleConfigIds, resolveEnsembleConfig } from '@evolution/lib/shared/judgeEnsemble/chainRegistry';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -38,6 +39,9 @@ const createStrategySchema = z.object({
   judgeRubricId: z.string().uuid().optional(),
   /** Phase 1d (Fix 5b): optional per-paragraph rubric-set id (validated below). */
   paragraphJudgeRubricId: z.string().uuid().optional(),
+  /** Optional named multi-judge escalation chain (chainRegistry id). Empty → single-judge ranking.
+   *  Resolved at run time in buildRunContext; escalates only when the lead judge is indecisive. */
+  ensembleConfigId: z.string().max(100).optional(),
   /** Iterative-editing Proposer model (optional). Falls back to generationModel at runtime. */
   editingModel: z.string().max(100).optional(),
   /** Iterative-editing Approver model (optional). Falls back to editingModel (which falls back
@@ -192,11 +196,17 @@ export const createStrategyAction = adminAction(
       await validateJudgeRubricId(parsed.paragraphJudgeRubricId, ctx.supabase);
     }
 
+    // Validate the ensemble chain id resolves to a known composition (fail fast, not at run time).
+    if (parsed.ensembleConfigId && !resolveEnsembleConfig(parsed.ensembleConfigId)) {
+      throw new Error(`Unknown ensembleConfigId: ${parsed.ensembleConfigId}`);
+    }
+
     const config: StrategyConfig = {
       generationModel: parsed.generationModel,
       judgeModel: parsed.judgeModel,
       judgeRubricId: parsed.judgeRubricId,
       paragraphJudgeRubricId: parsed.paragraphJudgeRubricId,
+      ensembleConfigId: parsed.ensembleConfigId,
       editingModel: parsed.editingModel,
       approverModel: parsed.approverModel,
       coordinatorModel: parsed.coordinatorModel,
@@ -239,6 +249,16 @@ export const createStrategyAction = adminAction(
     stratLogger.info('Strategy created', { name: parsed.name, pipelineType: parsed.pipeline_type ?? 'full' });
 
     return data;
+  },
+);
+
+/** The named escalation-chain ids selectable in the wizard. Server-side so the client never imports
+ *  chainRegistry (which pulls in node-only deps via the aggregation/computeRatings chain). */
+export const listEnsembleConfigsAction = adminAction(
+  'listEnsembleConfigs',
+  async (ctx: AdminContext): Promise<{ ids: string[] }> => {
+    void ctx; // admin gating only; the config list is static.
+    return { ids: listEnsembleConfigIds() };
   },
 );
 
