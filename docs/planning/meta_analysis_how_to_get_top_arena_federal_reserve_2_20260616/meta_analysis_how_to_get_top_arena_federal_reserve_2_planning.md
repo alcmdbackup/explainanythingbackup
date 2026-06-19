@@ -171,9 +171,9 @@ Both arms identical otherwise. The settings mirror the **most-recent production 
 
 Stage 2 fires only when ALL six hold after the 10 smoke runs complete:
 
-- [ ] **No code crashes**. Zero runs in `status='failed'` with `error_code IN ('iterative_edit_invalid_groups', 'unhandled_exception')`. Treatment-arm runs complete with `status='completed'`.
-- [ ] **Cost stays under budget**. Mean per-run cost ≤ $0.05 in both arms; total experiment spend ≤ $0.50.
-- [ ] **Filter-disable actually takes effect in treatment arm**. At least one treatment-arm invocation shows `proposedGroupsRaw.length` ≥ 15 (the raw diff atomic count, no longer capped at 10), AND every group in `proposedGroupsRaw` has exactly 1 atomic edit (no coalescing happened), AND `reviewDecisions.length` = `proposedGroupsRaw.length` (every group received an approver decision). For control: `proposedGroupsRaw.length` ≤ 10 (the cap fired) and some groups have ≥ 2 atomic edits.
+- [ ] **No code crashes**. Zero runs in `status='failed'` for the experiment. Treatment-arm runs complete with `status='completed'`. (The earlier fake allowlist `error_code IN ('iterative_edit_invalid_groups', 'unhandled_exception')` was wrong — actual error_code literals written by the pipeline are `'unhandled_error'` (claimAndExecuteRun.ts:98), `'all_generations_failed'`, `'finalize_empty_pool'`. We just check `status='failed'` since any failed run is a Stage 1 blocker.)
+- [ ] **Cost stays under budget**. Mean per-run cost ≤ $0.05 in both arms; total experiment spend ≤ $0.50. Cost is read via the existing `get_run_total_cost(p_run_id UUID)` SQL RPC (migration 20260322000007:381-385), NOT via a fabricated `evolution_runs.cost_usd` column (which does not exist — cost lives on `evolution_agent_invocations.cost_usd`).
+- [ ] **Filter-disable actually takes effect in treatment arm**. At least one treatment-arm invocation shows `proposedGroupsRaw.length` ≥ 15 (the raw diff atomic count, no longer capped at 10), AND treatment-arm groups are **mostly singletons** (mean atomic-count per group < 1.5 across all treatment-arm groups; NOT "every group is a singleton" because `parseProposedEdits` itself does adjacency-based auto-grouping at `parseProposedEdits.ts:185-199` before `coalesceAdjacentGroups` runs — so 2-3-atomic groups can occur even with the coalescer bypassed), AND the total group count is strictly greater than control's K=10 ceiling (proving the magnitude cap was skipped, not just the coalescer). For control: `proposedGroupsRaw.length` ≤ 10 (the cap fired) and some groups have ≥ 2 atomic edits.
 - [ ] **Admin UI renders treatment-arm Edit Cycle tabs cleanly**. Manually open one treatment-arm invocation's `/admin/evolution/invocations/[id]` page and confirm:
   - The Edit Cycle tab loads without errors despite ~15-30 group rows (vs control's ~10)
   - The per-group accept/reject table renders every singleton group as its own row
@@ -200,17 +200,31 @@ If any check fails, fix the issue and re-run the 10 smoke runs (this is cheap en
 //   - evolution_arena_comparisons with entry_a UUID, entry_b UUID
 const { experimentId, controlStrategy, treatmentStrategy } = args;
 
+// Pre-validate every UUID arg at argv-parse time, before any DB call.
+// Throws a clear "invalid UUID for --<flag>" message instead of letting
+// Postgres throw an opaque type error mid-query.
+for (const [flag, value] of [['experiment-id', experimentId], ['control-strategy', controlStrategy], ['treatment-strategy', treatmentStrategy]]) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+    throw new Error(`Invalid UUID for --${flag}: ${value}`);
+  }
+}
+
 const failed = await runSqlChecks([
-  // Check 1: no failed runs.
+  // Check 1: no failed runs. Any failure is a Stage 1 blocker — we don't
+  // pre-classify by error_code because the pipeline's actual error_code
+  // literals are 'unhandled_error', 'all_generations_failed', 'finalize_empty_pool'.
   { name: 'no_failures',
     sql: `SELECT COUNT(*) AS n FROM evolution_runs
           WHERE experiment_id = $1 AND status = 'failed'`,
     params: [experimentId],
     expect: (r) => Number(r.rows[0].n) === 0 },
-  // Check 2: cost ceiling.
+  // Check 2: cost ceiling. Uses the existing get_run_total_cost(uuid) RPC
+  // (defined in migration 20260322000007:381-385) which sums
+  // evolution_agent_invocations.cost_usd for each run.
   { name: 'cost_under_ceiling',
-    sql: `SELECT COALESCE(SUM(cost_usd), 0) AS total FROM evolution_runs
-          WHERE experiment_id = $1`,
+    sql: `SELECT COALESCE(SUM(get_run_total_cost(r.id)), 0) AS total
+          FROM evolution_runs r
+          WHERE r.experiment_id = $1`,
     params: [experimentId],
     expect: (r) => Number(r.rows[0].total) < 0.50 },
   // Check 3a: treatment proposedGroupsRaw.length >= 15 on at least one cycle.
@@ -235,16 +249,23 @@ const failed = await runSqlChecks([
           WHERE r.experiment_id = $1 AND r.strategy_id = $2`,
     params: [experimentId, controlStrategy],
     expect: (r) => Number(r.rows[0].max_groups) <= 10 },
-  // Check 3c: treatment every group is a singleton. COALESCE-tolerant.
-  { name: 'treatment_all_singletons',
-    sql: `SELECT COALESCE(MAX(jsonb_array_length(COALESCE(g->'atomicEdits', '[]'::jsonb))), 1) AS max_atomics
+  // Check 3c: treatment groups are MOSTLY singletons. NOT "every group is a singleton"
+  // because parseProposedEdits itself does adjacency-based auto-grouping
+  // (parseProposedEdits.ts:185-199) BEFORE coalesceAdjacentGroups runs — so multi-
+  // atomic groups can exist even when the coalescer was skipped. The reframed
+  // check: in treatment, average atomic-count per group is < 1.5 AND there are
+  // strictly more groups than control's K=10 ceiling.
+  { name: 'treatment_mostly_singletons',
+    sql: `SELECT
+            COALESCE(AVG(jsonb_array_length(COALESCE(g->'atomicEdits', '[]'::jsonb))), 1)::numeric AS avg_atomics,
+            COUNT(g)                                                                    AS total_groups
           FROM evolution_agent_invocations i
           JOIN evolution_runs r ON i.run_id = r.id
           CROSS JOIN LATERAL jsonb_array_elements(COALESCE(i.execution_detail->'cycles', '[]'::jsonb)) AS c(cycle)
           CROSS JOIN LATERAL jsonb_array_elements(COALESCE(c.cycle->'proposedGroupsRaw', '[]'::jsonb)) AS g(g)
           WHERE r.experiment_id = $1 AND r.strategy_id = $2`,
     params: [experimentId, treatmentStrategy],
-    expect: (r) => Number(r.rows[0].max_atomics) === 1 },
+    expect: (r) => Number(r.rows[0].avg_atomics) < 1.5 && Number(r.rows[0].total_groups) > 10 },
   // Check 6: arena sync — at least one variant per arm reached synced_to_arena=true.
   { name: 'arena_sync_both_arms',
     sql: `SELECT r.strategy_id, COUNT(*) FILTER (WHERE v.synced_to_arena) AS synced
@@ -265,40 +286,56 @@ console.log('All Stage 1 SQL checks passed. Now run the 2 manual UI checks (#4, 
 
 Run with: `npx tsx evolution/scripts/verifyBundleSplitStage1.ts --experiment-id <expId> --control-strategy <ctlId> --treatment-strategy <trtId>`. The strategy IDs are printed by the seed script at the end of `--apply`. Stage 2 is gated by both (a) this script exits 0 AND (b) the 2 human UI checks pass.
 
-**Cancel-experiment rollback drill** — if Stage 1 detects a problem mid-flight or Stage 2 needs to be aborted, cancel the experiment cleanly. `evolution_experiments` does NOT have a `cancelled_reason` column (verified against the live schema); the reason is logged separately to `evolution_run_logs` against each affected run for forensic preservation.
+**Cancel-experiment rollback drill** — if Stage 1 detects a problem mid-flight or Stage 2 needs to be aborted, the **existing** `cancel_experiment(p_experiment_id UUID)` SQL RPC handles cancellation atomically. It is defined at migration 20260322000006:302-319 and re-issued at 20260322000007:378-388. We call it directly; the new `cancelExperiment.ts` script is a thin wrapper that adds reason-logging and the optional archive/un-sync steps.
+
+**RPC behavior** (NOT what an earlier draft of this plan claimed — verified against the migration):
+- Sets `evolution_experiments.status='cancelled'` only if the experiment is currently `status='running'`. No-op on already-cancelled / draft / completed.
+- Sets `evolution_runs.status='failed'` (NOT `'cancelled'`) for runs in `('pending', 'claimed', 'running')`, with `error_message='Experiment cancelled'` and `completed_at=now()`. Already-completed and already-failed runs are NOT touched.
+- This means in-progress runs DO get marked failed when the RPC fires. The `claim_evolution_run` RPC (NOT `claim_pending_run` — that name was wrong in earlier drafts; correct name verified at migration 20260322000001:8) will skip the now-failed row on subsequent claims, but does not force-kill the in-flight worker.
 
 ```bash
-# 1. Stop new runs from claiming.
+# 1. Cancel the experiment via the existing RPC + log the reason per-run.
 npx tsx evolution/scripts/cancelExperiment.ts \
   --experiment-id <experimentId> \
   --target staging \
   --reason "Stage 1 check N failed: <details>"
 
-# What it does (verified against migration 20260322000007):
-# - UPDATE evolution_runs SET status='cancelled', updated_at=now()
-#     WHERE experiment_id = $1 AND status = 'pending'
-# - UPDATE evolution_experiments SET status='cancelled', updated_at=now() WHERE id = $1
-# - For each affected run, INSERT a row into evolution_run_logs with
-#     log_level='info', component='cancelExperiment', message=<reason>
-#   (preserves the reason without altering the table schema)
-# - Does NOT roll back already-completed runs or already-synced arena variants
-#   (history is preserved for forensic analysis)
-# - Does NOT mark strategies — they stay in evolution_strategies for re-use
-# - Idempotent: cancel-on-already-cancelled is a no-op (returns count=0); cancel
-#   on a non-existent experiment throws a clear "experiment not found" error
-# - In-progress runs that already claimed via claim_pending_run RPC are NOT
-#   forcibly terminated. They complete (or budget-exhaust) normally. The
-#   cancellation only blocks NEW claims (claim_pending_run filters
-#   WHERE status='pending').
+# What it does (in TypeScript):
+#   await db.rpc('cancel_experiment', { p_experiment_id: experimentId });
+#   // RPC sets status='cancelled' on the experiment (if it was 'running') and
+#   // status='failed' + error_message='Experiment cancelled' on all incomplete runs.
+#
+#   // Log the reason against each affected run via createEntityLogger (the
+#   // canonical write helper at evolution/src/lib/pipeline/infra/createEntityLogger.ts).
+#   // evolution_run_logs is a VIEW over evolution_logs; its actual columns are
+#   // {entity_type, entity_id (both NOT NULL), level, subagent_name, message,
+#   //  run_id, experiment_id, strategy_id}. We use the helper rather than raw
+#   // INSERTs to stay schema-stable.
+#   const { data: runs } = await db
+#     .from('evolution_runs')
+#     .select('id, experiment_id, strategy_id')
+#     .eq('experiment_id', experimentId)
+#     .eq('error_message', 'Experiment cancelled');  // just-cancelled by the RPC
+#   for (const r of runs ?? []) {
+#     const logger = createEntityLogger({
+#       entityType: 'run', entityId: r.id,
+#       runId: r.id, experimentId: r.experiment_id, strategyId: r.strategy_id,
+#       subagentName: 'cancelExperiment',
+#     }, db);
+#     await logger.info(reason);
+#   }
 
-# 2. (Optional) Soft-deprecate the experiment's strategies so the wizard hides
-#    them from future researchers (history remains for forensic inspection):
+# 2. (Optional) Archive the experiment's strategies so the wizard hides them
+#    from future researchers (history remains for forensic inspection).
+#    evolution_strategies.status CHECK constraint allows ONLY ('active', 'archived')
+#    per migration 20260329000001:31 — there is NO 'deprecated' value. An earlier
+#    draft of this plan used 'deprecated' which would throw a constraint violation.
 npx tsx evolution/scripts/cancelExperiment.ts \
   --experiment-id <experimentId> \
-  --deprecate-strategies
-# UPDATE evolution_strategies SET status='deprecated' WHERE id IN (<ctlId>, <trtId>)
+  --archive-strategies
+# UPDATE evolution_strategies SET status='archived' WHERE id IN (<ctlId>, <trtId>)
 
-# 3. (Optional) Remove arena rows if the experiment was malformed and is
+# 3. (Optional) Un-sync arena rows if the experiment was malformed and is
 #    polluting the leaderboard. ALWAYS get explicit user approval before this.
 #    Arena rows live on evolution_variants itself (synced_to_arena BOOLEAN):
 #    UPDATE evolution_variants
@@ -308,11 +345,12 @@ npx tsx evolution/scripts/cancelExperiment.ts \
 #     evolution_arena_comparisons.entry_a/entry_b and orphans match history.)
 ```
 
-If `cancelExperiment.ts` doesn't exist yet, add it in the same PR. The seed-script test suite covers the cancel idempotency contract:
-- Cancel on already-cancelled experiment: no-op, returns count=0
-- Cancel on a non-existent experimentId: throws "experiment not found"
-- Cancel does NOT affect runs in `status='completed'` or `status='running'`
-- `--deprecate-strategies` flips status; without it, strategies are left alone
+`cancelExperiment.ts` wraps the RPC + reason logging + the two optional steps. The seed-script test suite covers the cancel idempotency contract:
+- Cancel on a non-running experiment (already cancelled, completed, draft): the RPC is a no-op (returns void; experiment status unchanged because the WHERE filter doesn't match).
+- Cancel on a non-existent experimentId: the RPC silently returns (no error — the WHERE matches zero rows). The wrapper script should detect zero affected runs and warn the user.
+- Cancel does NOT affect runs in `status='completed'` or `status='failed'`.
+- `--archive-strategies` flips status from `active` → `archived`; without it, strategies are left alone.
+- `--archive-strategies` on already-archived strategies: no-op (the UPDATE matches zero rows).
 
 ### Stage 1 → Stage 2 decision tree
 
@@ -484,7 +522,7 @@ Spec:
 This makes the experiment reproducible from the wizard for future researchers, not just via the seed script for this specific A/B run. Future strategies that want to use `disableApproverFiltering` (e.g., a Mode A-vs-disabled-Mode-B head-to-head experiment) can be created entirely through the UI.
 
 **Wizard tests** to add:
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-strategy-creation.spec.ts` (or wherever wizard E2E tests live) — case: select `iterative_editing_rewrite` agent type → confirm the disable-approver-filtering checkbox appears; switch to a different agent type → confirm it disappears
+- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-iterative-editing.spec.ts` (or wherever wizard E2E tests live) — case: select `iterative_editing_rewrite` agent type → confirm the disable-approver-filtering checkbox appears; switch to a different agent type → confirm it disappears
 - [ ] Same spec — case: check the box, complete the wizard, confirm the resulting strategy's `config.iterationConfigs[i].disableApproverFiltering === true`
 
 ### Triggering without UI on staging
@@ -588,11 +626,28 @@ async function seedStrategy(armLabel: string, cfg: StrategyConfig, db: SupabaseC
 const ctlStrategyId = await seedStrategy('AF-Ctrl', controlConfig, db);
 const trtStrategyId = await seedStrategy('AF-Off', treatmentConfig, db);
 
-// Create or look up the experiment.
-const { id: experimentId } = args.append
-  ? await getExperimentByName('BundleSplit A/B (federal_reserve_2)', db)
-  : await createExperiment('BundleSplit A/B (federal_reserve_2)',
-                            'a546b7e9-f066-403d-9589-f5e0d2c9fa4f', db);
+// Create or look up the experiment. `getExperimentByName` helper does not
+// exist — use an inline SELECT for the --append flow. createExperiment
+// auto-suffixes duplicate names ' (1)', ' (2)' (manageExperiments.ts:42-58),
+// so a re-run WITHOUT --append silently forks into 'BundleSplit A/B (1)' rather
+// than reusing. The append path MUST be taken explicitly.
+const EXP_NAME = 'BundleSplit A/B (federal_reserve_2)';
+let experimentId: string;
+if (args.append) {
+  const { data: existing, error } = await db
+    .from('evolution_experiments')
+    .select('id')
+    .eq('name', EXP_NAME)
+    .maybeSingle();
+  if (error || !existing) {
+    throw new Error(`--append requires existing experiment "${EXP_NAME}"; none found. ` +
+                    `Run without --append to create one.`);
+  }
+  experimentId = existing.id;
+} else {
+  const created = await createExperiment(EXP_NAME, 'a546b7e9-f066-403d-9589-f5e0d2c9fa4f', db);
+  experimentId = created.id;
+}
 
 // Enqueue runs. addRunToExperiment returns { runId }.
 for (let i = 0; i < args.runsPerArm; i++) {
@@ -690,9 +745,10 @@ Since every variant produced enters the federal_reserve_2 arena, the leaderboard
 All three use the explicit tests defined in the Stage 2 section above (two-proportion z on improver rate; Welch's t on per-run mean Δ-Elo; bootstrap CI of the difference). The improver-rate test is the PRIMARY decision criterion; the others are corroborating.
 
 **Confirmed H1** — proceed to a follow-up PR proposing `disableApproverFiltering: true` as the production default for Mode B (NOT a direct rollout — H1 confirmation just unlocks the C3 / B2 follow-ups needed before generalizing):
-- Two-proportion z-test p < 0.05 AND treatment improver rate ≥ control + 30 percentage points (matching the 80 %-power detectable effect at n=30/arm)
-- AND Welch's t-test on per-run mean Δ-Elo p < 0.10 (corroborating, looser threshold acceptable since secondary)
-- AND bootstrap 95 % CI of the median Δ-Elo difference excludes 0
+- **Primary, required**: Two-proportion z-test p < 0.05 AND treatment improver rate ≥ control + 30 percentage points (matching the ~80 %-power detectable effect at n=30/arm)
+- **AND at least ONE of the two corroborators** (the prior draft required BOTH corroborators with AND, which stacked type-II error to an unreasonable level at n=30/arm — the relaxed gate keeps type-I control via the primary while preventing the experiment from landing in Inconclusive on a marginal corroborator miss):
+  - Welch's t-test on per-run mean Δ-Elo p < 0.10
+  - Bootstrap 95 % CI of the median Δ-Elo difference excludes 0
 
 **Null H0** — revert the field to permanent `false` or remove:
 - Two-proportion z-test p > 0.30 (clearly no signal, not just under-powered)
@@ -753,22 +809,28 @@ Ranking cost is already counted in `evolution_metrics.ranking_cost` per the cost
 - [ ] (Code) Add the `FIELD_GATES` entry in `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts:49-70`: `disableApproverFiltering: (t) => t === 'iterative_editing_rewrite'`
 - [ ] (Code) Extend the inline `iterationConfigs` element type at `IterativeEditingAgent.ts:155-163` to include `disableApproverFiltering?: boolean` so the bypass read at the new conditional compiles
 - [ ] (Code) Implement the filter-bypass conditional at `IterativeEditingAgent.ts:304-310` reading from `iterCfg?.disableApproverFiltering` (follows the existing `iterCfg?.editingProposerSoftCap ?? 3` precedent at line 172). When the flag is true, skip the Mode B post-parse `coalesceAdjacentGroups` + `capGroupsByMagnitude` block entirely; `parseResult.groups` stays as raw diff atomics; `validateEditGroups` at line 429 still runs.
-- [ ] (Code) Add `--target-run-id <uuid>` flag to `evolution/scripts/processRunQueue.ts` — wire to the existing single-run path that `/api/evolution/run` already calls into (so the smoke trigger works without a cookie jar).
+- [ ] (Code) Add `--target-run-id <uuid>` flag to `evolution/scripts/processRunQueue.ts` — wire to the existing single-run path via `claimAndExecuteRun.targetRunId` (already accepted at claimAndExecuteRun.ts:45). When the flag is set, the runner MUST coerce `--parallel 1 --max-runs 1` (a second concurrent claim attempt on the same UUID returns claimed=false and causes immediate idle-exit).
+- [ ] (Code) Verify the actual `claim_evolution_run(p_runner_id TEXT, p_run_id UUID)` RPC signature (NOT `claim_pending_run`, which doesn't exist — verified at migration 20260322000001:10) supports the target-run-id parameter end-to-end. If not, add it.
 - [ ] (UI) Add the disable-filtering checkbox to the strategy wizard's per-iteration row when agent type is `iterative_editing_rewrite` (with helper text explaining behavior + cost impact)
-- [ ] (UI) Add `delete updated.disableApproverFiltering` to every non-rewrite agent-switch branch in the wizard's `updateIteration` handler (`src/app/admin/evolution/strategies/new/page.tsx` lines ~648, 681, 713)
-- [ ] (UI optional but recommended) Add a `editingProposerSoftCap` widget to the wizard's per-iteration row for `iterative_editing_rewrite` so the wizard-reproducibility claim holds end-to-end. Max value gates to 10 per the schema change above.
+- [ ] (UI) Extend the wizard-side `IterationRow` interface (`src/app/admin/evolution/strategies/new/page.tsx:38`) and `IterationConfigPayload` interface (line 144) to include `disableApproverFiltering?: boolean`. Update the `toIterationConfigsPayload` serializer (line 219) to write the field through. Without these type-source-of-truth extensions, the form state can't round-trip the field.
+- [ ] (UI) Add `delete updated.disableApproverFiltering` to every non-rewrite agent-switch branch in the wizard's `updateIteration` handler. Enumerate explicitly — not just `~648, 681, 713`. The full set as of HEAD: any branch where agentType ≠ `iterative_editing_rewrite`, including the Mode A (`iterative_editing`) branch, the `generate`/`reflect_and_generate` branches, the criteria branches, the `paragraph_recombine` branch, the `debate_and_generate` branch, and the `swiss` branch.
+- [ ] (UI optional but recommended) Add a `editingProposerSoftCap` widget to the wizard's per-iteration row for `iterative_editing_rewrite` so the wizard-reproducibility claim holds end-to-end. Max value gates to 10 per the schema change above. Add the field to `IterationRow` + `IterationConfigPayload` interfaces as well.
 - [ ] (Tests) Behavior unit tests for the bypass + standard path (8-atomic case, 30-atomic case, hard-rule violation case, AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30 ceiling case)
 - [ ] (Tests) `vi.mock` partial-factory tests proving `coalesceAdjacentGroups` and `capGroupsByMagnitude` receive zero calls in bypass mode (the exact mock setup is documented in the Tests section above — `vi.spyOn` doesn't reliably rewire named ESM imports already bound at module-init)
-- [ ] (Tests) Default-false regression test — snapshot of `approverGroups` (derived from a frozen checked-in CriticMarkup fixture, not LLM-generated) for an unset-field config must match the pre-PR baseline byte-for-byte
+- [ ] (Tests) Default-false regression test — snapshot of `approverGroups` derived from a frozen checked-in CriticMarkup fixture at `evolution/src/lib/core/agents/editing/__fixtures__/disableApproverFiltering-snapshot.criticmarkup.txt` (the `__fixtures__/sample-articles.ts` companion in this folder is the existing pattern). The fixture must be a hand-written CriticMarkup string, NOT an LLM-generated output, so it can't drift on re-run. For an unset-field config the snapshot must match the pre-PR baseline byte-for-byte
+- [ ] (Tests) Mode A defense-in-depth — explicit unit test that runs a Mode A (`iterative_editing`) iteration with `disableApproverFiltering: true` set on the config (bypassing Zod via a direct cast); assert the coalesce+cap path STILL runs (the new bypass is gated by `isRewriteMode` so this should be vacuously true, but the test documents the runtime invariant and catches any future refactor that lifts the gate)
+- [ ] (Tests) `proposerPromptRewrite.test.ts` — extend the existing `it.each` to cover `editingProposerSoftCap` values `[1, 3, 5, 8, 10]`. Assert each renders `/AT MOST <N> distinct improvements/` in the system prompt. Without this, a future refactor that clamps the rendered cap to 5 would silently null the A3=8 experiment.
+- [ ] (Tests) Zod regression for the schema widening — `editingProposerSoftCap: 8` parses cleanly; `editingProposerSoftCap: 11` rejects with the max(10) message.
+- [ ] (Tests) `verifyBundleSplitStage1.ts` invalid-UUID test — invalid UUIDs for any of `--experiment-id`/`--control-strategy`/`--treatment-strategy` throw `"Invalid UUID for --<flag>"` BEFORE any DB call (the pre-DB regex validation added to the script above).
 - [ ] (Tests) Explicit-false snapshot test — `disableApproverFiltering: false` produces the same `approverGroups` as the unset case
 - [ ] (Tests) Integration test exercising the bypass end-to-end
-- [ ] (Tests) Strategy wizard E2E test (at `src/__tests__/e2e/specs/09-admin/admin-evolution-strategy-creation.spec.ts` — verified path) for the new checkbox: appears for Mode B, hidden for other agents, persists to config, cleared on agent switch
+- [ ] (Tests) Strategy wizard E2E test (at `src/__tests__/e2e/specs/09-admin/admin-evolution-iterative-editing.spec.ts` — verified path) for the new checkbox: appears for Mode B, hidden for other agents, persists to config, cleared on agent switch
 - [ ] (Tests) `findOrCreateStrategy` `config_hash` uniqueness test — two `iterative_editing_rewrite` configs differing only in the new field hash differently
 - [ ] (Tests) `findOrCreateStrategy` `FIELD_GATES`-strip test — parametrized via `it.each` over all 9 non-rewrite agent types (the full `iterationAgentTypeEnum` minus `iterative_editing_rewrite`); each must hash identically with vs. without the field set
 - [ ] (Tests) `findOrCreateStrategy` softCap=8 hash-stability test — confirm raising `editingProposerSoftCap` from 3 to 8 actually changes the hash (otherwise the experiment Control and Treatment arms would collide silently with any historical softCap=3 strategy)
 - [ ] (Tests) Zod regression test — `editingProposerSoftCap: 8` now parses; `editingProposerSoftCap: 11` still rejects with the max(10) error
 - [ ] (CI) Confirm `evolution/scripts/**` is covered by the existing `npm run test:unit` and `npm run test:integration:evolution` glob patterns. If not, update `.github/workflows/ci.yml` to include them so future signature changes to `upsertStrategy` / `createExperiment` / `addRunToExperiment` don't silently break the seed script.
-- [ ] (Deps) Add a tiny stats helper to compute two-proportion z + Welch's t + bootstrap CI. Options: (a) use the existing `simple-statistics` package if already in `package.json`, (b) add `jstat`, (c) hand-roll the three tests — they're each ~20 lines. Decide before the analysis-report PR.
+- [ ] (Deps) Add a tiny stats helper to compute two-proportion z + Welch's t + bootstrap CI. Neither `simple-statistics` nor `jstat` exist in `package.json` (verified). **Default: hand-roll the three tests** in `evolution/scripts/stats.ts` (~60 lines total — z, t, bootstrap) so the analysis-report PR is never blocked on a deps decision. Override only if a reviewer of the report PR specifically prefers a library. Adding a dependency for ~60 lines of well-tested numeric code is a worse trade than the lines themselves.
 - [ ] (PR) Land the code change + UI as a feature-flagged no-op (production behavior unchanged when field is unset)
 
 **Stage 1 — smoke (10 runs, $0.40, ~10 min wall clock at `--parallel 3`)**:
