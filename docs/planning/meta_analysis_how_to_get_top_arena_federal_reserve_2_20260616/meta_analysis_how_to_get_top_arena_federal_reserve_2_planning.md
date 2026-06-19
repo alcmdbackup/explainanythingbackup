@@ -301,27 +301,43 @@ npx tsx evolution/scripts/cancelExperiment.ts \
   --reason "Stage 1 check N failed: <details>"
 
 # What it does (in TypeScript):
+#   // Snapshot now() BEFORE the RPC so the post-RPC log SELECT filters to the
+#   // runs JUST cancelled by this invocation (the WHERE error_message=
+#   // 'Experiment cancelled' alone would also match runs cancelled by any prior
+#   // call to this script, causing the current --reason to be re-logged against
+#   // historical cancellations).
+#   const cancelStartedAt = new Date().toISOString();
 #   await db.rpc('cancel_experiment', { p_experiment_id: experimentId });
 #   // RPC sets status='cancelled' on the experiment (if it was 'running') and
-#   // status='failed' + error_message='Experiment cancelled' on all incomplete runs.
+#   // status='failed' + error_message='Experiment cancelled' + completed_at=now()
+#   // on all incomplete runs (status IN ('pending', 'claimed', 'running')).
 #
-#   // Log the reason against each affected run via createEntityLogger (the
+#   // Log the reason against each just-cancelled run via createEntityLogger (the
 #   // canonical write helper at evolution/src/lib/pipeline/infra/createEntityLogger.ts).
 #   // evolution_run_logs is a VIEW over evolution_logs; its actual columns are
 #   // {entity_type, entity_id (both NOT NULL), level, subagent_name, message,
 #   //  run_id, experiment_id, strategy_id}. We use the helper rather than raw
 #   // INSERTs to stay schema-stable.
+#   //
+#   // The createEntityLogger signature is (entityCtx, supabase, basePath?). The
+#   // 'cancelExperiment' label is passed as basePath[0] so it lands in the
+#   // subagent_name column. EntityLogContext does NOT have a subagentName field
+#   // — putting it there is a TS excess-property error AND would silently drop
+#   // the label on a loose cast.
 #   const { data: runs } = await db
 #     .from('evolution_runs')
 #     .select('id, experiment_id, strategy_id')
 #     .eq('experiment_id', experimentId)
-#     .eq('error_message', 'Experiment cancelled');  // just-cancelled by the RPC
+#     .eq('status', 'failed')
+#     .eq('error_message', 'Experiment cancelled')
+#     .gte('completed_at', cancelStartedAt);  // discriminating: only THIS RPC's victims
 #   for (const r of runs ?? []) {
-#     const logger = createEntityLogger({
-#       entityType: 'run', entityId: r.id,
-#       runId: r.id, experimentId: r.experiment_id, strategyId: r.strategy_id,
-#       subagentName: 'cancelExperiment',
-#     }, db);
+#     const logger = createEntityLogger(
+#       { entityType: 'run', entityId: r.id,
+#         runId: r.id, experimentId: r.experiment_id, strategyId: r.strategy_id ?? undefined },
+#       db,
+#       ['cancelExperiment'],  // basePath → subagent_name column
+#     );
 #     await logger.info(reason);
 #   }
 
@@ -585,9 +601,13 @@ which calls `findOrCreateStrategy.upsertStrategy(config, db)` for each arm (this
 // evolution/scripts/seedBundleSplitExperiment.ts (sketch)
 // Uses existing helpers — does NOT introduce new SQL paths:
 //   upsertStrategy(db, config)            // findOrCreateStrategy.ts:218 — note arg order (db first)
-//   createExperiment(name, promptId, db)  // imported by experimentActions.ts:9 from its setup helper
-//   evolution_runs INSERT via supabase client — addRunToExperiment helper at
-//     evolution/src/lib/pipeline/setup/addRunToExperiment.ts (used by experimentActions.ts:202+)
+//   createExperiment(name, promptId, db)  // evolution/src/lib/pipeline/manageExperiments.ts
+//                                            (re-exported via experimentActions.ts:9)
+//   addRunToExperiment(experimentId, runOpts, db)
+//                                         // evolution/src/lib/pipeline/manageExperiments.ts
+//                                            (used by experimentActions.ts:202+)
+// (An earlier draft incorrectly cited evolution/src/lib/pipeline/setup/addRunToExperiment.ts
+//  — that file does not exist; both helpers live in manageExperiments.ts.)
 //
 // CRITICAL: upsertStrategy uses ON CONFLICT (config_hash) DO UPDATE in
 // findOrCreateStrategy.ts. If a strategy with this exact config_hash already
@@ -813,7 +833,8 @@ Ranking cost is already counted in `evolution_metrics.ranking_cost` per the cost
 - [ ] (Code) Verify the actual `claim_evolution_run(p_runner_id TEXT, p_run_id UUID)` RPC signature (NOT `claim_pending_run`, which doesn't exist — verified at migration 20260322000001:10) supports the target-run-id parameter end-to-end. If not, add it.
 - [ ] (UI) Add the disable-filtering checkbox to the strategy wizard's per-iteration row when agent type is `iterative_editing_rewrite` (with helper text explaining behavior + cost impact)
 - [ ] (UI) Extend the wizard-side `IterationRow` interface (`src/app/admin/evolution/strategies/new/page.tsx:38`) and `IterationConfigPayload` interface (line 144) to include `disableApproverFiltering?: boolean`. Update the `toIterationConfigsPayload` serializer (line 219) to write the field through. Without these type-source-of-truth extensions, the form state can't round-trip the field.
-- [ ] (UI) Add `delete updated.disableApproverFiltering` to every non-rewrite agent-switch branch in the wizard's `updateIteration` handler. Enumerate explicitly — not just `~648, 681, 713`. The full set as of HEAD: any branch where agentType ≠ `iterative_editing_rewrite`, including the Mode A (`iterative_editing`) branch, the `generate`/`reflect_and_generate` branches, the criteria branches, the `paragraph_recombine` branch, the `debate_and_generate` branch, and the `swiss` branch.
+- [ ] (UI) Add `delete updated.disableApproverFiltering` to every non-rewrite agent-switch branch in the wizard's `updateIteration` handler (`updateIteration` starts at page.tsx:620). Enumerate explicitly — not just `~648, 681, 713`. The full set as of HEAD: any branch where agentType ≠ `iterative_editing_rewrite`, including the Mode A (`iterative_editing`) branch, the `generate`/`reflect_and_generate` branches, the criteria branches, the `paragraph_recombine` branch, the `debate_and_generate` branch, and the `swiss` branch.
+  **Mode A edge case**: the current code shares a single branch for `iterative_editing` AND `iterative_editing_rewrite` (page.tsx:657). The cleanup needs to either (a) split the shared branch into two, or (b) wrap the delete inside an `if (updated.agentType === 'iterative_editing') delete updated.disableApproverFiltering` guard inside the shared block. Don't add the delete to the shared block unconditionally — that would cripple Mode B (the field is valid there). Pick (b) for minimum diff.
 - [ ] (UI optional but recommended) Add a `editingProposerSoftCap` widget to the wizard's per-iteration row for `iterative_editing_rewrite` so the wizard-reproducibility claim holds end-to-end. Max value gates to 10 per the schema change above. Add the field to `IterationRow` + `IterationConfigPayload` interfaces as well.
 - [ ] (Tests) Behavior unit tests for the bypass + standard path (8-atomic case, 30-atomic case, hard-rule violation case, AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30 ceiling case)
 - [ ] (Tests) `vi.mock` partial-factory tests proving `coalesceAdjacentGroups` and `capGroupsByMagnitude` receive zero calls in bypass mode (the exact mock setup is documented in the Tests section above — `vi.spyOn` doesn't reliably rewire named ESM imports already bound at module-init)
@@ -828,7 +849,7 @@ Ranking cost is already counted in `evolution_metrics.ranking_cost` per the cost
 - [ ] (Tests) `findOrCreateStrategy` `config_hash` uniqueness test — two `iterative_editing_rewrite` configs differing only in the new field hash differently
 - [ ] (Tests) `findOrCreateStrategy` `FIELD_GATES`-strip test — parametrized via `it.each` over all 9 non-rewrite agent types (the full `iterationAgentTypeEnum` minus `iterative_editing_rewrite`); each must hash identically with vs. without the field set
 - [ ] (Tests) `findOrCreateStrategy` softCap=8 hash-stability test — confirm raising `editingProposerSoftCap` from 3 to 8 actually changes the hash (otherwise the experiment Control and Treatment arms would collide silently with any historical softCap=3 strategy)
-- [ ] (Tests) Zod regression test — `editingProposerSoftCap: 8` now parses; `editingProposerSoftCap: 11` still rejects with the max(10) error
+- [ ] (Tests) `processRunQueue` `--target-run-id` coercion test — when `--target-run-id <uuid>` is set, the runner forces `--parallel 1 --max-runs 1` (and either applies the coercion silently or errors clearly if the user passed a conflicting `--parallel 3`)
 - [ ] (CI) Confirm `evolution/scripts/**` is covered by the existing `npm run test:unit` and `npm run test:integration:evolution` glob patterns. If not, update `.github/workflows/ci.yml` to include them so future signature changes to `upsertStrategy` / `createExperiment` / `addRunToExperiment` don't silently break the seed script.
 - [ ] (Deps) Add a tiny stats helper to compute two-proportion z + Welch's t + bootstrap CI. Neither `simple-statistics` nor `jstat` exist in `package.json` (verified). **Default: hand-roll the three tests** in `evolution/scripts/stats.ts` (~60 lines total — z, t, bootstrap) so the analysis-report PR is never blocked on a deps decision. Override only if a reviewer of the report PR specifically prefers a library. Adding a dependency for ~60 lines of well-tested numeric code is a worse trade than the lines themselves.
 - [ ] (PR) Land the code change + UI as a feature-flagged no-op (production behavior unchanged when field is unset)
@@ -847,7 +868,7 @@ Ranking cost is already counted in `evolution_metrics.ranking_cost` per the cost
   - Open the variant detail Diff-vs-parent tab on a treatment-arm variant — confirms standard rendering
   - Open the arena leaderboard `/admin/evolution/arena/a546b7e9-...` — confirms variants synced
 - [ ] (Batch) Run `processRunQueue.ts --parallel 3 --max-runs 8` to complete the remaining 8 runs
-- [ ] (SQL gate) Run `npx tsx evolution/scripts/verifyBundleSplitStage1.ts <experimentId>` — must exit 0 before proceeding
+- [ ] (SQL gate) Run `npx tsx evolution/scripts/verifyBundleSplitStage1.ts --experiment-id <expId> --control-strategy <ctlId> --treatment-strategy <trtId>` — must exit 0 before proceeding. The 6 SQL checks the script runs: `no_failures`, `cost_under_ceiling`, `treatment_bypass_active`, `control_cap_fired`, `treatment_mostly_singletons`, `arena_sync_both_arms`. (The "4 SQL checks" phrasing in earlier drafts was off-by-2.)
 - [ ] (UI gate) Manually walk through checks #4 (Edit Cycle render) and #5 (experiment page render). Document any rendering glitches in `_progress.md`.
 
 **Stage 2 — scale (conditional, 50 additional runs, $2.00, ~45 min)**:
