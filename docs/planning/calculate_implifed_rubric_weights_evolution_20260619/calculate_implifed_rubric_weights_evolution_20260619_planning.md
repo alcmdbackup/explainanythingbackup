@@ -5,7 +5,7 @@
 ## Background
 Allow user preferences to support implicitly calculating implicit rubric criteria and weights. Instead of an admin hand-setting each judging dimension's weight, infer rough weights from two human inputs — (1) which of a pair of articles is better, and (2) per-criterion grades on individual articles — and find the weighting that best reconciles them. Show an upfront preview of how many ratings of each type are needed.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1229)
 - Let user choose which variant is better, for a given pair.
 - Let user grade articles on rubric components, separately.
 - Figure out implied rough weightings that allow the two to match.
