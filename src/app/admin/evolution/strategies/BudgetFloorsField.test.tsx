@@ -13,6 +13,7 @@ jest.mock('sonner', () => ({ toast: { success: jest.fn(), error: jest.fn() } }))
 
 jest.mock('@evolution/services/strategyRegistryActions', () => ({
   createStrategyAction: jest.fn().mockResolvedValue({ success: true, data: { id: 'new-id' } }),
+  listEnsembleConfigsAction: jest.fn().mockResolvedValue({ success: true, data: { ids: ['gemini-tiebreak-v1', 'cheap-escalation-v1'] } }),
 }));
 
 import NewStrategyPage from './new/page';
