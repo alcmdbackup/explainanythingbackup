@@ -157,7 +157,7 @@ export class IterativeEditingAgent extends Agent<
       approverModel?: string;
       driftRecoveryModel?: string;
       generationModel?: string;
-      iterationConfigs?: Array<{ agentType?: string; editingMaxCycles?: number; editingProposerSoftCap?: number }>;
+      iterationConfigs?: Array<{ agentType?: string; editingMaxCycles?: number; editingProposerSoftCap?: number; disableApproverFiltering?: boolean }>;
     };
     const iterIdx = ctx.iteration - 1;
     const iterCfg = cfg.iterationConfigs?.[iterIdx];
@@ -302,7 +302,16 @@ export class IterativeEditingAgent extends Agent<
         const parseResult = parseProposedEdits(proposedMarkup, current.text);
 
         // Mode B post-parse: coalesce + cap groups before validation.
-        if (isRewriteMode) {
+        // When iterCfg.disableApproverFiltering is true (Phase 6 bundle-split A/B
+        // experiment), skip both the coalescer and the magnitude cap entirely so the
+        // approver sees every diff atomic as its own singleton group.
+        // parseResult.groups stays as raw diff atomics; the validateEditGroups call at
+        // line 429 still applies hard rules (EDIT_NEWTEXT_LENGTH_CAP, heading/quote/
+        // code-fence guards, AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30 ceiling). The
+        // `proposedGroupsRaw` field name is asymmetric here — under bypass it captures
+        // the true raw atomics; under production default it captures post-coalesce/cap
+        // groups. Both arms remain internally consistent for downstream tooling.
+        if (isRewriteMode && !iterCfg?.disableApproverFiltering) {
           const coalesced = coalesceAdjacentGroups(parseResult.groups, current.text);
           const cap = capGroupsByMagnitude(coalesced, current.text, 10);
           parseResult.groups = cap.kept;
