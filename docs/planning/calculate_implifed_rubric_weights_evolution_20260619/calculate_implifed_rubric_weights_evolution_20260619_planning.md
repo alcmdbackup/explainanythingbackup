@@ -21,7 +21,7 @@ The existing `evolution_judge_rubrics` system requires an admin to type each dim
 - **Pair-based, per-criterion verdicts (NOT absolute article grading).** For each human-judged pair (A,B) we collect a per-criterion verdict `vᵢ ∈ {A-better:+1, B-better:−1, tie:0}` for each criterion, **plus** an independent overall verdict. This exactly matches the production `scorePass` voting model — the fit learns the weights of that rule, with **no continuous-score approximation gap**.
 - **Article pool source:** sample variants from a chosen **arena topic** (`evolution_prompts` / `evolution_variants`), reusing the Judge-Lab seeding path (`evolution/src/lib/judgeEval/seed.ts` pull + snapshot pattern). Snapshot content + `mu`/`sigma`.
 - **Infer scope:** weights for an **admin-chosen criteria set**. Near-zero inferred weights are surfaced as "this criterion barely matters" (free pruning byproduct) — no automatic criterion discovery in v1.
-- **"Separately" = independent elicitation.** Per-criterion verdicts and the overall verdict are collected in **separate steps** (different screens/passes) so the overall judgment doesn't anchor the per-criterion ones (or vice versa). Both must be present for the same pair to enter the fit.
+- **"Separately" = independent elicitation, overall FIRST.** For each pair the **overall** verdict is collected **before** the per-criterion verdicts — ideally on a separate screen — so the holistic judgment is a genuine gut call, not a rationalized sum of the per-criterion verdicts just made. Both must be present for the same pair to enter the fit. (Enforced in the UI flow: a pair's per-criterion step is gated on its overall verdict already existing.)
 - **Position-bias mitigation:** randomize which article is shown as "A" vs "B" per pair across the dataset (humans can't cheaply do production's 2-pass reversal; order randomization balances it instead). Verdicts are stored oriented to the stored `article_a`/`article_b` frame.
 - **New tables**, not an extension of `judge_eval_*`. Mirror the production shape: a **comparison** row (pair + overall winner) with child **dimension-verdict** rows — directly analogous to `evolution_arena_comparisons` + `evolution_submatch_dimension_verdicts` / `judge_eval_dimension_verdicts`. Follow the `evolution_judge_rubrics` migration *template* (RLS + `is_test_content` trigger + soft-delete).
 - **Stats:** hand-rolled non-negative logistic / Bradley–Terry fit on the **per-criterion verdict vector** — **no new dependency**. Reuse `createSeededRng` + the bootstrap-percentile idiom (`evolution/src/lib/metrics/experimentMetrics.ts`) for coefficient CIs and the sample-size simulation; copy the sigmoid from `swissPairing.ts` and the logit-clamp from `judgeEval/metrics.ts`.
@@ -41,10 +41,11 @@ The existing `evolution_judge_rubrics` system requires an admin to type each dim
 Admin → "Implied Rubric Weights" (Tools nav)
   1. New session: pick arena topic + criteria set + sample size
         → seed article pool (snapshot N variants) + show UPFRONT ratings-needed preview
-  2. Per pair (A,B), two independent elicitation steps ("separately"):
-        • Per-criterion step → for each criterion: A better / B better / Tie   (vᵢ ∈ {+1,−1,0})
-        • Overall step       → A better / B better / Tie overall                (label)
-        (A/B presentation order randomized per pair to balance position bias)
+  2. Per pair (A,B), two independent elicitation steps ("separately"), OVERALL FIRST:
+        • Overall step (1st)       → A better / B better / Tie overall          (label)
+        • Per-criterion step (2nd) → for each criterion: A better / B better / Tie (vᵢ ∈ {+1,−1,0})
+        (overall judged before criteria to reduce anchoring; separate screens.
+         A/B presentation order randomized per pair to balance position bias)
   3. Fit (local, hand-rolled): for pairs with BOTH steps done,
         X = per-criterion verdict vectors, y = overall winner
         → non-negative sum-1 weights of the scorePass vote + bootstrap CIs
@@ -79,7 +80,7 @@ Admin → "Implied Rubric Weights" (Tools nav)
 
 ### Admin UI (`src/app/admin/evolution/weight-inference/`)
 - Sessions landing + new-session dialog (topic + criteria multi-select + sample size; shows upfront preview).
-- Session detail: **Judge-by-criterion** panel (A vs B via `SideBySideWordDiff`; per criterion an A/B/Tie control with the criterion's `description`/`evaluation_guidance` shown as guidance), **Judge-overall** panel (A vs B; A/B/Tie overall) — presented as **separate steps** to keep the two judgments independent, **Progress/Preview** (counts vs needed, live), **Results** (weight bars + CI whiskers via `MetricGrid`/small chart; collinearity, "barely matters", and "disagrees with overall" flags; train/held-out accuracy), **Export to rubric** dialog.
+- Session detail, presented as **separate steps with the overall judged FIRST**: **Judge-overall** screen (A vs B via `SideBySideWordDiff`; A/B/Tie overall) → then **Judge-by-criterion** screen (same pair; per criterion an A/B/Tie control with the criterion's `description`/`evaluation_guidance` shown as guidance). The per-criterion screen for a pair is reachable only after that pair's overall verdict is recorded (`getNextPairAction({step:'overall'})` drains first, then `{step:'criteria'}`). Plus **Progress/Preview** (counts vs needed, live), **Results** (weight bars + CI whiskers via `MetricGrid`/small chart; collinearity, "barely matters", and "disagrees with overall" flags; train/held-out accuracy), **Export to rubric** dialog.
 - Nav: append one `NavItem` to the **Tools** group in `src/components/admin/EvolutionSidebar.tsx` (`href:'/admin/evolution/weight-inference'`, `testId:'evolution-sidebar-nav-weight-inference'`). Midnight Scholar tokens; obey design-system ESLint rules.
 - Kill switch: `EVOLUTION_WEIGHT_INFERENCE_ENABLED` (default on; `'false'` ⇒ actions reject / nav item inert), mirroring the prompt-editor/feature-flag convention.
 
@@ -97,7 +98,7 @@ Admin → "Implied Rubric Weights" (Tools nav)
 
 ### Phase 3: Admin UI + nav
 - [ ] Pages under `src/app/admin/evolution/weight-inference/` (+ `loading.tsx`); Tools nav entry.
-- [ ] Judge-by-criterion / Judge-overall (separate steps) / Preview / Results / Export panels per the design above.
+- [ ] Judge-overall (1st) → Judge-by-criterion (2nd, gated on overall) / Preview / Results / Export panels per the design above.
 
 ### Phase 4: Integration + docs + rollout
 - [ ] Verify exported rubric drives rubric-based judging end-to-end (same `scorePass` vote, learned weights); kill switch + host/admin gating confirmed.
@@ -113,7 +114,7 @@ Admin → "Implied Rubric Weights" (Tools nav)
 - [ ] `src/__tests__/integration/evolution-weight-inference.integration.test.ts` — session → per-criterion + overall verdicts → fit → `exportWeightInferenceRubricAction` writes a valid `evolution_judge_rubrics` row; RLS enforced; `[TEST_EVO]` FK-safe cleanup (sessions → criteria/articles/comparisons/dimension_verdicts cascade; created rubric removed).
 
 ### E2E Tests
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-weight-inference.spec.ts` (`@evolution`) — open tool from Tools nav, create session, judge a pair per-criterion, judge it overall, see preview update, view inferred weights, export to rubric (assert the rubric appears under Judge Rubrics). `resetFilters()` after nav; `afterAll` cleanup (imports a DB tool ⇒ required).
+- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-weight-inference.spec.ts` (`@evolution`) — open tool from Tools nav, create session, judge a pair **overall first** then **per-criterion** (assert the per-criterion step is gated until the overall verdict exists), see preview update, view inferred weights, export to rubric (assert the rubric appears under Judge Rubrics). `resetFilters()` after nav; `afterAll` cleanup (imports a DB tool ⇒ required).
 
 ### Manual Verification
 - [ ] Seed synthetic data where the overall winner IS a known weighted vote of per-criterion verdicts; confirm the fit recovers those weights and the preview's estimate roughly predicts pairs-to-converge; confirm exported rubric is selectable in a strategy.
@@ -121,7 +122,7 @@ Admin → "Implied Rubric Weights" (Tools nav)
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] Drive the new tool on the local tmux server (`ensure-server.sh`): Tools nav → new session → per-criterion verdicts → overall verdict → live preview → results → export to rubric → verify rubric on `/admin/evolution/judge-rubrics`.
+- [ ] Drive the new tool on the local tmux server (`ensure-server.sh`): Tools nav → new session → overall verdict (1st) → per-criterion verdicts (2nd) → live preview → results → export to rubric → verify rubric on `/admin/evolution/judge-rubrics`.
 
 ### B) Automated Tests
 - [ ] `npm run test:unit -- --grep "weightInference"` and `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-weight-inference.spec.ts`
