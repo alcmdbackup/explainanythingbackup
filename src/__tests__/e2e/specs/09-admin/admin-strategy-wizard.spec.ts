@@ -447,17 +447,21 @@ adminTest.describe('Strategy Creation Wizard', { tag: '@evolution' }, () => {
     await expect(seedSelect).toBeVisible();
 
     // Default values: both empty (inherit from generation model / default highest_elo).
-    expect(await coordSelect.inputValue()).toBe('');
-    expect(await seedSelect.inputValue()).toBe('');
+    await expect(coordSelect).toHaveValue('');
+    await expect(seedSelect).toHaveValue('');
 
     // Pick the first non-default option in each — the exact model identifier
     // doesn't matter, we only verify the wizard persists what the user chose.
+    // (Use evaluate to capture the chosen value AFTER the selectOption call has
+    //  settled — toHaveValue() is the assertion-side helper but we also need the
+    //  actual string to compare against the persisted jsonb later.)
     await coordSelect.selectOption({ index: 1 });
-    const chosenCoordModel = await coordSelect.inputValue();
+    await expect(coordSelect).not.toHaveValue('');
+    const chosenCoordModel = await coordSelect.evaluate((el) => (el as HTMLSelectElement).value);
     expect(chosenCoordModel.length).toBeGreaterThan(0);
 
     await seedSelect.selectOption('random');
-    expect(await seedSelect.inputValue()).toBe('random');
+    await expect(seedSelect).toHaveValue('random');
 
     // Submit
     await adminPage.locator('button', { hasText: 'Next: Configure Iterations' }).click();
