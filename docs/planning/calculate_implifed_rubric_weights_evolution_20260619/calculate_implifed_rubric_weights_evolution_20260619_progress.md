@@ -14,7 +14,19 @@
 ### User Clarifications
 - Project params supplied via the `/initialize` invocation (type=feature; read all standard + all evolution docs; summary + description provided). Design clarifications deferred to `/research`.
 
-## Phase 1: Data model + statistics core
+## Research + Proposal
+### Work Done
+- Ran 5 parallel research agents over the code to confirm integration seams: rubric/criteria CRUD shapes, Judge-Lab data-collection spine + seed-from-topic, admin Tools nav + page/server-action patterns, stats/math inventory + weight-consumption semantics, and migration/RLS/Zod/type conventions. Findings recorded in `_research.md`.
+- Resolved the two design forks with the user: article pool = **arena-topic variants**; infer scope = **weights for an admin-chosen criteria set** (near-zero ⇒ "barely matters").
+- Wrote the full proposal into `_planning.md` (new `evolution_weight_inference_*` tables, hand-rolled non-negative logistic fit + bootstrap CIs + sample-size preview, `adminAction` server actions, Tools-nav admin UI, export via `createJudgeRubricAction`).
+
+### Issues Encountered
+- Generated `src/lib/database.types.ts` lags local migrations (regen from remote) — new tables typed via hand-written Zod `Row`/`Insert` until `npm run db:types` after apply.
+
+### User Clarifications
+- Tool lives under the evolution admin "Tools" nav group; final inferred rubric saved via the existing `createJudgeRubricAction` (real `evolution_judge_rubrics` row).
+
+## Phase 1: Migration + schemas + statistics core
 ### Work Done
 [pending]
 

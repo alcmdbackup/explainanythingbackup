@@ -45,15 +45,25 @@ The preview is a **power/sample-size estimate** computed before the user starts:
 ### Integration target
 Inferred weights → write/seed an `evolution_judge_rubrics` + `evolution_judge_rubric_dimensions` set (or recommend weights for an existing rubric). That closes the loop: human preference → inferred weights → rubric-based LLM judging (`EVOLUTION_RUBRIC_JUDGING_ENABLED`) drives the live arena. Aligns with white_paper.md's "aggregated scoring of similar articles … DAG-like voting" and "maximize feedback collection."
 
-### Open questions to resolve in /research + /planning
-- **Where do the article pairs come from?** Likely seed from `evolution_arena_comparisons` (like Judge Lab pair-banks) or from a chosen arena topic's variants. Must variants in a pair be graded, or can grading be on any article?
-- **Who grades / who picks the winner?** Single admin user vs. multiple human raters (inter-rater agreement). MVP likely single admin.
-- **Constraints on `w`**: non-negativity + sum-to-1 (interpretable as rubric weights) vs. unconstrained logistic coefficients then projected. Negative inferred weight = criterion that *anti*-correlates with preference (surface as a warning, not silently clamp).
-- **Tie handling** in both the pairwise label and the fit (reuse the existing `<0.3 confidence → draw` semantics?).
-- **Grader-noise model** for the preview's sample-size math.
-- **Statistical library**: implement the small logistic/BT fit in TS (no heavy dep) vs. a minimal gradient-descent / IRLS. K is small so a hand-rolled fit is feasible and keeps the bundle clean.
-- **Storage**: new tables for human gradings + human pairwise labels + a "weight-inference run" entity (mirroring `judge_eval_*`), all under the standard evolution RLS (deny-all + `service_role_all` + `readonly_local`).
-- Does this also *discover* criteria ("implicit rubric criteria"), or only weight a fixed criteria set? Brief says "criteria and weights" — MVP almost certainly = weight an admin-chosen criteria set; criterion *discovery* (e.g., which criteria matter / dropping zero-weight ones) is a stretch goal that falls out of the fit (near-zero weight ⇒ criterion doesn't matter to this user).
+### Code-level findings (parallel research agents, confirmed)
+- **Save-as-rubric seam:** `createJudgeRubricAction({ name, label?, description?, dimensions:[{criteria_id, weight≥0, position?}] })` in `evolution/src/services/judgeRubricActions.ts`. Zod requires ≥1 dimension + unique `criteria_id` + each `criteria_id` an active criterion (`validateCriteriaIds`). Weights stored RAW; **normalized at read** by `normalizeDimensions` in `evolution/src/lib/shared/rubricJudge.ts` (negatives→0, renormalize sum-1). `seedSampleJudgeRubrics.ts` is the programmatic example. So inferred weights can be saved directly (any non-neg scale).
+- **Criteria read seam:** `listCriteriaAction({status:'active', filterTestContent:false, limit})` and `getCriteriaForEvaluation(db, ids)` expose `{id, name, label, description, min_rating, max_rating, evaluation_guidance:[{score,description}]}` — the grading scale + anchors for the Grade UI.
+- **Weight consumption semantics (load-bearing):** `rubricJudge.scorePass` sums each dimension's winner side by weight (TIE/null contribute nothing); weights clamped non-neg + renormalized sum-1 at read. ⇒ the fit MUST emit non-negative weights or they're silently zeroed. Output relative magnitudes only (absolute logistic scale is discarded).
+- **Stats inventory:** NO logistic/IRLS/Newton/matrix/optimization code and NO linear-algebra dep in `package.json` (only `openskill` rating, `fast-check` dev). Reuse `createSeededRng` + bootstrap-percentile idiom (`evolution/src/lib/metrics/experimentMetrics.ts` `bootstrapMeanCI`/`bootstrapPercentileCI`, with the B045 two-draws-per-iter discipline); copy sigmoid `pWin=1/(1+exp(-(eloA-eloB)/BETA_ELO))` from `evolution/src/lib/pipeline/loop/swissPairing.ts:67` and the logit-clamp from `evolution/src/lib/judgeEval/metrics.ts`. Hand-roll the K-dim fit (Newton/IRLS with inline K×K solve, or regularized GD) — no new dep.
+- **Data-collection template:** Judge Lab spine (`judge_eval_pair_banks`→`test_sets`→`members`→`runs`→`calls`) is the pattern; `evolution/src/lib/judgeEval/{seed,testSet,persist,executeSweep,settings}.ts` + `judgeEvalActions.ts`. Seed-from-topic path in `seed.ts` (paginate `evolution_arena_comparisons` by `prompt_id`, dedupe order-invariant, snapshot variant content + `mu`/`sigma`). `judge_eval_dimension_verdicts` (criteria_id no-FK + `criteria_name` snapshot + numeric) is the closest template for per-criterion grade rows. **Decision: new `evolution_weight_inference_*` tables** (human-input shape ≠ LLM-verdict call shape).
+- **Migration/RLS template:** follow `supabase/migrations/20260610000002_evolution_judge_rubrics.sql` (transactional `BEGIN; SET LOCAL statement_timeout`; `deny_all`+`service_role_all`+DO-guarded `readonly_select`; `is_test_content` trigger reusing IMMUTABLE `evolution_is_test_name(NEW.name)` from `20260415000001`; weighted-junction = composite PK + `ON DELETE CASCADE` parent + `ON DELETE RESTRICT`→`evolution_criteria`). Idempotency lint rules (CREATE TABLE/INDEX `IF NOT EXISTS`, `OR REPLACE FUNCTION`, DROP-before-CREATE POLICY/TRIGGER, ADD COLUMN/CONSTRAINT idempotency) per `scripts/lint-migrations-idempotent.ts`. Next migration timestamp: `20260619000001`. Zod schemas hand-maintained in `evolution/src/lib/schemas.ts`; `npm run db:types` after apply (generated types regen from remote, not local).
+- **Admin UI + nav:** append one `NavItem` to the **Tools** group `items` array in `src/components/admin/EvolutionSidebar.tsx` (`testId:'evolution-sidebar-nav-weight-inference'`) — `activeOverrides` auto-derives. Page at `src/app/admin/evolution/weight-inference/page.tsx` (`'use client'`, `EvolutionBreadcrumb`, Midnight Scholar tokens, design-system ESLint enforced). Server actions via `adminAction(name, handler)` in `evolution/src/services/` (`'use server'`, `ActionResult<T>`, `requireAdmin`). Route auto host-gated (`EVOLUTION_PREFIXES`) + admin-gated (`layout.tsx`). No API route needed (no long-running LLM); fit is local compute.
+
+### Resolved decisions (user + research)
+- **Article pool source = arena-topic variants** (sample N, snapshot). **Infer scope = weights for an admin-chosen criteria set**; near-zero weights flagged "barely matters" (no auto criterion discovery in v1).
+- **Constraints on `w`:** non-negative + sum-to-1 (softmax-param or clamp-and-refit); a would-be-negative coefficient is surfaced as a "barely matters / anti-correlated" warning rather than silently dropped.
+- **Tie handling:** ties dropped from the fit in v1 (noted as a simplification); pairwise label enum `('a','b','tie')`.
+- **Rater:** capture `rater_id` (admin id) for future multi-rater; v1 UI is single-user.
+
+### Remaining items for /planning + /plan-review
+- Exact fit method (IRLS vs. regularized GD) + regularization strength + separation guard.
+- "Informative next pair" selection heuristic (active-learning-lite) vs. simple random/uncovered.
+- Whether the fit result is cached on the session row (JSONB snapshot) or always recomputed on read.
 
 ## Documents Read
 
@@ -85,5 +95,17 @@ Inferred weights → write/seed an `evolution_judge_rubrics` + `evolution_judge_
 - docs/docs_overall/white_paper.md — product philosophy: maximize feedback, aggregated/DAG-like article scoring
 - docs/docs_overall/design_style_guide.md — Midnight Scholar tokens/components + ESLint design enforcement (for the new admin UI)
 
-## Code Files Read
-- (none yet — research phase reads the docs first; `/research` will drill into `evolution/src/lib/shared/rubricJudge.ts`, `evolution/src/services/judgeRubricActions.ts`, `evolution/src/services/criteriaActions.ts`, `evolution/src/lib/judgeEval/*`, and `evolution/src/lib/shared/computeRatings.ts` to confirm the integration seams before planning.)
+## Code Files Read (via parallel research agents)
+- `evolution/src/services/judgeRubricActions.ts` — create/list/get/update/archive/delete rubric actions; `getJudgeRubricForEvaluation`, `validateJudgeRubricId`
+- `evolution/src/services/criteriaActions.ts` — `listCriteriaAction`, `getCriteriaForEvaluation`, `validateCriteriaIds`
+- `evolution/src/lib/shared/rubricJudge.ts` — `normalizeDimensions`, `scorePass`, `ResolvedRubricDimension` (weight semantics)
+- `evolution/src/lib/schemas.ts` — `evolutionJudgeRubricInsertSchema`, criteria/anchor schemas (Insert/Row pattern)
+- `evolution/scripts/seedSampleJudgeRubrics.ts` — programmatic rubric creation example
+- `evolution/src/lib/judgeEval/{schemas,testSet,persist,seed,executeSweep,settings}.ts` + `evolution/src/services/judgeEvalActions.ts` — data-collection spine + seed-from-topic
+- `evolution/src/lib/metrics/experimentMetrics.ts` (`createSeededRng`, `bootstrapMeanCI`, `bootstrapPercentileCI`), `evolution/src/lib/shared/ratingDelta.ts` (Box-Muller), `evolution/src/lib/pipeline/loop/swissPairing.ts` (BT sigmoid), `evolution/src/lib/judgeEval/metrics.ts` (logit/clamp)
+- `evolution/src/services/adminAction.ts`, `evolution/src/services/shared.ts` (`ActionResult`) — server-action factory
+- `src/components/admin/EvolutionSidebar.tsx` + `BaseSidebar.tsx` (Tools nav), `src/app/admin/evolution/{prompt-editor,judge-lab,judge-rubrics}/page.tsx` (page templates), `evolution/src/components/evolution/index.ts` (shared UI barrel), `src/app/admin/evolution/layout.tsx`, `src/middleware.ts`, `src/config/hostnames.ts` (gating)
+- `supabase/migrations/20260610000002_evolution_judge_rubrics.sql`, `20260606000001_judge_eval_tables.sql`, `20260415000001_evolution_is_test_content.sql`; `scripts/lint-migrations-idempotent.ts`
+- `package.json` (confirmed: no LA/optimization dependency)
+
+> `/research` (next) can drill deeper into the exact fit implementation + `evolution/src/lib/shared/computeRatings.ts` rating scale if needed, but the integration seams above are confirmed sufficient to plan.
