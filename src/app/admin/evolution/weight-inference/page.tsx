@@ -139,6 +139,11 @@ export default function WeightInferencePage(): JSX.Element {
 
   const selectedTestSet = testSets.find((t) => t.id === testSetId);
   const testSetPairs = selectedTestSet ? (pairKind === 'article' ? selectedTestSet.sizeArticle : selectedTestSet.sizeParagraph) : 0;
+  // What a test-set session will ACTUALLY judge (vs. the K-based recommendation).
+  const criteriaCount = selectedCriteria.size;
+  const tsReplicas = mode === 'auto' ? 0 : Math.floor(testSetPairs * replicationRate);
+  const tsComparisons = testSetPairs + tsReplicas;
+  const tsVerdicts = tsComparisons * (1 + criteriaCount);
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
@@ -296,19 +301,31 @@ export default function WeightInferencePage(): JSX.Element {
 
           {preview && selectedCriteria.size >= 2 && (
             <div className="rounded-page border border-[var(--border-default)] bg-[var(--surface-elevated)] p-4 font-body text-sm text-[var(--text-secondary)]" data-testid="wi-preview">
-              Preview: ≈ <strong className="text-[var(--text-primary)]">{preview.pairs}</strong> pairs
-              {mode === 'auto' ? (
-                <> → ≈ {preview.pairs * autoRepeats * 4} LLM calls (judge {judgeModel}).</>
+              <span data-testid="wi-recommended">
+                Recommended: ≈ <strong className="text-[var(--text-primary)]">{preview.pairs}</strong> pairs for stable weights ({criteriaCount} criteria).
+              </span>
+              {sourceKind === 'topic' ? (
+                <span className="block mt-1">
+                  {mode === 'auto'
+                    ? `You'll judge ≈ ${preview.pairs} pairs → ≈ ${preview.pairs * autoRepeats * 4} LLM calls (judge ${judgeModel}).`
+                    : `You'll judge ${preview.comparisons} comparisons (with reversal audit) → ${preview.verdicts} total verdicts.`}
+                </span>
               ) : (
-                <> → {preview.comparisons} comparisons (with reversal audit) → {preview.verdicts} total verdicts.</>
-              )}
-              <span className="block text-[var(--text-secondary)] mt-1">Recommended for stable weights; refines live{mode === 'auto' ? ' as the run progresses' : ' as you judge'}.</span>
-              {sourceKind === 'test_set' && (
                 <span className="block mt-1" data-testid="wi-testset-size">
-                  Selected test set provides <strong className="text-[var(--text-primary)]">{testSetPairs}</strong> {pairKind} pair{testSetPairs === 1 ? '' : 's'}
-                  {selectedTestSet ? (testSetPairs >= preview.pairs ? ' — at or above the recommendation.' : ' — fewer than recommended; weights will be rougher.') : '.'}
+                  This test set provides <strong className="text-[var(--text-primary)]">{testSetPairs}</strong> {pairKind} pair{testSetPairs === 1 ? '' : 's'}
+                  {selectedTestSet
+                    ? testSetPairs >= preview.pairs
+                      ? ` — at or above the ~${preview.pairs} recommended.`
+                      : ` — fewer than the ~${preview.pairs} recommended; weights will be rougher.`
+                    : '.'}
+                  {selectedTestSet && testSetPairs > 0
+                    ? mode === 'auto'
+                      ? ` You'll judge all ${testSetPairs} → ≈ ${testSetPairs * autoRepeats * 4} LLM calls (judge ${judgeModel}).`
+                      : ` You'll judge ${tsComparisons} comparisons (with reversal audit) → ${tsVerdicts} total verdicts.`
+                    : ''}
                 </span>
               )}
+              <span className="block text-[var(--text-secondary)] mt-1">Rough estimate; refines live{mode === 'auto' ? ' as the run progresses' : ' as you judge'}.</span>
             </div>
           )}
 
