@@ -36,11 +36,23 @@
 ### User Clarifications
 [pending]
 
-## Phase 2: Server actions + persistence
-[pending]
+## Phase 1: Migration + schemas + stats core — DONE (252233bda)
+Migration `20260619000001` (5 tables + auto columns, RLS, is_test trigger, canonical CHECK, indexes) — idempotency-lint clean. Zod Insert/Row schemas. `evolution/src/lib/weightInference/` (verdicts/fit/ci/sampleSize/audit) with 32 unit tests incl. fast-check. lint+tsc+build green.
 
-## Phase 3: Admin UI
-[pending]
+## Phase 2: Server actions + persistence — DONE (7703247bf)
+`weightInferenceActions.ts` (create+seed+materialize, list, preview, getNextPair overall-first/criteria-gated, recordOverall/recordDimensionVerdicts canonical flip-on-save, getFit, exportRubric). rater_id server-derived; kill switch. Integration test (guard-skips until tables migrated; CI-verified).
 
-## Phase 4: Integration + docs + rollout
-[pending]
+## Phase 3: Human-mode admin UI + Tools nav — DONE (21e542b53)
+Tools nav entry; `/admin/evolution/weight-inference` landing (new-session form + live preview) + `[sessionId]` detail (Judge overall→criteria, Results, export). Midnight Scholar tokens; testids. Both routes compile.
+
+## Phase 4: Docs + E2E (human mode) — DONE (20df82334)
+Filled `implicit_rubric_weights.md`; updated data_model/reference/visualization. E2E nav+form spec. tsc/lint/stale-specs green.
+
+## Phase 5: Auto mode (LLM-as-judge) — DONE (9525676ef)
+`autoJudge` (2-pass holistic + rubric via injected judge, foldRepeats), `autoCost` (cap + kill switch), `autoRun` (resumable idempotent chunk), API route `/api/evolution/weight-inference/auto-run`, mode-aware create + progress action, UI mode toggle + Run tab. CI env wiring + host-isolation 404. 11 auto unit tests + auto integration block (fake judge, zero real LLM, idempotent) + auto E2E toggle. lint+tsc+build+unit+integration+stale-specs green.
+
+### Issues Encountered
+- `noUncheckedIndexedAccess` is on — numeric inner loops needed non-null assertions.
+- Generated `database.types.ts` lags the new migration → typed Supabase client returns `never` rows for the new tables; resolved with hand-written Zod row types + `as unknown as` casts at query sites until `db:types` regenerates post-deploy.
+- `flipWinner`/`AllowedLLMModelType` not exported from their modules → inlined a local flip + used `Parameters<typeof callLLM>[3]`.
+- Integration + E2E full create→judge→export flows are CI-verified (need the migration applied to the dev DB + the test-content filter hides UI-seeded topics); covered by the integration test's real-DB path. Local runs guard-skip cleanly.
