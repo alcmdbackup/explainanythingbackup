@@ -124,6 +124,26 @@ Setting `disableApproverFiltering: true` on an `iterative_editing_rewrite` itera
 
 **When to use**: in controlled A/B experiments comparing per-atomic vs per-bundle approver veto granularity (the Phase 6 use case). Production strategies should leave it `false` (default) until the experiment confirms a positive lift.
 
+**Verifying the shape change via SQL**. The two arms' `execution_detail.cycles[*].proposedGroupsRaw` arrays differ structurally:
+
+```sql
+-- Control arm: ≤10 groups per cycle, some multi-atomic (bundled)
+SELECT i.id,
+       jsonb_array_length(c.cycle->'proposedGroupsRaw')               AS group_count,
+       jsonb_path_query_array(c.cycle->'proposedGroupsRaw',
+                              '$[*].atomicEdits[*]') -> 'atomicEdits' AS atomic_edits
+FROM evolution_agent_invocations i
+JOIN evolution_runs r ON i.run_id = r.id
+CROSS JOIN LATERAL jsonb_array_elements(COALESCE(i.execution_detail->'cycles', '[]'::jsonb)) AS c(cycle)
+WHERE r.strategy_id = '<control_strategy_id>'
+ORDER BY i.id;
+
+-- Treatment arm: >10 groups per cycle, each containing 1 atomic edit (singleton)
+-- Same query, swap the strategy_id for the treatment arm.
+```
+
+Control rows will show `group_count` ≤ 10 with some groups containing 2-5 atomic edits (bundled by `coalesceAdjacentGroups`). Treatment rows show `group_count` up to 30 (capped by `AGENT_MAX_ATOMIC_EDITS_PER_CYCLE`) with each group containing exactly 1 atomic edit (`parseProposedEdits`'s adjacency auto-grouping may produce occasional 2-atomic groups from paired delete+insert pairs, which is expected — see `verifyBundleSplitStage1.ts` for the relaxed `mean atomics/group < 1.5` acceptance criterion).
+
 ## Roadmap (out of scope for v1)
 
 - v1.1: per-cycle invocation timeline UI; OutlineGenerationAgent (generate-mode); MDAST-aware judge format.
