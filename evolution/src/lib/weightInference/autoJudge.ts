@@ -10,6 +10,7 @@ import {
   compareWithBiasMitigation,
   parseWinner,
   run2PassReversal,
+  type ComparisonMode,
   type ComparisonResult,
 } from '@evolution/lib/shared/computeRatings';
 import { reconcilePasses, type ResolvedJudgeRubric, type Verdict } from '@evolution/lib/shared/rubricJudge';
@@ -48,14 +49,15 @@ export async function judgePairOnce(
   textB: string,
   rubric: ResolvedJudgeRubric,
   costAcc: { usd: number },
+  mode: ComparisonMode = 'article',
 ): Promise<SinglePairResult> {
   const start = costAcc.usd;
   const passes: { fwd: string | null; revShown: string | null } = { fwd: null, revShown: null };
 
   const overallRes = await run2PassReversal<string | null, ComparisonResult>({
     buildPrompts: () => ({
-      forward: buildComparisonPrompt(textA, textB, 'article'),
-      reverse: buildComparisonPrompt(textB, textA, 'article'),
+      forward: buildComparisonPrompt(textA, textB, mode),
+      reverse: buildComparisonPrompt(textB, textA, mode),
     }),
     callLLM: judge,
     parseResponse: (r) => parseWinner(r),
@@ -66,7 +68,7 @@ export async function judgePairOnce(
     },
   });
 
-  const rubricRes = await compareWithBiasMitigation(textA, textB, judge, undefined, 'article', rubric);
+  const rubricRes = await compareWithBiasMitigation(textA, textB, judge, undefined, mode, rubric);
   const dims = (rubricRes.rubricBreakdown?.dimensions ?? []).map((d) => {
     const rec = reconcilePasses(d.forwardVerdict, d.reverseVerdict);
     return { criteriaId: d.criteriaId, verdict: lcReq(rec.winner), confidence: rec.confidence };

@@ -41,8 +41,14 @@ See [Data Model → Weight-inference tables](./data_model.md#weight-inference-ta
 - `src/components/admin/EvolutionSidebar.tsx` — "Implied Rubric Weights" Tools nav entry.
 - `supabase/migrations/20260619000001_evolution_weight_inference.sql` — the five tables.
 
+## Pair source (Phase 6)
+A session's pairs come from one of two sources (`evolution_weight_inference_sessions.source_kind`):
+- **`topic`** — sample `evolution_variants WHERE prompt_id=<topic> AND synced_to_arena AND variant_kind=<pair_kind> AND archived_at IS NULL` (top-N by `elo_score`), then materialize pairs combinatorially (seeded `C(M,2)` shuffle capped at `requiredRatings(K).pairs`).
+- **`test_set`** — reuse a **Judge Lab test set**: read its frozen members + the pair-bank's `pairs` JSONB via the pure `resolveTestSetPairs(bankPairs, members, kind)` helper, snapshot the distinct variants as articles, and materialize **one comparison per frozen pair** (canonical-ordered). This reuses Judge Lab's curation (article/paragraph kind, stratified strategies, clone-&-curate, frozen membership) and enables the same pairs to be judged by a human, by auto mode, and by the production judge for apples-to-apples comparison.
+
+**`pair_kind`** (`article` | `paragraph`) selects the comparison framing — threaded into `judgePairOnce`/`compareWithBiasMitigation` as the `ComparisonMode` so paragraph pairs judge in paragraph mode. Paragraph pairs come from a test set (the topic source is article-only in practice — an arena topic holds article variants).
+
 ## Implementation notes
-- The article pool is sampled directly from `evolution_variants WHERE prompt_id = <topic> AND synced_to_arena AND variant_kind='article' AND archived_at IS NULL` (NOT the Judge-Lab `seed.ts` path, which snapshots already-judged comparisons into a capped JSONB bank).
 - Pairs are materialized eagerly at session create: all `C(M,2)` candidates are seeded-shuffled (`createSeededRng(hash(sessionId))`), the first `requiredRatings(K).pairs` are kept as `pass=0` rows, and a `replication_rate` fraction get a `pass=1` reversal replica.
 - `fitWeights` filters by the session's `source` (human XOR auto) — a session is single-source, never a mixed fit.
 - Export blocks when the fit is degenerate / all-zero, and surfaces a friendly message on the `evolution_judge_rubrics.name` UNIQUE collision.

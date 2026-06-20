@@ -2765,13 +2765,18 @@ export const wiVerdict3Enum = z.enum(['a', 'b', 'tie']);
 export const wiSessionStatusEnum = z.enum(['active', 'archived']);
 export const wiSessionModeEnum = z.enum(['human', 'auto']);
 export const wiSourceEnum = z.enum(['human', 'llm']);
+export const wiSourceKindEnum = z.enum(['topic', 'test_set']);
+export const wiPairKindEnum = z.enum(['article', 'paragraph']);
 
 export const evolutionWiSessionInsertSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().nullable().optional(),
   status: wiSessionStatusEnum.optional().default('active'),
   mode: wiSessionModeEnum.optional().default('human'),
+  source_kind: wiSourceKindEnum.optional().default('topic'),
   prompt_id: z.string().uuid().nullable().optional(),
+  judge_eval_test_set_id: z.string().uuid().nullable().optional(),
+  pair_kind: wiPairKindEnum.optional().default('article'),
   sample_size: z.number().int().min(2).max(100).optional().default(30),
   replication_rate: z.number().min(0).max(1).optional().default(0.15),
   judge_model: z.string().nullable().optional(),
@@ -2786,7 +2791,10 @@ export const evolutionWiSessionRowSchema = z.object({
   description: z.string().nullable(),
   status: wiSessionStatusEnum,
   mode: wiSessionModeEnum,
+  source_kind: wiSourceKindEnum,
   prompt_id: z.string().uuid().nullable(),
+  judge_eval_test_set_id: z.string().uuid().nullable(),
+  pair_kind: wiPairKindEnum,
   sample_size: z.number().int(),
   replication_rate: z.number(),
   judge_model: z.string().nullable(),

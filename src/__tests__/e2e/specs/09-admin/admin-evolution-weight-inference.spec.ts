@@ -37,4 +37,14 @@ adminTest.describe('Implied Rubric Weights', { tag: '@evolution' }, () => {
     await adminPage.getByTestId('wi-mode-human').click();
     await expect(adminPage.getByTestId('wi-auto-settings')).toHaveCount(0);
   });
+
+  adminTest('Test-set source reveals the test-set picker + pair-kind toggle', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/weight-inference');
+    // topic source by default → topic select visible, test-set picker absent
+    await expect(adminPage.getByTestId('wi-topic')).toBeVisible();
+    await expect(adminPage.getByTestId('wi-test-set')).toHaveCount(0);
+    await adminPage.getByTestId('wi-source-test_set').click();
+    await expect(adminPage.getByTestId('wi-test-set')).toBeVisible();
+    await expect(adminPage.getByTestId('wi-pair-kind')).toBeVisible();
+  });
 });

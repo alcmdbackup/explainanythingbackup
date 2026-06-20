@@ -24,10 +24,13 @@ import {
   pairConfidence,
   remainingPairs,
   requiredRatings,
+  resolveTestSetPairs,
   weightCIs,
+  type BankPair,
   type ConsistencyAudit,
   type PairObservation,
   type ReplicatedPair,
+  type TestSetMember,
   type Verdict3,
   type WeightFitResult,
 } from '@evolution/lib/weightInference';
@@ -265,22 +268,64 @@ export const createWeightInferenceSessionAction = adminAction(
     const parsed = createSessionInput.parse(input);
     const { supabase, adminUserId } = ctx;
     await validateCriteriaIds(parsed.criteriaIds, supabase);
-    if (!parsed.prompt_id) throw new Error('prompt_id (arena topic) is required');
+    const pairKind = parsed.pair_kind;
+    const sourceKind = parsed.source_kind;
 
-    // 1. sample the article pool from the topic's arena variants
-    const { data: variants, error: vErr } = await supabase
-      .from('evolution_variants')
-      .select('id, variant_content, mu, sigma, elo_score')
-      .eq('prompt_id', parsed.prompt_id)
-      .eq('synced_to_arena', true)
-      .eq('variant_kind', 'article')
-      .is('archived_at', null)
-      .order('elo_score', { ascending: false })
-      .limit(parsed.sample_size);
-    if (vErr) throw new Error(`pool sampling failed: ${pgMsg(vErr)}`);
-    const pool = variants ?? [];
-    if (pool.length < 2) {
-      throw new Error(`topic has only ${pool.length} arena article variants — need at least 2 to form pairs`);
+    // 1. resolve the article pool (variant-id space) + optional specific pair refs from the
+    //    chosen source. pairRefs empty ⇒ topic source (combinatorial pairing below).
+    interface ArticleInput { variantId: string; content: string; mu: number | null; sigma: number | null }
+    let articleInputs: ArticleInput[] = [];
+    let pairRefs: Array<[string, string]> = [];
+
+    if (sourceKind === 'test_set') {
+      if (!parsed.judge_eval_test_set_id) throw new Error('a Judge Lab test set is required for a test-set source');
+      const { data: ts, error: tsErr } = await supabase
+        .from('judge_eval_test_sets')
+        .select('pair_bank_id')
+        .eq('id', parsed.judge_eval_test_set_id)
+        .single();
+      if (tsErr || !ts) throw new Error(`test set not found: ${pgMsg(tsErr)}`);
+      const { data: bank, error: bErr } = await supabase
+        .from('judge_eval_pair_banks')
+        .select('pairs')
+        .eq('id', ts.pair_bank_id as string)
+        .single();
+      if (bErr || !bank) throw new Error(`pair bank not found: ${pgMsg(bErr)}`);
+      const { data: members, error: mErr } = await supabase
+        .from('judge_eval_test_set_members')
+        .select('pair_label, pair_kind')
+        .eq('test_set_id', parsed.judge_eval_test_set_id);
+      if (mErr) throw new Error(`test-set members load failed: ${pgMsg(mErr)}`);
+      const resolved = resolveTestSetPairs(
+        (bank.pairs as unknown as BankPair[]) ?? [],
+        (members ?? []) as unknown as TestSetMember[],
+        pairKind,
+      );
+      if (resolved.pairs.length === 0) throw new Error(`test set has no ${pairKind} pairs to import`);
+      articleInputs = resolved.variants.map((v) => ({ variantId: v.variantId, content: v.content, mu: v.mu, sigma: v.sigma }));
+      pairRefs = resolved.pairs.map((p) => [p.aVariantId, p.bVariantId]);
+    } else {
+      if (!parsed.prompt_id) throw new Error('an arena topic (prompt_id) is required for a topic source');
+      const { data: variants, error: vErr } = await supabase
+        .from('evolution_variants')
+        .select('id, variant_content, mu, sigma, elo_score')
+        .eq('prompt_id', parsed.prompt_id)
+        .eq('synced_to_arena', true)
+        .eq('variant_kind', pairKind)
+        .is('archived_at', null)
+        .order('elo_score', { ascending: false })
+        .limit(parsed.sample_size);
+      if (vErr) throw new Error(`pool sampling failed: ${pgMsg(vErr)}`);
+      const pool = variants ?? [];
+      if (pool.length < 2) {
+        throw new Error(`topic has only ${pool.length} ${pairKind} arena variants — need at least 2 to form pairs`);
+      }
+      articleInputs = pool.map((v) => ({
+        variantId: v.id as string,
+        content: (v.variant_content as string) ?? '',
+        mu: (v.mu as number | null) ?? null,
+        sigma: (v.sigma as number | null) ?? null,
+      }));
     }
 
     // 2. create the session row (is_test_content set by trigger)
@@ -291,7 +336,10 @@ export const createWeightInferenceSessionAction = adminAction(
         description: parsed.description ?? null,
         status: parsed.status,
         mode: parsed.mode,
-        prompt_id: parsed.prompt_id,
+        source_kind: sourceKind,
+        prompt_id: parsed.prompt_id ?? null,
+        judge_eval_test_set_id: parsed.judge_eval_test_set_id ?? null,
+        pair_kind: pairKind,
         sample_size: parsed.sample_size,
         replication_rate: parsed.replication_rate,
         judge_model: parsed.judge_model ?? null,
@@ -313,46 +361,64 @@ export const createWeightInferenceSessionAction = adminAction(
     const { error: cjErr } = await supabase.from('evolution_weight_inference_criteria').insert(critRows);
     if (cjErr) throw new Error(`criteria junction insert failed: ${pgMsg(cjErr)}`);
 
-    // 4. snapshot articles
-    const articleRows = pool.map((v, i) => ({
+    // 4. snapshot articles; map variant id -> article row id
+    const articleRows = articleInputs.map((a, i) => ({
       session_id: sessionId,
-      variant_id: v.id as string,
+      variant_id: a.variantId,
       label: `art#${String(i + 1).padStart(5, '0')}`,
-      content: (v.variant_content as string) ?? '',
-      mu: (v.mu as number | null) ?? null,
-      sigma: (v.sigma as number | null) ?? null,
+      content: a.content,
+      mu: a.mu,
+      sigma: a.sigma,
       position: i,
     }));
     const { data: inserted, error: aErr } = await supabase
       .from('evolution_weight_inference_articles')
       .insert(articleRows)
-      .select('id');
+      .select('id, variant_id');
     if (aErr || !inserted) throw new Error(`article snapshot failed: ${pgMsg(aErr)}`);
-    const articleIds = inserted.map((r) => r.id as string);
+    const rowIdByVariant = new Map((inserted as Array<{ id: string; variant_id: string }>).map((r) => [r.variant_id, r.id]));
+    const articleIds = (inserted as Array<{ id: string }>).map((r) => r.id);
 
-    // 5. materialize the pair set (seeded), pass 0 + reversal replicas
+    // 5. build canonical pairs (article-row-id space), then materialize pass 0 + replicas
     const rng = createSeededRng(hashSeed(sessionId));
-    const candidates: Array<[string, string]> = [];
-    for (let i = 0; i < articleIds.length; i++) {
-      for (let j = i + 1; j < articleIds.length; j++) {
-        const a = articleIds[i]!;
-        const b = articleIds[j]!;
-        candidates.push(a < b ? [a, b] : [b, a]); // canonical order
+    let chosen: Array<[string, string]>;
+    if (pairRefs.length > 0) {
+      // test_set: the specific frozen pairs
+      const seen = new Set<string>();
+      chosen = [];
+      for (const [av, bv] of pairRefs) {
+        const a = rowIdByVariant.get(av);
+        const b = rowIdByVariant.get(bv);
+        if (!a || !b || a === b) continue;
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        const key = `${lo}|${hi}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        chosen.push([lo, hi]);
       }
+    } else {
+      // topic: all C(M,2), seeded-shuffled, capped at requiredRatings(K).pairs
+      const candidates: Array<[string, string]> = [];
+      for (let i = 0; i < articleIds.length; i++) {
+        for (let j = i + 1; j < articleIds.length; j++) {
+          const a = articleIds[i]!;
+          const b = articleIds[j]!;
+          candidates.push(a < b ? [a, b] : [b, a]);
+        }
+      }
+      for (let i = candidates.length - 1; i > 0; i--) {
+        const k = Math.floor(rng() * (i + 1));
+        const tmp = candidates[i]!;
+        candidates[i] = candidates[k]!;
+        candidates[k] = tmp;
+      }
+      chosen = candidates.slice(0, Math.min(candidates.length, requiredRatings(parsed.criteriaIds.length).pairs));
     }
-    // Fisher-Yates shuffle (seeded)
-    for (let i = candidates.length - 1; i > 0; i--) {
-      const k = Math.floor(rng() * (i + 1));
-      const tmp = candidates[i]!;
-      candidates[i] = candidates[k]!;
-      candidates[k] = tmp;
-    }
-    const targetPairs = Math.min(candidates.length, requiredRatings(parsed.criteriaIds.length).pairs);
-    const chosen = candidates.slice(0, targetPairs);
+
     // Auto mode: position bias is handled by the built-in 2-pass reversal, so no pass-1
     // replicas (would just double LLM spend). source distinguishes provenance.
     const source = parsed.mode === 'auto' ? 'llm' : 'human';
-    const replicaCount = parsed.mode === 'auto' ? 0 : Math.floor(targetPairs * parsed.replication_rate);
+    const replicaCount = parsed.mode === 'auto' ? 0 : Math.floor(chosen.length * parsed.replication_rate);
 
     const compRows: Array<Record<string, unknown>> = [];
     chosen.forEach(([aId, bId], idx) => {

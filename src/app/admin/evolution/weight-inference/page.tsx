@@ -19,13 +19,18 @@ import {
 } from '@evolution/services/weightInferenceActions';
 import { getArenaTopicsAction } from '@evolution/services/arenaActions';
 import { listCriteriaAction } from '@evolution/services/criteriaActions';
+import { listTestSetsAction } from '@evolution/services/judgeEvalActions';
 import { getModelOptions, DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
 
 const MODEL_OPTIONS = getModelOptions();
 type Mode = 'human' | 'auto';
+type SourceKind = 'topic' | 'test_set';
+type PairKind = 'article' | 'paragraph';
+
+interface TestSetOpt { id: string; name: string; sizeArticle: number; sizeParagraph: number }
 
 interface TopicOpt { id: string; name: string }
-interface CriterionOpt { id: string; name: string }
+interface CriterionOpt { id: string; name: string; description: string | null }
 
 const inputCls =
   'w-full rounded-page border border-[var(--border-default)] bg-[var(--surface-input)] px-3 py-2 text-[var(--text-primary)] font-ui text-sm';
@@ -36,9 +41,13 @@ export default function WeightInferencePage(): JSX.Element {
   const [sessions, setSessions] = useState<WiSessionListItem[]>([]);
   const [topics, setTopics] = useState<TopicOpt[]>([]);
   const [criteria, setCriteria] = useState<CriterionOpt[]>([]);
+  const [testSets, setTestSets] = useState<TestSetOpt[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [name, setName] = useState('');
+  const [sourceKind, setSourceKind] = useState<SourceKind>('topic');
+  const [pairKind, setPairKind] = useState<PairKind>('article');
+  const [testSetId, setTestSetId] = useState('');
   const [topicId, setTopicId] = useState('');
   const [selectedCriteria, setSelectedCriteria] = useState<Set<string>>(new Set());
   const [sampleSize, setSampleSize] = useState(30);
@@ -58,14 +67,20 @@ export default function WeightInferencePage(): JSX.Element {
 
   useEffect(() => {
     void (async () => {
-      const [s, t, c] = await Promise.all([
+      const [s, t, c, ts] = await Promise.all([
         listWeightInferenceSessionsAction({ filterTestContent: true }),
         getArenaTopicsAction({ filterTestContent: true }),
         listCriteriaAction({ status: 'active', filterTestContent: true, limit: 200 }),
+        listTestSetsAction(),
       ]);
       if (s.success && s.data) setSessions(s.data.items);
       if (t.success && t.data) setTopics(t.data.map((x) => ({ id: x.id, name: x.name || x.id })));
-      if (c.success && c.data) setCriteria(c.data.items.map((x) => ({ id: x.id, name: x.name })));
+      if (c.success && c.data) setCriteria(c.data.items.map((x) => ({ id: x.id, name: x.name, description: x.description ?? null })));
+      if (ts.success && ts.data) {
+        setTestSets(
+          ts.data.map((x) => ({ id: x.id, name: x.name, sizeArticle: x.size_article ?? 0, sizeParagraph: x.size_paragraph ?? 0 })),
+        );
+      }
       setLoading(false);
     })();
   }, []);
@@ -91,15 +106,20 @@ export default function WeightInferencePage(): JSX.Element {
   };
 
   const create = async (): Promise<void> => {
-    if (!name.trim() || !topicId || selectedCriteria.size < 2) {
-      toast.error('Name, a topic, and at least 2 criteria are required.');
+    if (!name.trim() || selectedCriteria.size < 2) {
+      toast.error('Name and at least 2 criteria are required.');
       return;
     }
+    if (sourceKind === 'topic' && !topicId) { toast.error('Select an arena topic.'); return; }
+    if (sourceKind === 'test_set' && !testSetId) { toast.error('Select a Judge Lab test set.'); return; }
     setCreating(true);
     const res = await createWeightInferenceSessionAction({
       name: name.trim(),
       mode,
-      prompt_id: topicId,
+      source_kind: sourceKind,
+      pair_kind: sourceKind === 'topic' ? 'article' : pairKind,
+      prompt_id: sourceKind === 'topic' ? topicId : null,
+      judge_eval_test_set_id: sourceKind === 'test_set' ? testSetId : null,
       sample_size: sampleSize,
       replication_rate: mode === 'auto' ? 0 : replicationRate,
       criteriaIds: [...selectedCriteria],
@@ -137,11 +157,49 @@ export default function WeightInferencePage(): JSX.Element {
               <input id="wi-name" data-testid="wi-name" className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Fed-rubric v1" />
             </div>
             <div>
-              <label className={labelCls} htmlFor="wi-topic">Arena topic</label>
-              <select id="wi-topic" data-testid="wi-topic" className={inputCls} value={topicId} onChange={(e) => setTopicId(e.target.value)}>
-                <option value="">Select a topic…</option>
-                {topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
+              <span className={labelCls}>Pair source</span>
+              <div className="flex gap-2 mb-2">
+                {(['topic', 'test_set'] as SourceKind[]).map((sk) => (
+                  <button
+                    key={sk}
+                    type="button"
+                    data-testid={`wi-source-${sk}`}
+                    onClick={() => setSourceKind(sk)}
+                    className={`rounded-page border px-3 py-1 font-ui text-sm ${
+                      sourceKind === sk ? 'border-[var(--accent-gold)] text-[var(--accent-gold)]' : 'border-[var(--border-default)] text-[var(--text-secondary)]'
+                    }`}
+                  >
+                    {sk === 'topic' ? 'Arena topic' : 'Judge Lab test set'}
+                  </button>
+                ))}
+              </div>
+              {sourceKind === 'topic' ? (
+                <select id="wi-topic" data-testid="wi-topic" className={inputCls} value={topicId} onChange={(e) => setTopicId(e.target.value)}>
+                  <option value="">Select a topic…</option>
+                  {topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              ) : (
+                <>
+                  <select id="wi-test-set" data-testid="wi-test-set" className={inputCls} value={testSetId} onChange={(e) => setTestSetId(e.target.value)}>
+                    <option value="">Select a test set…</option>
+                    {testSets.map((t) => <option key={t.id} value={t.id}>{t.name} (A:{t.sizeArticle} P:{t.sizeParagraph})</option>)}
+                  </select>
+                  <div className="flex gap-2 mt-2" data-testid="wi-pair-kind">
+                    {(['article', 'paragraph'] as PairKind[]).map((pk) => (
+                      <button
+                        key={pk}
+                        type="button"
+                        onClick={() => setPairKind(pk)}
+                        className={`rounded-page border px-3 py-1 font-ui text-xs ${
+                          pairKind === pk ? 'border-[var(--accent-gold)] text-[var(--accent-gold)]' : 'border-[var(--border-default)] text-[var(--text-secondary)]'
+                        }`}
+                      >
+                        {pk === 'article' ? 'Article pairs' : 'Paragraph pairs'}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
             <div>
               <label className={labelCls} htmlFor="wi-pool">Article pool size</label>
@@ -198,6 +256,7 @@ export default function WeightInferencePage(): JSX.Element {
                   <button
                     key={c.id}
                     type="button"
+                    title={c.description ?? undefined}
                     onClick={() => toggleCriterion(c.id)}
                     className={`rounded-page border px-3 py-1 font-ui text-sm transition-scholar ${
                       on
@@ -215,6 +274,19 @@ export default function WeightInferencePage(): JSX.Element {
                 </span>
               )}
             </div>
+            {/* Descriptions of the selected criteria (hover the chips above for any criterion). */}
+            {selectedCriteria.size > 0 && (
+              <ul className="mt-2 space-y-1" data-testid="wi-criteria-descriptions">
+                {criteria
+                  .filter((c) => selectedCriteria.has(c.id))
+                  .map((c) => (
+                    <li key={c.id} className="font-body text-xs text-[var(--text-secondary)]">
+                      <strong className="text-[var(--text-primary)]">{c.name}</strong>
+                      {c.description ? ` — ${c.description}` : ''}
+                    </li>
+                  ))}
+              </ul>
+            )}
           </div>
 
           {preview && selectedCriteria.size >= 2 && (

@@ -27,6 +27,7 @@ const PAIR_CONCURRENCY = 4;
 
 interface SessionRow {
   mode: string;
+  pair_kind: 'article' | 'paragraph';
   judge_model: string | null;
   judge_temperature: number | null;
   judge_reasoning_effort: string | null;
@@ -49,7 +50,7 @@ export async function runAutoChunk(
   // 1. session
   const { data: s, error: sErr } = await db
     .from('evolution_weight_inference_sessions')
-    .select('mode, judge_model, judge_temperature, judge_reasoning_effort, auto_repeats')
+    .select('mode, pair_kind, judge_model, judge_temperature, judge_reasoning_effort, auto_repeats')
     .eq('id', sessionId)
     .is('deleted_at', null)
     .single();
@@ -139,7 +140,7 @@ export async function runAutoChunk(
     const textB = contentById.get(c.article_b_id) ?? '';
     const results = [];
     for (let r = 0; r < repeats; r++) {
-      results.push(await judgePairOnce(judge, textA, textB, rubric, costAcc));
+      results.push(await judgePairOnce(judge, textA, textB, rubric, costAcc, session.pair_kind));
     }
     const folded = foldRepeats(results);
     await db
