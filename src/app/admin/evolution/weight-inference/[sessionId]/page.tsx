@@ -17,12 +17,14 @@ import {
   recordDimensionVerdictsAction,
   getWeightInferencePreviewAction,
   getWeightInferenceFitAction,
+  getWeightInferenceProgressAction,
   exportWeightInferenceRubricAction,
   type WiNextPair,
   type WiFitResult,
+  type WiAutoProgress,
 } from '@evolution/services/weightInferenceActions';
 
-type Tab = 'judge' | 'results';
+type Tab = 'judge' | 'run' | 'results';
 type V = 'a' | 'b' | 'tie';
 
 const pct = (x: number): string => `${(x * 100).toFixed(0)}%`;
@@ -32,6 +34,9 @@ export default function WeightInferenceSessionPage(): JSX.Element {
   const sessionId = params.sessionId;
 
   const [tab, setTab] = useState<Tab>('judge');
+  const [mode, setMode] = useState<'human' | 'auto'>('human');
+  const [autoProgress, setAutoProgress] = useState<WiAutoProgress | null>(null);
+  const [running, setRunning] = useState(false);
   const [step, setStep] = useState<'overall' | 'criteria'>('overall');
   const [pair, setPair] = useState<WiNextPair | null>(null);
   const [loadingPair, setLoadingPair] = useState(true);
@@ -84,10 +89,52 @@ export default function WeightInferenceSessionPage(): JSX.Element {
     [sessionId],
   );
 
+  const refreshAuto = useCallback(async () => {
+    const res = await getWeightInferenceProgressAction({ sessionId });
+    if (res.success && res.data) setAutoProgress(res.data);
+    return res.success ? res.data : null;
+  }, [sessionId]);
+
   useEffect(() => {
-    void loadNext('overall');
-    void refreshProgress();
-  }, [loadNext, refreshProgress]);
+    void (async () => {
+      const p = await refreshAuto();
+      const m = p?.mode ?? 'human';
+      setMode(m);
+      if (m === 'auto') {
+        setTab('run');
+      } else {
+        setTab('judge');
+        void loadNext('overall');
+        void refreshProgress();
+      }
+    })();
+  }, [refreshAuto, loadNext, refreshProgress]);
+
+  // Resumable auto-run: POST chunks until done, polling progress between chunks.
+  const runAuto = useCallback(async () => {
+    setRunning(true);
+    try {
+      for (let i = 0; i < 1000; i++) {
+        const resp = await fetch('/api/evolution/weight-inference/auto-run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId }),
+        });
+        const body = (await resp.json().catch(() => ({}))) as { done?: boolean; error?: string };
+        if (!resp.ok) {
+          toast.error(body.error ?? `Auto-run failed (${resp.status})`);
+          break;
+        }
+        await refreshAuto();
+        if (body.done) {
+          toast.success('Auto run complete');
+          break;
+        }
+      }
+    } finally {
+      setRunning(false);
+    }
+  }, [sessionId, refreshAuto]);
 
   const submitOverall = async (winner: V): Promise<void> => {
     if (!pair) return;
@@ -140,7 +187,7 @@ export default function WeightInferenceSessionPage(): JSX.Element {
       <EvolutionBreadcrumb items={[{ label: 'Implied Rubric Weights', href: '/admin/evolution/weight-inference' }, { label: 'Session' }]} />
 
       <div className="flex gap-2" role="tablist">
-        {(['judge', 'results'] as Tab[]).map((t) => (
+        {((mode === 'auto' ? ['run', 'results'] : ['judge', 'results']) as Tab[]).map((t) => (
           <button
             key={t}
             role="tab"
@@ -156,13 +203,40 @@ export default function WeightInferenceSessionPage(): JSX.Element {
         ))}
       </div>
 
-      {progress && (
+      {mode === 'human' && progress && (
         <p className="font-ui text-sm text-[var(--text-secondary)]" data-testid="wi-progress">
           Overall {progress.overallDone}/{progress.pairsTotal} · ≈ {progress.remaining} pairs to go
         </p>
       )}
 
-      {tab === 'judge' && (
+      {tab === 'run' && (
+        <Card className="rounded-book border border-[var(--border-default)] bg-[var(--surface-secondary)] paper-texture">
+          <CardContent className="p-6 space-y-4">
+            <h2 className="font-display text-2xl text-[var(--text-primary)]">Auto run (LLM as judge)</h2>
+            {autoProgress && (
+              <div className="font-ui text-sm text-[var(--text-secondary)] space-y-1" data-testid="wi-run-progress">
+                <div>Pairs judged {autoProgress.pairsJudged}/{autoProgress.pairsTotal}</div>
+                <div>LLM calls {autoProgress.llmCalls} · spend ${autoProgress.spendUsd.toFixed(4)} · position-bias {(autoProgress.positionBiasRate * 100).toFixed(0)}%</div>
+                <div className="h-3 rounded-page bg-[var(--surface-elevated)] overflow-hidden">
+                  <div className="h-full bg-[var(--accent-gold)]" style={{ width: `${autoProgress.pairsTotal > 0 ? Math.round((autoProgress.pairsJudged / autoProgress.pairsTotal) * 100) : 0}%` }} />
+                </div>
+                {autoProgress.done && <div className="text-[var(--status-success)]" data-testid="auto-run-complete">✓ Run complete — see Results.</div>}
+              </div>
+            )}
+            <p className="font-body text-xs text-[var(--text-secondary)]">
+              Derived from persisted rows; runs in resumable chunks. (Judging is automatic — no human input.)
+            </p>
+            <div className="flex gap-2">
+              <Button variant="scholar" data-testid="wi-run" disabled={running || autoProgress?.done} onClick={() => void runAuto()}>
+                {running ? 'Running…' : autoProgress?.done ? 'Done' : autoProgress && autoProgress.pairsJudged > 0 ? 'Resume' : 'Run'}
+              </Button>
+              <Button variant="secondary" disabled={running} onClick={() => void refreshAuto()}>Refresh</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {tab === 'judge' && mode === 'human' && (
         <Card className="rounded-book border border-[var(--border-default)] bg-[var(--surface-secondary)] paper-texture">
           <CardContent className="p-6 space-y-4">
             {loadingPair ? (

@@ -28,6 +28,7 @@ import {
   getWeightInferenceFitAction,
   exportWeightInferenceRubricAction,
 } from '@evolution/services/weightInferenceActions';
+import { runAutoChunk, type JudgeFactory } from '@evolution/lib/weightInference/autoRun';
 
 const TS = Date.now();
 const PROMPT_TEXT = `[TEST_EVO] wi-topic ${TS}`;
@@ -39,7 +40,9 @@ describe('weight-inference integration', () => {
   let promptId: string;
   const variantIds: string[] = [];
   const criteriaIds: string[] = [];
+  const criteriaNames = ['clarity', 'depth', 'tone'].map((n) => `${n}-${TS}-t`);
   let sessionId: string | null = null;
+  let autoSessionId: string | null = null;
   let rubricId: string | null = null;
 
   async function wiTablesExist(db: SupabaseClient): Promise<boolean> {
@@ -101,6 +104,9 @@ describe('weight-inference integration', () => {
     if (!ok) return;
     if (sessionId) {
       await supabase.from('evolution_weight_inference_sessions').delete().eq('id', sessionId);
+    }
+    if (autoSessionId) {
+      await supabase.from('evolution_weight_inference_sessions').delete().eq('id', autoSessionId);
     }
     if (rubricId) {
       await supabase.from('evolution_judge_rubric_dimensions').delete().eq('rubric_id', rubricId);
@@ -180,6 +186,61 @@ describe('weight-inference integration', () => {
       .eq('id', rubricId)
       .single();
     expect(rubric?.id).toBe(rubricId);
+  }, 120000);
+
+  it('auto mode: runAutoChunk judges llm pairs with a fake judge (zero real LLM) + idempotent re-run', async () => {
+    if (!ok) return;
+    const created = await createWeightInferenceSessionAction({
+      name: `[TEST_EVO] wi-auto ${TS}`,
+      mode: 'auto',
+      prompt_id: promptId,
+      sample_size: 6,
+      criteriaIds,
+      judge_model: 'qwen-2.5-7b-instruct',
+    });
+    expect(created.success).toBe(true);
+    autoSessionId = created.data!.sessionId;
+
+    const { count: llmRows } = await supabase
+      .from('evolution_weight_inference_comparisons')
+      .select('*', { count: 'exact', head: true })
+      .eq('session_id', autoSessionId)
+      .eq('source', 'llm');
+    expect((llmRows ?? 0)).toBeGreaterThan(0);
+
+    // Fake judge — the ONLY judge (no callLLM): 'A' token for the holistic prompt,
+    // per-criterion "name: A" lines for the rubric prompt. Proves zero real LLM calls.
+    const costAcc = { usd: 0 };
+    const factory: JudgeFactory = () => async (prompt: string) => {
+      costAcc.usd += 0.0001;
+      if (criteriaNames.some((n) => prompt.includes(n))) {
+        return criteriaNames.map((n) => `${n}: A`).join('\n');
+      }
+      return 'A';
+    };
+
+    const res1 = await runAutoChunk(supabase, autoSessionId, factory, costAcc);
+    expect(res1.judged).toBeGreaterThan(0);
+    expect(costAcc.usd).toBeGreaterThan(0);
+
+    const { count: judged } = await supabase
+      .from('evolution_weight_inference_comparisons')
+      .select('*', { count: 'exact', head: true })
+      .eq('session_id', autoSessionId)
+      .eq('source', 'llm')
+      .not('overall_winner', 'is', null);
+    expect((judged ?? 0)).toBe(res1.judged);
+
+    // idempotent re-run: nothing left to judge, no extra spend
+    const costBefore = costAcc.usd;
+    const res2 = await runAutoChunk(supabase, autoSessionId, factory, costAcc);
+    expect(res2.judged).toBe(0);
+    expect(res2.done).toBe(true);
+    expect(costAcc.usd).toBe(costBefore);
+
+    const fit = await getWeightInferenceFitAction({ sessionId: autoSessionId });
+    expect(fit.success).toBe(true);
+    expect(fit.data!.mode).toBe('auto');
   }, 120000);
 
   it('rejects when the kill switch is off', async () => {

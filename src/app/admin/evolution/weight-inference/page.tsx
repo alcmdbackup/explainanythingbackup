@@ -19,6 +19,10 @@ import {
 } from '@evolution/services/weightInferenceActions';
 import { getArenaTopicsAction } from '@evolution/services/arenaActions';
 import { listCriteriaAction } from '@evolution/services/criteriaActions';
+import { getModelOptions, DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
+
+const MODEL_OPTIONS = getModelOptions();
+type Mode = 'human' | 'auto';
 
 interface TopicOpt { id: string; name: string }
 interface CriterionOpt { id: string; name: string }
@@ -39,6 +43,10 @@ export default function WeightInferencePage(): JSX.Element {
   const [selectedCriteria, setSelectedCriteria] = useState<Set<string>>(new Set());
   const [sampleSize, setSampleSize] = useState(30);
   const [replicationRate, setReplicationRate] = useState(0.15);
+  const [mode, setMode] = useState<Mode>('human');
+  const [judgeModel, setJudgeModel] = useState(DEFAULT_JUDGE_MODEL);
+  const [judgeTemperature, setJudgeTemperature] = useState(0);
+  const [autoRepeats, setAutoRepeats] = useState(1);
   const [preview, setPreview] = useState<{ pairs: number; comparisons: number; verdicts: number } | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -90,11 +98,14 @@ export default function WeightInferencePage(): JSX.Element {
     setCreating(true);
     const res = await createWeightInferenceSessionAction({
       name: name.trim(),
-      mode: 'human',
+      mode,
       prompt_id: topicId,
       sample_size: sampleSize,
-      replication_rate: replicationRate,
+      replication_rate: mode === 'auto' ? 0 : replicationRate,
       criteriaIds: [...selectedCriteria],
+      ...(mode === 'auto'
+        ? { judge_model: judgeModel, judge_temperature: judgeTemperature, auto_repeats: autoRepeats }
+        : {}),
     });
     setCreating(false);
     if (res.success && res.data) {
@@ -142,6 +153,42 @@ export default function WeightInferencePage(): JSX.Element {
             </div>
           </div>
 
+          <div className="flex flex-wrap items-center gap-4">
+            <span className={labelCls}>Mode</span>
+            {(['human', 'auto'] as Mode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                data-testid={`wi-mode-${m}`}
+                onClick={() => setMode(m)}
+                className={`rounded-page border px-3 py-1 font-ui text-sm ${
+                  mode === m ? 'border-[var(--accent-gold)] text-[var(--accent-gold)]' : 'border-[var(--border-default)] text-[var(--text-secondary)]'
+                }`}
+              >
+                {m === 'human' ? 'Human' : 'Auto — LLM as judge'}
+              </button>
+            ))}
+          </div>
+
+          {mode === 'auto' && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 rounded-page border border-[var(--border-default)] bg-[var(--surface-elevated)] p-4" data-testid="wi-auto-settings">
+              <div>
+                <label className={labelCls} htmlFor="wi-judge-model">Judge model</label>
+                <select id="wi-judge-model" className={inputCls} value={judgeModel} onChange={(e) => setJudgeModel(e.target.value)}>
+                  {MODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls} htmlFor="wi-judge-temp">Temperature</label>
+                <input id="wi-judge-temp" type="number" min={0} max={2} step={0.1} className={inputCls} value={judgeTemperature} onChange={(e) => setJudgeTemperature(Number(e.target.value))} />
+              </div>
+              <div>
+                <label className={labelCls} htmlFor="wi-repeats">Repeats / pair</label>
+                <input id="wi-repeats" type="number" min={1} max={10} className={inputCls} value={autoRepeats} onChange={(e) => setAutoRepeats(Number(e.target.value))} />
+              </div>
+            </div>
+          )}
+
           <div>
             <span className={labelCls}>Criteria to weight ({selectedCriteria.size} selected)</span>
             <div className="flex flex-wrap gap-2" data-testid="wi-criteria">
@@ -172,9 +219,13 @@ export default function WeightInferencePage(): JSX.Element {
 
           {preview && selectedCriteria.size >= 2 && (
             <div className="rounded-page border border-[var(--border-default)] bg-[var(--surface-elevated)] p-4 font-body text-sm text-[var(--text-secondary)]" data-testid="wi-preview">
-              Preview: ≈ <strong className="text-[var(--text-primary)]">{preview.pairs}</strong> pairs →{' '}
-              {preview.comparisons} comparisons (with reversal audit) → {preview.verdicts} total verdicts.
-              <span className="block text-[var(--text-secondary)] mt-1">Rough estimate; refines live as you judge.</span>
+              Preview: ≈ <strong className="text-[var(--text-primary)]">{preview.pairs}</strong> pairs
+              {mode === 'auto' ? (
+                <> → ≈ {preview.pairs * autoRepeats * 4} LLM calls (judge {judgeModel}).</>
+              ) : (
+                <> → {preview.comparisons} comparisons (with reversal audit) → {preview.verdicts} total verdicts.</>
+              )}
+              <span className="block text-[var(--text-secondary)] mt-1">Rough estimate; refines live{mode === 'auto' ? ' as the run progresses' : ' as you judge'}.</span>
             </div>
           )}
 

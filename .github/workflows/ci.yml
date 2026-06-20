@@ -408,6 +408,15 @@ jobs:
       # dispatch path (Phase 5.10). Default 'true' in code; set explicitly here so
       # debate integration tests exercise the live dispatch branch.
       EVOLUTION_DEBATE_ENABLED: 'true'
+      # calculate_implifed_rubric_weights_evolution_20260619 — Implied Rubric Weights
+      # feature + its auto-mode (LLM-as-judge). Default-on in code; set explicitly so
+      # the integration tests exercise the enabled path. Cost caps are a defense-in-depth
+      # backstop — the integration test prevents real LLM spend by mocking callLLM.
+      EVOLUTION_WEIGHT_INFERENCE_ENABLED: 'true'
+      WEIGHT_INFERENCE_AUTO_ENABLED: 'true'
+      WEIGHT_INFERENCE_AUTO_MAX_CALLS: '8000'
+      WEIGHT_INFERENCE_AUTO_MAX_USD: '5'
+      WEIGHT_INFERENCE_AUTO_CHUNK_PAIRS: '40'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -570,6 +579,14 @@ jobs:
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
       NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
+      # calculate_implifed_rubric_weights_evolution_20260619 — Implied Rubric Weights flags
+      # (default-on). The auto-run E2E route-mocks the POST, so no real LLM spend; cost caps
+      # are a backstop. Inert for non-evolution e2e jobs (no weight-inference specs there).
+      EVOLUTION_WEIGHT_INFERENCE_ENABLED: 'true'
+      WEIGHT_INFERENCE_AUTO_ENABLED: 'true'
+      WEIGHT_INFERENCE_AUTO_MAX_CALLS: '8000'
+      WEIGHT_INFERENCE_AUTO_MAX_USD: '5'
+      WEIGHT_INFERENCE_AUTO_CHUNK_PAIRS: '40'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -649,6 +666,14 @@ jobs:
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
       NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
+      # calculate_implifed_rubric_weights_evolution_20260619 — Implied Rubric Weights flags
+      # (default-on). The auto-run E2E route-mocks the POST, so no real LLM spend; cost caps
+      # are a backstop. Inert for non-evolution e2e jobs (no weight-inference specs there).
+      EVOLUTION_WEIGHT_INFERENCE_ENABLED: 'true'
+      WEIGHT_INFERENCE_AUTO_ENABLED: 'true'
+      WEIGHT_INFERENCE_AUTO_MAX_CALLS: '8000'
+      WEIGHT_INFERENCE_AUTO_MAX_USD: '5'
+      WEIGHT_INFERENCE_AUTO_CHUNK_PAIRS: '40'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

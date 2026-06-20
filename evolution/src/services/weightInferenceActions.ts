@@ -349,7 +349,10 @@ export const createWeightInferenceSessionAction = adminAction(
     }
     const targetPairs = Math.min(candidates.length, requiredRatings(parsed.criteriaIds.length).pairs);
     const chosen = candidates.slice(0, targetPairs);
-    const replicaCount = Math.floor(targetPairs * parsed.replication_rate);
+    // Auto mode: position bias is handled by the built-in 2-pass reversal, so no pass-1
+    // replicas (would just double LLM spend). source distinguishes provenance.
+    const source = parsed.mode === 'auto' ? 'llm' : 'human';
+    const replicaCount = parsed.mode === 'auto' ? 0 : Math.floor(targetPairs * parsed.replication_rate);
 
     const compRows: Array<Record<string, unknown>> = [];
     chosen.forEach(([aId, bId], idx) => {
@@ -360,7 +363,7 @@ export const createWeightInferenceSessionAction = adminAction(
         article_b_id: bId,
         pass: 0,
         shown_swapped: swapped,
-        source: 'human',
+        source,
         rater_id: adminUserId,
       });
       if (idx < replicaCount) {
@@ -370,7 +373,7 @@ export const createWeightInferenceSessionAction = adminAction(
           article_b_id: bId,
           pass: 1,
           shown_swapped: !swapped,
-          source: 'human',
+          source,
           rater_id: adminUserId,
         });
       }
@@ -482,6 +485,61 @@ export const getWeightInferencePreviewAction = adminAction(
       overallDone: overallDone ?? 0,
       criteriaDone: 0,
       remaining: remainingPairs(overallDone ?? 0, pairsTotal ?? 0),
+    };
+  },
+);
+
+export interface WiAutoProgress {
+  mode: 'human' | 'auto';
+  name: string;
+  status: string;
+  pairsTotal: number;
+  pairsJudged: number;
+  llmCalls: number;
+  spendUsd: number;
+  positionBiasRate: number;
+  done: boolean;
+}
+
+export const getWeightInferenceProgressAction = adminAction(
+  'getWeightInferenceProgress',
+  async (input: { sessionId: string }, ctx: AdminContext): Promise<WiAutoProgress> => {
+    assertEnabled();
+    const { supabase } = ctx;
+    const session = await loadSession(supabase, input.sessionId);
+    // Derive everything from persisted source='llm' rows (no job-state channel).
+    const { data, error } = await supabase
+      .from('evolution_weight_inference_comparisons')
+      .select('overall_winner, cost, forward_winner, reverse_winner')
+      .eq('session_id', input.sessionId)
+      .eq('source', 'llm')
+      .eq('pass', 0);
+    if (error) throw new Error(`progress failed: ${pgMsg(error)}`);
+    const rows = data ?? [];
+    const judgedRows = rows.filter((r) => r.overall_winner != null);
+    const judged = judgedRows.length;
+    let spend = 0;
+    let flips = 0;
+    let flipDenom = 0;
+    for (const r of judgedRows) {
+      spend += (r.cost as number | null) ?? 0;
+      const f = r.forward_winner as string | null;
+      const rev = r.reverse_winner as string | null;
+      if (f != null && rev != null) {
+        flipDenom++;
+        if ((f === 'a' && rev === 'b') || (f === 'b' && rev === 'a')) flips++;
+      }
+    }
+    return {
+      mode: session.mode,
+      name: session.name,
+      status: session.status,
+      pairsTotal: rows.length,
+      pairsJudged: judged,
+      llmCalls: judged * 4,
+      spendUsd: spend,
+      positionBiasRate: flipDenom > 0 ? flips / flipDenom : 0,
+      done: rows.length > 0 && judged >= rows.length,
     };
   },
 );

@@ -27,4 +27,14 @@ adminTest.describe('Implied Rubric Weights', { tag: '@evolution' }, () => {
     // presence/absence structurally, never specific numbers).
     await expect(adminPage.getByTestId('wi-preview')).toHaveCount(0);
   });
+
+  adminTest('Auto mode toggle reveals the judge settings', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/weight-inference');
+    await expect(adminPage.getByTestId('wi-auto-settings')).toHaveCount(0);
+    await adminPage.getByTestId('wi-mode-auto').click();
+    await expect(adminPage.getByTestId('wi-auto-settings')).toBeVisible();
+    // back to human hides them again (structural assertion only)
+    await adminPage.getByTestId('wi-mode-human').click();
+    await expect(adminPage.getByTestId('wi-auto-settings')).toHaveCount(0);
+  });
 });
