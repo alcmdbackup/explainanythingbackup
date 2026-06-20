@@ -2757,3 +2757,96 @@ export const EvolutionRunSummarySchema = z.union([
   EvolutionRunSummaryV2Schema,
   EvolutionRunSummaryV1Schema,
 ]);
+
+// ─── Weight Inference (calculate_implifed_rubric_weights_evolution_20260619) ──
+// Infer judge-rubric weights from pairwise verdicts. mode=human|auto; source=human|llm.
+
+export const wiVerdict3Enum = z.enum(['a', 'b', 'tie']);
+export const wiSessionStatusEnum = z.enum(['active', 'archived']);
+export const wiSessionModeEnum = z.enum(['human', 'auto']);
+export const wiSourceEnum = z.enum(['human', 'llm']);
+
+export const evolutionWiSessionInsertSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().nullable().optional(),
+  status: wiSessionStatusEnum.optional().default('active'),
+  mode: wiSessionModeEnum.optional().default('human'),
+  prompt_id: z.string().uuid().nullable().optional(),
+  sample_size: z.number().int().min(2).max(100).optional().default(30),
+  replication_rate: z.number().min(0).max(1).optional().default(0.15),
+  judge_model: z.string().nullable().optional(),
+  judge_temperature: z.number().nullable().optional(),
+  judge_reasoning_effort: z.string().nullable().optional(),
+  auto_repeats: z.number().int().min(1).max(10).optional().default(1),
+});
+
+export const evolutionWiSessionRowSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  description: z.string().nullable(),
+  status: wiSessionStatusEnum,
+  mode: wiSessionModeEnum,
+  prompt_id: z.string().uuid().nullable(),
+  sample_size: z.number().int(),
+  replication_rate: z.number(),
+  judge_model: z.string().nullable(),
+  judge_temperature: z.number().nullable(),
+  judge_reasoning_effort: z.string().nullable(),
+  auto_repeats: z.number().int(),
+  auto_run_error: z.string().nullable(),
+  is_test_content: z.boolean(),
+  archived_at: z.string().nullable(),
+  deleted_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export const evolutionWiArticleRowSchema = z.object({
+  id: z.string().uuid(),
+  session_id: z.string().uuid(),
+  variant_id: z.string().uuid().nullable(),
+  label: z.string(),
+  content: z.string(),
+  mu: z.number().nullable(),
+  sigma: z.number().nullable(),
+  position: z.number().int(),
+  created_at: z.string(),
+});
+
+export const evolutionWiComparisonRowSchema = z.object({
+  id: z.string().uuid(),
+  session_id: z.string().uuid(),
+  article_a_id: z.string().uuid(),
+  article_b_id: z.string().uuid(),
+  pass: z.number().int(),
+  shown_swapped: z.boolean(),
+  overall_winner: wiVerdict3Enum.nullable(),
+  source: wiSourceEnum,
+  rater_id: z.string(),
+  confidence: z.number().nullable(),
+  judge_model: z.string().nullable(),
+  cost: z.number().nullable(),
+  forward_winner: wiVerdict3Enum.nullable(),
+  reverse_winner: wiVerdict3Enum.nullable(),
+  forward_raw: z.unknown().nullable(),
+  reverse_raw: z.unknown().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export const evolutionWiDimensionVerdictRowSchema = z.object({
+  comparison_id: z.string().uuid(),
+  criteria_id: z.string().uuid(),
+  criteria_name: z.string(),
+  verdict: wiVerdict3Enum,
+  confidence: z.number().nullable(),
+  position: z.number().int(),
+  created_at: z.string(),
+});
+
+export type WiVerdict3 = z.infer<typeof wiVerdict3Enum>;
+export type EvolutionWiSessionInsert = z.infer<typeof evolutionWiSessionInsertSchema>;
+export type EvolutionWiSessionRow = z.infer<typeof evolutionWiSessionRowSchema>;
+export type EvolutionWiArticleRow = z.infer<typeof evolutionWiArticleRowSchema>;
+export type EvolutionWiComparisonRow = z.infer<typeof evolutionWiComparisonRowSchema>;
+export type EvolutionWiDimensionVerdictRow = z.infer<typeof evolutionWiDimensionVerdictRowSchema>;
