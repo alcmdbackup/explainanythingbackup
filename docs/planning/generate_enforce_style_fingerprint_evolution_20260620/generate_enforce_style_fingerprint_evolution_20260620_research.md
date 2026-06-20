@@ -105,12 +105,26 @@ The fingerprint must be a **first-class entity**, not a per-run side effect:
 **Surfaces still to confirm:** admin UI for fingerprint CRUD (mirrors strategy/criteria registry pages under `/admin/evolution/*`) — in scope? The issue text implies compute+enforce; CRUD UI may be a follow-on. Flagged in Open Questions.
 
 ## Decisions (confirmed with user 2026-06-20)
-- **Scope:** Evolution pipeline only for v1. Main-app generation is explicitly out of scope (resolves Q7).
-- **Enforcement:** Per-strategy opt-in flag (e.g. `styleFingerprintEnabled`) so there's a clean control arm for the acceptance gate (resolves Q3).
-- **Representation:** Structured JSONB (`{sentenceLength, spellingRegion, signaturePhrases[], tone, …}`) for metrics PLUS a rendered prose block for prompts (resolves Q2).
+
+### Earlier round
+- **Scope:** Evolution pipeline only for v1. Main-app generation is explicitly out of scope.
+- **Enforcement:** Per-strategy opt-in flag (e.g. `styleFingerprintEnabled`) so there's a clean control arm.
+- **Representation:** Structured JSONB (`{sentenceLength, spellingRegion, signaturePhrases[], tone, …}`) for metrics PLUS a rendered prose block for prompts.
+
+### Open-questions walkthrough (all 8 resolved)
+- **Q1 Article identity:** Each set member is EITHER a DB reference (`explanation_id` FK) OR a pasted `article_text` blob. Junction supports both.
+- **Q2 Update strategy:** Full recompute of the fingerprint over the enlarged set on each add (deterministic; no drift). Extraction is CRUD-time, infrequent.
+- **Q3 Run binding:** Run stores `styleFingerprintId` AND a JSONB snapshot of the fingerprint at run start (reproducibility — later edits don't rewrite history).
+- **Q4 Judge wiring:** Fingerprint reaches the judge as runtime context appended to the rubric prompt; one `stylistic_accuracy` criteria row + dimension junction; judge reads the run's snapshot.
+- **Q5 Admin UI:** Full-featured UI in v1 — registry + per-fingerprint detail + article add/remove/reorder + edit + re-extract controls (`/admin/evolution/*`). Largest surface; needs E2E.
+- **Q6 Cost:** Fingerprint-level cost metric (e.g. `total_extraction_cost`, mirroring criteria's `total_evaluation_cost`) via `llmCallTracking` + aggregate. Not rolled into run `seed_cost`.
+- **Q7 No-op:** Fingerprints are authored entities only; a run with none referenced cleanly skips style injection (generation + judging unchanged). No auto-derivation from a run's own seed.
+- **Q8 Acceptance:** Human spot-check only for v1 (no automated gate/held-out eval). The `stylistic_accuracy` rubric dimension still produces a score, but success is judged by eyeballing outputs.
+
+> **Scope note:** Q5 (full UI) materially enlarges v1 — plan should phase it: entity+migration+schema → extraction → generation injection → judging → server actions → admin UI → E2E.
 
 ## Open Questions
-_(Resolved earlier: representation = structured JSONB + prose; enforcement = per-strategy opt-in flag; scope = evolution-only / main-app out. See Decisions.)_
+_ALL RESOLVED — see the "Open-questions walkthrough" under Decisions above. Retained below for the rationale/options behind each resolution._
 
 1. **Article identity — what goes in the set?** Each article in a fingerprint's set is: (a) a reference to an existing `explanations` row (`explanation_id` FK); (b) an arbitrary pasted text blob (`article_text`); or (c) either/both. Affects the junction schema and the CRUD/ingest surface.
 2. **Incremental update strategy.** When an article is added to an existing fingerprint, do we (a) full-recompute the fingerprint over the enlarged set (simple, deterministic, more tokens), or (b) true incremental merge (feed prior fingerprint + new article to the LLM → updated fingerprint; cheaper, but can drift)? Affects extraction prompt design + cost.
