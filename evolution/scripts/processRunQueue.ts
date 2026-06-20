@@ -25,6 +25,18 @@ function parseStringArg(flag: string, defaultVal: string | undefined): string | 
   return process.argv[idx + 1];
 }
 
+// Phase 6: exported for unit tests of the --target-run-id coercion behavior.
+// When targetRunId is set, force single-run single-parallel — a second concurrent
+// claim attempt against the same UUID returns claimed=false and would idle-exit.
+export function resolveRunQueueLimits(
+  targetRunId: string | undefined,
+  rawMaxRuns: number,
+  rawParallel: number,
+): { maxRuns: number; parallel: number } {
+  if (targetRunId) return { maxRuns: 1, parallel: 1 };
+  return { maxRuns: rawMaxRuns, parallel: rawParallel };
+}
+
 // meta_analysis Phase 6: targeted single-run smoke. When set, the runner
 // claims only this run UUID (claim_evolution_run accepts p_run_id). The flag
 // forces PARALLEL=1 and MAX_RUNS=1 — a second concurrent claim against the
