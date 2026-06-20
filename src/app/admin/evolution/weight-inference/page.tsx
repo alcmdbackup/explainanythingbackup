@@ -137,6 +137,9 @@ export default function WeightInferencePage(): JSX.Element {
     }
   };
 
+  const selectedTestSet = testSets.find((t) => t.id === testSetId);
+  const testSetPairs = selectedTestSet ? (pairKind === 'article' ? selectedTestSet.sizeArticle : selectedTestSet.sizeParagraph) : 0;
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
       <EvolutionBreadcrumb items={[{ label: 'Implied Rubric Weights' }]} />
@@ -201,10 +204,12 @@ export default function WeightInferencePage(): JSX.Element {
                 </>
               )}
             </div>
-            <div>
-              <label className={labelCls} htmlFor="wi-pool">Article pool size</label>
-              <input id="wi-pool" type="number" min={2} max={100} className={inputCls} value={sampleSize} onChange={(e) => setSampleSize(Number(e.target.value))} />
-            </div>
+            {sourceKind === 'topic' && (
+              <div>
+                <label className={labelCls} htmlFor="wi-pool">Article pool size</label>
+                <input id="wi-pool" data-testid="wi-pool" type="number" min={2} max={100} className={inputCls} value={sampleSize} onChange={(e) => setSampleSize(Number(e.target.value))} />
+              </div>
+            )}
             <div>
               <label className={labelCls} htmlFor="wi-rep">Reversal audit rate</label>
               <input id="wi-rep" type="number" min={0} max={1} step={0.05} className={inputCls} value={replicationRate} onChange={(e) => setReplicationRate(Number(e.target.value))} />
@@ -297,7 +302,13 @@ export default function WeightInferencePage(): JSX.Element {
               ) : (
                 <> → {preview.comparisons} comparisons (with reversal audit) → {preview.verdicts} total verdicts.</>
               )}
-              <span className="block text-[var(--text-secondary)] mt-1">Rough estimate; refines live{mode === 'auto' ? ' as the run progresses' : ' as you judge'}.</span>
+              <span className="block text-[var(--text-secondary)] mt-1">Recommended for stable weights; refines live{mode === 'auto' ? ' as the run progresses' : ' as you judge'}.</span>
+              {sourceKind === 'test_set' && (
+                <span className="block mt-1" data-testid="wi-testset-size">
+                  Selected test set provides <strong className="text-[var(--text-primary)]">{testSetPairs}</strong> {pairKind} pair{testSetPairs === 1 ? '' : 's'}
+                  {selectedTestSet ? (testSetPairs >= preview.pairs ? ' — at or above the recommendation.' : ' — fewer than recommended; weights will be rougher.') : '.'}
+                </span>
+              )}
             </div>
           )}
 

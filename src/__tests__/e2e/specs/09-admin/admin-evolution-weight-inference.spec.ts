@@ -38,13 +38,16 @@ adminTest.describe('Implied Rubric Weights', { tag: '@evolution' }, () => {
     await expect(adminPage.getByTestId('wi-auto-settings')).toHaveCount(0);
   });
 
-  adminTest('Test-set source reveals the test-set picker + pair-kind toggle', async ({ adminPage }) => {
+  adminTest('Test-set source reveals the picker + pair-kind toggle and hides the pool-size field', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/weight-inference');
-    // topic source by default → topic select visible, test-set picker absent
+    // topic source by default → topic select + pool-size visible, test-set picker absent
     await expect(adminPage.getByTestId('wi-topic')).toBeVisible();
+    await expect(adminPage.getByTestId('wi-pool')).toBeVisible();
     await expect(adminPage.getByTestId('wi-test-set')).toHaveCount(0);
     await adminPage.getByTestId('wi-source-test_set').click();
     await expect(adminPage.getByTestId('wi-test-set')).toBeVisible();
     await expect(adminPage.getByTestId('wi-pair-kind')).toBeVisible();
+    // pool size is a no-op for a test-set source, so it is hidden
+    await expect(adminPage.getByTestId('wi-pool')).toHaveCount(0);
   });
 });
