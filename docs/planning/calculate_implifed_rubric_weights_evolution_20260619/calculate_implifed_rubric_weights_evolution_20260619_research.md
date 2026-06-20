@@ -63,10 +63,12 @@ Inferred weights → write/seed an `evolution_judge_rubrics` + `evolution_judge_
 - **Tie handling:** overall-ties dropped from the fit in v1 (noted as a simplification); verdict enum `('a','b','tie')`.
 - **Rater:** capture `rater_id` (admin id) for future multi-rater; v1 UI is single-user.
 
-### Remaining items for /planning + /plan-review
-- Exact fit method (IRLS vs. regularized GD) + regularization strength + separation guard.
-- "Informative next pair" selection heuristic (active-learning-lite) vs. simple random/uncovered.
-- Whether the fit result is cached on the session row (JSONB snapshot) or always recomputed on read.
+### Remaining items — RESOLVED in /plan-review iteration 1
+- **Fit method:** clamp-and-refit ridge-regularized logistic/BT (committed; softmax rejected — can't yield exact 0). Mandatory non-zero L2 λ + iteration cap + sigmoid/logit clamp + non-identifiable columns pinned to 0.
+- **Next-pair selection:** seeded-random uniform draw of P distinct pairs materialized eagerly at session create (active-learning "informative pair" selection deferred to a future iteration).
+- **Fit caching:** **fit-on-read** (no persisted fit snapshot; the `status` pill is derived from coverage). Recomputed when the Results tab loads.
+- **rater_id:** server-derived from `ctx.adminUserId`, never a client input.
+- **Replica rows:** feed the audit + per-pair confidence only; NOT independent training rows (no double-count).
 
 ## Documents Read
 
