@@ -109,6 +109,41 @@ Three operational health metrics (live during execution, alert thresholds env-tu
 - `EDITING_RANK_ENABLED='false'` — disables the post-cycle ranking step only. Editing still runs and emits final variants, but they land in the pool with default Elo (pre-ranking-project behavior). Default: `'true'`. Use this kill-switch if ranking misbehaves operationally; editing remains functional.
 - `EVOLUTION_DRIFT_RECOVERY_ENABLED='false'` — disables drift recovery. Minor drift is treated as major (cycle aborts).
 
+## Disabling approver filtering (experimental)
+
+Added by `meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616` Phase 6. Mode B (`iterative_editing_rewrite`) only.
+
+Setting `disableApproverFiltering: true` on an `iterative_editing_rewrite` iteration's config skips the post-parse `coalesceAdjacentGroups` + `capGroupsByMagnitude(K=10)` steps. The approver then sees every diff atomic as its own singleton group instead of bundled groups capped at K=10.
+
+**What stays the same in both modes**:
+- `validateEditGroups` still runs: heading-cross, quote-modification, code-fence, list-boundary, paragraph-break, `EDIT_NEWTEXT_LENGTH_CAP=500`, `AGENT_MAX_ATOMIC_EDITS_PER_GROUP=5`, `AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30`, size-ratio guardrail (≤1.5× article growth).
+- The approver's system prompt, output contract, and per-group accept/reject semantics.
+- All Mode A behavior. The field is exclusive to `iterative_editing_rewrite` per a Zod refine; FIELD_GATES strips it pre-hash on any non-rewrite agent type.
+
+**Cost impact**: at `editingProposerSoftCap=8` (range widened from 5 to 10 in this PR) the proposer typically emits 40-60 atomics. Under bypass the per-cycle approver call sees ~30 groups (capped by `AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30`) instead of 10. Approver token cost rises ~10-15% per cycle; per-run cost moves from ~$0.038 → ~$0.041 on `gemini-2.5-flash-lite`.
+
+**When to use**: in controlled A/B experiments comparing per-atomic vs per-bundle approver veto granularity (the Phase 6 use case). Production strategies should leave it `false` (default) until the experiment confirms a positive lift.
+
+**Verifying the shape change via SQL**. The two arms' `execution_detail.cycles[*].proposedGroupsRaw` arrays differ structurally:
+
+```sql
+-- Control arm: ≤10 groups per cycle, some multi-atomic (bundled)
+SELECT i.id,
+       jsonb_array_length(c.cycle->'proposedGroupsRaw')               AS group_count,
+       jsonb_path_query_array(c.cycle->'proposedGroupsRaw',
+                              '$[*].atomicEdits[*]') -> 'atomicEdits' AS atomic_edits
+FROM evolution_agent_invocations i
+JOIN evolution_runs r ON i.run_id = r.id
+CROSS JOIN LATERAL jsonb_array_elements(COALESCE(i.execution_detail->'cycles', '[]'::jsonb)) AS c(cycle)
+WHERE r.strategy_id = '<control_strategy_id>'
+ORDER BY i.id;
+
+-- Treatment arm: >10 groups per cycle, each containing 1 atomic edit (singleton)
+-- Same query, swap the strategy_id for the treatment arm.
+```
+
+Control rows will show `group_count` ≤ 10 with some groups containing 2-5 atomic edits (bundled by `coalesceAdjacentGroups`). Treatment rows show `group_count` up to 30 (capped by `AGENT_MAX_ATOMIC_EDITS_PER_CYCLE`) with each group containing exactly 1 atomic edit (`parseProposedEdits`'s adjacency auto-grouping may produce occasional 2-atomic groups from paired delete+insert pairs, which is expected — see `verifyBundleSplitStage1.ts` for the relaxed `mean atomics/group < 1.5` acceptance criterion).
+
 ## Roadmap (out of scope for v1)
 
 - v1.1: per-cycle invocation timeline UI; OutlineGenerationAgent (generate-mode); MDAST-aware judge format.

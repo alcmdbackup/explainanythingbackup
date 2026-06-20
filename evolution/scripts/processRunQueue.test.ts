@@ -149,6 +149,38 @@ describe('parseIntArg', () => {
   });
 });
 
+// meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6:
+// --target-run-id coercion. claim_evolution_run RPC accepts p_run_id; if two
+// concurrent claim attempts target the same UUID, the second returns
+// claimed=false and the runner idle-exits. Coerce to maxRuns=1 parallel=1 so
+// the single claim always lands on the targeted run.
+describe('resolveRunQueueLimits (Phase 6 --target-run-id coercion)', () => {
+  // Import lazily so the top-level CLI parsing in processRunQueue.ts doesn't
+  // fire on test import.
+  let resolveRunQueueLimits: typeof import('./processRunQueue').resolveRunQueueLimits;
+  beforeAll(async () => {
+    resolveRunQueueLimits = (await import('./processRunQueue')).resolveRunQueueLimits;
+  });
+
+  it('without --target-run-id: keeps explicit --parallel and --max-runs values', () => {
+    expect(resolveRunQueueLimits(undefined, 10, 3)).toEqual({ maxRuns: 10, parallel: 3 });
+  });
+
+  it('with --target-run-id: forces maxRuns=1 and parallel=1', () => {
+    expect(resolveRunQueueLimits('a546b7e9-f066-403d-9589-f5e0d2c9fa4f', 10, 3))
+      .toEqual({ maxRuns: 1, parallel: 1 });
+  });
+
+  it('with --target-run-id: a conflicting --parallel 10 still resolves to 1', () => {
+    expect(resolveRunQueueLimits('a546b7e9-f066-403d-9589-f5e0d2c9fa4f', 50, 10))
+      .toEqual({ maxRuns: 1, parallel: 1 });
+  });
+
+  it('without --target-run-id: defaults (max=10, parallel=1) pass through', () => {
+    expect(resolveRunQueueLimits(undefined, 10, 1)).toEqual({ maxRuns: 10, parallel: 1 });
+  });
+});
+
 describe('parallel execution', () => {
   it('Promise.allSettled handles mixed success/failure', async () => {
     const tasks = [

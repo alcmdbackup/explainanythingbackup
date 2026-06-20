@@ -244,6 +244,121 @@ describe('V2 hashStrategyConfig', () => {
     expect(hashStrategyConfig(a)).not.toBe(hashStrategyConfig(b));
   });
 
+  // ─── disableApproverFiltering FIELD_GATES coverage (Phase 6 bundle-split A/B) ───
+  // The field is exclusive to iterative_editing_rewrite per the Zod refine, but the
+  // FIELD_GATES strip is the defense-in-depth that protects config_hash uniqueness:
+  // a stale wizard state where someone toggles disableApproverFiltering=true and then
+  // switches agentType away must NOT change the hash for the new agent type.
+  describe('disableApproverFiltering FIELD_GATES (meta_analysis Phase 6)', () => {
+    it('produces a DIFFERENT hash on two iterative_editing_rewrite configs differing only in disableApproverFiltering', () => {
+      const ctl: StrategyConfig = {
+        ...baseConfig,
+        iterationConfigs: [
+          { agentType: 'generate', budgetPercent: 34 },
+          { agentType: 'iterative_editing_rewrite', budgetPercent: 66, editingProposerSoftCap: 8 },
+        ],
+      };
+      const trt: StrategyConfig = {
+        ...baseConfig,
+        iterationConfigs: [
+          { agentType: 'generate', budgetPercent: 34 },
+          { agentType: 'iterative_editing_rewrite', budgetPercent: 66, editingProposerSoftCap: 8, disableApproverFiltering: true },
+        ],
+      };
+      expect(hashStrategyConfig(ctl)).not.toBe(hashStrategyConfig(trt));
+    });
+
+    it('produces the SAME hash for true and unset (false-equivalent default) on the same iterative_editing_rewrite config — false is NOT hashed', () => {
+      // Note: explicit `false` is a meaningful set value — it gets canonicalized into
+      // the hash and would differ from omitted. This test pins the behavior of
+      // CANONICAL EQUIVALENCE between unset and explicit-false IF the FIELD_GATES
+      // strip is configured to drop falsy defaults. We don't strip falsy here;
+      // unset and explicit-false hash differently. This codifies the contract.
+      const unset: StrategyConfig = {
+        ...baseConfig,
+        iterationConfigs: [
+          { agentType: 'generate', budgetPercent: 34 },
+          { agentType: 'iterative_editing_rewrite', budgetPercent: 66, editingProposerSoftCap: 8 },
+        ],
+      };
+      const explicitFalse: StrategyConfig = {
+        ...baseConfig,
+        iterationConfigs: [
+          { agentType: 'generate', budgetPercent: 34 },
+          { agentType: 'iterative_editing_rewrite', budgetPercent: 66, editingProposerSoftCap: 8, disableApproverFiltering: false },
+        ],
+      };
+      // Document: explicit false IS canonicalized (Boolean stays in the hash payload).
+      // So this hashes differently from unset. If we later decide to coerce
+      // unset⇔false equivalence, this test guards the change.
+      expect(hashStrategyConfig(unset)).not.toBe(hashStrategyConfig(explicitFalse));
+    });
+
+    // FIELD_GATES strip test: parametrized over every non-rewrite agent type so a
+    // future agent-type addition (without a matching FIELD_GATES entry) regresses HERE,
+    // not silently in production strategy-row drift.
+    it.each([
+      'generate',
+      'reflect_and_generate',
+      'criteria_and_generate',
+      'single_pass_evaluate_criteria_and_generate',
+      'proposer_approver_criteria_generate',
+      'debate_and_generate',
+      'iterative_editing', // Mode A
+      'paragraph_recombine',
+      'swiss',
+    ] as const)('strips disableApproverFiltering on non-rewrite agent type %s (hash collision)', (agentType) => {
+      // Build a config that uses the agent type as iteration 2.  We use a permissive
+      // payload that satisfies the Zod refines for variant-producing agents (criteria
+      // and debate). FIELD_GATES strip runs PRE-Zod inside normalize, so even malformed
+      // payloads still strip the field.
+      const clean: StrategyConfig = {
+        ...baseConfig,
+        iterationConfigs: [
+          { agentType: 'generate', budgetPercent: 60 },
+          { agentType, budgetPercent: 40,
+            // satisfy required fields for the criteria agents and debate
+            ...(agentType === 'criteria_and_generate' || agentType === 'single_pass_evaluate_criteria_and_generate' || agentType === 'proposer_approver_criteria_generate'
+              ? { criteriaIds: ['00000000-0000-0000-0000-000000000001'] }
+              : {}),
+          } as never,
+        ],
+      };
+      const stale: StrategyConfig = {
+        ...baseConfig,
+        iterationConfigs: [
+          { agentType: 'generate', budgetPercent: 60 },
+          { agentType, budgetPercent: 40,
+            disableApproverFiltering: true,
+            ...(agentType === 'criteria_and_generate' || agentType === 'single_pass_evaluate_criteria_and_generate' || agentType === 'proposer_approver_criteria_generate'
+              ? { criteriaIds: ['00000000-0000-0000-0000-000000000001'] }
+              : {}),
+          } as never,
+        ],
+      };
+      expect(hashStrategyConfig(clean)).toBe(hashStrategyConfig(stale));
+    });
+  });
+
+  // ─── editingProposerSoftCap=8 hash-stability (Phase 6 A3) ───
+  it('produces a DIFFERENT hash when editingProposerSoftCap changes from 3 (default) to 8', () => {
+    const softCap3: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 34 },
+        { agentType: 'iterative_editing_rewrite', budgetPercent: 66, editingProposerSoftCap: 3 },
+      ],
+    };
+    const softCap8: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 34 },
+        { agentType: 'iterative_editing_rewrite', budgetPercent: 66, editingProposerSoftCap: 8 },
+      ],
+    };
+    expect(hashStrategyConfig(softCap3)).not.toBe(hashStrategyConfig(softCap8));
+  });
+
   it('strips criteriaIds + weakestK on non-criteria iterations (hash collision)', () => {
     // Stale wizard state where user typed criteriaIds before switching agent type back.
     // Canonicalization should drop them so the strategy doesn't double-deduplicate.

@@ -689,8 +689,22 @@ export const iterationConfigSchema = z.object({
   editingEligibilityCutoff: qualityCutoffSchema.optional(),
   /** Mode B (iterative_editing_rewrite) only: soft-cap on the number of edits the
    *  proposer is asked to suggest per cycle. Surfaces in the prompt as a phrase
-   *  ("at most N changes") — not enforced at parse time. Default 3. */
-  editingProposerSoftCap: z.number().int().min(1).max(5).optional(),
+   *  ("at most N changes") — not enforced at parse time. Default 3.
+   *  Range widened to 10 (was 5) by the disableApproverFiltering A/B experiment
+   *  (meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6 A3):
+   *  the experiment runs both arms at softCap=8 so the K=10 magnitude cap in the
+   *  Control arm actually fires. */
+  editingProposerSoftCap: z.number().int().min(1).max(10).optional(),
+  /** Mode B (iterative_editing_rewrite) only: when true, IterativeEditingAgent
+   *  skips the post-parse coalesceAdjacentGroups + capGroupsByMagnitude steps,
+   *  so the approver sees every diff atomic as its own singleton group instead
+   *  of bundled groups capped at K=10. Hard validation rules (no heading mods,
+   *  no quote edits, code-fence guards, AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30,
+   *  EDIT_NEWTEXT_LENGTH_CAP=500) still run via validateEditGroups.
+   *  Default false (production behavior unchanged). Added by the
+   *  meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6
+   *  bundle-split A/B experiment. */
+  disableApproverFiltering: z.boolean().optional(),
   /** Criteria UUIDs evaluated by the EvaluateCriteriaThenGenerateFromPreviousArticleAgent.
    *  Required + non-empty when agentType === 'criteria_and_generate'. Mutually exclusive
    *  with generationGuidance (criteria drive the prompt directly). */
@@ -792,6 +806,12 @@ export const iterationConfigSchema = z.object({
   // editingProposerSoftCap is exclusive to Mode B (iterative_editing_rewrite).
   (c) => c.agentType === 'iterative_editing_rewrite' || c.editingProposerSoftCap === undefined,
   { message: 'editingProposerSoftCap only valid when agentType is iterative_editing_rewrite' },
+).refine(
+  // disableApproverFiltering is exclusive to Mode B (iterative_editing_rewrite).
+  // Mode A (iterative_editing) uses a different proposer/diff architecture; bypassing
+  // its filters is out of scope for the bundle-split experiment that introduces this field.
+  (c) => c.agentType === 'iterative_editing_rewrite' || c.disableApproverFiltering === undefined,
+  { message: 'disableApproverFiltering only valid when agentType is iterative_editing_rewrite', path: ['disableApproverFiltering'] },
 ).refine(
   // proposer_approver_criteria_generate is single-cycle by definition: editingMaxCycles must be 1 if present.
   (c) => c.agentType !== 'proposer_approver_criteria_generate' || c.editingMaxCycles === undefined || c.editingMaxCycles === 1,

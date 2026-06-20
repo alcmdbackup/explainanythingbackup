@@ -288,6 +288,79 @@ describe('IterativeEditingAgent', () => {
     expect(result.result.finalVariant?.parentIds).toEqual(['p1']);
   });
 
+  // ─── Phase 6 — disableApproverFiltering bypass conditional (Mode A defense-in-depth) ────
+  // The bypass conditional at IterativeEditingAgent.ts:304-310 reads
+  //   `if (isRewriteMode && !iterCfg?.disableApproverFiltering)`
+  // For Mode A invocations (IterativeEditingAgent directly), isRewriteMode=false so
+  // the gate's whole if-block is skipped regardless of the flag. These tests pin that
+  // structural invariant: a Mode A iteration with the flag set produces output
+  // BYTE-IDENTICAL to a Mode A iteration without the flag set. This protects against
+  // a future refactor that accidentally lifts the bypass out of the isRewriteMode gate.
+  describe('disableApproverFiltering: Mode A defense-in-depth (Phase 6)', () => {
+    it('Mode A with disableApproverFiltering=true ignores the flag (structurally gated by isRewriteMode=false)', async () => {
+      const source = 'Hello world.';
+      const proposedMarkup = 'Hello {~~ [#1] world ~> Earth ~~}.';
+      const approverResponse = JSON.stringify({ groupNumber: 1, decision: 'accept', reason: 'better' });
+      const llm = makeMockLlm([
+        { label: 'iterative_edit_propose', response: proposedMarkup },
+        { label: 'iterative_edit_review', response: approverResponse },
+        { label: 'iterative_edit_propose', response: 'Hello Earth.' },
+      ]);
+      const agent = new IterativeEditingAgent();
+      const ctx = makeCtx({ llm });
+      // Set the flag on the iteration config. For Mode A this is a Zod refine
+      // violation at the schema level, but the agent must STILL behave correctly
+      // if a malformed config somehow slips through (defense in depth).
+      (ctx.config as { iterationConfigs: Array<{ agentType: string; disableApproverFiltering?: boolean }> })
+        .iterationConfigs[0]!.disableApproverFiltering = true;
+      const result = await agent.execute(
+        { parent: variant('p1', source), perInvocationBudgetUsd: 1.0, llm } as unknown as Parameters<typeof agent.execute>[0],
+        ctx,
+      );
+      // Mode A path: emits the accepted variant exactly like without the flag.
+      expect(result.result.finalVariant?.text).toBe('Hello Earth.');
+      expect(result.result.surfaced).toBe(true);
+    });
+
+    it('Mode A with disableApproverFiltering=false produces the same output as undefined/unset (regression baseline)', async () => {
+      const source = 'Hello world.';
+      const proposedMarkup = 'Hello {~~ [#1] world ~> Earth ~~}.';
+      const approverResponse = JSON.stringify({ groupNumber: 1, decision: 'accept', reason: 'better' });
+      const llm = makeMockLlm([
+        { label: 'iterative_edit_propose', response: proposedMarkup },
+        { label: 'iterative_edit_review', response: approverResponse },
+        { label: 'iterative_edit_propose', response: 'Hello Earth.' },
+      ]);
+      const agent = new IterativeEditingAgent();
+      const ctx = makeCtx({ llm });
+      (ctx.config as { iterationConfigs: Array<{ agentType: string; disableApproverFiltering?: boolean }> })
+        .iterationConfigs[0]!.disableApproverFiltering = false;
+      const result = await agent.execute(
+        { parent: variant('p1', source), perInvocationBudgetUsd: 1.0, llm } as unknown as Parameters<typeof agent.execute>[0],
+        ctx,
+      );
+      expect(result.result.finalVariant?.text).toBe('Hello Earth.');
+      expect(result.result.surfaced).toBe(true);
+    });
+
+    it('iterCfg type accepts the new disableApproverFiltering field (TS compile-time guard via inline type at L160)', () => {
+      // This test exists to document the TS-side invariant: the inline structural
+      // type at IterativeEditingAgent.ts:160 was extended in this PR to include
+      // `disableApproverFiltering?: boolean`. If the field is removed from that
+      // type, the bypass conditional at L304-310 stops compiling and this test
+      // file fails at the TS level (not at runtime).
+      const ctx = makeCtx({ llm: makeMockLlm([]) });
+      const iterCfg = (ctx.config as {
+        iterationConfigs?: Array<{ agentType?: string; editingMaxCycles?: number; editingProposerSoftCap?: number; disableApproverFiltering?: boolean }>;
+      }).iterationConfigs?.[0];
+      expect(iterCfg).toBeDefined();
+      // The shape compiles — the field is reachable. Set it to assert no runtime
+      // surprise.
+      if (iterCfg) iterCfg.disableApproverFiltering = true;
+      expect(iterCfg?.disableApproverFiltering).toBe(true);
+    });
+  });
+
   // ─── Phase 2.7 — Ranking integration tests ─────────────────────────────────────
   // Tests for the post-cycle ranking step. Mocks compareWithBiasMitigation to
   // produce deterministic judge verdicts (mirrors GFPA test's queue-driven mock).
