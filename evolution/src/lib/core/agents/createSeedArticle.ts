@@ -125,8 +125,14 @@ export class CreateSeedArticleAgent extends Agent<
     } catch (err) {
       const generationCost = currentSpent() - costBeforeGen;
       const detail = makeGenerationErrorDetail(err, generationCost);
-      const status = err instanceof BudgetExceededError ? 'budget' : 'generation_failed';
-      return { result: { variant: null, status, surfaced: false, matches: [] }, detail };
+      const isBudget = err instanceof BudgetExceededError;
+      const status = isBudget ? 'budget' : 'generation_failed';
+      return {
+        result: { variant: null, status, surfaced: false, matches: [] },
+        detail,
+        // D1: seed-title LLM hard error is fatal (no variant). Budget is a boundary, not a fail.
+        ...(isBudget ? {} : { failure: { code: 'seed_title_failed', message: (err instanceof Error ? err.message : String(err)).slice(0, 500) } }),
+      };
     }
 
     // Step 1b: generate article body
@@ -140,8 +146,14 @@ export class CreateSeedArticleAgent extends Agent<
     } catch (err) {
       const generationCost = currentSpent() - costBeforeGen;
       const detail = makeGenerationErrorDetail(err, generationCost, { titleLength: title.length });
-      const status = err instanceof BudgetExceededError ? 'budget' : 'generation_failed';
-      return { result: { variant: null, status, surfaced: false, matches: [] }, detail };
+      const isBudget = err instanceof BudgetExceededError;
+      const status = isBudget ? 'budget' : 'generation_failed';
+      return {
+        result: { variant: null, status, surfaced: false, matches: [] },
+        detail,
+        // D1: seed-article LLM hard error is fatal (no variant). Budget is a boundary, not a fail.
+        ...(isBudget ? {} : { failure: { code: 'seed_article_failed', message: (err instanceof Error ? err.message : String(err)).slice(0, 500) } }),
+      };
     }
 
     // Strip ALL leading H1s from the LLM output before prepending our title.

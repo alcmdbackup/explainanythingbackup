@@ -1,7 +1,7 @@
 // E2E tests for paragraph_recombine invocation detail UI.
 // Per Phase 7 of rank_individual_paragraphs_evolution_20260525.
 //
-// COVERAGE (9 cases):
+// COVERAGE (13 cases):
 //   - 5-tab layout (Slots / Recombined / Metrics / Timeline / Logs)
 //   - SlotsTab left pane: N slot rows with P-label + winner summary
 //   - SlotsTab right pane: embedded ArenaLeaderboardTable with rows
@@ -11,6 +11,9 @@
 //   - Format-validation banner surfaces when validateFormat rejects
 //   - Timeline tab: bespoke ParagraphRecombineTimeline with cyan rewrite + deep-cyan rank
 //   - Slot abort badge (red) for slot_budget self-aborts
+//   - Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612):
+//     coordinator plan summary strip, per-variation directive sub-row, partial-failure
+//     banner, and timeline mode label flip from "in parallel" to "sequentially"
 //
 // Uses createParagraphRecombineFixture to seed all DB rows directly (no pipeline
 // orchestrator + LLM provider needed). Tag @evolution so it runs only in the
@@ -28,17 +31,34 @@ adminTest.describe('Evolution Paragraph Recombine Invocation Detail', { tag: '@e
   let standardFixture: ParagraphRecombineFixture;
   let abortFixture: ParagraphRecombineFixture;
   let badFormatFixture: ParagraphRecombineFixture;
+  // Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612):
+  // separate fixtures so legacy parallel-path tests are unaffected by the coordinatorPlan block.
+  let sequentialFixture: ParagraphRecombineFixture;
+  let partialAbortFixture: ParagraphRecombineFixture;
 
   adminTest.beforeAll(async () => {
     standardFixture = await createParagraphRecombineFixture({ slotCount: 3, rewritesPerSlot: 3 });
     abortFixture = await createParagraphRecombineFixture({ slotCount: 3, rewritesPerSlot: 3, forceSlotAbort: true });
     badFormatFixture = await createParagraphRecombineFixture({ slotCount: 2, rewritesPerSlot: 2, forceFormatRejection: true });
+    sequentialFixture = await createParagraphRecombineFixture({
+      slotCount: 3,
+      rewritesPerSlot: 3,
+      withSequentialCoordinatorDetail: true,
+    });
+    partialAbortFixture = await createParagraphRecombineFixture({
+      slotCount: 4,
+      rewritesPerSlot: 2,
+      withSequentialCoordinatorDetail: true,
+      forcePartialAbort: 2,
+    });
   });
 
   adminTest.afterAll(async () => {
     await standardFixture.cleanup();
     await abortFixture.cleanup();
     await badFormatFixture.cleanup();
+    await sequentialFixture.cleanup();
+    await partialAbortFixture.cleanup();
   });
 
   adminTest('renders the 5-tab layout (Slots/Recombined/Metrics/Timeline/Logs)', async ({ adminPage }) => {
@@ -134,6 +154,40 @@ adminTest.describe('Evolution Paragraph Recombine Invocation Detail', { tag: '@e
     // forceSlotAbort makes the last slot self-abort; expect its row to contain the summary.
     const lastSlotIdx = 2;
     await expect(adminPage.locator(`[data-testid="subagent-row-slot.${lastSlotIdx}"]`)).toContainText('self-aborted', { timeout: 15000 });
+  });
+
+  // Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612):
+  // 4 cases covering the coordinator plan summary strip, per-variation directive sub-row,
+  // partial-failure banner, and timeline mode label flip.
+  adminTest('Sequential: SlotsTab renders the coordinator plan summary strip in the left pane', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${sequentialFixture.invocationId}`);
+    await adminPage.locator('[data-testid="paragraph-slots-tab"]').waitFor({ timeout: 15000 });
+    await expect(adminPage.locator('[data-testid="coordinator-plan-summary"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="coordinator-plan-summary"]')).toContainText('Coordinator plan');
+    await expect(adminPage.locator('[data-testid="coordinator-plan-summary"]')).toContainText('paragraph');
+  });
+
+  adminTest('Sequential: SlotsTab right pane shows per-variation coordinator directives sub-row', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${sequentialFixture.invocationId}`);
+    await adminPage.locator('[data-testid="paragraph-slots-tab"]').waitFor({ timeout: 15000 });
+    await expect(adminPage.locator('[data-testid="coordinator-directives-sub-row"]')).toBeVisible();
+    // Open the <details> to reveal directives.
+    await adminPage.locator('[data-testid="coordinator-directives-sub-row"] summary').click();
+    await expect(adminPage.locator('[data-testid="coordinator-directives-sub-row"]')).toContainText(/V0|V1/);
+  });
+
+  adminTest('Sequential: partial-failure banner surfaces when execution_detail.partialAt is set', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${partialAbortFixture.invocationId}`);
+    await expect(adminPage.locator('[data-testid="partial-failure-banner"]')).toBeVisible({ timeout: 15000 });
+    await expect(adminPage.locator('[data-testid="partial-failure-banner"]')).toContainText('Partial completion');
+    await expect(adminPage.locator('[data-testid="partial-failure-banner"]')).toContainText('paragraph index 2');
+  });
+
+  adminTest('Sequential: Timeline tab labels execution as sequential (not parallel) when coordinator plan present', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${sequentialFixture.invocationId}`);
+    await adminPage.locator('[role="tab"]:has-text("Timeline")').click();
+    await expect(adminPage.locator('[data-testid="timeline-paragraph-recombine"]')).toBeVisible({ timeout: 10000 });
+    await expect(adminPage.locator('[data-testid="timeline-paragraph-recombine"]')).toContainText(/sequentially/);
   });
 
   adminTest('default active tab remains "Paragraph Slots" for paragraph_recombine invocations (R1 UX pin)', async ({ adminPage }) => {

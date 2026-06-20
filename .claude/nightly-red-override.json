@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "branch": "deploy/main-to-production-jun19",
+  "commit": "5fae4466d36b66839bd6692ab91bdbbfa30ff88a",
+  "reason": "OpenAI ops issue confirmed not code regression: 9 prior nights green; e2e-real-ai-smoke (OpenRouter gemini-2.5-flash) was green at 08:22 UTC same moment as the failure; public failures are 'Error communicating with AI service' on live prod and evolution failures are run-pipeline+iterative-editing runs ending status=failed (exact match for saved-memory project_evolution_e2e_openai_quota.md ops pattern); release PR CI uses local build with E2E_TEST_MODE mocking AI so promotion is decoupled from OpenAI quota.",
+  "approved_at": "2026-06-20T03:05:00+00:00",
+  "approved_by": "abel@minddojo.org",
+  "context": {
+    "nightly_run_id": 27813251064,
+    "nightly_conclusion": "failure"
+  }
+}

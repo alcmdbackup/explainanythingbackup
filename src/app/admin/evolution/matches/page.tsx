@@ -68,6 +68,12 @@ const COLUMNS: ColumnDef<MatchListItem>[] = [
       ? <span className="text-xs px-1.5 py-0.5 rounded-page bg-[var(--accent-gold)] text-[var(--text-on-primary)]">yes</span>
       : <span className="text-xs text-[var(--text-muted)]">—</span>,
   },
+  {
+    key: 'is_escalation', header: 'Chain', skipLink: true,
+    render: (m) => m.is_escalation
+      ? <span data-testid="escalation-badge" className="text-xs px-1.5 py-0.5 rounded-page bg-[var(--status-warning)] text-[var(--text-on-primary)]" title={`Ensemble chain depth ${m.chain_depth ?? '?'}`}>chain{m.chain_depth ? ` ×${m.chain_depth}` : ''}</span>
+      : <span className="text-xs text-[var(--text-muted)]">—</span>,
+  },
   { key: 'created_at', header: 'Created', skipLink: true, render: (m) => formatDate(m.created_at) },
   {
     key: 'run_id', header: 'Run', skipLink: true,

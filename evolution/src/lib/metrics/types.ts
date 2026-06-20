@@ -91,6 +91,13 @@ export const STATIC_METRIC_NAMES = [
   // per-phase estimation-error rollups for paragraph_recombine.
   'paragraph_rewrite_estimation_error_pct', 'paragraph_rank_estimation_error_pct',
   'avg_paragraph_rewrite_estimation_error_pct', 'avg_paragraph_rank_estimation_error_pct',
+  // Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612).
+  'coordinator_retry_rate', 'coordinator_failure_rate', 'excessive_parent_fallback_abort_rate',
+  'parent_fallback_rate',
+  'prior_picks_sanitization_count', 'prior_picks_truncation_count',
+  'avg_coordinator_retry_rate', 'avg_coordinator_failure_rate', 'avg_excessive_parent_fallback_abort_rate',
+  'avg_parent_fallback_rate',
+  'total_prior_picks_sanitization_count', 'total_prior_picks_truncation_count',
   'avg_final_elo', 'best_final_elo', 'worst_final_elo',
   'avg_median_elo', 'avg_p90_elo', 'best_max_elo',
   'avg_matches_per_run', 'avg_decisive_rate',

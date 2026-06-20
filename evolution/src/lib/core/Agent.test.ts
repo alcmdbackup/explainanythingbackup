@@ -135,6 +135,50 @@ describe('Agent abstract class', () => {
     });
   });
 
+  describe('run() - D1: output.failure on a schema-valid detail', () => {
+    it('marks success=false + sets error_message from failure while KEEPING execution_detail', async () => {
+      const agent = new TestAgent(async () => ({
+        result: 'no-variant',
+        detail: { detailType: 'test', totalCost: 0 }, // schema-VALID
+        failure: { code: 'generation_failed', message: 'LLM call hard-failed' },
+      }));
+      const ctx = createMockContext();
+
+      const result = await agent.run('hello', ctx);
+
+      // D1: failure forces success=false even though the detail passed schema validation.
+      expect(result.success).toBe(false);
+      expect(updateInvocation).toHaveBeenCalledWith(
+        ctx.db, 'inv-123', expect.objectContaining({
+          success: false,
+          // execution_detail is gated on schema validity ONLY — still persisted (partial-detail invariant).
+          execution_detail: { detailType: 'test', totalCost: 0 },
+          error_message: 'generation_failed: LLM call hard-failed',
+        }),
+      );
+    });
+
+    it('detail-schema validity still takes precedence in error_message when BOTH fail', async () => {
+      const agent = new TestAgent(async () => ({
+        result: 'x',
+        detail: { detailType: 'wrong', totalCost: 'nan' } as unknown as TestDetail, // schema-INVALID
+        failure: { code: 'generation_failed', message: 'also failed' },
+      }));
+      const ctx = createMockContext();
+
+      const result = await agent.run('hello', ctx);
+
+      expect(result.success).toBe(false);
+      expect(updateInvocation).toHaveBeenCalledWith(
+        ctx.db, 'inv-123', expect.objectContaining({
+          success: false,
+          execution_detail: undefined,
+          error_message: expect.stringContaining('detail_invalid:'),
+        }),
+      );
+    });
+  });
+
   describe('run() - BudgetExceededError', () => {
     it('returns budget exceeded without re-throwing', async () => {
       const agent = new TestAgent(async () => {

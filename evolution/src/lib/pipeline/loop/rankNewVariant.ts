@@ -32,6 +32,24 @@ export interface RankNewVariantInput {
   // `getOwnSpent` exists at call time. The net effect: `getTotalSpent()` is no longer
   // used as a fallback — a missing getOwnSpent fails loudly with a dev-time error.
   costTracker: V2CostTracker & { getOwnSpent?: () => number };
+  /** Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612):
+   *  when provided AND config.comparisonMode === 'paragraph', the judge prompt interpolates
+   *  a PRIOR CONTEXT block with these previously-chosen paragraphs. Lets the judge pick the
+   *  variation that fits best given prior picks, not just the best in isolation. Ignored
+   *  for article-mode comparisons. */
+  priorPicks?: readonly string[];
+  /** investigate_sequential_paragraph_recombine_performance_20260615 Phase 1c-i (Fix 4):
+   *  forward parent context — paragraphs N+1..K of the parent article that come AFTER
+   *  the current slot. Lets the judge score "does this candidate hand off cleanly into
+   *  the article's continuation?" without article-level rerunning. Threaded all the way
+   *  to buildComparisonPrompt + buildRubricComparisonPrompt. Ignored for article mode. */
+  nextContext?: readonly string[];
+  /** Phase 4a-2: parent's slot-N text (the seed both candidates rewrite). Threaded
+   *  into the judge prompt so the "Net informational contribution" criterion +
+   *  "Original Paragraph" block can render. Removes the Case-A/Case-B asymmetry
+   *  where the criterion only had a reference when one candidate happened to be
+   *  the seed. Sanitized at the call site (sequentialExecute). */
+  originalParagraph?: string;
 }
 
 export interface RankNewVariantResult {
@@ -62,6 +80,9 @@ export async function rankNewVariant({
   invocationId,
   logger,
   costTracker,
+  priorPicks,
+  nextContext,
+  originalParagraph,
 }: RankNewVariantInput): Promise<RankNewVariantResult> {
   localPool.push(variant);
   localRatings.set(variant.id, createRating());
@@ -85,6 +106,9 @@ export async function rankNewVariant({
     config,
     invocationId,
     logger,
+    ...(priorPicks !== undefined && { priorPicks }),
+    ...(nextContext !== undefined && { nextContext }),
+    ...(originalParagraph !== undefined && { originalParagraph }),
   });
 
   const rankingCost = getOwn() - costBeforeRank;

@@ -261,6 +261,56 @@ describe('llms', () => {
       expect(req.response_format).toEqual({ type: 'json_object' });
     });
 
+    // D5 (fix_structured_judging_evolution_bugs): evolution-scoped max_tokens cap.
+    describe('maxOutputTokens cap (D5)', () => {
+      const UID = '00000000-0000-4000-8000-000000000001';
+      const okResponse = {
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
+        model: 'gpt-4.1-mini',
+      };
+
+      it('sets max_tokens for a NON-reasoning model when maxOutputTokens is provided', async () => {
+        mockCreateSpy.mockResolvedValueOnce(okResponse);
+        await callLLM('p', 'test_source', UID, 'gpt-4.1-mini', false, null, null, null, false, { maxOutputTokens: 4096 });
+        expect(mockCreateSpy.mock.calls[0]![0].max_tokens).toBe(4096);
+      });
+
+      it('OMITS max_tokens for a REASONING model even when maxOutputTokens is provided (exemption)', async () => {
+        mockCreateSpy.mockResolvedValueOnce({ ...okResponse, model: 'o3-mini' });
+        await callLLM('p', 'test_source', UID, 'o3-mini', false, null, null, null, false, { maxOutputTokens: 4096 });
+        expect(mockCreateSpy.mock.calls[0]![0]).not.toHaveProperty('max_tokens');
+      });
+
+      it('OMITS max_tokens when the option is not provided (main-app callers unaffected)', async () => {
+        mockCreateSpy.mockResolvedValueOnce(okResponse);
+        await callLLM('p', 'test_source', UID, 'gpt-4.1-mini', false, null, null, null, false);
+        expect(mockCreateSpy.mock.calls[0]![0]).not.toHaveProperty('max_tokens');
+      });
+
+      it('THROWS when WE capped and the provider truncated (finish_reason=length)', async () => {
+        mockCreateSpy.mockResolvedValueOnce({
+          choices: [{ message: { content: 'partial' }, finish_reason: 'length' }],
+          usage: { prompt_tokens: 5, completion_tokens: 4096, total_tokens: 4101 },
+          model: 'gpt-4.1-mini',
+        });
+        await expect(
+          callLLM('p', 'test_source', UID, 'gpt-4.1-mini', false, null, null, null, false, { maxOutputTokens: 4096 }),
+        ).rejects.toThrow(/truncated at max_tokens/);
+      });
+
+      it('does NOT throw on finish_reason=length when WE did not cap (main-app path)', async () => {
+        mockCreateSpy.mockResolvedValueOnce({
+          choices: [{ message: { content: 'long' }, finish_reason: 'length' }],
+          usage: { prompt_tokens: 5, completion_tokens: 9, total_tokens: 14 },
+          model: 'gpt-4.1-mini',
+        });
+        await expect(
+          callLLM('p', 'test_source', UID, 'gpt-4.1-mini', false, null, null, null, false),
+        ).resolves.toBe('long');
+      });
+    });
+
     it('should validate model parameter', async () => {
       await expect(
         callLLM(

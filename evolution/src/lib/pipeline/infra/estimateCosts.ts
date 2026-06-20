@@ -593,6 +593,21 @@ const PARAGRAPH_REWRITE_OUTPUT_CHARS = 1000;
  * @param rewriteModel LLM model for per-paragraph rewrite calls (falls back to generation model).
  * @param judgeModel LLM model for per-slot ranking judge calls.
  */
+/** Coordinator prompt overhead (rough): ~1.5K chars for the structured instructions +
+ *  per-paragraph guidance examples. The parent article is the dominant input. */
+const COORDINATOR_PROMPT_OVERHEAD = 1500;
+/** Per-paragraph output chars in the coordinator's JSON plan. Roughly 350 chars per
+ *  paragraph (directive + temperature + rationale + role + M + index + nesting). */
+const COORDINATOR_OUTPUT_CHARS_PER_PARAGRAPH = 350;
+/** Phase 4d / replan-aware coordinator projection: today's projector models 1
+ *  coordinator call (initial). Production fires up to 2 (initial + Phase 2 replan).
+ *  With flash-lite at $0.0006/call the gap is invisible; with Sonnet at $0.021/call
+ *  the gap is $0.021 the wizard hides — visible understatement on premium tier.
+ *  COORDINATOR_REPLAN_RATE_DEFAULT picks an observed fire-rate so total coordinator
+ *  cost ≈ (1 + replanRate) × singleCallCost. 0.65 derived from staging observation
+ *  of post-PR-#1221 runs; revisit when calibration accumulates. */
+const COORDINATOR_REPLAN_RATE_DEFAULT = 0.65;
+
 export function estimateParagraphRecombineCost(
   parentArticleChars: number,
   paragraphCount: number,
@@ -600,24 +615,33 @@ export function estimateParagraphRecombineCost(
   maxComparisonsPerParagraph: number,
   rewriteModel: string,
   judgeModel: string,
+  /** Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612):
+   *  when `sequentialEnabled: true`, the projector adds a `coordinatorCost` phase + models
+   *  triangular prior-picks growth on rewrite + rank phases. When omitted or false, the
+   *  projection collapses to the legacy parallel 2-phase shape (coordinatorCost === 0).
+   *  Pass an EXPLICIT param (not env.read) so wizard projection mirrors runtime even when
+   *  the projector is invoked client-side. Callers resolve env at their boundary.
+   *
+   *  Phase 4d adds `coordinatorModel`: when set, the coordinator-phase calibration row
+   *  AND pricing both use this model instead of `rewriteModel`. Falls back to rewriteModel
+   *  when omitted — byte-identical pre-Phase-4d projection. */
+  opts?: { sequentialEnabled?: boolean; coordinatorModel?: string },
 ): {
   expected: number;
   upperBound: number;
-  /** Per-phase split (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 G4).
-   *  Total rewrite cost = N × M × per-rewrite. Total rank cost = N × M × per-slot-rank.
-   *  Sum equals `expected`. Persisted into `execution_detail.paragraph_rewrite.estimatedCost`
-   *  and `execution_detail.paragraph_rank.estimatedCost` for per-phase projector-vs-actual
-   *  visibility on the run/strategy/experiment level metric family. */
   perPhase: {
     paragraphRewriteCost: number;
     paragraphRankCost: number;
+    coordinatorCost: number;
   };
 } {
   if (paragraphCount <= 0 || rewritesPerParagraph <= 0) {
-    return { expected: 0, upperBound: 0, perPhase: { paragraphRewriteCost: 0, paragraphRankCost: 0 } };
+    return { expected: 0, upperBound: 0, perPhase: { paragraphRewriteCost: 0, paragraphRankCost: 0, coordinatorCost: 0 } };
   }
 
-  // Per-paragraph rewrite cost.
+  const sequentialEnabled = opts?.sequentialEnabled === true;
+
+  // Per-paragraph rewrite cost (base).
   const rewritePricing = getModelPricing(rewriteModel);
   const avgParagraphChars = Math.max(parentArticleChars / paragraphCount, 100);
   const rewriteInputChars = avgParagraphChars + PARAGRAPH_REWRITE_PROMPT_OVERHEAD;
@@ -625,30 +649,90 @@ export function estimateParagraphRecombineCost(
   const rewriteOutputChars = calibratedRewrite?.avgOutputChars ?? PARAGRAPH_REWRITE_OUTPUT_CHARS;
   const costPerRewrite = calculateCost(rewriteInputChars, rewriteOutputChars, rewritePricing);
 
-  // Total rewrite cost: N paragraphs × M rewrites each.
-  const totalRewriteCost = paragraphCount * rewritesPerParagraph * costPerRewrite;
+  let totalRewriteCost: number;
+  let totalRankCost: number;
 
-  // Per-slot ranking cost: each slot has M+1 candidates (M rewrites + 1 original);
-  // binary-search ranking goes through ~maxComparisonsPerParagraph comparisons per
-  // candidate, each comparison is 2 LLM calls (bias-mitigation reversal).
-  // Use estimateRankingCost with paragraph-sized articleChars.
-  // Approximation: pool size per slot = rewrites + 1 (original).
-  const slotPoolSize = rewritesPerParagraph + 1;
-  const perSlotRankCost = estimateRankingCost(
-    avgParagraphChars,
-    judgeModel,
-    slotPoolSize,
-    maxComparisonsPerParagraph,
-  );
-  // Per-slot ranks all M new candidates (originals don't need re-ranking).
-  const totalRankCost = paragraphCount * rewritesPerParagraph * perSlotRankCost;
+  if (sequentialEnabled) {
+    // Sequential path: round i's M rewrite calls each see priorPicks (capped at
+    // MAX_PRIOR_PARAGRAPHS_FOR_CONTEXT = 6) AND nextContext (unbounded since
+    // Phase 4e.A1: rewriter sees ALL upcoming parent paragraphs). The judge in
+    // its hardcoded path also has unbounded NEXT now (Phase 4e.A0).
+    //
+    // Per-round extra chars contributed by context blocks:
+    //   priorPicks(i)   = min(i, PRIOR_CAP) × ppc
+    //   nextContext(i)  = (N - 1 - i) × ppc       // 4e.A1: no cap
+    // Sum over i = 0..N-1 is computed explicitly via a small loop (closed-form
+    // exists but the loop is clearer for N ≤ ~30 which covers production article
+    // sizes; cost is O(N) one-time per projection).
+    const N = paragraphCount;
+    const M = rewritesPerParagraph;
+    const ppc = avgParagraphChars;
+    const PRIOR_CAP = 6; // mirrors MAX_PRIOR_PARAGRAPHS_FOR_CONTEXT in buildSequentialRewritePrompt.ts
+    let contextExtraCharsSum = 0;
+    for (let i = 0; i < N; i += 1) {
+      contextExtraCharsSum += Math.min(i, PRIOR_CAP) * ppc;       // priorPicks (capped)
+      contextExtraCharsSum += (N - 1 - i) * ppc;                  // nextContext (unbounded)
+    }
+    const baseInput = rewriteInputChars;
+    const triangularInputSum = N * baseInput + contextExtraCharsSum;
+    const avgPerRoundInputChars = triangularInputSum / N;
+    const scaledRewriteCost = costPerRewrite * (avgPerRoundInputChars / baseInput);
+    totalRewriteCost = N * M * scaledRewriteCost;
 
-  const expected = totalRewriteCost + totalRankCost;
+    // Rank phase: each comparison's input includes the same priorPicks (capped)
+    // + nextContext (unbounded since Phase 4e.A0) blocks the rewriter sees,
+    // alongside the two paragraph candidates. Reuse contextExtraCharsSum for
+    // parity with the rewriter projection.
+    const slotPoolSize = M + 1;
+    const baseRankInput = avgParagraphChars * 2 + 800; // COMPARISON_PROMPT_OVERHEAD-ish
+    const triangularRankInputSum = N * baseRankInput + contextExtraCharsSum;
+    const avgPerRoundRankInputChars = triangularRankInputSum / N;
+    const baseRankCost = estimateRankingCost(avgParagraphChars, judgeModel, slotPoolSize, maxComparisonsPerParagraph);
+    const scaledRankCost = baseRankCost * (avgPerRoundRankInputChars / baseRankInput);
+    totalRankCost = N * scaledRankCost;
+  } else {
+    // Legacy parallel path: no PRIOR CONTEXT, no triangular growth.
+    totalRewriteCost = paragraphCount * rewritesPerParagraph * costPerRewrite;
+    const slotPoolSize = rewritesPerParagraph + 1;
+    const perSlotRankCost = estimateRankingCost(
+      avgParagraphChars,
+      judgeModel,
+      slotPoolSize,
+      maxComparisonsPerParagraph,
+    );
+    totalRankCost = paragraphCount * rewritesPerParagraph * perSlotRankCost;
+  }
+
+  // Coordinator phase (sequential only). Phase 4d: when a per-strategy
+  // coordinatorModel is set, BOTH the calibration-row lookup AND the pricing lookup
+  // use it instead of the rewrite model — otherwise a Sonnet coordinator would be
+  // costed against flash-lite pricing (~30× under-projection). Plus replan-aware
+  // multiplier: the projector models one initial call + COORDINATOR_REPLAN_RATE
+  // expected replan calls, since Phase 2 replan fires often enough that ignoring it
+  // makes the wizard's headline cost preview under-state premium-tier spend by the
+  // most visible amount.
+  let coordinatorCost = 0;
+  if (sequentialEnabled) {
+    const coordinatorModel = opts?.coordinatorModel ?? rewriteModel;
+    const coordinatorPricing = getModelPricing(coordinatorModel);
+    const coordinatorInputChars = parentArticleChars + COORDINATOR_PROMPT_OVERHEAD;
+    const calibratedCoordinator = getCalibrationRow('__unspecified__', coordinatorModel, judgeModel, 'paragraph_recombine_coordinator');
+    const coordinatorOutputChars = calibratedCoordinator?.avgOutputChars
+      ?? paragraphCount * COORDINATOR_OUTPUT_CHARS_PER_PARAGRAPH;
+    const singleCallCost = calculateCost(coordinatorInputChars, coordinatorOutputChars, coordinatorPricing);
+    coordinatorCost = singleCallCost * (1 + COORDINATOR_REPLAN_RATE_DEFAULT);
+  }
+
+  const expected = totalRewriteCost + totalRankCost + coordinatorCost;
   const upperBound = expected * 1.3;
   return {
     expected,
     upperBound,
-    perPhase: { paragraphRewriteCost: totalRewriteCost, paragraphRankCost: totalRankCost },
+    perPhase: {
+      paragraphRewriteCost: totalRewriteCost,
+      paragraphRankCost: totalRankCost,
+      coordinatorCost,
+    },
   };
 }
 

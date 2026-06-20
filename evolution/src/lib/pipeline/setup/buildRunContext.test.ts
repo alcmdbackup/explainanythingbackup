@@ -303,6 +303,56 @@ describe('buildRunContext', () => {
     });
   });
 
+  describe('ensemble (escalation) kill switch — DEFAULT ON, per-strategy opt-in', () => {
+    const configWithEnsemble = {
+      generationModel: 'gpt-4.1-nano',
+      judgeModel: 'gpt-4.1-nano',
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
+      ensembleConfigId: 'cheap-escalation-v1',
+    };
+    const configNoEnsemble = { ...configWithEnsemble, ensembleConfigId: undefined };
+
+    async function runWith(
+      envValue: string | undefined,
+      strategyConfig: Record<string, unknown> = configWithEnsemble,
+    ): Promise<{ ensemble: unknown; ensembleConfigId: unknown }> {
+      const prev = process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED;
+      if (envValue === undefined) delete process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED;
+      else process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED = envValue;
+      try {
+        const { db } = makeMockDb({ contentText: validText, strategyConfig });
+        const result = await buildRunContext('run-1', makeClaimedRun(), db, makeProvider());
+        if (!('context' in result)) throw new Error('expected context');
+        return { ensemble: result.context.config.ensemble, ensembleConfigId: result.context.config.ensembleConfigId };
+      } finally {
+        if (prev === undefined) delete process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED;
+        else process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED = prev;
+      }
+    }
+
+    it('unset env + ensembleConfigId set → resolves the chain (default ON)', async () => {
+      const { ensemble } = await runWith(undefined) as { ensemble: { chain: { id: string }; rule: { id: string } } | undefined };
+      expect(ensemble).toBeDefined();
+      expect(ensemble!.chain.id).toBe('cheap-escalation-v1');
+      expect(ensemble!.rule.id).toBe('first_decisive');
+    });
+
+    it('a strategy WITHOUT ensembleConfigId → ensemble undefined (byte-identical single-judge), even with default ON', async () => {
+      const { ensemble } = await runWith(undefined, configNoEnsemble);
+      expect(ensemble).toBeUndefined();
+    });
+
+    it("env='false' → ensemble undefined (emergency kill switch disables ALL escalation)", async () => {
+      expect((await runWith('false')).ensemble).toBeUndefined();
+    });
+
+    it("env='true' (explicit) AND ensembleConfigId set → resolves the chain + rule", async () => {
+      const { ensemble } = await runWith('true') as { ensemble: { chain: { id: string }; rule: { id: string } } | undefined };
+      expect(ensemble).toBeDefined();
+      expect(ensemble!.chain.id).toBe('cheap-escalation-v1');
+    });
+  });
+
   it('generated random_seed always fits in PostgreSQL signed BIGINT range', async () => {
     // Regression: prior implementation built (high<<32 | low) with both halves up to
     // 0xffffffff, which produced unsigned 64-bit values up to 2^64 - 1. PostgreSQL BIGINT
@@ -638,6 +688,119 @@ describe('buildRunContext — seed reuse', () => {
     } finally {
       if (prevFlag === undefined) delete process.env.EVOLUTION_REUSE_SEED_RATING;
       else process.env.EVOLUTION_REUSE_SEED_RATING = prevFlag;
+    }
+  });
+});
+
+// ─── Phase 5 / 5a-1: seedSelection rotation tests ────────────────────────────
+
+/** Mock DB supporting both seed-query paths:
+ *  - 'highest_elo': .is().order().limit().single() → returns highest-elo seed
+ *  - 'random':       .is().order() (no .limit) → returns all seeds (thenable)
+ *  And the strategy config carries seedSelection so resolveContent picks the right branch. */
+function makeMultiSeedDb(opts: {
+  seeds: Array<{ id: string; variant_content: string; mu: number; sigma: number; arena_match_count: number; synced_to_arena: boolean }>;
+  seedSelection: 'highest_elo' | 'random';
+  promptText?: string;
+}): SupabaseClient {
+  return {
+    from: jest.fn((table: string) => {
+      const chain: Record<string, jest.Mock> = {} as Record<string, jest.Mock>;
+      chain.select = jest.fn(() => chain);
+      chain.eq = jest.fn(() => chain);
+      chain.insert = jest.fn(() => ({
+        select: jest.fn(() => ({ single: jest.fn(async () => ({ data: { id: 'log-1' }, error: null })) })),
+      }));
+      chain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null, data: null })) }));
+      chain.is = jest.fn(() => {
+        const t: Record<string, unknown> = {};
+        t.order = jest.fn(() => t);
+        t.limit = jest.fn(() => t);
+        // highest_elo path terminator: .single()
+        t.single = jest.fn(async () => ({
+          data: opts.seeds.length > 0 ? opts.seeds[0]! : null,
+          error: null,
+        }));
+        // random path terminator: awaiting the chain directly (thenable)
+        t.then = (resolve: (v: { data: unknown[]; error: null }) => unknown) =>
+          Promise.resolve({ data: opts.seeds, error: null }).then(resolve);
+        return t;
+      });
+      chain.single = jest.fn(async () => {
+        if (table === 'evolution_strategies') {
+          return {
+            data: {
+              config: {
+                generationModel: 'gpt-4o',
+                judgeModel: 'gpt-4o',
+                iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
+                seedSelection: opts.seedSelection,
+              },
+            },
+            error: null,
+          };
+        }
+        if (table === 'evolution_prompts') return { data: { prompt: opts.promptText ?? 'test prompt' }, error: null };
+        if (table === 'evolution_runs') return { data: { random_seed: null }, error: null };
+        return { data: null, error: null };
+      });
+      return chain;
+    }),
+  } as unknown as SupabaseClient;
+}
+
+describe('buildRunContext — seedSelection (Phase 5 / 5a-1)', () => {
+  const seedFixture = [
+    { id: '11111111-1111-1111-1111-111111111111', variant_content: 'seed A', mu: 25, sigma: 7, arena_match_count: 3, synced_to_arena: true },
+    { id: '22222222-2222-2222-2222-222222222222', variant_content: 'seed B', mu: 24, sigma: 7, arena_match_count: 3, synced_to_arena: true },
+    { id: '33333333-3333-3333-3333-333333333333', variant_content: 'seed C', mu: 23, sigma: 7, arena_match_count: 3, synced_to_arena: true },
+    { id: '44444444-4444-4444-4444-444444444444', variant_content: 'seed D', mu: 22, sigma: 7, arena_match_count: 3, synced_to_arena: true },
+    { id: '55555555-5555-5555-5555-555555555555', variant_content: 'seed E', mu: 21, sigma: 7, arena_match_count: 3, synced_to_arena: true },
+  ];
+
+  it("seedSelection='random' picks a deterministic seed via SHA-256(run.id) — same run.id → same seed", async () => {
+    const db = makeMultiSeedDb({ seeds: seedFixture, seedSelection: 'random' });
+    const run1 = makeClaimedRun({ id: 'run-aaa', explanation_id: null, prompt_id: 'prompt-abc' });
+
+    const r1 = await buildRunContext('run-aaa', run1, db, makeProvider());
+    expect('context' in r1).toBe(true);
+    if (!('context' in r1)) return;
+    const first = r1.context.originalText;
+    expect(first).not.toBeNull();
+
+    // Re-run with same id → same seed (determinism contract).
+    const r2 = await buildRunContext('run-aaa', run1, db, makeProvider());
+    if ('context' in r2) expect(r2.context.originalText).toBe(first);
+  });
+
+  it("seedSelection='random' with a single-seed topic returns that seed (graceful degradation)", async () => {
+    const db = makeMultiSeedDb({ seeds: [seedFixture[0]!], seedSelection: 'random' });
+    const run = makeClaimedRun({ id: 'run-bbb', explanation_id: null, prompt_id: 'prompt-abc' });
+    const r = await buildRunContext('run-bbb', run, db, makeProvider());
+    expect('context' in r).toBe(true);
+    if ('context' in r) expect(r.context.originalText).toBe('seed A');
+  });
+
+  it("seedSelection='random' with zero seeds falls through to CreateSeedArticleAgent", async () => {
+    const db = makeMultiSeedDb({ seeds: [], seedSelection: 'random' });
+    const run = makeClaimedRun({ id: 'run-ccc', explanation_id: null, prompt_id: 'prompt-abc' });
+    const r = await buildRunContext('run-ccc', run, db, makeProvider());
+    expect('context' in r).toBe(true);
+    if ('context' in r) {
+      expect(r.context.originalText).toBeNull();
+      expect(r.context.seedPrompt).toBe('test prompt');
+    }
+  });
+
+  it("absent seedSelection (default 'highest_elo') = pre-Phase-5 behavior byte-identical", async () => {
+    // Mock without seedSelection at all — verifies default branch picks highest-elo via .single() path.
+    const db = makeMultiSeedDb({ seeds: seedFixture, seedSelection: 'highest_elo' });
+    const run = makeClaimedRun({ id: 'run-ddd', explanation_id: null, prompt_id: 'prompt-abc' });
+    const r = await buildRunContext('run-ddd', run, db, makeProvider());
+    expect('context' in r).toBe(true);
+    if ('context' in r) {
+      // highest_elo branch returns seedFixture[0] via the .single() mock at the chain terminator.
+      expect(r.context.originalText).toBe('seed A');
     }
   });
 });

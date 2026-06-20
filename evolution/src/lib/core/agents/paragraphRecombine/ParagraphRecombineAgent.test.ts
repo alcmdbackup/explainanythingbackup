@@ -168,6 +168,24 @@ beforeEach(() => {
 
 // ─── Tests ────────────────────────────────────────────────────────
 
+// Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612):
+// the existing tests target the LEGACY parallel-dispatch path. Pin env flag to 'false'
+// so the agent doesn't take the sequential path (which requires coordinator LLM stubs).
+// Sequential-path coverage lives in dedicated test files (coordinator.test.ts,
+// buildSequentialRewritePrompt.test.ts, promptSafety.test.ts) + the sequential
+// integration test.
+const ORIGINAL_SEQUENTIAL_ENV = process.env.EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED;
+beforeAll(() => {
+  process.env.EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED = 'false';
+});
+afterAll(() => {
+  if (ORIGINAL_SEQUENTIAL_ENV === undefined) {
+    delete process.env.EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED;
+  } else {
+    process.env.EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED = ORIGINAL_SEQUENTIAL_ENV;
+  }
+});
+
 describe('ParagraphRecombineAgent — boundary contract', () => {
   it('throws when input.llm is missing (Agent.run is responsible for injection)', async () => {
     const agent = new ParagraphRecombineAgent();

@@ -36,7 +36,12 @@ export interface CalibrationRow {
     | 'criteria_mirror_approver'
     | 'debate_judge'
     | 'debate_synthesis'
-    | 'paragraph_rewrite';
+    | 'paragraph_rewrite'
+    // Sequential context-aware generation (debug_performance_paragraph_recombine_20260612).
+    // Both phases need calibration support so the projector can consult per-phase
+    // empirical avgOutputChars + avgInputOverheadChars when COST_CALIBRATION_ENABLED.
+    | 'paragraph_rank'
+    | 'paragraph_recombine_coordinator';
   avgOutputChars: number;
   avgInputOverheadChars: number;
   avgCostPerCall: number;

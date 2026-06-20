@@ -110,6 +110,89 @@ export type Database = {
           }
         ]
       }
+      judge_eval_dimension_verdicts: {
+        Row: {
+          id: string
+          judge_eval_call_id: string
+          criteria_id: string | null
+          criteria_name: string
+          weight: number
+          forward_verdict: string | null
+          reverse_verdict: string | null
+          dimension_winner: string | null
+          favored_match_winner: boolean | null
+          position: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          judge_eval_call_id: string
+          criteria_id?: string | null
+          criteria_name: string
+          weight: number
+          forward_verdict?: string | null
+          reverse_verdict?: string | null
+          dimension_winner?: string | null
+          favored_match_winner?: boolean | null
+          position?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          judge_eval_call_id?: string
+          criteria_id?: string | null
+          criteria_name?: string
+          weight?: number
+          forward_verdict?: string | null
+          reverse_verdict?: string | null
+          dimension_winner?: string | null
+          favored_match_winner?: boolean | null
+          position?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "judge_eval_dimension_verdicts_judge_eval_call_id_fkey"
+            columns: ["judge_eval_call_id"]
+            isOneToOne: false
+            referencedRelation: "judge_eval_calls"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      judge_eval_chains: {
+        Row: {
+          id: string
+          name: string
+          article_models: Json
+          paragraph_models: Json
+          aggregation_rule: string
+          aggregation_rule_version: number
+          cap: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          article_models?: Json
+          paragraph_models?: Json
+          aggregation_rule?: string
+          aggregation_rule_version?: number
+          cap?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          article_models?: Json
+          paragraph_models?: Json
+          aggregation_rule?: string
+          aggregation_rule_version?: number
+          cap?: number
+          created_at?: string
+        }
+        Relationships: []
+      }
       judge_eval_runs: {
         Row: {
           id: string
@@ -124,6 +207,9 @@ export type Database = {
           settings_key: string
           notes: string | null
           created_at: string
+          chain_id: string | null
+          aggregation_rule: string | null
+          aggregation_rule_version: number | null
         }
         Insert: {
           id?: string
@@ -138,6 +224,9 @@ export type Database = {
           settings_key: string
           notes?: string | null
           created_at?: string
+          chain_id?: string | null
+          aggregation_rule?: string | null
+          aggregation_rule_version?: number | null
         }
         Update: {
           id?: string
@@ -152,8 +241,18 @@ export type Database = {
           settings_key?: string
           notes?: string | null
           created_at?: string
+          chain_id?: string | null
+          aggregation_rule?: string | null
+          aggregation_rule_version?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "judge_eval_runs_chain_id_fkey"
+            columns: ["chain_id"]
+            isOneToOne: false
+            referencedRelation: "judge_eval_chains"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "judge_eval_runs_test_set_id_fkey"
             columns: ["test_set_id"]
@@ -201,6 +300,10 @@ export type Database = {
           expected_winner: string | null
           variant_a_id: string | null
           variant_b_id: string | null
+          submatch_group_key: string | null
+          escalation_step: number | null
+          triggered_escalation: boolean | null
+          judge_model: string | null
         }
         Insert: {
           id?: string
@@ -238,6 +341,10 @@ export type Database = {
           expected_winner?: string | null
           variant_a_id?: string | null
           variant_b_id?: string | null
+          submatch_group_key?: string | null
+          escalation_step?: number | null
+          triggered_escalation?: boolean | null
+          judge_model?: string | null
         }
         Update: {
           id?: string
@@ -275,6 +382,10 @@ export type Database = {
           expected_winner?: string | null
           variant_a_id?: string | null
           variant_b_id?: string | null
+          submatch_group_key?: string | null
+          escalation_step?: number | null
+          triggered_escalation?: boolean | null
+          judge_model?: string | null
         }
         Relationships: [
           {
@@ -666,6 +777,10 @@ export type Database = {
           run_id: string | null
           status: string
           created_at: string
+          chain_depth: number | null
+          agreement: number | null
+          aggregation_rule: string | null
+          aggregation_rule_version: number | null
         }
         Insert: {
           id?: string
@@ -677,6 +792,10 @@ export type Database = {
           run_id?: string | null
           status?: string
           created_at?: string
+          chain_depth?: number | null
+          agreement?: number | null
+          aggregation_rule?: string | null
+          aggregation_rule_version?: number | null
         }
         Update: {
           id?: string
@@ -688,6 +807,10 @@ export type Database = {
           run_id?: string | null
           status?: string
           created_at?: string
+          chain_depth?: number | null
+          agreement?: number | null
+          aggregation_rule?: string | null
+          aggregation_rule_version?: number | null
         }
         Relationships: [
           {
@@ -716,6 +839,103 @@ export type Database = {
             columns: ["run_id"]
             isOneToOne: false
             referencedRelation: "evolution_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      evolution_arena_submatches: {
+        Row: {
+          id: string
+          arena_comparison_id: string
+          judge_model: string
+          escalation_step: number
+          triggered_escalation: boolean
+          winner: string | null
+          confidence: number | null
+          chain_config_id: string | null
+          judge_rubric_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          arena_comparison_id: string
+          judge_model: string
+          escalation_step?: number
+          triggered_escalation?: boolean
+          winner?: string | null
+          confidence?: number | null
+          chain_config_id?: string | null
+          judge_rubric_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          arena_comparison_id?: string
+          judge_model?: string
+          escalation_step?: number
+          triggered_escalation?: boolean
+          winner?: string | null
+          confidence?: number | null
+          chain_config_id?: string | null
+          judge_rubric_id?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "evolution_arena_submatches_arena_comparison_id_fkey"
+            columns: ["arena_comparison_id"]
+            isOneToOne: false
+            referencedRelation: "evolution_arena_comparisons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      evolution_submatch_dimension_verdicts: {
+        Row: {
+          id: string
+          submatch_id: string
+          criteria_id: string | null
+          criteria_name: string
+          weight: number
+          forward_verdict: string | null
+          reverse_verdict: string | null
+          dimension_winner: string | null
+          favored_match_winner: boolean | null
+          position: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          submatch_id: string
+          criteria_id?: string | null
+          criteria_name: string
+          weight: number
+          forward_verdict?: string | null
+          reverse_verdict?: string | null
+          dimension_winner?: string | null
+          favored_match_winner?: boolean | null
+          position?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          submatch_id?: string
+          criteria_id?: string | null
+          criteria_name?: string
+          weight?: number
+          forward_verdict?: string | null
+          reverse_verdict?: string | null
+          dimension_winner?: string | null
+          favored_match_winner?: boolean | null
+          position?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "evolution_submatch_dimension_verdicts_submatch_id_fkey"
+            columns: ["submatch_id"]
+            isOneToOne: false
+            referencedRelation: "evolution_arena_submatches"
             referencedColumns: ["id"]
           },
         ]

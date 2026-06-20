@@ -149,6 +149,31 @@ export function InvocationDetailContent({ invocation: inv }: Props): JSX.Element
         ]}
       />
 
+      {/* Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612):
+          partial-failure banner. Surfaces B.7 invariant: when Phase B threw mid-loop,
+          execution_detail.partialAt + abortReason + completedSlotCount are persisted alongside
+          a truncated slots[] array. Banner sits above the tabs so it's visible across all
+          tabs (Subagents/Slots/Recombined/Metrics/Timeline/Logs). */}
+      {paragraphDetail?.partialAt !== undefined && (
+        <div
+          className="border border-[var(--status-warning)] rounded-book bg-[var(--surface-elevated)] p-3 mb-4"
+          data-testid="partial-failure-banner"
+        >
+          <div className="text-xs uppercase tracking-wide text-[var(--status-warning)] font-semibold">
+            ⚠ Partial completion
+          </div>
+          <div className="text-sm text-[var(--text-secondary)] mt-1">
+            Phase B aborted at paragraph index {paragraphDetail.partialAt}.{' '}
+            {paragraphDetail.completedSlotCount ?? 0} slot{paragraphDetail.completedSlotCount === 1 ? '' : 's'} completed before the throw.
+          </div>
+          {paragraphDetail.abortReason && (
+            <div className="text-xs text-[var(--text-muted)] mt-1 font-mono">
+              reason: {paragraphDetail.abortReason}
+            </div>
+          )}
+        </div>
+      )}
+
       <EntityDetailTabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab}>
         {/* Phase 2 of rename_agents_subagents_evolution_20260508 — generic Subagents tab
             for every agent type. Tree derived from execution_detail JSONB. */}
@@ -356,7 +381,11 @@ export function InvocationDetailContent({ invocation: inv }: Props): JSX.Element
         {/* paragraph_recombine: per-slot drill-in. */}
         {activeTab === 'slots' && paragraphDetail && (
           <div data-testid="paragraph-slots-tab">
-            <SlotsTab parentVariantId={paragraphDetail.parentVariantId} slots={paragraphDetail.slots} />
+            <SlotsTab
+              parentVariantId={paragraphDetail.parentVariantId}
+              slots={paragraphDetail.slots}
+              coordinatorPlan={paragraphDetail.coordinatorPlan}
+            />
           </div>
         )}
 

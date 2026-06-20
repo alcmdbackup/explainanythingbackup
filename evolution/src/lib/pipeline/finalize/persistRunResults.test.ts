@@ -744,9 +744,11 @@ describe('finalizeRun bug fixes', () => {
     expect(topVariants.every((v) => v.id !== ARENA_ID)).toBe(true);
   });
 
-  it('Bug #11: arena-only pool marks run as completed, not failed', async () => {
+  it('Bug #11: arena-only pool (with discarded variants) marks run completed, not failed', async () => {
     const arenaVariant: Variant = { ...makeVariant(ARENA_ID, 'test'), fromArena: true };
-    const result = makeResult({ pool: [arenaVariant] });
+    // D3: a genuine arena-only run has variants that were produced-then-discarded (not errored).
+    const discarded = makeVariant('00000000-0000-4000-8000-000000000099', 'structural_transform');
+    const result = makeResult({ pool: [arenaVariant], discardedVariants: [discarded] });
     const { db, updates } = makeMockDb();
     await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
 
@@ -758,7 +760,8 @@ describe('finalizeRun bug fixes', () => {
 
   it('H5: arena-only run produces full run_summary with matchStats and topVariants', async () => {
     const arenaVariant: Variant = { ...makeVariant(ARENA_ID, 'test'), fromArena: true };
-    const result = makeResult({ pool: [arenaVariant] });
+    const discarded = makeVariant('00000000-0000-4000-8000-000000000099', 'structural_transform');
+    const result = makeResult({ pool: [arenaVariant], discardedVariants: [discarded] });
     const { db, updates } = makeMockDb();
     await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
 
@@ -769,6 +772,18 @@ describe('finalizeRun bug fixes', () => {
     expect(summary.stopReason).toBe('arena_only');
     expect(summary.matchStats).toBeDefined();
     expect(summary.topVariants).toBeDefined();
+  });
+
+  it('D3: arena pool but ZERO discarded variants (all generations errored) → run marked failed', async () => {
+    const arenaVariant: Variant = { ...makeVariant(ARENA_ID, 'test'), fromArena: true };
+    const result = makeResult({ pool: [arenaVariant], discardedVariants: [] });
+    const { db, updates } = makeMockDb();
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+
+    const failedUpdate = updates.find((u) => u.data.status === 'failed');
+    expect(failedUpdate).toBeDefined();
+    expect(failedUpdate!.data.error_code).toBe('all_generations_failed');
+    expect(updates.find((u) => u.data.status === 'completed')).toBeUndefined();
   });
 
   it('Bug #14: finalization skips persistence when runner_id mismatch (count=0)', async () => {

@@ -16,6 +16,13 @@ import { mergeRatingsExecutionDetailSchema } from '../../schemas';
 import { SeededRandom, deriveSeed } from '../../shared/seededRandom';
 import { orientBreakdownToEntries } from '../../shared/rubricJudge';
 import type { RubricBreakdown } from '../../shared/rubricJudge';
+import { randomUUID } from 'crypto';
+import {
+  buildArenaSubmatchPersistence,
+  insertArenaSubmatches,
+  type ArenaSubmatchRow,
+  type ArenaSubmatchDimensionRow,
+} from '../../shared/arenaSubmatchPersist';
 import type { z } from 'zod';
 
 // ─── Public types ─────────────────────────────────────────────────
@@ -230,8 +237,19 @@ export class MergeRatingsAgent extends Agent<
       // holistic matches.
       rubric_breakdown: RubricBreakdown | null;
       judge_rubric_id: string | null;
+      // Phase 4 (ensemble matches only): client-generated id so submatch rows FK to it, + the
+      // consolidated chain summary. Absent for single-judge matches (DB generates the id).
+      id?: string;
+      chain_depth?: number;
+      agreement?: number | null;
+      aggregation_rule?: string;
+      aggregation_rule_version?: number;
     }
     const arenaRows: ArenaRowPayload[] = [];
+    // Phase 4: accumulate submatch + dimension rows for ensemble matches; inserted after the
+    // comparison bulk-insert (the rows FK to the client-generated comparison ids).
+    const submatchRowsAll: ArenaSubmatchRow[] = [];
+    const dimensionRowsAll: ArenaSubmatchDimensionRow[] = [];
 
     for (let i = 0; i < allMatches.length; i++) {
       const entry = allMatches[i]!;
@@ -293,6 +311,16 @@ export class MergeRatingsAgent extends Agent<
       const bBeforeDb = ratingToDb(bBefore);
       const aAfterDb = ratingToDb(aAfter);
       const bAfterDb = ratingToDb(bAfter);
+      // Phase 4: ensemble matches get a client-generated id + chain summary, and their submatch +
+      // dimension rows are accumulated for a post-insert write. Single-judge matches: ensembleCols = {}.
+      let ensembleCols: Partial<ArenaRowPayload> = {};
+      if (match.submatches) {
+        const comparisonId = randomUUID();
+        const persisted = buildArenaSubmatchPersistence(comparisonId, match.submatches);
+        submatchRowsAll.push(...persisted.submatchRows);
+        dimensionRowsAll.push(...persisted.dimensionRows);
+        ensembleCols = { id: comparisonId, ...persisted.parent };
+      }
       arenaRows.push({
         run_id: ctx.runId,
         // B122: set prompt_id at insert. Previously left NULL for sync_to_arena to
@@ -319,6 +347,7 @@ export class MergeRatingsAgent extends Agent<
           ? orientBreakdownToEntries(match.rubricBreakdown, match.winnerId, match.loserId, idA)
           : null,
         judge_rubric_id: match.rubricBreakdown?.rubricId ?? null,
+        ...ensembleCols,
       });
     }
 
@@ -335,6 +364,19 @@ export class MergeRatingsAgent extends Agent<
           });
         } else {
           arenaRowsWritten = arenaRows.length;
+          // Phase 4: after the comparisons land, write their submatch + dimension rows (FK to the
+          // client-generated comparison ids). Best-effort: a failure here never blocks ranking.
+          if (submatchRowsAll.length > 0) {
+            try {
+              await insertArenaSubmatches(ctx.db, submatchRowsAll, dimensionRowsAll);
+            } catch (smErr) {
+              ctx.logger.warn('MergeRatingsAgent: arena submatch insert failed', {
+                phaseName: 'merge_ratings',
+                error: (smErr instanceof Error ? smErr.message : String(smErr)).slice(0, 500),
+                submatchCount: submatchRowsAll.length,
+              });
+            }
+          }
         }
       } catch (err) {
         ctx.logger.warn('MergeRatingsAgent: arena_comparisons insert exception', {

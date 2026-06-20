@@ -430,6 +430,19 @@ Expected: both numbers match within rounding. Pre-fix on run `b0778925` they div
 
 If the `/admin/evolution/runs` "Hide test content" checkbox returns zero rows even with real non-test runs present, the legacy `.not('strategy_id', 'in', '(<uuids>)')` path was being generated with a huge IN list (~36 KB URL at 984 test strategies on staging) that silently blew past PostgREST's URL length ceiling. The replacement path uses an embedded `!inner` join on `evolution_strategies.is_test_content`. Test-strategy names are flagged by a Postgres BEFORE trigger calling `evolution_is_test_name(text)` — if a new pattern appears in `evolution/src/services/shared.ts:isTestContentName`, update `supabase/migrations/*_evolution_is_test_content.sql` to match, and extend the shared `TEST_NAME_FIXTURES` table (used by the anti-drift test in `evolution/src/services/shared.test.ts`).
 
+### Debugging a run that "completed" with 0 variants / 0 cost (arena_only wipeout)
+
+Symptom (the `fix_structured_judging_evolution_bugs_20260611` incident, runs `339ab3cc…`, `bdb1f65a…4784…`, `3e94c04f-b7c6…`): a run shows `status='completed'`, `run_summary.stopReason='arena_only'`, **no variants under Run Details, no metrics, no cost** — yet a large number of `generate_from_previous_article` invocations ran. Root cause: **OpenRouter credit exhaustion** — every generation 402'd (no `max_tokens` cap → 65535 requested) before billing.
+
+Diagnostic — the fingerprint is `generate` invocations > 0 **AND** 0 variants **AND** 0 cost (a *legitimate* arena-only run has **0** generate invocations):
+```bash
+# Per-run breakdown
+npm run query:staging -- --json "SELECT run_id, agent_name, count(*) FROM evolution_agent_invocations WHERE run_id='<run>' GROUP BY 1,2"
+# The 402 is buried in execution_detail, NOT in the success column (which reads true pre-D1):
+npm run query:staging -- --json "SELECT execution_detail->'generation'->>'error' err, count(*) FROM evolution_agent_invocations WHERE run_id='<run>' AND agent_name='generate_from_previous_article' GROUP BY 1"
+```
+`success_invocations > gen_invocations` with 0 variants is the pre-fix D1 tell. **Fix (ops):** top up OpenRouter credits / switch the strategy off the OpenRouter model. The D5 `max_tokens` cap (`EVOLUTION_MAX_OUTPUT_TOKENS`) clears the 402 at low balances, and post-fix such runs are marked `status='failed'` `error_code='all_generations_failed'`. Detector: `evolution/scripts/detectArenaOnlyWipeouts.ts` (+ `evolution-run-health.yml`). See [Cost Optimization → 402 / no-max_tokens failure mode](../../evolution/docs/cost_optimization.md).
+
 ### Backfilling historical cost inaccuracies
 
 `evolution/scripts/backfillInvocationCostFromTokens.ts` repairs `evolution_agent_invocations.cost_usd` + run-level `cost`/`generation_cost`/`ranking_cost`/`seed_cost` metrics from `llmCallTracking`. Default is `--dry-run`; add `--apply` to write. Use `--run-id <uuid>` for single-run spot fixes. Uses `writeMetricReplace` (plain upsert) instead of `writeMetricMax` (GREATEST) so downward corrections actually land.

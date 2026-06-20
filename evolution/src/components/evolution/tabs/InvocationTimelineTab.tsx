@@ -322,6 +322,10 @@ interface ParagraphSlotTimingDetail {
     ranking?: { matchCount: number };
     discardReason?: { failurePoint: string };
   }>;
+  /** Sequential Context-Aware Generation: presence implies sequential execution (vs parallel). */
+  coordinatorPlan?: unknown;
+  /** Sequential coordinator phase timing — drawn as a leading bar before slot rows. */
+  coordinator?: { durationMs?: number; cost?: number };
 }
 
 function ParagraphRecombineTimeline({
@@ -352,10 +356,13 @@ function ParagraphRecombineTimeline({
   });
   const widestSlotMs = Math.max(1, ...slotTotals.map((s) => s.totalMs));
 
+  const isSequential = typedDetail.coordinatorPlan !== undefined;
+  const executionMode = isSequential ? 'sequentially (Phase B context-aware loop)' : 'in parallel (D18)';
+
   return (
     <div className="space-y-3" data-testid="timeline-paragraph-recombine">
       <div className="text-xs font-ui text-[var(--text-muted)]">
-        Total invocation: {fmtMs(totalDurationMs)} · {slots.length} slots executed in parallel (D18)
+        Total invocation: {fmtMs(totalDurationMs)} · {slots.length} slot{slots.length === 1 ? '' : 's'} executed {executionMode}
       </div>
       <div className="space-y-1">
         {slotTotals.map((s) => (

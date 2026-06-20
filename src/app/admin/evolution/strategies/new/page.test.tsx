@@ -13,6 +13,7 @@ jest.mock('sonner', () => ({ toast: { success: jest.fn(), error: jest.fn() } }))
 const mockCreate = jest.fn();
 jest.mock('@evolution/services/strategyRegistryActions', () => ({
   createStrategyAction: (...args: unknown[]) => mockCreate(...args),
+  listEnsembleConfigsAction: jest.fn(async () => ({ success: true, data: { ids: ['gemini-tiebreak-v1', 'cheap-escalation-v1'] } })),
 }));
 
 const mockGetLastUsedPrompt = jest.fn();

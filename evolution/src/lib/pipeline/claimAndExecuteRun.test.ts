@@ -194,9 +194,11 @@ describe('claimAndExecuteRun', () => {
         false,
         // Phase 5b strengthened assertion: trackingDb (Phase 1-3) must always be forwarded;
         // evolutionInvocationId is optional (only set when caller passes opts.invocationId).
+        // D5: every evolution call carries the 4096 output cap (OpenRouter 402 fix).
         expect.objectContaining({
           onUsage: expect.any(Function),
           trackingDb: expect.anything(),
+          maxOutputTokens: 4096,
         }),
       );
     });

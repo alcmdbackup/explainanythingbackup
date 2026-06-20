@@ -1,0 +1,13 @@
+slice,agent_name,n_attempts,n_p90_hits,p90_rate_pct,cost_per_invocation,n_needed_for_75pct,cost_for_75pct
+ALL,ALL,1408,110,7.81,0.00174,18,0.0314
+agent,zoom_lens,5,1,20.00,0.00155,7,0.0108
+agent,structural_transform,470,71,15.11,0.00161,9,0.0145
+agent,narrative_weave,7,1,14.29,0.00141,9,0.0127
+agent,grounding_enhance,374,32,8.56,0.00169,16,0.0270
+agent,pedagogy_scaffold,5,0,0.00,0.00146,,
+agent,progressive_disclosure,6,0,0.00,0.00111,,
+agent,sensory_concretize,7,0,0.00,0.00156,,
+agent,paragraph_recombine,8,0,0.00,0.01677,,
+agent,criteria_driven_single_pass,18,0,0.00,0.00251,,
+agent,lexical_simplify,414,0,0.00,0.00145,,
+agent,criteria_driven_propose_approve,54,0,0.00,0.00335,,

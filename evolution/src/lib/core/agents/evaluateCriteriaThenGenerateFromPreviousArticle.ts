@@ -608,6 +608,9 @@ export class EvaluateCriteriaThenGenerateFromPreviousArticleAgent extends Agent<
       result: gfpaOutput.result,
       detail: merged,
       childVariantIds: gfpaOutput.childVariantIds,
+      // D1: forward inner GFPA's hard-fail signal so wrapped generations are marked failed by
+      // Agent.run() (otherwise the reconstructed valid `merged` detail masks it).
+      failure: gfpaOutput.failure,
     };
   }
 }

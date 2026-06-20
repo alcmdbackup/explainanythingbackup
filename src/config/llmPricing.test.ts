@@ -45,6 +45,16 @@ describe('LLM Pricing', () => {
       expect(pricing.inputPer1M).toBe(3.00);
       expect(pricing.outputPer1M).toBe(12.00);
     });
+
+    // D4 (fix_structured_judging_evolution_bugs): the evolution incident model must resolve to
+    // registry pricing, NOT the $10/$30 unknown-model default, or its cost estimates + budget
+    // reservations are wildly off. Guard against a future versioned-id prefix regression.
+    it('resolves google/gemini-2.5-flash-lite to registry pricing (not the $10/$30 default)', () => {
+      const pricing = getModelPricing('google/gemini-2.5-flash-lite');
+      expect(pricing.inputPer1M).toBe(0.10);
+      expect(pricing.outputPer1M).toBe(0.40);
+      expect(pricing.inputPer1M).not.toBe(10.00);
+    });
   });
 
   describe('calculateLLMCost', () => {

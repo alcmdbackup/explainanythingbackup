@@ -123,6 +123,34 @@ export interface ArenaComparison {
   // Viewer breakdown) + the rubric id (indexed filtering). Null for holistic matches.
   rubric_breakdown?: RubricBreakdown | null;
   judge_rubric_id?: string | null;
+  // Phase 4 ensemble summary (null/absent for single-judge matches = a chain-of-1).
+  chain_depth?: number | null;
+  agreement?: number | null;
+  aggregation_rule?: string | null;
+  aggregation_rule_version?: number | null;
+}
+
+/** One per-dimension verdict row of an ensemble submatch (Match Viewer). */
+export interface ComparisonSubmatchDimension {
+  criteria_name: string;
+  weight: number;
+  forward_verdict: string | null;
+  reverse_verdict: string | null;
+  dimension_winner: string | null;
+  favored_match_winner: boolean | null;
+  position: number;
+}
+
+/** One submatch (one judge's consolidated verdict) of an ensemble match, + its dimension verdicts. */
+export interface ComparisonSubmatch {
+  id: string;
+  judge_model: string;
+  escalation_step: number;
+  triggered_escalation: boolean;
+  winner: string | null;
+  confidence: number | null;
+  judge_rubric_id: string | null;
+  dimensions: ComparisonSubmatchDimension[];
 }
 
 // ─── Schemas ────────────────────────────────────────────────────
@@ -187,12 +215,16 @@ export const getArenaTopicsAction = adminAction(
 );
 
 export interface ArenaTopicDetail extends ArenaTopic {
-  /** The topic's seed variant (generation_method='seed'), or null when no seed
-   *  has been persisted yet. Sourced via a dedicated query — NOT from the paginated
-   *  leaderboard `entries` array — so the arena topic page's seed panel is always
-   *  available regardless of which leaderboard page the user is on. If legacy data
-   *  has multiple seeds for one topic (pre-EVOLUTION_REUSE_SEED_RATING), the
-   *  highest-Elo row wins (ties broken by earliest created_at). */
+  /** All seed variants for the topic (generation_method='seed', non-archived,
+   *  synced_to_arena). Sorted by elo_score DESC with created_at ASC tiebreak.
+   *  Phase 5 (investigate_sequential_paragraph_recombine_performance_20260615):
+   *  Federal Reserve 3 is the first true multi-seed topic; existing topics have
+   *  0 or 1 seed and `seedVariants` is empty or single-element accordingly. */
+  seedVariants: ArenaEntry[];
+  /** The topic's primary seed variant — convenience field = seedVariants[0]
+   *  when non-empty, null otherwise. Preserved for back-compat with consumers
+   *  written before multi-seed (most arena topic UI surfaces). New multi-seed
+   *  consumers should read `seedVariants` directly. */
   seedVariant: ArenaEntry | null;
 }
 
@@ -208,11 +240,12 @@ export const getArenaTopicDetailAction = adminAction(
     if (error) throw error;
     if (!data) throw new Error(`Arena topic not found: ${topicId}`);
 
-    // Fetch the topic's seed variant (if any). Deterministic ordering handles the
-    // legacy EVOLUTION_REUSE_SEED_RATING=false case where multiple seed rows may
-    // exist for one prompt — we pick the highest-Elo row with the earliest created_at
-    // as tiebreak. `.maybeSingle()` returns null (not an error) when no seed exists.
-    const { data: seedRow, error: seedError } = await ctx.supabase
+    // Fetch ALL seed variants for the topic. Multi-seed topics (Phase 5: FR3)
+    // need every seed visible to consumers; single-seed/zero-seed topics yield
+    // a 1-element or empty array. Deterministic ordering: elo_score DESC with
+    // created_at ASC as tiebreak — same convention as the prior single-seed
+    // query, applied to the entire seed set.
+    const { data: seedRows, error: seedError } = await ctx.supabase
       .from('evolution_variants')
       .select('*')
       .eq('prompt_id', topicId)
@@ -220,14 +253,17 @@ export const getArenaTopicDetailAction = adminAction(
       .eq('synced_to_arena', true)  // match the leaderboard query (line ~210); defensive against any future seed row with synced_to_arena=false
       .is('archived_at', null)
       .order('elo_score', { ascending: false })
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
+      .order('created_at', { ascending: true });
     if (seedError) throw seedError;
+
+    const seedVariants = (seedRows ?? []).map((row) => toArenaEntry(row as Record<string, unknown>));
 
     return {
       ...(data as ArenaTopic),
-      seedVariant: seedRow ? toArenaEntry(seedRow as Record<string, unknown>) : null,
+      seedVariants,
+      // Convenience field — first (highest-elo) seed or null. Mirrors the
+      // pre-Phase-5 shape exactly: zero seeds → null; one or more → seedVariants[0].
+      seedVariant: seedVariants.length > 0 ? seedVariants[0]! : null,
     };
   },
 );
@@ -383,6 +419,8 @@ export interface MatchListItem extends ArenaComparison {
   kind: MatchKind | null;
   /** True when this match was rubric-judged (drives the list's rubric indicator). */
   has_rubric: boolean;
+  /** True when this match was ensemble-judged (Phase 4); drives the escalation badge. */
+  is_escalation: boolean;
 }
 
 /** List recent judge matches. Unlike getArenaComparisonsAction (prompt_id only), this filters
@@ -481,6 +519,7 @@ export const getRecentMatchesAction = adminAction(
         judge_rubric_id: r.judge_rubric_id ?? null,
         rubric_breakdown: r.rubric_breakdown ?? null,
         has_rubric: r.judge_rubric_id != null || r.rubric_breakdown != null,
+        is_escalation: r.aggregation_rule != null,
         entry_a_preview: previewContent(contentById.get(r.entry_a)),
         entry_b_preview: previewContent(contentById.get(r.entry_b)),
       };
@@ -495,6 +534,53 @@ export interface ComparisonDetail extends ArenaComparison {
   entry_b_content: string | null;
   entry_a_elo: number | null;
   entry_b_elo: number | null;
+  /** Phase 4: the escalation chain's submatches (empty for legacy single-judge matches). */
+  submatches: ComparisonSubmatch[];
+}
+
+/** Fetch a comparison's ensemble submatches + their per-dimension verdicts. Returns [] for a legacy
+ *  single-judge match (no submatch rows) or if the Phase-4 tables aren't deployed yet (fails soft). */
+async function fetchComparisonSubmatches(
+  supabase: AdminContext['supabase'],
+  comparisonId: string,
+): Promise<ComparisonSubmatch[]> {
+  const { data: subs, error } = await supabase
+    .from('evolution_arena_submatches')
+    .select('id, judge_model, escalation_step, triggered_escalation, winner, confidence, judge_rubric_id')
+    .eq('arena_comparison_id', comparisonId)
+    .order('escalation_step');
+  if (error || !subs || subs.length === 0) return [];
+
+  const ids = subs.map((s) => s.id);
+  const dimsBySubmatch = new Map<string, ComparisonSubmatchDimension[]>();
+  const { data: dims } = await supabase
+    .from('evolution_submatch_dimension_verdicts')
+    .select('submatch_id, criteria_name, weight, forward_verdict, reverse_verdict, dimension_winner, favored_match_winner, position')
+    .in('submatch_id', ids)
+    .order('position');
+  for (const d of dims ?? []) {
+    const list = dimsBySubmatch.get(d.submatch_id) ?? [];
+    list.push({
+      criteria_name: d.criteria_name,
+      weight: d.weight,
+      forward_verdict: d.forward_verdict,
+      reverse_verdict: d.reverse_verdict,
+      dimension_winner: d.dimension_winner,
+      favored_match_winner: d.favored_match_winner,
+      position: d.position,
+    });
+    dimsBySubmatch.set(d.submatch_id, list);
+  }
+  return subs.map((s) => ({
+    id: s.id,
+    judge_model: s.judge_model,
+    escalation_step: s.escalation_step,
+    triggered_escalation: s.triggered_escalation,
+    winner: s.winner,
+    confidence: s.confidence,
+    judge_rubric_id: s.judge_rubric_id,
+    dimensions: dimsBySubmatch.get(s.id) ?? [],
+  }));
 }
 
 /** Fetch a single comparison + both variants' full content/elo for the detail view. Missing
@@ -521,12 +607,15 @@ export const getComparisonDetailAction = adminAction(
     const a = byId.get(c.entry_a);
     const b = byId.get(c.entry_b);
 
+    const submatches = await fetchComparisonSubmatches(ctx.supabase, c.id);
+
     return {
       ...c,
       entry_a_content: (a?.variant_content as string | undefined) ?? null,
       entry_b_content: (b?.variant_content as string | undefined) ?? null,
       entry_a_elo: (a?.elo_score as number | undefined) ?? null,
       entry_b_elo: (b?.elo_score as number | undefined) ?? null,
+      submatches,
     };
   },
 );

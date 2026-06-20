@@ -176,4 +176,51 @@ describe('runIterationLoop top-up — Fed-run replay', () => {
     expect(mockMergeRun).toHaveBeenCalledTimes(2);
     expect(result.stopReason).toBe('completed');
   });
+
+  // D2 (fix_structured_judging_evolution_bugs): the 402/5xx generation-failure runaway.
+  describe('D2 — top-up runaway breaker', () => {
+    function genFailed() {
+      // Post-D1: a generation hard-failure (e.g. 402) returns success=false + a null-variant
+      // result with status 'generation_failed'. cost=0 is the runaway trigger this guards against.
+      return {
+        success: false,
+        result: { variant: null, status: 'generation_failed', surfaced: false, matches: [] },
+        cost: 0,
+        durationMs: 1,
+        invocationId: 'inv-fail',
+      };
+    }
+    function genZeroCostSuccess(id: string) {
+      // A legitimate $0-cost success (e.g. a local/Ollama model): real variant, cost 0.
+      return {
+        success: true,
+        result: { variant: mkVariant(id), status: 'converged', surfaced: true, matches: [] },
+        cost: 0,
+        durationMs: 1,
+        invocationId: `inv-${id}`,
+      };
+    }
+
+    it('all generations fail → stops well before DISPATCH_SAFETY_CAP (no 100-agent runaway)', async () => {
+      mockGenerateRun.mockImplementation(() => Promise.resolve(genFailed()));
+      const result = await evolveArticle('seed article text', makeProvider(), makeDb() as never, 'run-fail', fedConfig());
+      // Every dispatch fails → the else-branch breaks the top-up on the first failure AND the
+      // parallel-batch guard (parallelSuccesses===0) skips top-up. Only the parallel batches run
+      // (~3 per iter × 2 iters), nowhere near the 100/iter safety cap.
+      expect(mockGenerateRun.mock.calls.length).toBeLessThan(20);
+      // D3 belt-and-suspenders: a run that produced zero non-arena variants (all errored, none
+      // even discarded) surfaces stopReason='all_generations_failed' (not a silent 'completed').
+      expect(result.stopReason).toBe('all_generations_failed');
+    });
+
+    it('REGRESSION GUARD: $0-cost SUCCESSES (local model) do NOT trip the breaker — top-up still proceeds', async () => {
+      mockGenerateRun.mockImplementation(() => Promise.resolve(genZeroCostSuccess('v-' + Math.random().toString(36).slice(2, 8))));
+      const result = await evolveArticle('seed article text', makeProvider(), makeDb() as never, 'run-local', fedConfig());
+      // Real variants reset the breaker and increment parallelSuccesses, so neither the
+      // parallel-batch guard nor the consecutive-failure breaker fires — top-up keeps going
+      // (well past the parallel-only count of 6). This is the local-$0 false-fire guard.
+      expect(mockGenerateRun.mock.calls.length).toBeGreaterThan(6);
+      expect(result.stopReason).toBe('completed');
+    });
+  });
 });

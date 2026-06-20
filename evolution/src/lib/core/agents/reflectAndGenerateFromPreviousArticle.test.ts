@@ -234,4 +234,20 @@ describe('ReflectAndGenerateFromPreviousArticleAgent', () => {
 
     await expect(agent.execute(input, ctx)).rejects.toThrow(ReflectionLLMError);
   });
+
+  it('D1: forwards inner GFPA hard-fail (generation error) as output.failure', async () => {
+    // Reflection succeeds (valid ranking) but the inner GFPA generation LLM hard-fails.
+    const llm = {
+      complete: jest.fn(async (_p: string, label: string) => {
+        if (label === 'reflection') return '1. Tactic: structural_transform\n   Reasoning: best';
+        if (label === 'generation') throw new Error('402 This request requires more credits, or fewer max_tokens.');
+        return 'A';
+      }),
+      completeStructured: jest.fn(async () => { throw new Error('not used'); }),
+    } as unknown as EvolutionLLMClient;
+    const result = await agent.execute(baseInput(llm), makeCtx());
+    expect(result.failure).toBeDefined();
+    expect(result.failure?.code).toBe('generation_failed');
+    expect(result.result.variant).toBeNull();
+  });
 });

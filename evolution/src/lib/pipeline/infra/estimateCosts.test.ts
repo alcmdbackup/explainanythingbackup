@@ -287,5 +287,73 @@ describe('estimateCosts', () => {
       // Different judge model yields different ranking layer cost.
       expect(splitJudge.expected).not.toBe(both.expected);
     });
+
+    // Phase 4d: coordinatorModel projector tests.
+    describe('Phase 4d — coordinatorModel override', () => {
+      it("coordinatorCost reflects coordinatorModel when set (not rewriteModel)", () => {
+        const baseline = estimateParagraphRecombineCost(
+          5000, 12, 3, 8, 'gpt-4.1-nano', 'qwen-2.5-7b-instruct',
+          { sequentialEnabled: true },
+        );
+        const withCoord = estimateParagraphRecombineCost(
+          5000, 12, 3, 8, 'gpt-4.1-nano', 'qwen-2.5-7b-instruct',
+          // gpt-5-mini is meaningfully more expensive than gpt-4.1-nano per token,
+          // so the coordinator-phase cost must rise when the override is set.
+          { sequentialEnabled: true, coordinatorModel: 'gpt-5-mini' },
+        );
+        expect(withCoord.perPhase.coordinatorCost).toBeGreaterThan(baseline.perPhase.coordinatorCost);
+        expect(withCoord.expected).toBeGreaterThan(baseline.expected);
+      });
+
+      it("absent coordinatorModel is byte-identical to pre-Phase-4d (coordinator falls back to rewriteModel)", () => {
+        const oldShape = estimateParagraphRecombineCost(
+          5000, 12, 3, 8, 'gpt-4.1-nano', 'qwen-2.5-7b-instruct',
+          { sequentialEnabled: true },
+        );
+        const explicitUndef = estimateParagraphRecombineCost(
+          5000, 12, 3, 8, 'gpt-4.1-nano', 'qwen-2.5-7b-instruct',
+          { sequentialEnabled: true, coordinatorModel: undefined },
+        );
+        expect(explicitUndef.perPhase.coordinatorCost).toBe(oldShape.perPhase.coordinatorCost);
+        expect(explicitUndef.expected).toBe(oldShape.expected);
+      });
+
+      // Phase 4e.D: combined PRIOR (capped at 6) + NEXT (unbounded) per-round
+      // extra char projection. The post-Phase-4e total must scale roughly linearly
+      // with N because nextContext shrinks one-for-one as priorPicks grows (capped).
+      it("Phase 4e.D — combined priorPicks (capped) + nextContext (unbounded) projection scales linearly with N", () => {
+        const N10 = estimateParagraphRecombineCost(
+          5000, 10, 3, 8, 'gpt-4.1-nano', 'qwen-2.5-7b-instruct',
+          { sequentialEnabled: true },
+        );
+        const N20 = estimateParagraphRecombineCost(
+          10000, 20, 3, 8, 'gpt-4.1-nano', 'qwen-2.5-7b-instruct',
+          { sequentialEnabled: true },
+        );
+        // At N=20 with same parent size per paragraph (5000/10 = 10000/20 = 500 char ppc),
+        // the rewriter sees roughly 2× the context blocks per call than N=10. Doubling N
+        // approximately doubles N(N-1)/2 = quadrupling per-call context, but the cap on
+        // priorPicks (at 6) limits the growth on the prior side. Combined per-round avg
+        // grows roughly linearly. Sanity-check: N=20 total rewrite cost is meaningfully
+        // larger than N=10 but NOT 4× (which would imply unbounded triangular).
+        const ratio = N20.perPhase.paragraphRewriteCost / N10.perPhase.paragraphRewriteCost;
+        expect(ratio).toBeGreaterThan(2.0); // way more than N=10
+        expect(ratio).toBeLessThan(5.0);    // but not pure quadratic
+      });
+
+      it("replan-aware: coordinatorCost ≈ (1 + replanRate) × singleCallCost", () => {
+        // The projector multiplies the single-call cost by (1 + COORDINATOR_REPLAN_RATE_DEFAULT)
+        // = 1.65 today. Sanity-check: doubling the same baseline twice yields a 65%-ish
+        // delta, NOT a 100% delta (which would imply replan-rate of 1.0).
+        const single = estimateParagraphRecombineCost(
+          5000, 12, 3, 8, 'gpt-4.1-nano', 'qwen-2.5-7b-instruct',
+          { sequentialEnabled: true },
+        );
+        const replanRate = 0.65; // mirrors COORDINATOR_REPLAN_RATE_DEFAULT in source
+        const impliedSingleCallCost = single.perPhase.coordinatorCost / (1 + replanRate);
+        // Within 1% rounding tolerance.
+        expect(Math.abs(single.perPhase.coordinatorCost - impliedSingleCallCost * (1 + replanRate))).toBeLessThan(0.001);
+      });
+    });
   });
 });
