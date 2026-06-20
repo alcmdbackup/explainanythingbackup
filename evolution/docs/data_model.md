@@ -401,7 +401,7 @@ the winner" a queryable table instead of a JSONB blob. The **`criteria_split`** 
 submatch per rubric dimension (each judging a single-criterion sub-rubric, possibly on a different
 model), folded by the `criteria_weighted` aggregation rule.
 
-**Agreement sweep** (Judge Lab, migration `20260619000001`) — a separate family answering "how often
+**Agreement sweep** (Judge Lab, migration `20260619000002`) — a separate family answering "how often
 does a rubric judge agree with the holistic no-rubric judge?": `judge_eval_agreement_runs` (one per
 settings tuple, UNIQUE `settings_key` with an `agreement|` prefix; carries `judge_rubric_id`),
 `judge_eval_agreement_calls` (per (pair × repeat): `holistic_winner`/`rubric_winner` + confidences,
@@ -412,6 +412,16 @@ cost/tokens, per-pass raw audit, and the same frozen ground-truth snapshot), and
 Plus VIEW `judge_eval_agreement_leaderboard` (per run × `pair_kind`: strict / both-decisive agreement,
 abstain-divergence, holistic/rubric accuracy; FILTER+NULLIF guarded). All deny-all + `service_role_all`
 RLS. Distinct from `favored_match_winner`, which compares a criterion to the rubric's OWN aggregate.
+
+### Weight-inference tables (calculate_implifed_rubric_weights_evolution_20260619)
+
+Five tables (migration `20260619000001`) backing the **Implied Rubric Weights** tool, which infers judge-rubric weights from pairwise verdicts (see [Implicit Rubric Weights](./implicit_rubric_weights.md)). All share the standard evolution RLS (deny_all + service_role_all + readonly_select); `is_test_content` trigger on the name-bearing `sessions` table only. Auto-mode columns are additive/nullable (no second migration).
+
+- `evolution_weight_inference_sessions` — run entity: `id`, `name` UNIQUE, `description`, `status` (`active`/`archived`), **`mode`** (`human`/`auto`), `prompt_id` (arena topic, bare UUID), `sample_size`, `replication_rate` (reversal-audit fraction), auto-mode `judge_model`/`judge_temperature`/`judge_reasoning_effort`/`auto_repeats`/`auto_run_error`, `is_test_content`, soft-delete, timestamps.
+- `evolution_weight_inference_criteria` — junction `(session_id→sessions CASCADE, criteria_id→evolution_criteria RESTRICT, position)` PK `(session_id, criteria_id)`. The chosen criteria set (no weight column — weight is the OUTPUT).
+- `evolution_weight_inference_articles` — pooled article snapshot: `id`, `session_id` CASCADE, `variant_id` (bare), `label`, `content`, `mu`/`sigma`, `position`; UNIQUE `(session_id, label)`.
+- `evolution_weight_inference_comparisons` — one row per pair **per pass**: `id`, `session_id` CASCADE, `article_a_id`/`article_b_id` → articles CASCADE with **CHECK `article_a_id < article_b_id`** (canonical order; PG uuid order == lowercase-UUID string order), `pass` (0=original, 1=reversal replica), `shown_swapped`, `overall_winner` (`a`/`b`/`tie`, canonical-oriented, NULL until judged), `source` (`human`/`llm`), `rater_id` (server-derived), auto-mode `confidence`/`judge_model`/`cost`/`forward_winner`/`reverse_winner`/`forward_raw`/`reverse_raw`; UNIQUE `(session_id, article_a_id, article_b_id, rater_id, pass)`. (Mirrors `evolution_arena_comparisons`; note the `tie` enum vs arena's `draw`.)
+- `evolution_weight_inference_dimension_verdicts` — per-criterion verdict for a comparison: `comparison_id` CASCADE, `criteria_id` (bare, snapshot-tolerant), `criteria_name` snapshot, `verdict` (`a`/`b`/`tie`), `confidence`, `position`; PK `(comparison_id, criteria_id)`. (Mirrors `evolution_submatch_dimension_verdicts` / `judge_eval_dimension_verdicts`.)
 
 ## Entity Relationships
 
@@ -730,6 +740,7 @@ This means database rows written by older pipeline versions are transparently up
 | `20260415000001_evolution_is_test_content.sql` | 2026-04-15 | `evolution_strategies.is_test_content` column + `evolution_is_test_name(text)` function + BEFORE INSERT/UPDATE-OF-name trigger + partial index |
 | `20260423000001_add_is_test_content_to_prompts_experiments.sql` | 2026-04-23 | Same `is_test_content` column + trigger + partial index pattern extended to `evolution_prompts` and `evolution_experiments`. Closes B17 (test rows leaked into prompts list, arena topics list, and start-experiment wizard pickers because `applyTestContentNameFilter` was substring-only and missed the timestamp regex). |
 | `20260610000002_evolution_judge_rubrics.sql` | 2026-06-10 | Rubric-based judging (structured_judging_evolution_20260610): `evolution_judge_rubrics` (named weighted rubric) + `evolution_judge_rubric_dimensions` junction (`rubric_id` FK ON DELETE CASCADE, `criteria_id` FK→`evolution_criteria` ON DELETE RESTRICT, weight ≥ 0). Three-policy RLS (deny_all / service_role_all / readonly_select) + `is_test_content` trigger, mirroring `evolution_criteria`. |
+| `20260619000001_evolution_weight_inference.sql` | 2026-06-19 | Implied Rubric Weights (calculate_implifed_rubric_weights_evolution_20260619): five tables (`evolution_weight_inference_{sessions,criteria,articles,comparisons,dimension_verdicts}`) to infer judge-rubric weights from pairwise verdicts (human + auto/LLM). Three-policy RLS + `is_test_content` trigger on `sessions`; canonical-pair CHECK on comparisons; auto-mode columns additive/nullable. See [Implicit Rubric Weights](./implicit_rubric_weights.md). |
 | `20260610000003_extend_metrics_entity_type_for_judge_rubric.sql` | 2026-06-10 | Extends the `evolution_metrics.entity_type` CHECK to include `'judge_rubric'` (sibling pattern of `20260503033103`). |
 | `20260610000004_arena_comparisons_rubric_breakdown.sql` | 2026-06-10 | Adds nullable JSONB `rubric_breakdown` (per-dimension two-pass snapshot, authoritative for rendering) + nullable indexed `judge_rubric_id UUID` FK→`evolution_judge_rubrics(id)` ON DELETE SET NULL to `evolution_arena_comparisons`. Purely additive; pre-rubric matches stay NULL. |
 | `20260614000004_evolution_arena_submatches.sql` | 2026-06-14 | Phase 4 prod escalation wiring (gated, default OFF): `evolution_arena_submatches` + `evolution_submatch_dimension_verdicts` child tables (FK ON DELETE CASCADE, deny_all + service_role_all RLS) + nullable ensemble summary cols (`chain_depth`, `agreement`, `aggregation_rule`, `aggregation_rule_version`) on `evolution_arena_comparisons`. Additive; single-judge matches leave them NULL / zero submatch rows. |
