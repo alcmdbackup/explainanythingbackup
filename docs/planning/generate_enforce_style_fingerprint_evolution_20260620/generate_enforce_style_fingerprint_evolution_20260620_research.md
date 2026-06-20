@@ -76,6 +76,19 @@ Key design tension to resolve in planning: the rubric judge is *pairwise* (A vs 
 - `supabase/migrations/20260503033104_evolution_variants_criteria_columns.sql` — template for idempotent `ADD COLUMN IF NOT EXISTS` + `CREATE INDEX IF NOT EXISTS … USING GIN`.
 - DB types regen via `npm run db:types` → `src/lib/database.types.ts`.
 
+### Top-level entity + admin nav/UI backbone (researched 2026-06-20, all verified)
+- `src/components/admin/EvolutionSidebar.tsx` — `navGroups` (Overview/Entities/Results/Tools); add the new entry to the **Entities** group. `NavItem = {href,label,icon,testId,description?}` from `src/components/admin/BaseSidebar.tsx`. `activeOverrides` auto-derived from hrefs. (verified)
+- `src/app/admin/evolution/` route tree — each entity has `page.tsx` (list) + `[entityId]/page.tsx` (detail) [+ sometimes `new/`]; e.g. `criteria/`, `strategies/`, `prompts/`. No `style-fingerprints/` yet. (verified)
+- Auth is automatic: `src/app/admin/layout.tsx` + `src/app/admin/evolution/layout.tsx` enforce `isUserAdmin()`; `src/lib/services/adminAuth.ts` `isHostAcceptableForAdmin()` gates to the evolution host. No per-page auth needed.
+- `evolution/src/lib/core/types.ts:14` — `CORE_ENTITY_TYPES` union (add `'style_fingerprint'`). (verified)
+- `evolution/src/lib/core/entityRegistry.ts` — `_registry` maps EntityType → Entity instance (register `style_fingerprint: new StyleFingerprintEntity()`); note: **two parallel metric registries** (this + `evolution/src/lib/metrics/registry.ts`) must be kept in sync. (verified)
+- `evolution/src/lib/core/Entity.ts` (base) + `evolution/src/lib/core/entities/CriteriaEntity.ts` / `PromptEntity.ts` — exemplars; a new entity declares `type, table, renameField, parents, children, metrics, listColumns, listFilters, actions, detailTabs, insertSchema`.
+- `evolution/src/services/entityActions.ts` — generic `executeEntityAction` dispatcher (validates `entityType ∈ CORE_ENTITY_TYPES`, routes to `getEntity().executeAction()`). `evolution/src/services/criteriaActions.ts` — per-entity CRUD action template (list/get/create/update/delete/archive, `adminAction` wrappers, Zod-validated).
+- Entity DB pattern (`supabase/migrations/20260503033102_create_evolution_criteria.sql`): `name UNIQUE` + name-format CHECK, `status`/`deleted_at`/`archived_at`/`is_test_content`, RLS `deny_all`+`service_role_all`+`readonly_local`, BEFORE trigger → `evolution_is_test_name(NEW.name)` (so brackets are illegal in names; test rows use a `-<10-13 digit ts>-` pattern → matches [[reference_evolution_criteria_name_format]]).
+- Admin UI components: `EntityListPage<T>` (list + filters + FormDialog + row actions, `data-testid` conventions, Hide-test `filterTestContent` checkbox), `EntityDetailHeader`/`EntityDetailTabs`, `FormDialog` (supports `type:'custom'` render). shadcn primitives in `src/components/ui/` (button, dialog, input, select, checkbox, combobox, card…).
+- Article-add UI model: `src/components/sources/SourceCombobox.tsx` (search existing + add) — template for a new `ArticleCombobox` (search explanations OR paste text).
+- E2E exemplars: `src/__tests__/e2e/specs/09-admin/admin-strategy-crud.spec.ts` (@evolution, factory seeding, `afterAll` cleanup) + `EvolutionListPage` POM `resetFilters()`.
+
 ### Main-app generation (confirmed largely out of scope)
 - `src/lib/services/returnExplanation.ts` — `returnExplanationLogic` → `generateNewExplanation` → `callLLM(formattedPrompt, "generateNewExplanation", …)`; prompts from `src/lib/prompts.ts` (`createExplanationPrompt`, `createExplanationWithSourcesPrompt`, `editExplanationPrompt`). `generateTitleFromUserQuery` is the structured-output (`callLLM` + Zod schema) template if a main-app extraction is ever added.
 - `src/lib/services/llms.ts` — `callLLM`/`callLLMModelRaw`; system message hardcoded; OpenAI `json_schema` (strict) vs DeepSeek/OpenRouter `json_object` (not schema-enforced) split — relevant if a cheap model does the extraction.
