@@ -288,6 +288,19 @@ describe('llms', () => {
         expect(mockCreateSpy.mock.calls[0]![0]).not.toHaveProperty('max_tokens');
       });
 
+      // Regression for fix/gpt5_max_completion_tokens_20260620:
+      // OpenAI's API rejects `max_tokens` for the GPT-5 family — requires `max_completion_tokens`.
+      // gpt-5-mini has supportsReasoning=false in the registry but the OpenAI endpoint still
+      // requires the newer param name. Caught when staging canary B3's Phase 4d coordinator
+      // override finally fired (after PR #1234) and hit 400 "Unsupported parameter: 'max_tokens'".
+      it('sets max_completion_tokens (NOT max_tokens) for GPT-5 family even when supportsReasoning=false', async () => {
+        mockCreateSpy.mockResolvedValueOnce({ ...okResponse, model: 'gpt-5-mini' });
+        await callLLM('p', 'test_source', UID, 'gpt-5-mini', false, null, null, null, false, { maxOutputTokens: 4096 });
+        const reqOptions = mockCreateSpy.mock.calls[0]![0];
+        expect(reqOptions.max_completion_tokens).toBe(4096);
+        expect(reqOptions).not.toHaveProperty('max_tokens');
+      });
+
       it('THROWS when WE capped and the provider truncated (finish_reason=length)', async () => {
         mockCreateSpy.mockResolvedValueOnce({
           choices: [{ message: { content: 'partial' }, finish_reason: 'length' }],
@@ -296,7 +309,7 @@ describe('llms', () => {
         });
         await expect(
           callLLM('p', 'test_source', UID, 'gpt-4.1-mini', false, null, null, null, false, { maxOutputTokens: 4096 }),
-        ).rejects.toThrow(/truncated at max_tokens/);
+        ).rejects.toThrow(/truncated at output cap/);
       });
 
       it('does NOT throw on finish_reason=length when WE did not cap (main-app path)', async () => {
