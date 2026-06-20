@@ -564,6 +564,7 @@ The admin UI is a Next.js App Router application. All pages are under `src/app/a
 |-------|--------|------|---------|
 | `/api/evolution/run` | POST | `src/app/api/evolution/run/route.ts` | Trigger evolution pipeline run. Admin-only. Accepts `{ targetRunId?: string }`, returns `RunnerResult`. `maxDuration=300`. |
 | `/api/evolution/prompt-editor` | POST | `src/app/api/evolution/prompt-editor/route.ts` | Prompt-editor single-call rewrite harness. Admin-only + host-gated (public host → 404); env-gated by `EVOLUTION_PROMPT_EDITOR_ENABLED`. Accepts `{ unit, sourceText, title?, configs[] }`, returns `PromptEditorRunResult`. `maxDuration=300`. Calls `runPromptEditor` (`evolution/src/lib/promptEditor/`). See [prompt_editor.md](./prompt_editor.md). |
+| `/api/evolution/weight-inference/auto-run` | POST | `src/app/api/evolution/weight-inference/auto-run/route.ts` | Auto-mode LLM-judge chunk runner for Implied Rubric Weights. Admin-only + host-gated (public host → 404); env-gated by `EVOLUTION_WEIGHT_INFERENCE_ENABLED` + `WEIGHT_INFERENCE_AUTO_ENABLED`, with a pre-flight cost-cap (402). Accepts `{ sessionId }`, judges a resumable/idempotent chunk of pairs via `runAutoChunk`, returns chunk progress. `maxDuration=300`. See [implicit_rubric_weights.md](./implicit_rubric_weights.md). |
 
 Additional files:
 
@@ -573,7 +574,7 @@ Additional files:
 | (not-found) | `evolution/not-found.tsx` | Custom 404 page for unmatched evolution routes |
 | (loading) | `evolution/*/loading.tsx` | Per-route loading skeletons reusing `TableSkeleton` |
 
-Total: 19 pages (17 list/detail pairs + dashboard + experiment wizard + strategy wizard) + 1 API route.
+Total: 21 pages (17 list/detail pairs + dashboard + experiment wizard + strategy wizard + Implied Rubric Weights landing + session detail) + 3 API routes.
 
 **`ConfigDrivenDetailRenderer`** (`src/app/admin/evolution/invocations/[invocationId]/ConfigDrivenDetailRenderer.tsx`) — renders the agent-specific execution detail section on the invocation detail page. Reads field definitions from `DETAIL_VIEW_CONFIGS` (keyed by agent name) and renders each field generically, eliminating the need for a custom component per agent type.
 
