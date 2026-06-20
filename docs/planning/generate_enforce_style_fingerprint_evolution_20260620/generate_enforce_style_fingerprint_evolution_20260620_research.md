@@ -90,6 +90,11 @@ Key design tension to resolve in planning: the rubric judge is *pairwise* (A vs 
 7. **Extraction is a single standalone LLM call** using the existing `EvolutionLLMClient`, triggered once per run after `resolveContent()` — cheap, cached on the run, reused across all iterations and both legs (generation + judging).
 8. **Anti-overuse requirement** ("note idiosyncratic words/phrases but don't overuse them") must be encoded as an explicit directive in BOTH the generation prompt ("use sparingly, do not force") and the rubric anchors (penalize over-saturation), not just listed as phrases to inject.
 
+## Decisions (confirmed with user 2026-06-20)
+- **Scope:** Evolution pipeline only for v1. Main-app generation is explicitly out of scope (resolves Q7).
+- **Enforcement:** Per-strategy opt-in flag (e.g. `styleFingerprintEnabled`) so there's a clean control arm for the acceptance gate (resolves Q3).
+- **Representation:** Structured JSONB (`{sentenceLength, spellingRegion, signaturePhrases[], tone, …}`) for metrics PLUS a rendered prose block for prompts (resolves Q2).
+
 ## Open Questions
 1. **Fingerprint → judge wiring:** how should the per-run fingerprint reach `buildRubricComparisonPrompt`? Options: (a) thread it as runtime context appended to the rubric prompt; (b) store it on each variant and let the judge compare each variant's adherence; (c) phase 1 = generation-only, judging in a follow-up. Recommend (a).
 2. **Fingerprint representation:** structured JSONB (`{sentenceLength, spellingRegion, signaturePhrases[], tone, …}`) vs. a single prose paragraph vs. both (structured for metrics + a rendered prose block for prompts). Affects schema + prompt rendering.
