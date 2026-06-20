@@ -261,65 +261,79 @@ describe('llms', () => {
       expect(req.response_format).toEqual({ type: 'json_object' });
     });
 
-    // D5 (fix_structured_judging_evolution_bugs): evolution-scoped max_tokens cap.
-    describe('maxOutputTokens cap (D5)', () => {
+    // D5 (fix_structured_judging_evolution_bugs): evolution-scoped output cap.
+    // Scoped to OpenRouter only — the cap exists to dodge OpenRouter's credit pre-check;
+    // direct OpenAI/DeepSeek/Local clients have no such pre-check, and capping them just
+    // truncates legitimate output (caught at staging canary B5 2026-06-20: gpt-5-mini
+    // coordinator truncated at 4096 because GPT-5's internal reasoning tokens count
+    // against the cap). See scope-max-tokens-to-openrouter hotfix.
+    describe('maxOutputTokens cap (D5, OpenRouter-only)', () => {
       const UID = '00000000-0000-4000-8000-000000000001';
       const okResponse = {
         choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
         usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
-        model: 'gpt-4.1-mini',
+        model: 'google/gemini-2.5-flash-lite',
       };
+      beforeEach(() => {
+        process.env.OPENROUTER_API_KEY = 'test-or-key';
+      });
 
-      it('sets max_tokens for a NON-reasoning model when maxOutputTokens is provided', async () => {
+      it('sets max_tokens for an OpenRouter non-reasoning model when maxOutputTokens is provided', async () => {
         mockCreateSpy.mockResolvedValueOnce(okResponse);
-        await callLLM('p', 'test_source', UID, 'gpt-4.1-mini', false, null, null, null, false, { maxOutputTokens: 4096 });
+        await callLLM('p', 'test_source', UID, 'google/gemini-2.5-flash-lite', false, null, null, null, false, { maxOutputTokens: 4096 });
         expect(mockCreateSpy.mock.calls[0]![0].max_tokens).toBe(4096);
       });
 
-      it('OMITS max_tokens for a REASONING model even when maxOutputTokens is provided (exemption)', async () => {
-        mockCreateSpy.mockResolvedValueOnce({ ...okResponse, model: 'o3-mini' });
-        await callLLM('p', 'test_source', UID, 'o3-mini', false, null, null, null, false, { maxOutputTokens: 4096 });
+      it('OMITS max_tokens for OpenAI-direct models even when maxOutputTokens is provided (no OpenRouter pre-check to dodge)', async () => {
+        mockCreateSpy.mockResolvedValueOnce({ ...okResponse, model: 'gpt-4.1-mini' });
+        await callLLM('p', 'test_source', UID, 'gpt-4.1-mini', false, null, null, null, false, { maxOutputTokens: 4096 });
+        const reqOptions = mockCreateSpy.mock.calls[0]![0];
+        expect(reqOptions).not.toHaveProperty('max_tokens');
+        expect(reqOptions).not.toHaveProperty('max_completion_tokens');
+      });
+
+      // Regression for scope-max-tokens-to-openrouter hotfix: gpt-5-mini (OpenAI direct,
+      // supportsReasoning=false) was getting capped at 4096, but its internal reasoning
+      // tokens count against the cap → 50% truncation rate on staging canary B5.
+      it('OMITS the cap for gpt-5-mini (OpenAI direct) so its internal reasoning tokens are not constrained', async () => {
+        mockCreateSpy.mockResolvedValueOnce({ ...okResponse, model: 'gpt-5-mini' });
+        await callLLM('p', 'test_source', UID, 'gpt-5-mini', false, null, null, null, false, { maxOutputTokens: 4096 });
+        const reqOptions = mockCreateSpy.mock.calls[0]![0];
+        expect(reqOptions).not.toHaveProperty('max_tokens');
+        expect(reqOptions).not.toHaveProperty('max_completion_tokens');
+      });
+
+      it('OMITS max_tokens for a REASONING OpenRouter model even when maxOutputTokens is provided (exemption)', async () => {
+        mockCreateSpy.mockResolvedValueOnce({ ...okResponse, model: 'qwen/qwen3-8b' });
+        await callLLM('p', 'test_source', UID, 'qwen/qwen3-8b', false, null, null, null, false, { maxOutputTokens: 4096 });
         expect(mockCreateSpy.mock.calls[0]![0]).not.toHaveProperty('max_tokens');
       });
 
       it('OMITS max_tokens when the option is not provided (main-app callers unaffected)', async () => {
         mockCreateSpy.mockResolvedValueOnce(okResponse);
-        await callLLM('p', 'test_source', UID, 'gpt-4.1-mini', false, null, null, null, false);
+        await callLLM('p', 'test_source', UID, 'google/gemini-2.5-flash-lite', false, null, null, null, false);
         expect(mockCreateSpy.mock.calls[0]![0]).not.toHaveProperty('max_tokens');
       });
 
-      // Regression for fix/gpt5_max_completion_tokens_20260620:
-      // OpenAI's API rejects `max_tokens` for the GPT-5 family — requires `max_completion_tokens`.
-      // gpt-5-mini has supportsReasoning=false in the registry but the OpenAI endpoint still
-      // requires the newer param name. Caught when staging canary B3's Phase 4d coordinator
-      // override finally fired (after PR #1234) and hit 400 "Unsupported parameter: 'max_tokens'".
-      it('sets max_completion_tokens (NOT max_tokens) for GPT-5 family even when supportsReasoning=false', async () => {
-        mockCreateSpy.mockResolvedValueOnce({ ...okResponse, model: 'gpt-5-mini' });
-        await callLLM('p', 'test_source', UID, 'gpt-5-mini', false, null, null, null, false, { maxOutputTokens: 4096 });
-        const reqOptions = mockCreateSpy.mock.calls[0]![0];
-        expect(reqOptions.max_completion_tokens).toBe(4096);
-        expect(reqOptions).not.toHaveProperty('max_tokens');
-      });
-
-      it('THROWS when WE capped and the provider truncated (finish_reason=length)', async () => {
+      it('THROWS when WE capped (OpenRouter) and the provider truncated (finish_reason=length)', async () => {
         mockCreateSpy.mockResolvedValueOnce({
           choices: [{ message: { content: 'partial' }, finish_reason: 'length' }],
           usage: { prompt_tokens: 5, completion_tokens: 4096, total_tokens: 4101 },
-          model: 'gpt-4.1-mini',
+          model: 'google/gemini-2.5-flash-lite',
         });
         await expect(
-          callLLM('p', 'test_source', UID, 'gpt-4.1-mini', false, null, null, null, false, { maxOutputTokens: 4096 }),
+          callLLM('p', 'test_source', UID, 'google/gemini-2.5-flash-lite', false, null, null, null, false, { maxOutputTokens: 4096 }),
         ).rejects.toThrow(/truncated at output cap/);
       });
 
-      it('does NOT throw on finish_reason=length when WE did not cap (main-app path)', async () => {
+      it('does NOT throw on finish_reason=length when WE did not cap (OpenAI-direct path, provider default)', async () => {
         mockCreateSpy.mockResolvedValueOnce({
           choices: [{ message: { content: 'long' }, finish_reason: 'length' }],
           usage: { prompt_tokens: 5, completion_tokens: 9, total_tokens: 14 },
           model: 'gpt-4.1-mini',
         });
         await expect(
-          callLLM('p', 'test_source', UID, 'gpt-4.1-mini', false, null, null, null, false),
+          callLLM('p', 'test_source', UID, 'gpt-4.1-mini', false, null, null, null, false, { maxOutputTokens: 4096 }),
         ).resolves.toBe('long');
       });
     });

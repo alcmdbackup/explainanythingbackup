@@ -233,19 +233,6 @@ export const DEFAULT_JUDGE_MODEL = 'qwen-2.5-7b-instruct';
 
 // ─── Lookup helpers ─────────────────────────────────────────────
 
-/** Return true when the model requires the `max_completion_tokens` request parameter
- *  instead of `max_tokens`. OpenAI's API rejects `max_tokens` for:
- *   - the entire GPT-5 family (gpt-5, gpt-5-mini, gpt-5-nano, gpt-5.x, gpt-5.x-*)
- *   - all o-series reasoning models (o1*, o3*, o4*)
- *  This is an API contract independent of `supportsReasoning` — gpt-5-mini has
- *  `supportsReasoning: false` in the registry but the OpenAI endpoint still requires
- *  `max_completion_tokens`. Caught when Phase 4d's gpt-5-mini coordinator failed at
- *  staging on 2026-06-20 with "400 Unsupported parameter: 'max_tokens'". */
-export function usesMaxCompletionTokens(modelId: string): boolean {
-  // Match bare ids (no provider prefix) — call sites pass already-resolved bare ids.
-  return /^(gpt-5|o[1-9])($|[.-])/.test(modelId);
-}
-
 /** Get model info by ID. Returns undefined for unknown models. */
 export function getModelInfo(modelId: string): ModelInfo | undefined {
   return MODEL_REGISTRY[modelId];

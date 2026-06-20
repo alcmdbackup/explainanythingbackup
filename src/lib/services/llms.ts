@@ -17,7 +17,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 import { calculateLLMCost } from '@/config/llmPricing';
-import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId, getModelMaxTemperature, getModelDefaultReasoningEffort, modelSupportsReasoning, modelSupportsJsonSchema, usesMaxCompletionTokens, MODEL_REGISTRY } from '@/config/modelRegistry';
+import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId, getModelMaxTemperature, getModelDefaultReasoningEffort, modelSupportsReasoning, modelSupportsJsonSchema, MODEL_REGISTRY } from '@/config/modelRegistry';
 
 /** Clamp temperature to model's max. Returns undefined if model doesn't support temperature or temp not set. */
 function clampTemperature(temperature: number | undefined, model: string): number | undefined {
@@ -478,23 +478,21 @@ async function callOpenAIModel(
             requestOptions.temperature = clampedTemp;
         }
 
-        // Per-call output cap (D5 — fix_structured_judging_evolution_bugs). Applied ONLY when the
-        // caller opts in (evolution sets it; main-app callers don't, so their request is byte-
-        // identical) AND the model is non-reasoning. Reasoning models are exempted because
-        // `max_tokens` caps reasoning+completion together and a small cap could truncate the trace.
-        // Without a cap, OpenRouter reserves the model max (~65535) for its credit-affordability
-        // pre-check, which 402s on a low balance even though real output is ~1-2K tokens.
-        //
-        // GPT-5 family + o-series: OpenAI's API rejects `max_tokens` for these models and
-        // requires `max_completion_tokens` instead — even when `supportsReasoning` is false
-        // (e.g. gpt-5-mini). usesMaxCompletionTokens() picks the right field name.
-        // Caught 2026-06-20 staging canary B3 with 400 "Unsupported parameter: 'max_tokens'".
-        if (options?.maxOutputTokens !== undefined && !modelSupportsReasoning(validatedModel)) {
-            if (usesMaxCompletionTokens(validatedModel)) {
-                requestOptions.max_completion_tokens = options.maxOutputTokens;
-            } else {
-                requestOptions.max_tokens = options.maxOutputTokens;
-            }
+        // Per-call output cap (D5 — fix_structured_judging_evolution_bugs). The cap exists
+        // SOLELY to dodge OpenRouter's credit-affordability pre-check, which otherwise reserves
+        // the model max (~65535) and 402s on a low balance even though real output is ~1-2K
+        // tokens. Direct OpenAI/DeepSeek/Local clients have no such pre-check — capping them
+        // just truncates legitimate output (e.g. gpt-5-mini coordinator at 4096; caught
+        // 2026-06-20 staging canary B5 — 50% of paragraph_recombine invocations hit the guard
+        // because gpt-5-mini's internal reasoning tokens count against the cap). So: gate on
+        // isOpenRouterModel — non-OpenRouter calls use the provider default. Reasoning models
+        // stay exempted regardless, since their cap covers reasoning+completion together.
+        if (
+            options?.maxOutputTokens !== undefined &&
+            !modelSupportsReasoning(validatedModel) &&
+            isOpenRouterModel(validatedModel)
+        ) {
+            requestOptions.max_tokens = options.maxOutputTokens;
         }
 
         // Reasoning effort — caller override wins over the registry default; hygiene rules
@@ -612,17 +610,14 @@ async function callOpenAIModel(
                 rawApiResponse = JSON.stringify(completion);
             }
 
-            // D5 truncation guard: if WE imposed an output cap and the provider truncated the
-            // response at it (finish_reason='length'), fail loudly instead of returning silently-
-            // partial text. The cap may be in either `max_tokens` (older models) or
-            // `max_completion_tokens` (GPT-5/o-series). Scoped to "did we set either?" so
-            // main-app calls (which never set a cap) are unaffected. For evolution this surfaces
-            // as a thrown error → the agent records the invocation success=false (D1), never a
-            // silent partial.
-            const imposedCap = requestOptions.max_tokens ?? requestOptions.max_completion_tokens;
-            if (imposedCap !== undefined && finishReason === 'length') {
+            // D5 truncation guard: if WE imposed an output cap (only OpenRouter — see above)
+            // and the provider truncated the response at it (finish_reason='length'), fail
+            // loudly instead of returning silently-partial text. Main-app calls don't set a
+            // cap so they're unaffected. For evolution this surfaces as a thrown error → the
+            // agent records the invocation success=false (D1), never a silent partial.
+            if (requestOptions.max_tokens !== undefined && finishReason === 'length') {
                 throw new Error(
-                    `LLM response truncated at output cap=${imposedCap} ` +
+                    `LLM response truncated at output cap=${requestOptions.max_tokens} ` +
                     `(finish_reason='length', model=${validatedModel}). Increase the evolution ` +
                     `output cap (EVOLUTION_MAX_OUTPUT_TOKENS) or check the prompt size.`,
                 );

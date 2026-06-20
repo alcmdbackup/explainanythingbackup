@@ -11,7 +11,6 @@ import {
   isOpenRouterModel,
   getOpenRouterApiModelId,
   modelSupportsJsonSchema,
-  usesMaxCompletionTokens,
   type ModelInfo,
   type ModelProvider,
 } from './modelRegistry';
@@ -285,44 +284,4 @@ describe('modelRegistry', () => {
     });
   });
 
-  // Regression test for fix/gpt5_max_completion_tokens_20260620.
-  // OpenAI's API rejects `max_tokens` for the GPT-5 family AND all o-series reasoning
-  // models — it requires `max_completion_tokens` instead. Even non-reasoning GPT-5
-  // variants (gpt-5-mini with supportsReasoning=false) hit this. Caught at staging
-  // canary B3 2026-06-20 with "400 Unsupported parameter: 'max_tokens'" when the
-  // Phase 4d coordinator override finally fired to gpt-5-mini.
-  describe('usesMaxCompletionTokens', () => {
-    it('returns true for the entire GPT-5 family (regardless of supportsReasoning)', () => {
-      expect(usesMaxCompletionTokens('gpt-5-mini')).toBe(true);
-      expect(usesMaxCompletionTokens('gpt-5-nano')).toBe(true);
-      expect(usesMaxCompletionTokens('gpt-5.2')).toBe(true);
-      expect(usesMaxCompletionTokens('gpt-5.2-pro')).toBe(true);
-    });
-
-    it('returns true for o-series reasoning models', () => {
-      expect(usesMaxCompletionTokens('o3-mini')).toBe(true);
-      // Hypothetical o4 / o1 variants — match by pattern so future additions are covered.
-      expect(usesMaxCompletionTokens('o1-preview')).toBe(true);
-      expect(usesMaxCompletionTokens('o4-mini')).toBe(true);
-    });
-
-    it('returns false for older OpenAI models (max_tokens still works)', () => {
-      expect(usesMaxCompletionTokens('gpt-4o')).toBe(false);
-      expect(usesMaxCompletionTokens('gpt-4o-mini')).toBe(false);
-      expect(usesMaxCompletionTokens('gpt-4.1')).toBe(false);
-      expect(usesMaxCompletionTokens('gpt-4.1-mini')).toBe(false);
-      expect(usesMaxCompletionTokens('gpt-4.1-nano')).toBe(false);
-    });
-
-    it('returns false for non-OpenAI models', () => {
-      expect(usesMaxCompletionTokens('google/gemini-2.5-flash-lite')).toBe(false);
-      expect(usesMaxCompletionTokens('deepseek-v4-flash')).toBe(false);
-      expect(usesMaxCompletionTokens('qwen-2.5-7b-instruct')).toBe(false);
-    });
-
-    it('is anchored — names that merely contain "gpt-5" or "o3" elsewhere are NOT matched', () => {
-      expect(usesMaxCompletionTokens('custom-gpt-5-foo')).toBe(false);
-      expect(usesMaxCompletionTokens('our-o3-tool')).toBe(false);
-    });
-  });
 });
