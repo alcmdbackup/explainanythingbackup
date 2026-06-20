@@ -16,11 +16,16 @@ export interface AutoChunkResult {
   spendUsd: number;
 }
 
-/** Builds the LLM judge closure for a model/temperature/reasoning (cost flows to costAcc). */
+/**
+ * Builds the LLM judge closure for a model/temperature/reasoning. Cost flows to the supplied
+ * `costSink` — the caller passes a FRESH per-pair sink so concurrent pairs never cross-attribute
+ * each other's spend (the persisted per-pair `cost` would otherwise sum in-flight neighbours).
+ */
 export type JudgeFactory = (
   model: string,
   temperature: number | null,
   reasoning: string | null,
+  costSink: { usd: number },
 ) => JudgeText;
 
 const PAIR_CONCURRENCY = 4;
@@ -58,6 +63,7 @@ export async function runAutoChunk(
   const session = s as unknown as SessionRow;
   if (session.mode !== 'auto') throw new Error('auto-run: session is not in auto mode');
   if (!session.judge_model) throw new Error('auto-run: session has no judge_model');
+  const judgeModel = session.judge_model; // narrowed non-null; closures below lose outer narrowing
   const repeats = Math.max(1, session.auto_repeats);
 
   // 2. criteria (ordered) -> rubric (equal placeholder weights; verdicts are weight-independent)
@@ -126,7 +132,6 @@ export async function runAutoChunk(
   assertWithinWeightInferenceAutoCap({ remainingPairs: chunk.length, repeats });
 
   // 5. judge
-  const judge = judgeFactory(session.judge_model, session.judge_temperature, session.judge_reasoning_effort);
   const articleIds = [...new Set(chunk.flatMap((c) => [c.article_a_id, c.article_b_id]))];
   const { data: arts, error: aErr } = await db
     .from('evolution_weight_inference_articles')
@@ -138,11 +143,16 @@ export async function runAutoChunk(
   async function judgeOne(c: CompRow): Promise<void> {
     const textA = contentById.get(c.article_a_id) ?? '';
     const textB = contentById.get(c.article_b_id) ?? '';
+    // Fresh per-pair cost sink: pairs run concurrently (PAIR_CONCURRENCY), so a shared
+    // accumulator would make each pair's persisted `cost` capture its neighbours' spend.
+    const pairAcc = { usd: 0 };
+    const judge = judgeFactory(judgeModel, session.judge_temperature, session.judge_reasoning_effort, pairAcc);
     const results = [];
     for (let r = 0; r < repeats; r++) {
-      results.push(await judgePairOnce(judge, textA, textB, rubric, costAcc, session.pair_kind));
+      results.push(await judgePairOnce(judge, textA, textB, rubric, pairAcc, session.pair_kind));
     }
     const folded = foldRepeats(results);
+    costAcc.usd += pairAcc.usd; // contribute this pair's isolated spend to the chunk total
     await db
       .from('evolution_weight_inference_comparisons')
       .update({
@@ -150,7 +160,7 @@ export async function runAutoChunk(
         forward_winner: folded.forwardWinner,
         reverse_winner: folded.reverseWinner,
         confidence: folded.overallConfidence,
-        judge_model: session.judge_model,
+        judge_model: judgeModel,
         cost: folded.costUsd,
         updated_at: new Date().toISOString(),
       })

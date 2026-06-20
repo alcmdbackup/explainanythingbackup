@@ -211,8 +211,10 @@ describe('weight-inference integration', () => {
     // Fake judge — the ONLY judge (no callLLM): 'A' token for the holistic prompt,
     // per-criterion "name: A" lines for the rubric prompt. Proves zero real LLM calls.
     const costAcc = { usd: 0 };
-    const factory: JudgeFactory = () => async (prompt: string) => {
-      costAcc.usd += 0.0001;
+    // 4th arg is the per-pair cost sink (concurrency-safe attribution); write there, and
+    // runAutoChunk folds each pair's isolated spend into the shared costAcc total.
+    const factory: JudgeFactory = (_model, _temp, _reasoning, costSink) => async (prompt: string) => {
+      costSink.usd += 0.0001;
       if (criteriaNames.some((n) => prompt.includes(n))) {
         return criteriaNames.map((n) => `${n}: A`).join('\n');
       }
@@ -222,6 +224,18 @@ describe('weight-inference integration', () => {
     const res1 = await runAutoChunk(supabase, autoSessionId, factory, costAcc);
     expect(res1.judged).toBeGreaterThan(0);
     expect(costAcc.usd).toBeGreaterThan(0);
+
+    // Per-pair `cost` must NOT cross-attribute under concurrency: the sum of persisted
+    // per-pair costs equals the chunk total (each pair had its own cost sink).
+    const { data: costRows } = await supabase
+      .from('evolution_weight_inference_comparisons')
+      .select('cost')
+      .eq('session_id', autoSessionId)
+      .eq('source', 'llm')
+      .eq('pass', 0)
+      .not('overall_winner', 'is', null);
+    const summedCost = (costRows ?? []).reduce((s, r) => s + ((r.cost as number | null) ?? 0), 0);
+    expect(summedCost).toBeCloseTo(costAcc.usd, 6);
 
     const { count: judged } = await supabase
       .from('evolution_weight_inference_comparisons')

@@ -49,11 +49,11 @@ export async function POST(request: NextRequest) {
     // daily budget + global spending gate), temperature/reasoning from the session, cost via
     // onUsage. An explicit E2E_TEST_MODE stub avoids real spend in CI (there is no generic
     // callLLM stub — it's per code path).
-    const judgeFactory: JudgeFactory = (model, temperature, reasoning) => async (prompt: string) => {
+    const judgeFactory: JudgeFactory = (model, temperature, reasoning, costSink) => async (prompt: string) => {
       if (process.env.E2E_TEST_MODE === 'true') return 'A';
       const opts: Parameters<typeof callLLM>[9] = {
         onUsage: (u) => {
-          costAcc.usd += u.estimatedCostUsd ?? 0;
+          costSink.usd += u.estimatedCostUsd ?? 0;
         },
       };
       if (temperature != null) opts!.temperature = temperature;

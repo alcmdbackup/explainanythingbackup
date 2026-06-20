@@ -165,7 +165,7 @@ async function loadFitData(
   const source = mode === 'auto' ? 'llm' : 'human';
   const { data: comps, error: cErr } = await db
     .from('evolution_weight_inference_comparisons')
-    .select('id, article_a_id, article_b_id, pass, overall_winner')
+    .select('id, article_a_id, article_b_id, pass, overall_winner, confidence')
     .eq('session_id', sessionId)
     .eq('source', source);
   if (cErr) throw new Error(`load comparisons failed: ${pgMsg(cErr)}`);
@@ -210,7 +210,11 @@ async function loadFitData(
     const pass1 = byKeyPass.get(`${key}#1`);
     const replica = pass1 ? { pass0, pass1 } : undefined;
     if (replica) replicas.push(replica);
-    observations.push({ ...pass0, confidence: pairConfidence(replica) });
+    // Human pairs are weighted by reversal-audit agreement; auto pairs have no pass-1
+    // replica, so weight by the persisted cross-repeat agreement (auto_repeats fold).
+    const confidence =
+      mode === 'auto' ? ((c.confidence as number | null) ?? 1) : pairConfidence(replica);
+    observations.push({ ...pass0, confidence });
   }
 
   return { observations, replicas };
@@ -584,6 +588,9 @@ export const getWeightInferenceProgressAction = adminAction(
     const rows = data ?? [];
     const judgedRows = rows.filter((r) => r.overall_winner != null);
     const judged = judgedRows.length;
+    // 4 calls/pair (2 holistic + 2 rubric, each a 2-pass reversal) × auto_repeats; mirrors
+    // the cost-cap formula (autoCost.plannedCalls = pairs × repeats × CALLS_PER_PAIR).
+    const repeats = Math.max(1, session.auto_repeats ?? 1);
     let spend = 0;
     let flips = 0;
     let flipDenom = 0;
@@ -602,7 +609,7 @@ export const getWeightInferenceProgressAction = adminAction(
       status: session.status,
       pairsTotal: rows.length,
       pairsJudged: judged,
-      llmCalls: judged * 4,
+      llmCalls: judged * 4 * repeats,
       spendUsd: spend,
       positionBiasRate: flipDenom > 0 ? flips / flipDenom : 0,
       done: rows.length > 0 && judged >= rows.length,
