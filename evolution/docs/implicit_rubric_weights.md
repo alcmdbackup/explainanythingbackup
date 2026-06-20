@@ -26,7 +26,7 @@ A configurable `replication_rate` (default 0.15) re-shows a sample of pairs a se
 
 ## Data model
 
-See [Data Model → Weight-inference tables](./data_model.md#weight-inference-tables-calculate_implifed_rubric_weights_evolution_20260619). Five tables (migration `20260619000001`), all on the standard evolution RLS (deny-all + `service_role_all` + `readonly_local`), `is_test_content` trigger on the name-bearing `sessions` table:
+See [Data Model → Weight-inference tables](./data_model.md#weight-inference-tables-calculate_implifed_rubric_weights_evolution_20260619). Five tables (migration `20260619000002`), all on the standard evolution RLS (deny-all + `service_role_all` + `readonly_local`), `is_test_content` trigger on the name-bearing `sessions` table:
 
 - `evolution_weight_inference_sessions` — the run entity (mode, prompt_id, sample_size, replication_rate, auto-mode judge settings).
 - `evolution_weight_inference_criteria` — junction (session → criteria; the chosen set; weight is the OUTPUT, not stored here).
@@ -39,7 +39,7 @@ See [Data Model → Weight-inference tables](./data_model.md#weight-inference-ta
 - `evolution/src/services/weightInferenceActions.ts` — `adminAction`-wrapped server actions: create session (seed pool from an arena topic + materialize pairs), list, preview, getNextPair (overall-first / criteria-gated), recordOverall/recordDimensionVerdicts (canonical flip-on-save), getFit, exportRubric. `rater_id` is server-derived; kill switch `EVOLUTION_WEIGHT_INFERENCE_ENABLED`.
 - `src/app/admin/evolution/weight-inference/{page.tsx,[sessionId]/page.tsx,loading.tsx}` — sessions landing + new-session form; session detail (Judge / Results + export).
 - `src/components/admin/EvolutionSidebar.tsx` — "Implied Rubric Weights" Tools nav entry.
-- `supabase/migrations/20260619000001_evolution_weight_inference.sql` — the five tables.
+- `supabase/migrations/20260619000002_evolution_weight_inference.sql` — the five tables.
 
 ## Pair source (Phase 6)
 A session's pairs come from one of two sources (`evolution_weight_inference_sessions.source_kind`):

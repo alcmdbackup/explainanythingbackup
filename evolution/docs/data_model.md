@@ -401,7 +401,7 @@ the winner" a queryable table instead of a JSONB blob. The **`criteria_split`** 
 submatch per rubric dimension (each judging a single-criterion sub-rubric, possibly on a different
 model), folded by the `criteria_weighted` aggregation rule.
 
-**Agreement sweep** (Judge Lab, migration `20260619000002`) — a separate family answering "how often
+**Agreement sweep** (Judge Lab, migration `20260619000001`) — a separate family answering "how often
 does a rubric judge agree with the holistic no-rubric judge?": `judge_eval_agreement_runs` (one per
 settings tuple, UNIQUE `settings_key` with an `agreement|` prefix; carries `judge_rubric_id`),
 `judge_eval_agreement_calls` (per (pair × repeat): `holistic_winner`/`rubric_winner` + confidences,
@@ -415,7 +415,7 @@ RLS. Distinct from `favored_match_winner`, which compares a criterion to the rub
 
 ### Weight-inference tables (calculate_implifed_rubric_weights_evolution_20260619)
 
-Five tables (migration `20260619000001`) backing the **Implied Rubric Weights** tool, which infers judge-rubric weights from pairwise verdicts (see [Implicit Rubric Weights](./implicit_rubric_weights.md)). All share the standard evolution RLS (deny_all + service_role_all + readonly_select); `is_test_content` trigger on the name-bearing `sessions` table only. Auto-mode columns are additive/nullable (no second migration).
+Five tables (migration `20260619000002`) backing the **Implied Rubric Weights** tool, which infers judge-rubric weights from pairwise verdicts (see [Implicit Rubric Weights](./implicit_rubric_weights.md)). All share the standard evolution RLS (deny_all + service_role_all + readonly_select); `is_test_content` trigger on the name-bearing `sessions` table only. Auto-mode columns are additive/nullable (no second migration).
 
 - `evolution_weight_inference_sessions` — run entity: `id`, `name` UNIQUE, `description`, `status` (`active`/`archived`), **`mode`** (`human`/`auto`), `prompt_id` (arena topic, bare UUID), `sample_size`, `replication_rate` (reversal-audit fraction), auto-mode `judge_model`/`judge_temperature`/`judge_reasoning_effort`/`auto_repeats`/`auto_run_error`, `is_test_content`, soft-delete, timestamps.
 - `evolution_weight_inference_criteria` — junction `(session_id→sessions CASCADE, criteria_id→evolution_criteria RESTRICT, position)` PK `(session_id, criteria_id)`. The chosen criteria set (no weight column — weight is the OUTPUT).

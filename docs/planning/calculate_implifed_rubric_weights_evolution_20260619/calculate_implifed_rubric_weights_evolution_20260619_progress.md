@@ -37,7 +37,7 @@
 [pending]
 
 ## Phase 1: Migration + schemas + stats core — DONE (252233bda)
-Migration `20260619000001` (5 tables + auto columns, RLS, is_test trigger, canonical CHECK, indexes) — idempotency-lint clean. Zod Insert/Row schemas. `evolution/src/lib/weightInference/` (verdicts/fit/ci/sampleSize/audit) with 32 unit tests incl. fast-check. lint+tsc+build green.
+Migration `20260619000002` (5 tables + auto columns, RLS, is_test trigger, canonical CHECK, indexes) — idempotency-lint clean. Zod Insert/Row schemas. `evolution/src/lib/weightInference/` (verdicts/fit/ci/sampleSize/audit) with 32 unit tests incl. fast-check. lint+tsc+build green.
 
 ## Phase 2: Server actions + persistence — DONE (7703247bf)
 `weightInferenceActions.ts` (create+seed+materialize, list, preview, getNextPair overall-first/criteria-gated, recordOverall/recordDimensionVerdicts canonical flip-on-save, getFit, exportRubric). rater_id server-derived; kill switch. Integration test (guard-skips until tables migrated; CI-verified).
