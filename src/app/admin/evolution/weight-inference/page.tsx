@@ -1,0 +1,386 @@
+// Implied Rubric Weights — sessions landing + new-session form. Lists weight-inference
+// sessions and creates one (pick arena topic + criteria + pool size), showing the
+// ratings-needed preview before creation. Human mode (auto mode added in Phase 5).
+
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { toast } from 'sonner';
+import { EvolutionBreadcrumb } from '@evolution/components/evolution';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import {
+  listWeightInferenceSessionsAction,
+  createWeightInferenceSessionAction,
+  getWeightInferencePreviewAction,
+  type WiSessionListItem,
+} from '@evolution/services/weightInferenceActions';
+import { getArenaTopicsAction } from '@evolution/services/arenaActions';
+import { listCriteriaAction } from '@evolution/services/criteriaActions';
+import { listTestSetsAction } from '@evolution/services/judgeEvalActions';
+import { getModelOptions, DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
+
+const MODEL_OPTIONS = getModelOptions();
+type Mode = 'human' | 'auto';
+type SourceKind = 'topic' | 'test_set';
+type PairKind = 'article' | 'paragraph';
+
+interface TestSetOpt { id: string; name: string; sizeArticle: number; sizeParagraph: number }
+
+interface TopicOpt { id: string; name: string }
+interface CriterionOpt { id: string; name: string; description: string | null }
+
+const inputCls =
+  'w-full rounded-page border border-[var(--border-default)] bg-[var(--surface-input)] px-3 py-2 text-[var(--text-primary)] font-ui text-sm';
+const labelCls = 'block font-ui text-sm font-medium text-[var(--text-secondary)] mb-1';
+
+export default function WeightInferencePage(): JSX.Element {
+  const router = useRouter();
+  const [sessions, setSessions] = useState<WiSessionListItem[]>([]);
+  const [topics, setTopics] = useState<TopicOpt[]>([]);
+  const [criteria, setCriteria] = useState<CriterionOpt[]>([]);
+  const [testSets, setTestSets] = useState<TestSetOpt[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const [name, setName] = useState('');
+  const [sourceKind, setSourceKind] = useState<SourceKind>('topic');
+  const [pairKind, setPairKind] = useState<PairKind>('article');
+  const [testSetId, setTestSetId] = useState('');
+  const [topicId, setTopicId] = useState('');
+  const [selectedCriteria, setSelectedCriteria] = useState<Set<string>>(new Set());
+  const [sampleSize, setSampleSize] = useState(30);
+  const [replicationRate, setReplicationRate] = useState(0.15);
+  const [mode, setMode] = useState<Mode>('human');
+  const [judgeModel, setJudgeModel] = useState(DEFAULT_JUDGE_MODEL);
+  const [judgeTemperature, setJudgeTemperature] = useState(0);
+  const [autoRepeats, setAutoRepeats] = useState(1);
+  const [preview, setPreview] = useState<{ pairs: number; comparisons: number; verdicts: number } | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const reload = useCallback(async () => {
+    const res = await listWeightInferenceSessionsAction({ filterTestContent: true });
+    if (res.success && res.data) setSessions(res.data.items);
+    else if (!res.success) toast.error(res.error?.message ?? 'Failed to load sessions');
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      const [s, t, c, ts] = await Promise.all([
+        listWeightInferenceSessionsAction({ filterTestContent: true }),
+        getArenaTopicsAction({ filterTestContent: true }),
+        listCriteriaAction({ status: 'active', filterTestContent: true, limit: 200 }),
+        listTestSetsAction(),
+      ]);
+      if (s.success && s.data) setSessions(s.data.items);
+      if (t.success && t.data) setTopics(t.data.map((x) => ({ id: x.id, name: x.name || x.id })));
+      if (c.success && c.data) setCriteria(c.data.items.map((x) => ({ id: x.id, name: x.name, description: x.description ?? null })));
+      if (ts.success && ts.data) {
+        setTestSets(
+          ts.data.map((x) => ({ id: x.id, name: x.name, sizeArticle: x.size_article ?? 0, sizeParagraph: x.size_paragraph ?? 0 })),
+        );
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  // live ratings-needed preview
+  useEffect(() => {
+    void (async () => {
+      const res = await getWeightInferencePreviewAction({
+        criteriaCount: selectedCriteria.size,
+        replicationRate,
+      });
+      if (res.success && res.data) setPreview(res.data.required);
+    })();
+  }, [selectedCriteria, replicationRate]);
+
+  const toggleCriterion = (id: string): void => {
+    setSelectedCriteria((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const create = async (): Promise<void> => {
+    if (!name.trim() || selectedCriteria.size < 2) {
+      toast.error('Name and at least 2 criteria are required.');
+      return;
+    }
+    if (sourceKind === 'topic' && !topicId) { toast.error('Select an arena topic.'); return; }
+    if (sourceKind === 'test_set' && !testSetId) { toast.error('Select a Judge Lab test set.'); return; }
+    setCreating(true);
+    const res = await createWeightInferenceSessionAction({
+      name: name.trim(),
+      mode,
+      source_kind: sourceKind,
+      pair_kind: sourceKind === 'topic' ? 'article' : pairKind,
+      prompt_id: sourceKind === 'topic' ? topicId : null,
+      judge_eval_test_set_id: sourceKind === 'test_set' ? testSetId : null,
+      sample_size: sampleSize,
+      replication_rate: mode === 'auto' ? 0 : replicationRate,
+      criteriaIds: [...selectedCriteria],
+      ...(mode === 'auto'
+        ? { judge_model: judgeModel, judge_temperature: judgeTemperature, auto_repeats: autoRepeats }
+        : {}),
+    });
+    setCreating(false);
+    if (res.success && res.data) {
+      toast.success('Session created');
+      router.push(`/admin/evolution/weight-inference/${res.data.sessionId}`);
+    } else {
+      toast.error(res.error?.message ?? 'Create failed');
+      void reload();
+    }
+  };
+
+  const selectedTestSet = testSets.find((t) => t.id === testSetId);
+  let testSetPairs = 0;
+  if (selectedTestSet) {
+    testSetPairs = pairKind === 'article' ? selectedTestSet.sizeArticle : selectedTestSet.sizeParagraph;
+  }
+  // What a test-set session will ACTUALLY judge (vs. the K-based recommendation).
+  const criteriaCount = selectedCriteria.size;
+  const tsReplicas = mode === 'auto' ? 0 : Math.floor(testSetPairs * replicationRate);
+  const tsComparisons = testSetPairs + tsReplicas;
+  const tsVerdicts = tsComparisons * (1 + criteriaCount);
+
+  // Test-set preview sentences (avoids nested ternaries inside JSX).
+  const recommendedPairs = preview?.pairs ?? 0;
+  let tsRecommendation = '.';
+  if (selectedTestSet) {
+    tsRecommendation =
+      testSetPairs >= recommendedPairs
+        ? ` — at or above the ~${recommendedPairs} recommended.`
+        : ` — fewer than the ~${recommendedPairs} recommended; weights will be rougher.`;
+  }
+  let tsJudgePlan = '';
+  if (selectedTestSet && testSetPairs > 0) {
+    tsJudgePlan =
+      mode === 'auto'
+        ? ` You'll judge all ${testSetPairs} → ≈ ${testSetPairs * autoRepeats * 4} LLM calls (judge ${judgeModel}).`
+        : ` You'll judge ${tsComparisons} comparisons (with reversal audit) → ${tsVerdicts} total verdicts.`;
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+      <EvolutionBreadcrumb items={[{ label: 'Implied Rubric Weights' }]} />
+      <div>
+        <h1 className="font-display text-4xl font-bold text-[var(--text-primary)]">Implied Rubric Weights</h1>
+        <p className="font-body text-[var(--text-secondary)] mt-1">
+          Infer judge-rubric weights from human pairwise verdicts, then save the result as a rubric.
+        </p>
+      </div>
+
+      {/* New session */}
+      <Card className="rounded-book border border-[var(--border-default)] bg-[var(--surface-secondary)] paper-texture">
+        <CardContent className="p-6 space-y-4">
+          <h2 className="font-display text-2xl text-[var(--text-primary)]">New session</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls} htmlFor="wi-name">Name</label>
+              <input id="wi-name" data-testid="wi-name" className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Fed-rubric v1" />
+            </div>
+            <div>
+              <span className={labelCls}>Pair source</span>
+              <div className="flex gap-2 mb-2">
+                {(['topic', 'test_set'] as SourceKind[]).map((sk) => (
+                  <button
+                    key={sk}
+                    type="button"
+                    data-testid={`wi-source-${sk}`}
+                    onClick={() => setSourceKind(sk)}
+                    className={`rounded-page border px-3 py-1 font-ui text-sm ${
+                      sourceKind === sk ? 'border-[var(--accent-gold)] text-[var(--accent-gold)]' : 'border-[var(--border-default)] text-[var(--text-secondary)]'
+                    }`}
+                  >
+                    {sk === 'topic' ? 'Arena topic' : 'Judge Lab test set'}
+                  </button>
+                ))}
+              </div>
+              {sourceKind === 'topic' ? (
+                <select id="wi-topic" data-testid="wi-topic" className={inputCls} value={topicId} onChange={(e) => setTopicId(e.target.value)}>
+                  <option value="">Select a topic…</option>
+                  {topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              ) : (
+                <>
+                  <select id="wi-test-set" data-testid="wi-test-set" className={inputCls} value={testSetId} onChange={(e) => setTestSetId(e.target.value)}>
+                    <option value="">Select a test set…</option>
+                    {testSets.map((t) => <option key={t.id} value={t.id}>{t.name} (A:{t.sizeArticle} P:{t.sizeParagraph})</option>)}
+                  </select>
+                  <div className="flex gap-2 mt-2" data-testid="wi-pair-kind">
+                    {(['article', 'paragraph'] as PairKind[]).map((pk) => (
+                      <button
+                        key={pk}
+                        type="button"
+                        onClick={() => setPairKind(pk)}
+                        className={`rounded-page border px-3 py-1 font-ui text-xs ${
+                          pairKind === pk ? 'border-[var(--accent-gold)] text-[var(--accent-gold)]' : 'border-[var(--border-default)] text-[var(--text-secondary)]'
+                        }`}
+                      >
+                        {pk === 'article' ? 'Article pairs' : 'Paragraph pairs'}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            {sourceKind === 'topic' && (
+              <div>
+                <label className={labelCls} htmlFor="wi-pool">Article pool size</label>
+                <input id="wi-pool" data-testid="wi-pool" type="number" min={2} max={100} className={inputCls} value={sampleSize} onChange={(e) => setSampleSize(Number(e.target.value))} />
+              </div>
+            )}
+            <div>
+              <label className={labelCls} htmlFor="wi-rep">Reversal audit rate</label>
+              <input id="wi-rep" type="number" min={0} max={1} step={0.05} className={inputCls} value={replicationRate} onChange={(e) => setReplicationRate(Number(e.target.value))} />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4">
+            <span className={labelCls}>Mode</span>
+            {(['human', 'auto'] as Mode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                data-testid={`wi-mode-${m}`}
+                onClick={() => setMode(m)}
+                className={`rounded-page border px-3 py-1 font-ui text-sm ${
+                  mode === m ? 'border-[var(--accent-gold)] text-[var(--accent-gold)]' : 'border-[var(--border-default)] text-[var(--text-secondary)]'
+                }`}
+              >
+                {m === 'human' ? 'Human' : 'Auto — LLM as judge'}
+              </button>
+            ))}
+          </div>
+
+          {mode === 'auto' && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 rounded-page border border-[var(--border-default)] bg-[var(--surface-elevated)] p-4" data-testid="wi-auto-settings">
+              <div>
+                <label className={labelCls} htmlFor="wi-judge-model">Judge model</label>
+                <select id="wi-judge-model" className={inputCls} value={judgeModel} onChange={(e) => setJudgeModel(e.target.value)}>
+                  {MODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls} htmlFor="wi-judge-temp">Temperature</label>
+                <input id="wi-judge-temp" type="number" min={0} max={2} step={0.1} className={inputCls} value={judgeTemperature} onChange={(e) => setJudgeTemperature(Number(e.target.value))} />
+              </div>
+              <div>
+                <label className={labelCls} htmlFor="wi-repeats">Repeats / pair</label>
+                <input id="wi-repeats" type="number" min={1} max={10} className={inputCls} value={autoRepeats} onChange={(e) => setAutoRepeats(Number(e.target.value))} />
+              </div>
+            </div>
+          )}
+
+          <div>
+            <span className={labelCls}>Criteria to weight ({selectedCriteria.size} selected)</span>
+            <div className="flex flex-wrap gap-2" data-testid="wi-criteria">
+              {criteria.map((c) => {
+                const on = selectedCriteria.has(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    title={c.description ?? undefined}
+                    onClick={() => toggleCriterion(c.id)}
+                    className={`rounded-page border px-3 py-1 font-ui text-sm transition-scholar ${
+                      on
+                        ? 'border-[var(--accent-gold)] text-[var(--accent-gold)]'
+                        : 'border-[var(--border-default)] text-[var(--text-secondary)]'
+                    }`}
+                  >
+                    {on ? '✓ ' : ''}{c.name}
+                  </button>
+                );
+              })}
+              {criteria.length === 0 && (
+                <span className="font-body text-sm text-[var(--text-secondary)]">
+                  No criteria yet — create some under Criteria first.
+                </span>
+              )}
+            </div>
+            {/* Descriptions of the selected criteria (hover the chips above for any criterion). */}
+            {selectedCriteria.size > 0 && (
+              <ul className="mt-2 space-y-1" data-testid="wi-criteria-descriptions">
+                {criteria
+                  .filter((c) => selectedCriteria.has(c.id))
+                  .map((c) => (
+                    <li key={c.id} className="font-body text-xs text-[var(--text-secondary)]">
+                      <strong className="text-[var(--text-primary)]">{c.name}</strong>
+                      {c.description ? ` — ${c.description}` : ''}
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
+
+          {preview && selectedCriteria.size >= 2 && (
+            <div className="rounded-page border border-[var(--border-default)] bg-[var(--surface-elevated)] p-4 font-body text-sm text-[var(--text-secondary)]" data-testid="wi-preview">
+              <span data-testid="wi-recommended">
+                Recommended: ≈ <strong className="text-[var(--text-primary)]">{preview.pairs}</strong> pairs for stable weights ({criteriaCount} criteria).
+              </span>
+              {sourceKind === 'topic' ? (
+                <span className="block mt-1">
+                  {mode === 'auto'
+                    ? `You'll judge ≈ ${preview.pairs} pairs → ≈ ${preview.pairs * autoRepeats * 4} LLM calls (judge ${judgeModel}).`
+                    : `You'll judge ${preview.comparisons} comparisons (with reversal audit) → ${preview.verdicts} total verdicts.`}
+                </span>
+              ) : (
+                <span className="block mt-1" data-testid="wi-testset-size">
+                  This test set provides <strong className="text-[var(--text-primary)]">{testSetPairs}</strong> {pairKind} pair{testSetPairs === 1 ? '' : 's'}
+                  {tsRecommendation}
+                  {tsJudgePlan}
+                </span>
+              )}
+              <span className="block text-[var(--text-secondary)] mt-1">Rough estimate; refines live{mode === 'auto' ? ' as the run progresses' : ' as you judge'}.</span>
+            </div>
+          )}
+
+          <Button variant="scholar" data-testid="wi-create" disabled={creating} onClick={() => void create()}>
+            {creating ? 'Creating…' : 'Create session'}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Sessions list */}
+      <Card className="rounded-book border border-[var(--border-default)] bg-[var(--surface-secondary)] paper-texture">
+        <CardContent className="p-6">
+          <h2 className="font-display text-2xl text-[var(--text-primary)] mb-4">Sessions</h2>
+          {loading ? (
+            <p className="font-body text-[var(--text-secondary)]">Loading…</p>
+          ) : sessions.length === 0 ? (
+            <p className="font-body text-[var(--text-secondary)]">No sessions yet.</p>
+          ) : (
+            <table className="w-full font-ui text-sm">
+              <thead>
+                <tr className="text-left text-[var(--text-secondary)] border-b border-[var(--border-default)]">
+                  <th className="py-2">Name</th><th>Mode</th><th>Criteria</th><th>Progress</th><th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessions.map((s) => (
+                  <tr key={s.id} className="border-b border-[var(--border-default)] scholar-table-row">
+                    <td className="py-2">
+                      <Link href={`/admin/evolution/weight-inference/${s.id}`} className="text-[var(--accent-gold)] gold-underline">
+                        {s.name}
+                      </Link>
+                    </td>
+                    <td>{s.mode}{s.judge_model ? ` · ${s.judge_model}` : ''}</td>
+                    <td>{s.criteria_count}</td>
+                    <td>{s.pairs_overall_done}/{s.pairs_total} pairs</td>
+                    <td>{s.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

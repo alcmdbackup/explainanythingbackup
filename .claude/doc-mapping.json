@@ -3,6 +3,18 @@
   "description": "Maps code file patterns to documentation files for automatic updates during /finalize",
   "mappings": [
     {
+      "pattern": "evolution/src/services/weightInference*.ts",
+      "docs": ["evolution/docs/implicit_rubric_weights.md"]
+    },
+    {
+      "pattern": "evolution/src/lib/**/weightInference*.ts",
+      "docs": ["evolution/docs/implicit_rubric_weights.md"]
+    },
+    {
+      "pattern": "src/app/admin/evolution/weight-inference/**",
+      "docs": ["evolution/docs/implicit_rubric_weights.md"]
+    },
+    {
       "pattern": "src/lib/services/tags*.ts",
       "docs": ["docs/feature_deep_dives/tag_system.md"]
     },

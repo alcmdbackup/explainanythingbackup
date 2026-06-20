@@ -194,6 +194,11 @@ Validation throws plain `Error` with a descriptive message on constraint violati
 | `EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED` | `true` | Kill-switch for `paragraph_recombine` iterations (rank_individual_paragraphs_evolution_20260525). When `'false'`, the dispatch loop short-circuits to `dispatchCount=0`. Mirrored at the wizard preview boundary via `paragraphRecombineEnabled` opts flag. |
 | `EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED` | `true` | Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612). Default `'true'`: agent runs the coordinator + sequential per-paragraph loop. `'false'`: falls back to today's parallel-slot dispatch (rollback path). Strategies with `perInvocationCapUsd < $0.016` auto-fall through to legacy even when env flag is `'true'`. Cap function `getDefaultPerInvocationCapUsd` is env-flag-aware: $0.060 sequential / $0.05 legacy. |
 | `EVOLUTION_RUBRIC_JUDGING_ENABLED` | `true` (anything except `'false'`) | Same kill switch gates BOTH `judgeRubricId` (article-level) AND `paragraphJudgeRubricId` (slot-level — Phase 1d / Fix 5b). Setting `'false'` short-circuits both rubric resolutions in `buildRunContext` → all judging falls back to holistic / hardcoded paragraph rubric without a redeploy. Per-strategy rollback: clear the relevant rubric id field from the strategy config. |
+| `EVOLUTION_WEIGHT_INFERENCE_ENABLED` | `true` (anything except `'false'`) | Kill switch for the **Implied Rubric Weights** tool (calculate_implifed_rubric_weights_evolution_20260619). `'false'` makes every `weightInferenceActions` server action reject; nav item inert. See [Implicit Rubric Weights](./implicit_rubric_weights.md). |
+| `WEIGHT_INFERENCE_AUTO_ENABLED` | `true` (anything except `'false'`) | Kill switch for **auto mode** (LLM-as-judge) only — independently disable-able from human mode (Phase 5). |
+| `WEIGHT_INFERENCE_AUTO_MAX_CALLS` | `8000` | Auto-mode pre-flight hard ceiling on planned LLM calls (`remainingPairs × repeats × 4`), mirroring `JUDGE_EVAL_MAX_CALLS`. |
+| `WEIGHT_INFERENCE_AUTO_MAX_USD` | `5` | Auto-mode pre-flight hard cost ceiling, mirroring `JUDGE_EVAL_MAX_USD`. |
+| `WEIGHT_INFERENCE_AUTO_CHUNK_PAIRS` | `40` | Pairs judged per resumable auto-run invocation (keeps each request well inside `maxDuration=300`). |
 
 #### `IterationConfig` paragraph_recombine knobs (added by `investigate_paragraph_rewrite_cost_undershoot_evolution_20260529`)
 
@@ -559,6 +564,7 @@ The admin UI is a Next.js App Router application. All pages are under `src/app/a
 |-------|--------|------|---------|
 | `/api/evolution/run` | POST | `src/app/api/evolution/run/route.ts` | Trigger evolution pipeline run. Admin-only. Accepts `{ targetRunId?: string }`, returns `RunnerResult`. `maxDuration=300`. |
 | `/api/evolution/prompt-editor` | POST | `src/app/api/evolution/prompt-editor/route.ts` | Prompt-editor single-call rewrite harness. Admin-only + host-gated (public host → 404); env-gated by `EVOLUTION_PROMPT_EDITOR_ENABLED`. Accepts `{ unit, sourceText, title?, configs[] }`, returns `PromptEditorRunResult`. `maxDuration=300`. Calls `runPromptEditor` (`evolution/src/lib/promptEditor/`). See [prompt_editor.md](./prompt_editor.md). |
+| `/api/evolution/weight-inference/auto-run` | POST | `src/app/api/evolution/weight-inference/auto-run/route.ts` | Auto-mode LLM-judge chunk runner for Implied Rubric Weights. Admin-only + host-gated (public host → 404); env-gated by `EVOLUTION_WEIGHT_INFERENCE_ENABLED` + `WEIGHT_INFERENCE_AUTO_ENABLED`, with a pre-flight cost-cap (402). Accepts `{ sessionId }`, judges a resumable/idempotent chunk of pairs via `runAutoChunk`, returns chunk progress. `maxDuration=300`. See [implicit_rubric_weights.md](./implicit_rubric_weights.md). |
 
 Additional files:
 
@@ -568,7 +574,7 @@ Additional files:
 | (not-found) | `evolution/not-found.tsx` | Custom 404 page for unmatched evolution routes |
 | (loading) | `evolution/*/loading.tsx` | Per-route loading skeletons reusing `TableSkeleton` |
 
-Total: 19 pages (17 list/detail pairs + dashboard + experiment wizard + strategy wizard) + 1 API route.
+Total: 21 pages (17 list/detail pairs + dashboard + experiment wizard + strategy wizard + Implied Rubric Weights landing + session detail) + 3 API routes.
 
 **`ConfigDrivenDetailRenderer`** (`src/app/admin/evolution/invocations/[invocationId]/ConfigDrivenDetailRenderer.tsx`) — renders the agent-specific execution detail section on the invocation detail page. Reads field definitions from `DETAIL_VIEW_CONFIGS` (keyed by agent name) and renders each field generically, eliminating the need for a custom component per agent type.
 
