@@ -138,12 +138,32 @@ export default function WeightInferencePage(): JSX.Element {
   };
 
   const selectedTestSet = testSets.find((t) => t.id === testSetId);
-  const testSetPairs = selectedTestSet ? (pairKind === 'article' ? selectedTestSet.sizeArticle : selectedTestSet.sizeParagraph) : 0;
+  let testSetPairs = 0;
+  if (selectedTestSet) {
+    testSetPairs = pairKind === 'article' ? selectedTestSet.sizeArticle : selectedTestSet.sizeParagraph;
+  }
   // What a test-set session will ACTUALLY judge (vs. the K-based recommendation).
   const criteriaCount = selectedCriteria.size;
   const tsReplicas = mode === 'auto' ? 0 : Math.floor(testSetPairs * replicationRate);
   const tsComparisons = testSetPairs + tsReplicas;
   const tsVerdicts = tsComparisons * (1 + criteriaCount);
+
+  // Test-set preview sentences (avoids nested ternaries inside JSX).
+  const recommendedPairs = preview?.pairs ?? 0;
+  let tsRecommendation = '.';
+  if (selectedTestSet) {
+    tsRecommendation =
+      testSetPairs >= recommendedPairs
+        ? ` — at or above the ~${recommendedPairs} recommended.`
+        : ` — fewer than the ~${recommendedPairs} recommended; weights will be rougher.`;
+  }
+  let tsJudgePlan = '';
+  if (selectedTestSet && testSetPairs > 0) {
+    tsJudgePlan =
+      mode === 'auto'
+        ? ` You'll judge all ${testSetPairs} → ≈ ${testSetPairs * autoRepeats * 4} LLM calls (judge ${judgeModel}).`
+        : ` You'll judge ${tsComparisons} comparisons (with reversal audit) → ${tsVerdicts} total verdicts.`;
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
@@ -313,16 +333,8 @@ export default function WeightInferencePage(): JSX.Element {
               ) : (
                 <span className="block mt-1" data-testid="wi-testset-size">
                   This test set provides <strong className="text-[var(--text-primary)]">{testSetPairs}</strong> {pairKind} pair{testSetPairs === 1 ? '' : 's'}
-                  {selectedTestSet
-                    ? testSetPairs >= preview.pairs
-                      ? ` — at or above the ~${preview.pairs} recommended.`
-                      : ` — fewer than the ~${preview.pairs} recommended; weights will be rougher.`
-                    : '.'}
-                  {selectedTestSet && testSetPairs > 0
-                    ? mode === 'auto'
-                      ? ` You'll judge all ${testSetPairs} → ≈ ${testSetPairs * autoRepeats * 4} LLM calls (judge ${judgeModel}).`
-                      : ` You'll judge ${tsComparisons} comparisons (with reversal audit) → ${tsVerdicts} total verdicts.`
-                    : ''}
+                  {tsRecommendation}
+                  {tsJudgePlan}
                 </span>
               )}
               <span className="block text-[var(--text-secondary)] mt-1">Rough estimate; refines live{mode === 'auto' ? ' as the run progresses' : ' as you judge'}.</span>

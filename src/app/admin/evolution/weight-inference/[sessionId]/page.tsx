@@ -29,6 +29,13 @@ type V = 'a' | 'b' | 'tie';
 
 const pct = (x: number): string => `${(x * 100).toFixed(0)}%`;
 
+function runButtonLabel(running: boolean, progress: WiAutoProgress | null): string {
+  if (running) return 'Running…';
+  if (progress?.done) return 'Done';
+  if (progress && progress.pairsJudged > 0) return 'Resume';
+  return 'Run';
+}
+
 export default function WeightInferenceSessionPage(): JSX.Element {
   const params = useParams<{ sessionId: string }>();
   const sessionId = params.sessionId;
@@ -228,7 +235,7 @@ export default function WeightInferenceSessionPage(): JSX.Element {
             </p>
             <div className="flex gap-2">
               <Button variant="scholar" data-testid="wi-run" disabled={running || autoProgress?.done} onClick={() => void runAuto()}>
-                {running ? 'Running…' : autoProgress?.done ? 'Done' : autoProgress && autoProgress.pairsJudged > 0 ? 'Resume' : 'Run'}
+                {runButtonLabel(running, autoProgress)}
               </Button>
               <Button variant="secondary" disabled={running} onClick={() => void refreshAuto()}>Refresh</Button>
             </div>

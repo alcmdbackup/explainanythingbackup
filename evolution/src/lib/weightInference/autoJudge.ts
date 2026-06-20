@@ -19,13 +19,36 @@ export type AutoVerdict = 'a' | 'b' | 'tie';
 export type JudgeText = (prompt: string) => Promise<string>;
 
 function lc(v: string | null): AutoVerdict | null {
-  return v === 'A' ? 'a' : v === 'B' ? 'b' : v === 'TIE' ? 'tie' : null;
+  switch (v) {
+    case 'A':
+      return 'a';
+    case 'B':
+      return 'b';
+    case 'TIE':
+      return 'tie';
+    default:
+      return null;
+  }
 }
 function lcReq(v: Verdict): AutoVerdict {
-  return v === 'A' ? 'a' : v === 'B' ? 'b' : 'tie';
+  switch (v) {
+    case 'A':
+      return 'a';
+    case 'B':
+      return 'b';
+    default:
+      return 'tie';
+  }
 }
 function flipUpper(v: string | null): string | null {
-  return v === 'A' ? 'B' : v === 'B' ? 'A' : v; // TIE/null unchanged
+  switch (v) {
+    case 'A':
+      return 'B';
+    case 'B':
+      return 'A';
+    default:
+      return v; // TIE/null unchanged
+  }
 }
 
 export interface SinglePairResult {

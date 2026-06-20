@@ -263,15 +263,15 @@ export function fitWeights(
       if (beta[j]! < 0) dropped.push(active[j]!);
       else survivors.push(active[j]!);
     }
-    if (dropped.length === 0 || survivors.length === 0) {
-      if (survivors.length === 0) {
-        for (const col of dropped) disagrees.add(criteriaIds[col]!);
-        finalBeta = [];
-        active = [];
-      }
+    if (dropped.length === 0) break; // converged: all survivors non-negative
+
+    for (const col of dropped) disagrees.add(criteriaIds[col]!);
+    if (survivors.length === 0) {
+      // every coefficient negative -> no usable weights remain
+      finalBeta = [];
+      active = [];
       break;
     }
-    for (const col of dropped) disagrees.add(criteriaIds[col]!);
     active = survivors;
   }
 

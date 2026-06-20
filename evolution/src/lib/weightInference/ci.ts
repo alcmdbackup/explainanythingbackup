@@ -68,7 +68,8 @@ export function weightCIs(
     for (const id of criteriaIds) {
       const v = wMap.get(id);
       // finite-CI guard: degenerate resample -> reuse the point estimate
-      samples.get(id)!.push(Number.isFinite(v) && v !== undefined ? (v as number) : (pointWeight.get(id) ?? 0));
+      const sample = v !== undefined && Number.isFinite(v) ? v : (pointWeight.get(id) ?? 0);
+      samples.get(id)!.push(sample);
     }
   }
 

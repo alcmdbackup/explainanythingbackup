@@ -623,6 +623,8 @@ export const getNextPairAction = adminAction(
     const { supabase } = ctx;
 
     let comparison: CompPickRow | null = null;
+    // Loaded once in the criteria branch (gating + result) and reused below.
+    let criteria: SessionCriterion[] | null = null;
 
     if (step === 'overall') {
       const { data, error } = await supabase
@@ -639,7 +641,7 @@ export const getNextPairAction = adminAction(
       comparison = (data as unknown as CompPickRow | null) ?? null;
     } else {
       // criteria step: gated on overall already recorded, missing complete verdict set
-      const criteria = await loadSessionCriteria(supabase, sessionId);
+      criteria = await loadSessionCriteria(supabase, sessionId);
       const { data, error } = await supabase
         .from('evolution_weight_inference_comparisons')
         .select('id, article_a_id, article_b_id, pass, shown_swapped')
@@ -685,8 +687,7 @@ export const getNextPairAction = adminAction(
       left: { id: left.id, label: left.label, content: left.content },
       right: { id: right.id, label: right.label, content: right.content },
     };
-    if (step === 'criteria') {
-      const criteria = await loadSessionCriteria(supabase, sessionId);
+    if (step === 'criteria' && criteria) {
       result.criteria = criteria.map((c) => ({ id: c.id, name: c.name, description: c.description }));
     }
     return result;
