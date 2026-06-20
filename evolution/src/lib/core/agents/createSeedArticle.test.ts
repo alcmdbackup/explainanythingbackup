@@ -239,6 +239,22 @@ describe('CreateSeedArticleAgent', () => {
     expect(result.result?.variant).toBeNull();
   });
 
+  it('D1: a non-budget article LLM error → status generation_failed + success=false', async () => {
+    const input = makeInput();
+    (input.llm.complete as jest.Mock).mockImplementation(async (_p: string, label: string) => {
+      if (label === 'seed_article') throw new Error('402 This request requires more credits, or fewer max_tokens.');
+      return 'fallback';
+    });
+
+    const agent = new CreateSeedArticleAgent();
+    const result = await agent.run(input, makeCtx());
+
+    // D1: a hard LLM error (not budget) on seed generation is now recorded as a failure.
+    expect(result.success).toBe(false);
+    expect(result.result?.status).toBe('generation_failed');
+    expect(result.result?.variant).toBeNull();
+  });
+
   it('continues (non-fatal) and records formatValid=false when format validation fails', async () => {
     mockFormatValid = false;
 

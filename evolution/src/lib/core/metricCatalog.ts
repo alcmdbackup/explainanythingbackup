@@ -375,6 +375,37 @@ export const METRIC_CATALOG = {
     timing: 'at_propagation',
     description: 'Mean paragraph_rank_estimation_error_pct across child runs',
   },
+  // Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612).
+  avg_coordinator_retry_rate: {
+    name: 'avg_coordinator_retry_rate', label: 'Avg Coordinator Retry Rate', category: 'cost', formatter: 'percentValue',
+    timing: 'at_propagation',
+    description: 'Mean coordinator_retry_rate across child runs',
+  },
+  avg_coordinator_failure_rate: {
+    name: 'avg_coordinator_failure_rate', label: 'Avg Coordinator Failure Rate', category: 'cost', formatter: 'percentValue',
+    timing: 'at_propagation',
+    description: 'Mean coordinator_failure_rate across child runs',
+  },
+  avg_excessive_parent_fallback_abort_rate: {
+    name: 'avg_excessive_parent_fallback_abort_rate', label: 'Avg Excessive Parent-Fallback Abort Rate', category: 'cost', formatter: 'percentValue',
+    timing: 'at_propagation',
+    description: 'Mean excessive_parent_fallback_abort_rate across child runs',
+  },
+  avg_parent_fallback_rate: {
+    name: 'avg_parent_fallback_rate', label: 'Avg Parent-Fallback Rate', category: 'cost', formatter: 'percentValue',
+    timing: 'at_propagation',
+    description: 'Mean parent_fallback_rate across child runs',
+  },
+  total_prior_picks_sanitization_count: {
+    name: 'total_prior_picks_sanitization_count', label: 'Total Prior-Picks Sanitization Count', category: 'cost', formatter: 'integer',
+    timing: 'at_propagation',
+    description: 'Sum of prior_picks_sanitization_count across child runs',
+  },
+  total_prior_picks_truncation_count: {
+    name: 'total_prior_picks_truncation_count', label: 'Total Prior-Picks Truncation Count', category: 'cost', formatter: 'integer',
+    timing: 'at_propagation',
+    description: 'Sum of prior_picks_truncation_count across child runs',
+  },
   avg_estimation_abs_error_usd: {
     name: 'avg_estimation_abs_error_usd', label: 'Avg Abs Error', category: 'cost', formatter: 'costDetailed',
     timing: 'at_propagation',
@@ -499,6 +530,37 @@ export const METRIC_CATALOG = {
     name: 'paragraph_slot_match_persist_failures', label: 'Paragraph Slot Match Persist Failures', category: 'count', formatter: 'integer',
     timing: 'during_execution',
     description: 'Number of slots whose persistSlotMatches() INSERT failed in this run (best-effort contract).',
+  },
+  // Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612).
+  coordinator_retry_rate: {
+    name: 'coordinator_retry_rate', label: 'Coordinator Retry Rate', category: 'cost', formatter: 'percentValue',
+    timing: 'during_execution',
+    description: 'Fraction of paragraph_recombine invocations where the coordinator first-attempt parse failed but the retry succeeded. Should sit near 0% post-stabilization; non-zero values indicate provider-side structured-output instability.',
+  },
+  coordinator_failure_rate: {
+    name: 'coordinator_failure_rate', label: 'Coordinator Failure Rate', category: 'cost', formatter: 'percentValue',
+    timing: 'during_execution',
+    description: 'Fraction of paragraph_recombine invocations where the coordinator threw after the retry also failed → agent reports success=false.',
+  },
+  excessive_parent_fallback_abort_rate: {
+    name: 'excessive_parent_fallback_abort_rate', label: 'Excessive Parent-Fallback Abort Rate', category: 'cost', formatter: 'percentValue',
+    timing: 'during_execution',
+    description: 'Fraction of paragraph_recombine invocations aborted by the >70% parent-fallback guard (recombined article was near-duplicate of parent).',
+  },
+  parent_fallback_rate: {
+    name: 'parent_fallback_rate', label: 'Parent-Fallback Rate', category: 'cost', formatter: 'percentValue',
+    timing: 'during_execution',
+    description: 'Fraction of paragraph_recombine slots whose Elo winner was the original (no rewrite was better) OR all rewrites were dropped pre-rank. Target <60%; rising values indicate the agent is regressing toward parent text.',
+  },
+  prior_picks_sanitization_count: {
+    name: 'prior_picks_sanitization_count', label: 'Prior-Picks Sanitization Count', category: 'cost', formatter: 'integer',
+    timing: 'during_execution',
+    description: 'Counter — increments per <UNTRUSTED_*> literal redacted from a chosen paragraph during Phase B before insertion into priorPicks.',
+  },
+  prior_picks_truncation_count: {
+    name: 'prior_picks_truncation_count', label: 'Prior-Picks Truncation Count', category: 'cost', formatter: 'integer',
+    timing: 'during_execution',
+    description: 'Counter — increments per paragraph round where the prior-picks PRIOR CONTEXT block was truncated to the most-recent 6 paragraphs due to size guard.',
   },
   total_paragraph_recombine_cost: {
     name: 'total_paragraph_recombine_cost', label: 'Total Paragraph Recombine Cost', category: 'cost', formatter: 'cost',

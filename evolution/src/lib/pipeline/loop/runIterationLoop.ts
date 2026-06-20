@@ -80,6 +80,14 @@ async function isRunKilled(db: SupabaseClient, runId: string, logger?: EntityLog
 /** Hard cap on orchestrator iterations to prevent runaway loops. */
 const MAX_ORCHESTRATOR_ITERATIONS = 20;
 
+/** D2 (fix_structured_judging_evolution_bugs): top-up breaker. Bail the within-iteration top-up
+ *  loop after this many CONSECUTIVE dispatches that produced no variant (result===null ||
+ *  result.status==='generation_failed'). Keyed on variant/status — NOT cost — so it terminates
+ *  the 402/5xx runaway that previously ran to DISPATCH_SAFETY_CAP on cost=0 failures, while NEVER
+ *  firing on legitimate $0-cost local/cached successes (which return a real variant) or on
+ *  budget-skips (status='budget', which exit via the budget floor). */
+const MAX_CONSECUTIVE_GEN_FAILURES = 3;
+
 function topKEloValues(ratings: ReadonlyMap<string, Rating>, k: number): number[] {
   return [...ratings.values()].map((r) => r.elo).sort((a, b) => b - a).slice(0, k);
 }
@@ -631,7 +639,12 @@ export async function evolveArticle(
         const discardedIds: string[] = [];
         const discardReasonsMap: Record<string, { elo: number; top15Cutoff: number }> = {};
         let parallelSpend = 0;
+        // D2: parallelSuccesses counts REAL variants (drives the all-failed guard, so a $0 local
+        // batch isn't mis-flagged as failed). parallelPaidCount counts cost>0 dispatches and is
+        // the divisor for the per-PAID-agent cost average — keeping actualAvgCost identical to the
+        // pre-D2 behaviour (parallelSpend / paid count), unaffected by free $0 successes.
         let parallelSuccesses = 0;
+        let parallelPaidCount = 0;
         let topUpDispatched = 0;
         let topUpStopReason: 'floor' | 'safety_cap' | 'budget_exhausted' | 'killed' | 'deadline' | 'no_budget_at_start' | 'feature_disabled' | 'top_up_dispatch_failed' | null = null;
 
@@ -669,30 +682,58 @@ export async function evolveArticle(
 
         for (const r of parallelResults) {
           absorbResult(r);
+          // D2: count a REAL success by variant/status, not by cost>0. A $0-cost local/cached
+          // run still yields a variant; gating parallelSuccesses on cost>0 under-counted those
+          // and made the parallel-batch guard below false-fire on an all-$0 local batch.
+          if (
+            r.status === 'fulfilled' &&
+            r.value.success &&
+            r.value.result?.variant != null &&
+            r.value.result.status !== 'generation_failed'
+          ) {
+            parallelSuccesses += 1;
+          }
+          // Cost average uses ONLY cost>0 dispatches (count + spend together) so a mixed
+          // paid/$0 batch doesn't dilute actualAvgCost — identical to the pre-D2 semantics.
           if (r.status === 'fulfilled' && r.value.success && r.value.cost > 0) {
             parallelSpend += r.value.cost;
-            parallelSuccesses += 1;
+            parallelPaidCount += 1;
           }
         }
 
-        // Measure actualAvgCostPerAgent from parallel batch's real spends.
+        // D2: if a multi-agent parallel batch produced ZERO real variants, the generation
+        // backend is down (e.g. 402/5xx). Skip the top-up loop entirely rather than dispatch up
+        // to DISPATCH_SAFETY_CAP more doomed calls. Guarded on parallelDispatchCount>1 so a
+        // legitimately tiny (1-agent) budget batch that simply discarded its single variant still
+        // gets a top-up chance. Sets topUpStopReason so the top-up block (and the kill/deadline
+        // checks below) no-op without clobbering this reason.
+        if (parallelDispatchCount > 1 && parallelSuccesses === 0) {
+          topUpStopReason = 'top_up_dispatch_failed';
+          logger.warn('Parallel batch produced zero variants — skipping top-up', {
+            phaseName: 'generation', iteration, iterIdx,
+            parallelDispatchCount, parallelSuccesses, reason: 'parallel_batch_all_failed',
+          });
+        }
+
+        // Measure actualAvgCostPerAgent from parallel batch's real (paid) spends.
         let actualAvgCost: number | null = null;
-        if (parallelSuccesses > 0) {
-          actualAvgCost = parallelSpend / parallelSuccesses;
+        if (parallelPaidCount > 0) {
+          actualAvgCost = parallelSpend / parallelPaidCount;
           // B006-S1: drop the `iterIdx === 0` guard. Budget-floor observables benefit
           // from the latest-iteration sample, not just iter-0. When iter 0 was swiss
           // (no parallel dispatch) or had zero successes, this previously left
           // actualAvgCostPerAgent null forever.
           actualAvgCostPerAgent = actualAvgCost;
         }
-        // B003: key the estPerAgent fallback on `parallelSuccesses === 0`, not on the
+        // B003: key the estPerAgent fallback on the absence of a PAID sample, not on the
         // measured value. A legitimately cheap parallel batch (actual spend ≈ 0) was
         // previously falsy-treated and overwritten by the initial estimate, inflating
-        // top-up per-agent cost and shrinking sequential headroom.
-        if (parallelSuccesses === 0) {
+        // top-up per-agent cost and shrinking sequential headroom. (D2: $0 local batches have
+        // paid count 0 → correctly fall back to the estimate, no real cost sample to average.)
+        if (parallelPaidCount === 0) {
           logger.warn('actualAvgCostPerAgent fallback to initialAgentCostEstimate', {
-            phaseName: 'generation', iteration, iterIdx, parallelSuccesses,
-            reason: 'no_successful_parallel_agents',
+            phaseName: 'generation', iteration, iterIdx, parallelSuccesses, parallelPaidCount,
+            reason: 'no_paid_parallel_agents',
           });
           actualAvgCost = estPerAgent;
         } else if (!actualAvgCost || !Number.isFinite(actualAvgCost)) {
@@ -705,8 +746,11 @@ export async function evolveArticle(
 
         // ─── Top-up phase ───────────────────────────────────────
         if (topUpEnabled && iterStopReason === 'iteration_complete') {
-          // Kill / deadline check before entering top-up loop.
-          if (options?.signal?.aborted) {
+          // Kill / deadline check before entering top-up loop. D2: don't clobber a breaker reason
+          // (e.g. parallel_batch_all_failed) already set above.
+          if (topUpStopReason !== null) {
+            // already short-circuited (e.g. parallel batch all failed) — skip top-up.
+          } else if (options?.signal?.aborted) {
             topUpStopReason = 'killed';
           } else if (options?.deadlineMs && Date.now() >= options.deadlineMs) {
             topUpStopReason = 'deadline';
@@ -720,6 +764,11 @@ export async function evolveArticle(
             );
             let topUpSpend = 0;
             let remaining = iterBudgetUsd - parallelSpend - topUpSpend;
+            // D2: consecutive no-variant breaker. Increments on each dispatch whose settled
+            // result yielded no variant due to a generation FAILURE (result===null ||
+            // status==='generation_failed'); resets on a real variant; leaves the counter
+            // unchanged on a 'budget' skip (those exit via the budget floor, not the breaker).
+            let consecutiveGenFailures = 0;
 
             while (remaining - actualAvgCost >= sequentialFloor) {
               // Safety cap (parallel + top-up total).
@@ -740,16 +789,36 @@ export async function evolveArticle(
               const topUpResult = await Promise.allSettled([dispatchOneAgent(topUpTactic, 'top_up')]);
               absorbResult(topUpResult[0]!);
 
-              if (topUpResult[0]!.status === 'fulfilled' && topUpResult[0]!.value.success) {
-                topUpSpend += topUpResult[0]!.value.cost;
+              const settled = topUpResult[0]!;
+              if (settled.status === 'fulfilled' && settled.value.success) {
+                topUpSpend += settled.value.cost;
                 topUpDispatched += 1;
+                // D2: a "successful" dispatch that produced no variant due to a generation failure
+                // (e.g. a success=true generation_failed before D1, or any future null-variant
+                // success) is not progress — count it. A real variant resets; a 'budget' skip is
+                // neutral (terminates via the budget floor, not the breaker).
+                const out = settled.value.result;
+                if (out == null || out.status === 'generation_failed') {
+                  if (++consecutiveGenFailures >= MAX_CONSECUTIVE_GEN_FAILURES) {
+                    topUpStopReason = 'top_up_dispatch_failed';
+                    logger.warn('Top-up breaker: consecutive generation failures', {
+                      phaseName: 'generation', iteration, iterIdx,
+                      consecutiveGenFailures, maxConsecutive: MAX_CONSECUTIVE_GEN_FAILURES, topUpDispatched,
+                    });
+                    break;
+                  }
+                } else if (out.variant != null) {
+                  consecutiveGenFailures = 0;
+                }
               } else {
                 // B011-S1: distinguish budget exhaustion from LLM/agent failure. Previously
                 // hardcoded 'budget_exhausted' for any non-success, mislabeling LLM 5xx as
                 // a budget event in dashboards. The IterationBudgetExceededError path is
                 // already handled separately upstream — non-success here is an agent crash.
-                const reason = topUpResult[0]!.status === 'rejected'
-                  && (topUpResult[0]!.reason as Error)?.name === 'BudgetExceededError'
+                // D2: post-D1, a generation_failed dispatch returns success=false and breaks
+                // HERE on the first failure (even faster than the consecutive counter above).
+                const reason = settled.status === 'rejected'
+                  && (settled.reason as Error)?.name === 'BudgetExceededError'
                   ? 'budget_exhausted'
                   : 'top_up_dispatch_failed';
                 topUpStopReason = reason;
@@ -1337,6 +1406,9 @@ export async function evolveArticle(
           // cost estimate. Mirror the generate-runtime pattern (no `resolveParallelFloor`
           // at runtime — only `resolveSequentialFloor` later for top-up gating).
           // For K=1 (back-compat), this collapses to the same single-dispatch behavior.
+          // Resolve EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED at the call-site so the
+          // wizard/projector matches runtime (debug_performance_paragraph_recombine_20260612).
+          const sequentialEnabled = process.env.EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED !== 'false';
           const projector = estimateParagraphRecombineCost(
             originalText.length, // best estimate when each parent has comparable length
             iterCfg.maxParagraphsPerInvocation ?? 12,
@@ -1344,6 +1416,7 @@ export async function evolveArticle(
             iterCfg.maxComparisonsPerParagraph ?? 8,
             iterCfg.paragraphRewriteModel ?? resolvedConfig.generationModel,
             resolvedConfig.judgeModel,
+            { sequentialEnabled },
           );
           const expectedPerAgent = Math.max(0.001, projector.expected);
           const availForParallel = iterTracker.getAvailableBudget();
@@ -1455,6 +1528,12 @@ export async function evolveArticle(
                 expectedPerAgent,
                 actualAvgCostPerAgent,
               );
+              // D2 scope note (fix_structured_judging_evolution_bugs): unlike the GFPA top-up
+              // loop (which iterates on budget alone and so needs the consecutive-generation-
+              // failure breaker), this paragraph_recombine top-up is NATURALLY BOUNDED by the
+              // finite resolved-parent set (`topUpIndex < resolvedParents.length`) plus
+              // maxDispatchesK / DISPATCH_SAFETY_CAP. It cannot run away on $0-cost failures, so
+              // the D2 breaker is intentionally NOT applied here.
               let topUpIndex = parallelDispatchCount;
               while (
                 topUpIndex < resolvedParents.length &&
@@ -1605,6 +1684,18 @@ export async function evolveArticle(
     const winResult = selectWinner(pool, ratings);
     winner = pool.find((v) => v.id === winResult.winnerId) ?? pool[0];
     logger.info('Winner determined', { winnerId: winner?.id, winnerElo: winResult.elo, winnerUncertainty: winResult.uncertainty, phaseName: 'winner_determination' });
+  }
+
+  // D3 (fix_structured_judging_evolution_bugs) belt-and-suspenders: if the run finished normally
+  // but produced ZERO non-arena variants AND none were even discarded (every generation errored),
+  // surface it on the run-level stopReason so it's self-explanatory in logs / run_summary.
+  // finalizeRun's discardedVariants check is the authoritative gate; this is a redundant signal.
+  if (
+    stopReason === 'completed' &&
+    pool.filter((v) => !v.fromArena).length === 0 &&
+    discardedVariants.filter((v) => !v.fromArena).length === 0
+  ) {
+    stopReason = 'all_generations_failed';
   }
 
   logger.info('Evolution complete', {

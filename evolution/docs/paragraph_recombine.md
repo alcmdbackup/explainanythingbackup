@@ -179,6 +179,122 @@ The run-level metrics that paragraph_recombine joins via these fields:
 
 `EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED='false'` short-circuits the dispatch branch in `runIterationLoop.ts` with a warn-log. Single-env-flip rollback. `EVOLUTION_TOPUP_ENABLED='false'` disables sequential top-up for paragraph_recombine the same way it does for `generate` (parallel batch still runs).
 
+## Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612)
+
+The agent's default path on `EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED='true'` (default) replaces the parallel-rewrite + per-slot judge + splice flow with a sequential context-aware loop. The article is built paragraph-by-paragraph; each paragraph's M variations are generated in parallel BUT every variation sees every previously-chosen paragraph's verbatim text as PRIOR CONTEXT. The per-paragraph judge picks the Elo winner; the winner is appended to the prior-picks list before moving to the next paragraph. Phase C (assemble + emit + article-level rank) is unchanged.
+
+**Three phases.** Phase A: one coordinator LLM call (AgentName `'paragraph_recombine_coordinator'`) returns a per-paragraph plan with M strategically-diverse directives + temperatures. Phase B: sequential per-paragraph loop. Phase C: assemble + emit (existing).
+
+**3-phase cost rollup.** The umbrella `paragraph_recombine_cost` is now the sum of THREE phase accumulators: `paragraph_rewrite` + `paragraph_rank` + `paragraph_recombine_coordinator`. The write fires AFTER the Phase B loop completes (so all 3 accumulators have landed) and BEFORE article-level rank (whose `'ranking'` calls land in `ranking_cost`, a separate umbrella). On the legacy parallel path the coordinator phase contributes 0.
+
+**Cost envelope.** Sequential mean ~$0.016 per invocation, worst-case ~$0.045, cap $0.060. Legacy parallel path cap stays $0.05. The cap function is env-flag-aware (`getDefaultPerInvocationCapUsd`). Strategies with `perInvocationCapUsd < $0.016` auto-fall through to the legacy path (B.5 low-cap guard) so they don't get aggressively constrained under the sequential mean cost.
+
+**Wall-clock.** ~36s wall-clock per invocation at N=12 (vs ~5-10s parallel). Orchestrator dispatch math is cost-bound (`actualAvgCostPerAgent`), not duration-bound — K-dispatch parallelism is unaffected.
+
+**Judge sees PRIOR CONTEXT on the sequential path.** `buildComparisonPrompt`'s `paragraph` mode branch gains an optional `priorPicks?: string[]` parameter (threaded through `rankNewVariant` → `rankSingleVariant` → `compareWithBiasMitigation`). When provided, the comparison prompt prepends a `<UNTRUSTED_PRIOR>` block listing every previously-chosen paragraph. Judge picks the variation that fits best given prior picks, not just the best in isolation. Article-mode comparisons are unchanged.
+
+**Prompt-injection sanitization.** Each round's chosen text passes through `sanitizeForPriorContext` before insertion into `priorPicks` — REDACTS literal `<UNTRUSTED_*>` and `</UNTRUSTED_*>` substrings (case-insensitive) to the placeholder `[UNTRUSTED_TAG_REDACTED]`. Replacement (not strip) prevents adjacent malicious payload from propagating across rounds. Counter `prior_picks_sanitization_count` increments per redaction. Post-generation rejection via `containsDelimiterMirror` drops candidates whose output echoes the tag literals.
+
+**Failure modes.** Coordinator parse failure on both attempts → throws `CoordinatorParseError`; agent reports `success=false` with `execution_detail.coordinator.{rawResponse, parseError, retried}` persisted for debugging. Mid-loop throw at paragraph i → persist `execution_detail.slots[0..i-1]` (truncated, NOT N-with-nulls) + `partialAt: i` + `abortReason` + `completedSlotCount: i`, then re-throw. Excessive parent-fallback (>70% of slots used parent text) → discard variant rather than emit a near-duplicate. Per-round budget gate: when remaining budget < `projectedPerRound × paragraphsRemaining × 2.0`, push parent for all remaining slots and break the loop (the 2.0 multiplier accounts for the triangular-growth worst case).
+
+**New metrics.** `coordinator_retry_rate`, `coordinator_failure_rate`, `excessive_parent_fallback_abort_rate`, `prior_picks_sanitization_count`, `prior_picks_truncation_count`. Each registered at run level + propagated to strategy/experiment as `avg_*` / `total_*` aggregates.
+
+**Rollback.** Flip `EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED='false'` to revert to today's parallel-slot dispatch. The legacy code path stays intact specifically for this purpose. The cap reverts $0.060 → $0.05 simultaneously via `getDefaultPerInvocationCapUsd`.
+
+## Sequential perf tuning (investigate_sequential_paragraph_recombine_performance_20260615)
+
+After the Sequential Context-Aware Generation feature landed, staging runs showed `eloAttrDelta:paragraph_recombine:paragraph_recombine` in the **−1.5 to −6.0 mu range** across the 4 most recent runs of the "Sequential paragraph rewrite initial" strategy while every other tactic reported **+4.8 to +13.8**. Root-cause analysis split into two layers:
+
+1. **Selection bias** — `qualityCutoff: topN-3` picks the highest-Elo parents (Elo 1259-1416 mean 1338); beating them in parent→child delta is structurally hard.
+2. **Coherence loss across slot seams** — each slot's directives were fixed up-front from the parent text; once slot 0 committed to a metaphor, slots 1+ had directives that didn't match the chosen voice. Slot-level rewrites won 59% vs seed at 23%, but the merged article lost coherence and dispreferenced against parent at article-rank.
+
+This project addresses the second layer. See `docs/planning/investigate_sequential_paragraph_recombine_performance_20260615/` for the full analysis.
+
+### Phase 1 — CONTINUITY DIRECTIVE block in the rewrite prompt
+
+`buildSequentialRewritePrompt.ts` now interpolates an explicit CONTINUITY DIRECTIVE block (when `priorPicks.length > 0`) enumerating 8 dimensions the rewrite must honor: **tone & register**, **voice & POV**, **metaphors**, **analogies**, **acronyms**, **vocabulary**, **sentence cadence**, **discipline**. Closing principle: *"Continuity overrides novelty when they conflict."*
+
+### Phase 1b-i — LENGTH TARGET block (visibility for the length filter)
+
+Pre-Phase-1b-i, ~30-49% of rewrites at temp 1.1 silently dropped on `length_over` because the LLM had no visibility into the cap. The validator's bounds (`PARAGRAPH_REWRITE_MIN_RATIO=0.8`, `PARAGRAPH_REWRITE_MAX_RATIO=1.2`) are now exported from `paragraphSlots.ts` and imported into `buildSequentialRewritePrompt` to render a `LENGTH TARGET: aim for X–Y characters` block AFTER the IMPORTANT guard, BEFORE the DIRECTIVE. Ties length-targeting to directive intent ("tighten" → lower bound; "expand with example" → upper bound).
+
+### Phase 1b-ii — Stronger `shouldRewrite: false` guidance
+
+The `WHEN TO SKIP A PARAGRAPH` block in `COORDINATOR_STRATEGIES_BLOCK` (shared between initial + replan prompts, Phase 2a) now lists 5 concrete heuristics: HIGH FACT DENSITY, DEFINITIONAL ANCHOR, ALREADY-TIGHT PROSE, SHORT PARAGRAPH (< 400 chars), RHETORICAL ANCHOR. Asymmetric-loss framing ("a skipped paragraph that the article-judge would have improved is a smaller loss than 3 wasted rewrites whose lift is below noise") plus an explicit TARGET RATE (2-4 of 8-12 slots).
+
+### Phase 1c-i (Fix 4) — Forward parent context in the slot judge
+
+The slot judge (`computeRatings.ts` / `rubricJudge.ts`) now sees a `## Next Context` block listing parent paragraphs N+1..K AFTER the current slot, alongside the existing `## Prior Context` block. A 6th rubric criterion `Setup — sets up the article's continuation cleanly` activates when `nextContext` is provided. Size guard `MAX_NEXT_PARAGRAPHS_FOR_CONTEXT=6` keeps the FIRST N (most-immediate continuation). The data flow: `runSequentialLoop` (outer loop) → `processSequentialRound` → `rankNewVariant` → `rankSingleVariant` → `compareWithBiasMitigation` → `runSingleComparison` / `dispatchEnsembleComparison` → **both** `buildComparisonPrompt` AND `buildRubricComparisonPrompt`. The rubric path's pre-Phase-1c-i silent-disable (no `priorPicks`/`nextContext` params) is closed — both signals reach BOTH judge paths.
+
+### Phase 1c-ii (Fix 7) — Drop Fidelity from the slot rubric
+
+The article-level Elo we're optimizing does NOT reward parent-paragraph fidelity, and the Fidelity penalty was structurally keeping `paragraph_recombine` variants at 34-54% verbatim with parent (vs 0.6-2.3% for other tactics). Removed at `computeRatings.ts:416`.
+
+### Phase 1c-iii — Rebalanced criteria (Coherence, Conciseness, Usefulness rebalance)
+
+The hardcoded paragraph rubric goes from `{Clarity-and-concision, Fluency, Fidelity, Usefulness, Fit}` to `{Clarity, Conciseness, Coherence, Sentence fluency, Usefulness (cost-balanced), Fit, Setup}`. Splits the bundled "Clarity and concision" into peer criteria, adds **Coherence** (targets within-paragraph imagery clashes — e.g. two clashing analogies in one paragraph), and reworks Usefulness with `"AND earns the words it costs"` to weigh additions against bloat cost.
+
+### Phase 1d (Fix 5b) — Per-paragraph judge rubric
+
+Strategies can now configure a `paragraphJudgeRubricId` distinct from `judgeRubricId`. The article rubric is still stripped at slot level (article-shaped dimensions don't apply at single-paragraph scale), but the per-paragraph rubric — if set — replaces the hardcoded one. Reuses the existing `evolution_judge_rubrics` table — no new schema.
+
+| Field | Resolved by | Slot-level rubric source |
+|---|---|---|
+| `judgeRubricId` only set | `buildRunContext` → `judgeRubric` | hardcoded paragraph rubric (Phase 1c) |
+| `paragraphJudgeRubricId` only set | `buildRunContext` → `paragraphJudgeRubric` | custom paragraph rubric |
+| Both set | both resolved independently | custom paragraph rubric (article rubric used at article-level only) |
+| Neither set | both undefined | hardcoded paragraph rubric |
+| `EVOLUTION_RUBRIC_JUDGING_ENABLED='false'` | both short-circuit to `undefined` | hardcoded paragraph rubric |
+
+Wizard UI: `src/app/admin/evolution/strategies/new/page.tsx` exposes a `paragraph-judge-rubric-select` dropdown next to the existing `judge-rubric-select`. TOCTOU: if `paragraphJudgeRubricId` resolves to null at run-time (rubric deleted/archived after strategy creation), `buildRunContext` logs a `console.warn` and falls back to the hardcoded paragraph rubric.
+
+### Phase 2 (Fix 2) — Coordinator mid-sequence replan
+
+After slot 0 finalizes, the coordinator is re-called with `priorPicks + firstSlot=1` so the remaining slots' directives match the chosen opener's voice. **Unconditional** — the original `EVOLUTION_PARAGRAPH_RECOMBINE_REPLAN_ENABLED` env flag was retired before this iteration shipped. Adds ~$0.0014 per invocation. The replan call uses a separate LLM label `'paragraph_recombine_coordinator_replan'` so cost-error tracking does not conflate it with the initial coordinator call.
+
+Slot-0 success predicate (replan fires ONLY when ALL hold):
+- `slots.length > 1`
+- `budgetExhaustedAt === undefined`
+- `result.allRewritesFailed === false`
+- `result.winnerIsOriginal === false`
+- `perInvocationCapUsd >= REPLAN_MIN_CAP_USD (0.030)` AND `(cap - spent) >= PROJECTED_REPLAN_COST_USD * 2.0`
+
+Each non-trigger branch records a `replanSkippedReason` enum (`single_slot` / `budget_exhausted` / `slot0_all_failed` / `slot0_parent_won` / `budget_floor`). The replan call is wrapped in try/catch inside `runSequentialLoop` — both `CoordinatorLLMError` AND `CoordinatorParseError` are caught and recorded as `replanFailureCount`, never propagated to the agent's Phase B catch (which would discard slot 0's work). Rollback: `git revert` the Phase 2 commit (`496d5b79d`).
+
+Plan merge is paragraphIndex-keyed: keep original `coordinatorPlan` entries for slots NOT covered by the replan output; replace entries whose `paragraphIndex` is in the replan output. Built via a NEW plan reference — original plan is never mutated. The agent persists BOTH the original (`execution_detail.coordinatorPlan`) AND the merged (`execution_detail.coordinatorPlanReplanned`) for forensics.
+
+### Env flags
+
+This project introduced no new env flags. Phase 1d (per-paragraph rubric) reuses the existing `EVOLUTION_RUBRIC_JUDGING_ENABLED` kill switch (defaults to ON; setting `'false'` short-circuits BOTH article + paragraph rubric resolution). Phase 2 (coordinator replan) is unconditional — the env flag introduced during planning was retired before merge once local + integration tests proved out.
+
+### New schema fields (`evolution_strategies.config` jsonb — no DDL)
+
+- `paragraphJudgeRubricId?: string` (Phase 1d) — optional UUID into `evolution_judge_rubrics`
+
+### New `execution_detail.sequentialCounters` fields
+
+- `nextPicksSanitizationCount: number` (Phase 1c-i)
+- `nextPicksTruncationCount: number` (Phase 1c-i)
+- `replanCount: 0 | 1` (Phase 2)
+- `replanFailureCount: 0 | 1` (Phase 2)
+- `replanSkippedCount: 0 | 1` (Phase 2)
+- `replanSkippedReason?: enum` (Phase 2)
+
+Plus `execution_detail.coordinatorPlanReplanned?: CoordinatorPlan` (Phase 2 — post-replan merged plan).
+
+### Files added
+
+- `evolution/src/lib/core/agents/paragraphRecombine/buildCoordinatorReplanPrompt.ts` (Phase 2)
+
+### Acceptance signals (post-deploy)
+
+- Length-filter drop rate `length_over + length_under` ≤ 15% (down from 37-49% per temperature) — Phase 1b-i
+- `skippedSlotCount` lands in the 2-4-of-8-12 band more reliably — Phase 1b-ii
+- Seed-win rate at slot level drops from 28% toward 20% — Phase 1c-i
+- `sentence_verbatim_ratio` mean drops from 0.34-0.54 toward ≤ 0.20 — Phase 1c-ii
+- Mean rewrite char count drops from ~1.0-1.2× parent toward ~0.9-1.0× — Phase 1c-iii
+- `eloAttrDelta:paragraph_recombine:paragraph_recombine` lifts from −5 baseline toward ≥ −2 (Control) / ≥ 0 (Treatment with replan on)
+
 ## Files
 
 | File | Purpose |

@@ -209,6 +209,8 @@ export class GenerateFromPreviousArticleAgent extends Agent<
       return {
         result: { variant: null, status: 'generation_failed', surfaced: false, matches: [] },
         detail: makeEarlyExitDetail(0, { cost: 0, promptLength: 0, formatValid: false, error: `Unknown tactic: ${tactic}` }),
+        // D1: unknown tactic is a strategy-misconfiguration hard fail (no variant produced).
+        failure: { code: 'unknown_tactic', message: `Unknown tactic: ${tactic}` },
       };
     }
 
@@ -220,15 +222,20 @@ export class GenerateFromPreviousArticleAgent extends Agent<
       });
     } catch (err) {
       const generationCost = (ctx.costTracker.getOwnSpent?.() ?? ctx.costTracker.getTotalSpent()) - costBeforeGen;
-      const status = err instanceof BudgetExceededError ? 'budget' : 'generation_failed';
+      const isBudget = err instanceof BudgetExceededError;
+      const status = isBudget ? 'budget' : 'generation_failed';
+      const errMsg = (err instanceof Error ? err.message : String(err)).slice(0, 500);
       return {
         result: { variant: null, status, surfaced: false, matches: [] },
         detail: makeEarlyExitDetail(generationCost, {
           cost: generationCost,
           promptLength: prompt.length,
           formatValid: false,
-          error: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+          error: errMsg,
         }),
+        // D1: a generation LLM error (e.g. 402) is a hard fail. Budget exhaustion is an expected
+        // resource boundary, NOT a failure — leave failure unset so it isn't counted as errored.
+        ...(isBudget ? {} : { failure: { code: 'generation_failed', message: errMsg } }),
       };
     }
 
@@ -249,6 +256,9 @@ export class GenerateFromPreviousArticleAgent extends Agent<
           formatValid: false,
           formatIssues: fmt.issues,
         }),
+        // D1: in GFPA a format-invalid generation is fatal (no variant, no ranking). (Contrast:
+        // the seed agent treats format-invalid as non-fatal and still ranks — see createSeedArticle.)
+        failure: { code: 'format_invalid', message: `format validation failed: ${fmt.issues.join(', ')}` },
       };
     }
 

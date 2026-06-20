@@ -528,6 +528,14 @@ export function projectDispatchPlan(
         poolSize,
       });
 
+      // Resolve EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED at the call-site so the
+      // wizard/projector matches runtime (debug_performance_paragraph_recombine_20260612).
+      // Note: projector may run client-side; only the call-site reads env.
+      const sequentialEnabled = process.env.EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED !== 'false';
+      // Phase 4d: read coordinatorModel off the (passthrough) strategy config so the
+      // wizard cost preview reflects the chosen coordinator model. Falls back to
+      // rewriteModel inside the projector when undefined.
+      const coordinatorModel = (config as { coordinatorModel?: string }).coordinatorModel;
       const paragraphCost = estimateParagraphRecombineCost(
         ctx.seedChars,
         maxParagraphsPerInvocation,
@@ -535,6 +543,7 @@ export function projectDispatchPlan(
         maxComparisonsPerParagraph,
         rewriteModel,
         config.judgeModel,
+        { sequentialEnabled, ...(coordinatorModel !== undefined && { coordinatorModel }) },
       );
 
       // K1: multi-dispatch projection. For maxDispatches=1 (default), collapses to

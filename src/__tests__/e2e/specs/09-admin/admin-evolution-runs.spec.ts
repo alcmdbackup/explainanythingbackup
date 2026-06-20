@@ -55,7 +55,7 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     const pendingRunId = randomUUID();
     const runInserts = [
       { id: completedRunId, status: 'completed', strategy_id: strategyId, prompt_id: promptId, budget_cap_usd: 1.0, completed_at: new Date().toISOString() },
-      { id: failedRunId, status: 'failed', strategy_id: strategyId, prompt_id: promptId, budget_cap_usd: 1.0, error_message: 'test error' },
+      { id: failedRunId, status: 'failed', strategy_id: strategyId, prompt_id: promptId, budget_cap_usd: 1.0, error_message: 'All generations failed: zero variants produced', error_code: 'all_generations_failed' },
       { id: pendingRunId, status: 'pending', strategy_id: strategyId, prompt_id: promptId, budget_cap_usd: 1.0 },
     ];
     const { error: rErr } = await sb.from('evolution_runs').insert(runInserts);
@@ -140,6 +140,12 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     const statusBadge = failedHeader.locator('[data-testid="status-badge-failed"]');
     await expect(statusBadge).toBeVisible();
     await expect(statusBadge).toContainText(/failed/i);
+
+    // D3 (fix_structured_judging_evolution_bugs): an all_generations_failed run surfaces its
+    // error in the run-error banner — NOT a blank "completed" with no variants.
+    const errorBanner = adminPage.locator('[data-testid="run-error-banner"]');
+    await expect(errorBanner).toBeVisible({ timeout: 15000 });
+    await expect(errorBanner).toContainText(/all generations failed/i);
   });
 
   adminTest('breadcrumb+strategy filter: breadcrumb nav works and strategy filter renders', async ({ adminPage }) => {

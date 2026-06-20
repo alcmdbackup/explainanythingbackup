@@ -3,6 +3,8 @@
 
 import { z } from 'zod';
 import { _INTERNAL_DEFAULT_SIGMA } from './shared/computeRatings';
+import type { EnsembleSubmatches } from './shared/computeRatings';
+import type { EnsembleConfig } from './shared/judgeEnsemble/chainRegistry';
 import { getModelMaxTemperature, getModelInfo, MODEL_REGISTRY } from '@/config/modelRegistry';
 // Type-only imports (erased at runtime → no cycle with rubricJudge, which imports
 // only types from this file).
@@ -687,8 +689,22 @@ export const iterationConfigSchema = z.object({
   editingEligibilityCutoff: qualityCutoffSchema.optional(),
   /** Mode B (iterative_editing_rewrite) only: soft-cap on the number of edits the
    *  proposer is asked to suggest per cycle. Surfaces in the prompt as a phrase
-   *  ("at most N changes") — not enforced at parse time. Default 3. */
-  editingProposerSoftCap: z.number().int().min(1).max(5).optional(),
+   *  ("at most N changes") — not enforced at parse time. Default 3.
+   *  Range widened to 10 (was 5) by the disableApproverFiltering A/B experiment
+   *  (meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6 A3):
+   *  the experiment runs both arms at softCap=8 so the K=10 magnitude cap in the
+   *  Control arm actually fires. */
+  editingProposerSoftCap: z.number().int().min(1).max(10).optional(),
+  /** Mode B (iterative_editing_rewrite) only: when true, IterativeEditingAgent
+   *  skips the post-parse coalesceAdjacentGroups + capGroupsByMagnitude steps,
+   *  so the approver sees every diff atomic as its own singleton group instead
+   *  of bundled groups capped at K=10. Hard validation rules (no heading mods,
+   *  no quote edits, code-fence guards, AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30,
+   *  EDIT_NEWTEXT_LENGTH_CAP=500) still run via validateEditGroups.
+   *  Default false (production behavior unchanged). Added by the
+   *  meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6
+   *  bundle-split A/B experiment. */
+  disableApproverFiltering: z.boolean().optional(),
   /** Criteria UUIDs evaluated by the EvaluateCriteriaThenGenerateFromPreviousArticleAgent.
    *  Required + non-empty when agentType === 'criteria_and_generate'. Mutually exclusive
    *  with generationGuidance (criteria drive the prompt directly). */
@@ -791,6 +807,12 @@ export const iterationConfigSchema = z.object({
   (c) => c.agentType === 'iterative_editing_rewrite' || c.editingProposerSoftCap === undefined,
   { message: 'editingProposerSoftCap only valid when agentType is iterative_editing_rewrite' },
 ).refine(
+  // disableApproverFiltering is exclusive to Mode B (iterative_editing_rewrite).
+  // Mode A (iterative_editing) uses a different proposer/diff architecture; bypassing
+  // its filters is out of scope for the bundle-split experiment that introduces this field.
+  (c) => c.agentType === 'iterative_editing_rewrite' || c.disableApproverFiltering === undefined,
+  { message: 'disableApproverFiltering only valid when agentType is iterative_editing_rewrite', path: ['disableApproverFiltering'] },
+).refine(
   // proposer_approver_criteria_generate is single-cycle by definition: editingMaxCycles must be 1 if present.
   (c) => c.agentType !== 'proposer_approver_criteria_generate' || c.editingMaxCycles === undefined || c.editingMaxCycles === 1,
   { message: 'proposer_approver_criteria_generate is single-cycle by definition; editingMaxCycles must be omitted or 1', path: ['editingMaxCycles'] },
@@ -872,6 +894,19 @@ const strategyConfigBaseSchema = z.object({
    *  a single holistic A/B/TIE. Strategy-level (applies to all ranking), config-hashed,
    *  validated by validateJudgeRubricId. Omit for holistic judging. */
   judgeRubricId: z.string().uuid().optional(),
+  /** investigate_sequential_paragraph_recombine_performance_20260615 Phase 1d (Fix 5b):
+   *  Optional rubric-set id for PER-PARAGRAPH rubric-based judging at the slot level
+   *  (paragraph_recombine). When set, the per-slot judge uses this rubric's dimensions
+   *  instead of the hardcoded paragraph rubric in computeRatings.ts. Independent of
+   *  judgeRubricId — that one applies to article-level ranking only (and is stripped
+   *  at slot level because article-shaped dimensions like "structure" don't apply at
+   *  single-paragraph scale). Strategy authors should design paragraph-shaped
+   *  dimensions here. Omit for the hardcoded default. */
+  paragraphJudgeRubricId: z.string().uuid().optional(),
+  /** Phase 4 (gated, default OFF): named multi-judge escalation chain to use for ranking. Resolved in
+   *  buildRunContext to an EnsembleRunner ONLY when EVOLUTION_JUDGE_ESCALATION_ENABLED !== 'false'.
+   *  Omit (the default) for single-judge ranking — byte-identical to today. */
+  ensembleConfigId: z.string().optional(),
   /** Total budget for the run in USD. Per-iteration amounts computed from iterationConfigs[].budgetPercent. */
   budgetUsd: z.number().min(0).optional(),
   generationGuidance: generationGuidanceSchema.optional(),
@@ -895,6 +930,21 @@ const strategyConfigBaseSchema = z.object({
   editingModel: z.string().optional(),
   /** Model used by the Approver LLM call in iterative_editing iterations. Falls back to editingModel (which falls back to generationModel) when unset. When approverModel === editingModel (resolved values), the wizard surfaces a soft rubber-stamping warning per Decisions §16. */
   approverModel: z.string().optional(),
+  /** Phase 4d (investigate_sequential_paragraph_recombine_performance_20260615):
+   *  model used by the paragraph_recombine COORDINATOR (initial-plan + replan) — the
+   *  agent that writes per-slot directives. Falls back to generationModel at runtime
+   *  when unset. Reads via (ctx.config as { coordinatorModel?: string }).coordinatorModel
+   *  at the two runCoordinator call sites — mirrors the existing editingModel/approverModel
+   *  pattern at IterativeEditingAgent.ts:155-167 (no AgentContext mutation). Recommended
+   *  upgrade path: flash-lite (default) → gpt-5-mini (safe lift) → claude-sonnet-4 (premium). */
+  coordinatorModel: z.string().optional(),
+  /** Phase 5 (investigate_sequential_paragraph_recombine_performance_20260615 / 5a-1):
+   *  controls which seed variant is picked as `originalText` when a topic has multiple
+   *  seeds. 'highest_elo' (default) preserves pre-Phase-5 behavior — `.limit(1)` by
+   *  elo_score DESC. 'random' picks a deterministic-per-run seed via SHA-256 of run.id,
+   *  spreading parent selection across the seed pool over N runs without losing
+   *  reproducibility. Single-seed topics are unaffected. */
+  seedSelection: z.enum(['highest_elo', 'random']).optional(),
   /** Strategy-wide default for the debate judge's reasoning effort. Only meaningful
    *  when at least one iteration has agentType: 'debate_and_generate'. Per-iteration
    *  override via iterCfg.debateJudgeReasoningEffort. Cross-field refinement below
@@ -1044,6 +1094,20 @@ const evolutionConfigBaseSchema = z.object({
   /** Resolved rubric (dimensions + normalized weights + criteria text). Present only
    *  when judgeRubricId resolved AND the kill switch is on; undefined → holistic. */
   judgeRubric: z.custom<ResolvedJudgeRubric>().optional(),
+  /** Phase 1d (Fix 5b): per-paragraph rubric id from StrategyConfig. Resolved to
+   *  `paragraphJudgeRubric` in buildRunContext (same kill switch as the article rubric).
+   *  At slot level the article-rubric is stripped (article-shaped dimensions don't
+   *  apply at single-paragraph scale) and this one is attached instead. Omit → slot
+   *  judge falls back to the hardcoded paragraph rubric. */
+  paragraphJudgeRubricId: z.string().uuid().optional(),
+  /** Phase 1d: resolved per-paragraph rubric. Present only when paragraphJudgeRubricId
+   *  resolved AND EVOLUTION_RUBRIC_JUDGING_ENABLED is on; undefined → hardcoded paragraph rubric. */
+  paragraphJudgeRubric: z.custom<ResolvedJudgeRubric>().optional(),
+  /** Named ensemble chain id (from StrategyConfig). Resolved to `ensemble` in buildRunContext. */
+  ensembleConfigId: z.string().optional(),
+  /** Resolved ensemble chain + aggregation rule. Present ONLY when ensembleConfigId resolved AND the
+   *  EVOLUTION_JUDGE_ESCALATION_ENABLED kill switch is on; undefined → single-judge ranking. */
+  ensemble: z.custom<EnsembleConfig>().optional(),
 });
 
 export const evolutionConfigSchema = z.preprocess(preprocessBudgetFloor, evolutionConfigBaseSchema);
@@ -1061,6 +1125,9 @@ export const v2MatchSchema = z.object({
   reversed: z.boolean(),
   /** Per-dimension rubric snapshot when this match was rubric-judged (else absent). */
   rubricBreakdown: z.custom<RubricBreakdown>().optional(),
+  /** Phase 4: the multi-judge escalation fold (chain + rule + submatches) when this match was
+   *  ensemble-judged. Absent for single-judge matches (the default). */
+  submatches: z.custom<EnsembleSubmatches>().optional(),
 });
 
 export type V2MatchSchema = z.infer<typeof v2MatchSchema>;
@@ -2202,6 +2269,38 @@ export const iterationSnapshotSchema = z.object({
 
 export type IterationSnapshot = z.infer<typeof iterationSnapshotSchema>;
 
+// ─── Sequential Coordinator (debug_performance_paragraph_recombine_20260612) ─
+//
+// The coordinator's output drives Phase B's sequential per-paragraph loop. One
+// per-paragraph plan with M variation directives + temperatures + skip flag.
+// No structured analogy/acronym/voice fields — coordinator embeds article-level
+// intent in directive TEXT.
+
+const coordinatorCandidateSchema = z.object({
+  /** Bespoke instruction for this variation (embeds analogy/acronym/voice guidance inline). */
+  directive: z.string(),
+  /** 0.7 conservative ... 1.2 generative. The coordinator picks per directive. */
+  temperature: z.number().min(0).max(2),
+});
+
+const coordinatorParagraphPlanSchema = z.object({
+  paragraphIndex: z.number().int().min(0),
+  role: z.enum(['lede', 'body', 'closer', 'sub_opener', 'technical_dense', 'header']),
+  /** When false, parent paragraph flows onto priorPicks unchanged; no generation calls fire. */
+  shouldRewrite: z.boolean(),
+  priority: z.enum(['high', 'medium', 'low']),
+  M: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  candidates: z.array(coordinatorCandidateSchema),
+  rationale: z.string(),
+});
+
+export const coordinatorPlanSchema = z.object({
+  paragraphPlans: z.array(coordinatorParagraphPlanSchema),
+});
+
+export type CoordinatorPlan = z.infer<typeof coordinatorPlanSchema>;
+export type CoordinatorParagraphPlan = z.infer<typeof coordinatorParagraphPlanSchema>;
+
 // ─── slotRecombineExecutionDetailSchema ──────────────────────────
 //
 // Per D11/D14/D20 of rank_individual_paragraphs_evolution_20260525.
@@ -2330,6 +2429,58 @@ export const slotRecombineExecutionDetailSchema = executionDetailBaseSchema.exte
     cost: z.number().min(0),
     estimationErrorPct: z.number().optional(),
   }).optional(),
+  // ─── Sequential Coordinator (debug_performance_paragraph_recombine_20260612) ─
+  /** Per-phase coordinator rollup mirroring paragraph_rewrite + paragraph_rank shape.
+   *  Populated on the sequential path; absent on the legacy parallel path.
+   *  rawResponse + parseError are populated only on coordinator throw paths
+   *  (truncated to 4K chars for storage efficiency). */
+  coordinator: z.object({
+    estimatedCost: z.number().min(0),
+    cost: z.number().min(0),
+    estimationErrorPct: z.number().optional(),
+    retried: z.boolean().optional(),
+    rawResponse: z.string().optional(),
+    parseError: z.string().optional(),
+  }).optional(),
+  /** The full coordinator plan returned by Phase A — persisted for admin UI rendering
+   *  + post-hoc analysis. Absent when sequential is disabled (legacy path). Absent
+   *  also when the coordinator threw before producing a valid plan. */
+  coordinatorPlan: coordinatorPlanSchema.optional(),
+  /** Phase B mid-loop throw markers (B.7 partial-detail-on-throw invariant). When set,
+   *  `slots` is truncated to length === completedSlotCount (NOT N-with-nulls). */
+  partialAt: z.number().int().min(0).optional(),
+  abortReason: z.string().optional(),
+  completedSlotCount: z.number().int().min(0).optional(),
+  /** Sequential Context-Aware Generation per-invocation counters (debug_performance_paragraph_recombine_20260612).
+   *  Sourced from runSequentialLoop's SequentialCounters; missing on the legacy parallel path.
+   *  Used by metric extractors to compute parent_fallback_rate, prior_picks_sanitization_count,
+   *  prior_picks_truncation_count. */
+  sequentialCounters: z.object({
+    parentFallbackCount: z.number().int().min(0),
+    skippedSlotCount: z.number().int().min(0),
+    rewrittenSlotCount: z.number().int().min(0),
+    priorPicksSanitizationCount: z.number().int().min(0),
+    priorPicksTruncationCount: z.number().int().min(0),
+    // investigate_sequential_paragraph_recombine_performance_20260615 Phase 1c-i:
+    // Forward-context counters mirror the priorPicks* counters. Default 0 so
+    // historical execution_detail rows (which predate Phase 1c-i) remain valid.
+    nextPicksSanitizationCount: z.number().int().min(0).default(0),
+    nextPicksTruncationCount: z.number().int().min(0).default(0),
+    // investigate_sequential_paragraph_recombine_performance_20260615 Phase 2 (Fix 2):
+    // Replan counters. 0 or 1 per invocation today; the .max(1) cap may grow to N
+    // in a future "replan every K slots" iteration.
+    replanCount: z.number().int().min(0).max(1).default(0),
+    replanFailureCount: z.number().int().min(0).max(1).default(0),
+    replanSkippedCount: z.number().int().min(0).max(1).default(0),
+    replanSkippedReason: z.enum([
+      'single_slot', 'budget_exhausted',
+      'slot0_all_failed', 'slot0_parent_won', 'budget_floor',
+    ]).optional(),
+  }).optional(),
+  /** Phase 2 (Fix 2): post-replan merged coordinator plan. Present only when the
+   *  replan ran AND succeeded. The original (pre-replan) plan stays in
+   *  `coordinatorPlan` for forensics. */
+  coordinatorPlanReplanned: coordinatorPlanSchema.optional(),
 });
 
 export type SlotRecombineExecutionDetail = z.infer<typeof slotRecombineExecutionDetailSchema>;

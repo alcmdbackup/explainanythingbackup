@@ -467,6 +467,8 @@ export class ReflectAndGenerateFromPreviousArticleAgent extends Agent<
       result: gfpaOutput.result,
       detail: merged,
       childVariantIds: gfpaOutput.childVariantIds,
+      // D1: forward inner GFPA hard-fail signal (see evaluateCriteriaThen… wrapper).
+      failure: gfpaOutput.failure,
     };
   }
 }

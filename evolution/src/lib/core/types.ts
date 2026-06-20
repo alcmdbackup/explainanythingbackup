@@ -194,6 +194,13 @@ export interface AgentOutput<TOutput, TDetail> {
   detail: TDetail;
   childVariantIds?: string[];
   parentVariantIds?: string[];
+  /** D1 (fix_structured_judging_evolution_bugs): set on genuine hard-fail RETURN paths —
+   *  non-thrown failures whose `detail` is still schema-valid (e.g. an LLM-call hard error like
+   *  a 402, or an unknown tactic in a generate agent). When present, `Agent.run()` persists the
+   *  invocation `success: false` + this as `error_message`, WHILE STILL keeping the valid
+   *  `execution_detail`. Leave undefined on success and on legitimate surfaced=false discards
+   *  (which carry a real variant) and budget aborts (status: 'budget'). */
+  failure?: { code: string; message: string };
 }
 
 export interface DetailFieldDef {

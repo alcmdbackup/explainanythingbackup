@@ -43,6 +43,42 @@ the leaderboard slices Article / Paragraph / Both.
 All tables: deny-all RLS + `service_role_all` (mirrors evolution convention). Separate from
 `evolution_arena_comparisons` (the in-run match log, which drops judge settings + raw passes).
 
+## Escalation & criteria-split sweeps (`evolution/src/lib/judgeEval/escalation.ts`)
+
+Beyond the single-judge sweep, the Judge Lab runs **ensemble** sweeps where one **match** consolidates
+several **submatches** (each a `judge_eval_calls` row, tied by `submatch_group_key`, ordered by
+`escalation_step`). Two pluggable seams — a **planner** (dispatch) and an **aggregation rule** (fold,
+from the versioned registry in `judgeEnsemble/aggregation.ts`, keyed `ruleId@version`):
+
+- **`escalation` planner** (default): a sequential, mode-aware model ladder (cap 3). It judges with the
+  first model, and only escalates to a different model when the result is *indecisive*; it stops on the
+  first decisive vote. Folded by `first_decisive` (live default), `unanimous_among_decisive` (≥2 agree),
+  or `confidence_weighted`.
+- **`criteria_split` planner** (requires a rubric): runs **one submatch per rubric dimension** — each a
+  2-pass judge of a single-criterion sub-rubric, assigned round-robin over the chain models (or via an
+  explicit `criteriaModelMap`) so cheap models can specialize per criterion. No early stop (a rubric is a
+  partition). Folded by **`criteria_weighted`**, which sums each criterion's normalized weight onto its
+  2-pass winner side (TIE/null abstain) and resolves to the heavier side with a winner-share confidence.
+  The action/CLI **force** the rule to `criteria_weighted` whenever this planner is selected. Worst-case
+  cost = #dimensions × 2 passes (the cost gate uses the dimension count, not the escalation cap).
+
+**Rubric-mode submatches** persist a per-dimension breakout: each rubric-mode call gets N
+`judge_eval_dimension_verdicts` rows (`criteria_name`, `weight`, forward/reverse verdict,
+`dimension_winner`, `favored_match_winner` vs the consolidated MATCH winner) — see
+`evolution/docs/data_model.md`. Wired into the sweep via the action (`judgeRubricId` + `planner`), the
+CLI (`judge-eval.ts escalation-sweep --rubric <id> [--planner criteria_split]`), and the Judge Lab
+escalation launcher (rubric + planner selectors).
+
+**Production wiring (Phase 4, gated default OFF):** the escalation chain is also wired into the live
+evolution ranking path via an optional `ensembleRunner` on `compareWithBiasMitigation` (byte-identical
+single-judge path when unset). `buildRunContext` resolves a strategy's `ensembleConfigId` to a chain +
+rule (`evolution/src/lib/shared/judgeEnsemble/chainRegistry.ts`) ONLY when
+`EVOLUTION_JUDGE_ESCALATION_ENABLED === 'true'`; otherwise production Elo is unchanged. Ensemble matches
+persist normalized submatch + per-dimension rows (`evolution_arena_submatches` /
+`evolution_submatch_dimension_verdicts`; see `evolution/docs/data_model.md`) and surface in the Match
+Viewer (escalation badge + per-submatch dimension tables; legacy single-judge matches render
+unchanged). Flipping the env var in prod is the deliberate go-live step.
+
 ## Metrics (`evolution/src/lib/judgeEval/metrics.ts`)
 
 `decisive_rate` (conf > 0.6), self-consistency / agreement, avg confidence, **position-bias rate**

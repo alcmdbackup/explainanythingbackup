@@ -12,7 +12,7 @@
 
 import type { Variant, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import { BudgetExceededError } from '../../types';
-import type { Rating, ComparisonResult } from '../../shared/computeRatings';
+import type { Rating, ComparisonResult, EnsembleRunner } from '../../shared/computeRatings';
 import {
   createRating, updateRating, updateDraw,
   compareWithBiasMitigation, DEFAULT_UNCERTAINTY, DEFAULT_CONVERGENCE_UNCERTAINTY,
@@ -190,6 +190,28 @@ function makeCallLLM(
   };
 }
 
+/** Phase 4 (gated, default OFF): build the ensemble runner when the strategy resolved a chain.
+ *  `makeJudge(model)` reuses the same ranking completion path per model. */
+function makeEnsembleRunner(
+  llm: EvolutionLLMClient,
+  config: EvolutionConfig,
+  invocationId: string,
+): EnsembleRunner | undefined {
+  if (!config.ensemble) return undefined;
+  return {
+    makeJudge: (model: string) => (prompt: string): Promise<string> => {
+      const opts: LLMCompletionOptions = {
+        model: model as LLMCompletionOptions['model'],
+        invocationId,
+        taskType: 'comparison',
+      };
+      return llm.complete(prompt, 'ranking', opts);
+    },
+    chain: config.ensemble.chain,
+    rule: config.ensemble.rule,
+  };
+}
+
 /** Build a V2Match from a comparison result. */
 function buildMatch(
   result: ComparisonResult,
@@ -210,6 +232,8 @@ function buildMatch(
     // Carries the per-dimension snapshot through to MergeRatingsAgent persistence
     // when this match was rubric-judged (undefined for holistic).
     rubricBreakdown: result.rubricBreakdown,
+    // Phase 4: carries the multi-judge fold through to persistence (undefined for single-judge).
+    submatches: result.submatches,
   };
 }
 
@@ -233,6 +257,17 @@ export interface RankSingleVariantParams {
   /** Invocation row id for llmCallTracking joins. */
   invocationId: string;
   logger?: EntityLogger;
+  /** Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612):
+   *  when provided AND `config.comparisonMode === 'paragraph'`, forwarded to
+   *  `compareWithBiasMitigation` so the judge prompt interpolates a PRIOR CONTEXT block. */
+  priorPicks?: readonly string[];
+  /** Phase 1c-i (Fix 4): forwarded to `compareWithBiasMitigation` so the judge prompt
+   *  interpolates a NEXT CONTEXT block + Setup criterion. Ignored for article mode. */
+  nextContext?: readonly string[];
+  /** Phase 4a-2: parent's slot-N text. Forwarded to `compareWithBiasMitigation` so
+   *  the slot judge sees the original alongside both candidates and can score the
+   *  "Net informational contribution" criterion. Ignored for article mode. */
+  originalParagraph?: string;
 }
 
 /**
@@ -250,7 +285,7 @@ export async function rankSingleVariant(
 ): Promise<RankSingleVariantResult> {
   const {
     variant, pool, ratings, matchCounts, completedPairs,
-    cache, llm, config, invocationId, logger,
+    cache, llm, config, invocationId, logger, priorPicks, nextContext, originalParagraph,
   } = params;
 
   const matchBuffer: V2Match[] = [];
@@ -264,6 +299,7 @@ export async function rankSingleVariant(
   const localPoolVariantIds = pool.map(v => v.id);
 
   const callLLM = makeCallLLM(llm, config, invocationId, () => {});
+  const ensembleRunner = makeEnsembleRunner(llm, config, invocationId);
 
   let status: RankSingleVariantStatus = 'no_more_opponents';
   let round = 0;
@@ -321,6 +357,10 @@ export async function rankSingleVariant(
           cache,
           config.comparisonMode,
           config.judgeRubric,
+          ensembleRunner,
+          priorPicks,
+          nextContext,
+          originalParagraph,
         );
       } catch (e) {
         if (e instanceof BudgetExceededError) {

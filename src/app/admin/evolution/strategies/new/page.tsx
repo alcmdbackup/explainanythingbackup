@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 import { DEFAULT_JUDGE_MODEL, modelSupportsReasoning, MODEL_REGISTRY } from '@/config/modelRegistry';
-import { createStrategyAction } from '@evolution/services/strategyRegistryActions';
+import { createStrategyAction, listEnsembleConfigsAction } from '@evolution/services/strategyRegistryActions';
 import {
   getLastUsedPromptAction,
   getStrategyDispatchPreviewAction,
@@ -90,6 +90,16 @@ interface IterationRow {
    *  target — keeps existing strategy behavior identical when unset. */
   maxDispatches?: number;
   perInvocationCapUsd?: number;
+  /** meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6:
+   *  Mode B (iterative_editing_rewrite) only. Soft-cap on proposer atomic edits
+   *  per cycle. Default 3; range 1-10. */
+  editingProposerSoftCap?: number;
+  /** meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6:
+   *  Mode B (iterative_editing_rewrite) only. When true, IterativeEditingAgent
+   *  skips the post-parse coalesceAdjacentGroups + capGroupsByMagnitude steps
+   *  so the approver sees every diff atomic as its own singleton group.
+   *  Default false (production behavior unchanged). */
+  disableApproverFiltering?: boolean;
 }
 
 // Paragraph_recombine wizard defaults — match agent constants.
@@ -117,12 +127,26 @@ interface StrategyFormState {
   judgeModel: string;
   /** Optional rubric-set id for rubric-based judging. Empty → holistic judging. */
   judgeRubricId: string;
+  /** Phase 1d (Fix 5b): per-paragraph rubric-set id. Empty → hardcoded paragraph
+   *  rubric. Distinct from judgeRubricId — that one applies at article level only. */
+  paragraphJudgeRubricId: string;
   /** Iterative-editing Proposer model. Empty string → falls back to generationModel. */
   editingModel: string;
   /** Iterative-editing Approver model. Empty string → falls back to editingModel.
    *  When resolved value === editingModel resolved value, the wizard surfaces a
    *  rubber-stamping warning per Decisions §16. */
   approverModel: string;
+  /** Optional escalation-chain id (chainRegistry). Empty → single-judge ranking. */
+  ensembleConfigId: string;
+  /** Phase 4d: paragraph_recombine coordinator model. Empty → falls back to
+   *  generationModel at runtime. A stronger long-context model at-the-source
+   *  improves per-slot directives at the cost of higher coordinator-phase spend. */
+  coordinatorModel: string;
+  /** Phase 5 / 5a-1: which seed picks the parent originalText when the topic
+   *  has multiple seeds. Empty → 'highest_elo' (pre-Phase-5 default). 'random'
+   *  picks a deterministic per-run seed via SHA-256(run.id), spreading parent
+   *  selection across the seed pool for canaries. */
+  seedSelection: '' | 'highest_elo' | 'random';
   generationTemperature: string;
   budgetUsd: string;
   maxComparisonsPerVariant: string;
@@ -159,6 +183,10 @@ interface IterationConfigPayload {
   paragraphRewriteModel?: string;
   maxDispatches?: number;
   perInvocationCapUsd?: number;
+  /** Phase 6: Mode B only. */
+  editingProposerSoftCap?: number;
+  /** Phase 6: Mode B only. */
+  disableApproverFiltering?: boolean;
 }
 
 /** Variant-producing agent types share the same parent-article source machinery
@@ -291,6 +319,16 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
       : {}),
     ...(it.agentType === 'paragraph_recombine' && it.perInvocationCapUsd != null && it.perInvocationCapUsd !== PARAGRAPH_RECOMBINE_DEFAULTS.perInvocationCapUsd
       ? { perInvocationCapUsd: it.perInvocationCapUsd }
+      : {}),
+    // meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6:
+    // Mode B (iterative_editing_rewrite) only. Both fields are stripped pre-hash
+    // by FIELD_GATES if they appear on a non-rewrite agent type, but only emit
+    // them here when truly applicable to keep the payload tidy.
+    ...(it.agentType === 'iterative_editing_rewrite' && it.editingProposerSoftCap != null
+      ? { editingProposerSoftCap: it.editingProposerSoftCap }
+      : {}),
+    ...(it.agentType === 'iterative_editing_rewrite' && it.disableApproverFiltering === true
+      ? { disableApproverFiltering: true }
       : {}),
   }));
 }
@@ -440,8 +478,12 @@ export default function NewStrategyPage(): JSX.Element {
     generationModel: '',
     judgeModel: DEFAULT_JUDGE_MODEL,
     judgeRubricId: '',
+    paragraphJudgeRubricId: '',
     editingModel: '',
     approverModel: '',
+    ensembleConfigId: '',
+    coordinatorModel: '',
+    seedSelection: '',
     generationTemperature: '',
     budgetUsd: '0.05',
     maxComparisonsPerVariant: '5',
@@ -455,14 +497,17 @@ export default function NewStrategyPage(): JSX.Element {
   const [criteriaEditorIdx, setCriteriaEditorIdx] = useState<number | null>(null);
   const [availableCriteria, setAvailableCriteria] = useState<CriteriaListItem[]>([]);
   const [availableRubrics, setAvailableRubrics] = useState<JudgeRubricListItem[]>([]);
+  const [availableEnsembleConfigs, setAvailableEnsembleConfigs] = useState<string[]>([]);
 
-  // Fetch active criteria + judge rubrics once on mount.
+  // Fetch active criteria + judge rubrics + escalation chain ids once on mount.
   useEffect(() => {
     (async () => {
       const result = await listCriteriaAction({ status: 'active', filterTestContent: true, limit: 200 });
       if (result.success && result.data) setAvailableCriteria(result.data.items);
       const rubrics = await listJudgeRubricsAction({ status: 'active', filterTestContent: true, limit: 200 });
       if (rubrics.success && rubrics.data) setAvailableRubrics(rubrics.data.items);
+      const ensembles = await listEnsembleConfigsAction();
+      if (ensembles.success && ensembles.data) setAvailableEnsembleConfigs(ensembles.data.ids);
     })();
   }, []);
 
@@ -544,6 +589,9 @@ export default function NewStrategyPage(): JSX.Element {
             judgeModel: form.judgeModel,
             ...(form.editingModel ? { editingModel: form.editingModel } : {}),
             ...(form.approverModel ? { approverModel: form.approverModel } : {}),
+            // Phase 4d: thread coordinatorModel into the dispatch preview so the
+            // per-strategy cost projection reflects the chosen coordinator model.
+            ...(form.coordinatorModel ? { coordinatorModel: form.coordinatorModel } : {}),
             budgetUsd: budget,
             maxComparisonsPerVariant: maxComp,
             iterationConfigs: toIterationConfigsPayload(iterations),
@@ -630,6 +678,8 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         delete updated.debateJudgeReasoningEffort;
+        delete updated.editingProposerSoftCap;
+        delete updated.disableApproverFiltering;
         return updated;
       }
       // Debate selects parents internally; reject sourceMode + qualityCutoff per Phase 4.7.
@@ -647,6 +697,8 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.lengthCapRatio;
         delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
+        delete updated.editingProposerSoftCap;
+        delete updated.disableApproverFiltering;
         return updated;
       }
       // iterative_editing + iterative_editing_rewrite: keep editingMaxCycles + editingCutoff*; drop variant-flow fields.
@@ -658,6 +710,13 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.lengthCapRatio;
         delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
+        // Phase 6: editingProposerSoftCap + disableApproverFiltering are Mode B
+        // only. The shared branch covers both Mode A and Mode B, so guard the
+        // delete on Mode A only — Mode B keeps the fields.
+        if (updated.agentType === 'iterative_editing') {
+          delete updated.editingProposerSoftCap;
+          delete updated.disableApproverFiltering;
+        }
       } else if (updated.agentType === 'proposer_approver_criteria_generate') {
         // Single-cycle propose/approve agent. editingMaxCycles fixed at 1.
         delete updated.tacticGuidance;
@@ -671,6 +730,8 @@ export default function NewStrategyPage(): JSX.Element {
         updated.lengthCapRatio ??= 1.10;
         updated.redundancyJaccardThreshold ??= 0.35;
         updated.includesMirrorApprover ??= true;
+        delete updated.editingProposerSoftCap;
+        delete updated.disableApproverFiltering;
       } else if (updated.agentType === 'single_pass_evaluate_criteria_and_generate') {
         delete updated.tacticGuidance;
         delete updated.reflectionTopN;
@@ -682,6 +743,8 @@ export default function NewStrategyPage(): JSX.Element {
         updated.criteriaIds ??= [];
         updated.weakestK ??= 1;
         updated.redundancyJaccardThreshold ??= 0.35;
+        delete updated.editingProposerSoftCap;
+        delete updated.disableApproverFiltering;
       } else if (updated.agentType === 'reflect_and_generate') {
         // Shape A: tacticGuidance is generate-only. Switching to reflect_and_generate
         // clears any guidance so the schema mutex stays satisfied.
@@ -693,6 +756,8 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.includesMirrorApprover;
         delete updated.debateJudgeReasoningEffort;
         updated.reflectionTopN ??= 3;
+        delete updated.editingProposerSoftCap;
+        delete updated.disableApproverFiltering;
       } else if (updated.agentType === 'criteria_and_generate') {
         delete updated.tacticGuidance;
         delete updated.reflectionTopN;
@@ -702,6 +767,8 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.debateJudgeReasoningEffort;
         updated.criteriaIds ??= [];
         updated.weakestK ??= 1;
+        delete updated.editingProposerSoftCap;
+        delete updated.disableApproverFiltering;
       } else if (updated.agentType === 'paragraph_recombine') {
         // Clear unrelated criteria/editing/reflection/debate fields.
         delete updated.tacticGuidance;
@@ -723,6 +790,8 @@ export default function NewStrategyPage(): JSX.Element {
         // payload emission skips defaults so back-compat hash is preserved.
         updated.maxDispatches ??= PARAGRAPH_RECOMBINE_DEFAULTS.maxDispatches;
         updated.perInvocationCapUsd ??= PARAGRAPH_RECOMBINE_DEFAULTS.perInvocationCapUsd;
+        delete updated.editingProposerSoftCap;
+        delete updated.disableApproverFiltering;
       } else {
         // generate: drop reflection + criteria + debate + paragraph fields (stale from prior selection).
         delete updated.reflectionTopN;
@@ -738,6 +807,8 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.paragraphRewriteModel;
         delete updated.maxDispatches;
         delete updated.perInvocationCapUsd;
+        delete updated.editingProposerSoftCap;
+        delete updated.disableApproverFiltering;
       }
       // Variant-producing: ensure sourceMode is always set so payload emission is deterministic.
       updated.sourceMode ??= 'seed';
@@ -791,8 +862,12 @@ export default function NewStrategyPage(): JSX.Element {
         generationModel: form.generationModel,
         judgeModel: form.judgeModel,
         judgeRubricId: form.judgeRubricId || undefined,
+        paragraphJudgeRubricId: form.paragraphJudgeRubricId || undefined,
         editingModel: form.editingModel || undefined,
         approverModel: form.approverModel || undefined,
+        ensembleConfigId: form.ensembleConfigId || undefined,
+        coordinatorModel: form.coordinatorModel || undefined,
+        seedSelection: form.seedSelection || undefined,
         budgetUsd: parseFloat(form.budgetUsd),
         iterationConfigs: toIterationConfigsPayload(iterations),
         maxComparisonsPerVariant: form.maxComparisonsPerVariant ? Number(form.maxComparisonsPerVariant) : undefined,
@@ -927,6 +1002,38 @@ export default function NewStrategyPage(): JSX.Element {
                       <option key={r.id} value={r.id}>{r.name} ({r.dimension_count} dims)</option>
                     ))}
                   </select>
+                  <p className="text-xs text-[var(--text-muted)] mt-1">
+                    Used for ARTICLE-level ranking. The hardcoded article rubric
+                    (Clarity / Structure / Engagement / Style / Effectiveness) is
+                    used when no rubric is selected.
+                  </p>
+                </div>
+                <div>
+                  <label htmlFor="paragraph-judge-rubric" className={labelClasses}>
+                    Paragraph Judge Rubric (optional)
+                  </label>
+                  <select
+                    id="paragraph-judge-rubric"
+                    data-testid="paragraph-judge-rubric-select"
+                    value={form.paragraphJudgeRubricId}
+                    onChange={e => updateForm({ paragraphJudgeRubricId: e.target.value })}
+                    className={inputCls(false)}
+                  >
+                    <option value="">Default paragraph rubric (Clarity, Conciseness, Coherence, Sentence fluency, Usefulness (cost-balanced), Fit with prior context, Setup)</option>
+                    {availableRubrics.map(r => (
+                      <option key={r.id} value={r.id}>{r.name} ({r.dimension_count} dims)</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-[var(--text-muted)] mt-1">
+                    Used by per-slot paragraph ranking in paragraph_recombine. Design dimensions
+                    that apply to a single paragraph (avoid article-scaled criteria like
+                    &quot;overall structure&quot;). The Default rubric covers Clarity, Conciseness,
+                    Coherence, Sentence fluency, Usefulness (cost-balanced), Fit with prior
+                    context, and Setup of the next paragraph — custom rubrics should consider
+                    including similar paragraph-shaped dimensions, especially Conciseness and
+                    Coherence which guard against paragraph-by-paragraph padding accumulation.
+                    Leave on Default to use the built-in rubric.
+                  </p>
                 </div>
               </div>
 
@@ -981,6 +1088,78 @@ export default function NewStrategyPage(): JSX.Element {
                     return null;
                   })()}
                 </div>
+              </div>
+
+              <div>
+                <label htmlFor="ensemble-config" className={labelClasses}>Judge Escalation (optional)</label>
+                <select
+                  id="ensemble-config"
+                  data-testid="ensemble-config-select"
+                  value={form.ensembleConfigId}
+                  onChange={e => updateForm({ ensembleConfigId: e.target.value })}
+                  className={inputCls(false)}
+                >
+                  <option value="">Single judge (no escalation)</option>
+                  {availableEnsembleConfigs.map(id => (
+                    <option key={id} value={id}>{id}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-[var(--text-muted)]">
+                  Escalates to additional judges only when the lead judge is indecisive. Disabled globally by
+                  <code> EVOLUTION_JUDGE_ESCALATION_ENABLED=&apos;false&apos;</code>.
+                </p>
+              </div>
+
+              <div>
+                <label htmlFor="coordinator-model" className={labelClasses}>
+                  Coordinator Model (optional)
+                </label>
+                <select
+                  id="coordinator-model"
+                  data-testid="coordinator-model-select"
+                  value={form.coordinatorModel}
+                  onChange={e => updateForm({ coordinatorModel: e.target.value })}
+                  className={inputCls(false)}
+                >
+                  <option value="">Inherit from Generation Model</option>
+                  {MODEL_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  Used by the paragraph_recombine coordinator (initial-plan + replan).
+                  A stronger long-context model at-the-source produces better per-slot
+                  directives — preventing topic substitution and cross-section redundancy
+                  before they happen. The per-coordinator-call cost dominates premium-tier
+                  spend (Sonnet ≈ $0.021/call, gpt-5-mini ≈ $0.0025/call vs flash-lite
+                  ≈ $0.0006/call). Recommend gpt-5-mini for safe lift; reserve sonnet-4
+                  for premium-budget strategies.
+                </p>
+              </div>
+
+              <div>
+                <label htmlFor="seed-selection" className={labelClasses}>
+                  Seed Selection (optional)
+                </label>
+                <select
+                  id="seed-selection"
+                  data-testid="seed-selection-select"
+                  value={form.seedSelection}
+                  onChange={e => updateForm({ seedSelection: e.target.value as '' | 'highest_elo' | 'random' })}
+                  className={inputCls(false)}
+                >
+                  <option value="">Default (Highest Elo)</option>
+                  <option value="highest_elo">Highest Elo (explicit)</option>
+                  <option value="random">Random per run (multi-seed topics)</option>
+                </select>
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  When the topic has multiple seed variants (e.g. Federal Reserve 3), this
+                  controls which seed becomes the run&apos;s parent <code>originalText</code>.
+                  <strong> Highest Elo</strong> (default) preserves pre-Phase-5 behavior — same
+                  seed every run. <strong>Random per run</strong> picks a deterministic seed via
+                  SHA-256 of <code>run.id</code>, so a canary&apos;s 6+ invocations sample across the
+                  pool while remaining reproducible. Single-seed topics are unaffected.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -1427,6 +1606,47 @@ export default function NewStrategyPage(): JSX.Element {
                         </select>
                         <span className="text-[var(--text-muted)]" title="Caps how many top-Elo variants from the pool can be edited this iteration. Default 10 — most strategies are budget-bound first.">
                           &nbsp;· caps editable variants per iteration
+                        </span>
+                      </div>
+                    )}
+                    {/* Phase 6 Mode-B-only knobs: editingProposerSoftCap + disableApproverFiltering.
+                        Added by meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616. */}
+                    {it.agentType === 'iterative_editing_rewrite' && (
+                      <div
+                        className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
+                        data-testid={`iteration-rewrite-controls-${idx}`}
+                      >
+                        <span className="text-[var(--text-primary)]" title="Soft-cap on how many distinct improvements the proposer is asked to suggest per cycle. Surfaces in the prompt as 'AT MOST N distinct improvements'. Default 3; range 1-10.">
+                          🎯 Proposer soft-cap:
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          step={1}
+                          value={it.editingProposerSoftCap ?? 3}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Number(e.target.value);
+                            updateIteration(idx, { editingProposerSoftCap: v });
+                          }}
+                          className="w-14 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                          data-testid={`editing-proposer-soft-cap-${idx}`}
+                        />
+                        <label
+                          className="ml-4 inline-flex items-center gap-1 text-[var(--text-primary)] cursor-pointer"
+                          title="When checked, the approver sees every diff atomic as its own group — no coalescing into multi-atomic bundles, no top-10 magnitude cap. Quality gates (heading/quote/code-fence rules, max edit length, per-cycle ceiling) still apply. Expect more approver decisions per cycle and slightly higher approver cost. Off by default."
+                        >
+                          <input
+                            type="checkbox"
+                            checked={it.disableApproverFiltering === true}
+                            onChange={e => updateIteration(idx, { disableApproverFiltering: e.target.checked })}
+                            className="w-3.5 h-3.5 accent-[var(--accent-gold)]"
+                            data-testid={`disable-approver-filtering-${idx}`}
+                          />
+                          <span>Disable approver filtering</span>
+                        </label>
+                        <span className="text-[var(--text-muted)] basis-full pl-6">
+                          Sends every diff atomic individually to the approver. Skips coalescer + magnitude cap.
                         </span>
                       </div>
                     )}

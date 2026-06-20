@@ -914,6 +914,17 @@ export interface CreateParagraphRecombineFixtureOptions {
    *  pre-migration-20260529000001 legacy lineage (exercises the prompt_id fallback in
    *  getVariantParentDiffAction). Default false → rewrites carry [originalSlotVariantId]. */
   legacyEmptyLineage?: boolean;
+  /** Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612):
+   *  when true, populate execution_detail.coordinatorPlan + execution_detail.coordinator
+   *  so the admin UI can render the L1.5 coordinator row + per-paragraph plan view +
+   *  per-variation directive sub-rows. Back-compat: when false (default), the fixture
+   *  matches today's legacy parallel-path shape. */
+  withSequentialCoordinatorDetail?: boolean;
+  /** Sequential Context-Aware Generation: when set to a paragraph index N, populate
+   *  execution_detail.partialAt, abortReason, completedSlotCount and truncate
+   *  execution_detail.slots to length N — simulates a mid-Phase-B throw at paragraph N.
+   *  Exercises the failure-banner test on the admin invocation detail page. */
+  forcePartialAbort?: number;
 }
 
 export interface ParagraphRecombineFixture {
@@ -1135,19 +1146,61 @@ export async function createParagraphRecombineFixture(
         .join('\n\n')}`;
   const formatIssues = options.forceFormatRejection ? ['Contains bullet points'] : undefined;
 
+  // Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612):
+  // optional coordinatorPlan + coordinator blocks for the L1.5 coordinator row tests.
+  // Synthesizes a coordinator plan whose paragraphPlans count matches `slots.length`.
+  const sequentialDetail = options.withSequentialCoordinatorDetail
+    ? {
+        coordinatorPlan: {
+          paragraphPlans: slots.map((s, i) => ({
+            paragraphIndex: (s.slotIndex as number) ?? i,
+            role: i === 0 ? 'lede' : (i === slots.length - 1 ? 'closer' : 'body'),
+            shouldRewrite: true,
+            priority: 'medium',
+            M: 2,
+            candidates: [
+              { directive: `Tighten paragraph ${i + 1}.`, temperature: 0.7 },
+              { directive: `Polish paragraph ${i + 1}.`, temperature: 1.0 },
+            ],
+            rationale: `Plan for paragraph ${i + 1}.`,
+          })),
+        },
+        coordinator: {
+          estimatedCost: 0.003,
+          cost: 0.003,
+          retried: false,
+        },
+      }
+    : undefined;
+
+  // Partial-failure banner test: truncate slots + add partialAt/abortReason/completedSlotCount.
+  const partialAbortAt = options.forcePartialAbort;
+  const finalSlots = partialAbortAt !== undefined
+    ? slots.slice(0, partialAbortAt)
+    : slots;
+  const partialDetail = partialAbortAt !== undefined
+    ? {
+        partialAt: partialAbortAt,
+        abortReason: 'simulated mid-loop throw at paragraph ' + partialAbortAt,
+        completedSlotCount: partialAbortAt,
+      }
+    : undefined;
+
   // 5. The paragraph_recombine invocation row.
   const invocationId = randomUUID();
   trackEvolutionId('invocation', invocationId);
   const executionDetail = {
     detailType: 'paragraph_recombine',
     parentVariantId,
-    slots,
+    slots: finalSlots,
     recombined: {
       text: recombinedText,
       formatValid: !options.forceFormatRejection,
       ...(formatIssues && { formatIssues }),
     },
     totalCost: 0.011,
+    ...(sequentialDetail ?? {}),
+    ...(partialDetail ?? {}),
   };
   await insertOrThrow('evolution_agent_invocations', {
     id: invocationId,

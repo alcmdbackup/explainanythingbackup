@@ -1,11 +1,14 @@
 // Resolves all inputs needed before the pipeline loop: content, strategy config, arena entries.
 
+import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Variant } from '../../types';
 import type { EvolutionConfig } from '../infra/types';
 import type { Rating } from '../../shared/computeRatings';
 import { dbToRating, _INTERNAL_DEFAULT_MU, _INTERNAL_DEFAULT_SIGMA } from '../../shared/computeRatings';
 import { getJudgeRubricForEvaluation } from '../../../services/judgeRubricActions';
+import type { ResolvedJudgeRubric } from '../../shared/rubricJudge';
+import { resolveEnsembleConfig } from '../../shared/judgeEnsemble/chainRegistry';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { createEntityLogger } from '../infra/createEntityLogger';
 import { strategyConfigSchema } from '../../schemas';
@@ -250,6 +253,10 @@ async function resolveContent(
   db: SupabaseClient,
   _llm: RawLLMProvider,
   logger?: EntityLogger,
+  /** Phase 5 / 5a-1: when 'random' and the topic has multiple seeds, pick a
+   *  deterministic per-run seed via SHA-256(run.id). Default 'highest_elo'
+   *  preserves pre-Phase-5 single-seed behavior. */
+  seedSelection?: 'highest_elo' | 'random',
 ): Promise<ResolvedContent> {
   if (run.explanation_id != null) {
     const { data, error } = await db.from('explanations').select('content').eq('id', run.explanation_id).single();
@@ -264,18 +271,51 @@ async function resolveContent(
     const promptText = !error && typeof data?.prompt === 'string' ? data.prompt : null;
     if (!promptText) return { originalText: null };
 
-    // Use highest-rated arena seed article if one exists; otherwise defer to CreateSeedArticleAgent.
-    // Read mu/sigma/arena_match_count too so we can reuse the seed's persisted rating in the run pool.
-    const { data: seedEntry } = await db
-      .from('evolution_variants')
-      .select('id, variant_content, mu, sigma, arena_match_count, synced_to_arena')
-      .eq('prompt_id', run.prompt_id)
-      .eq('synced_to_arena', true)
-      .eq('generation_method', 'seed')
-      .is('archived_at', null)
-      .order('elo_score', { ascending: false })
-      .limit(1)
-      .single();
+    const mode = seedSelection ?? 'highest_elo';
+    let seedEntry: {
+      id: string;
+      variant_content: string;
+      mu: number | string | null;
+      sigma: number | string | null;
+      arena_match_count: number | null;
+      synced_to_arena: boolean;
+    } | null = null;
+
+    if (mode === 'random') {
+      // Phase 5 / 5a-1: deterministic random seed selection across the multi-seed
+      // pool. Stable ordering on `id` ASC makes the array index reproducible across
+      // runs; SHA-256 of run.id (UUIDv4, 122 bits entropy) → uniform distribution
+      // over the pool. Same run.id always picks the same seed so a retried run is
+      // not a different experiment. Single-seed topics degrade gracefully to that
+      // one seed; zero-seed topics fall through to CreateSeedArticleAgent below.
+      const { data: seedRows } = await db
+        .from('evolution_variants')
+        .select('id, variant_content, mu, sigma, arena_match_count, synced_to_arena')
+        .eq('prompt_id', run.prompt_id)
+        .eq('synced_to_arena', true)
+        .eq('generation_method', 'seed')
+        .is('archived_at', null)
+        .order('id', { ascending: true });
+      if (seedRows && seedRows.length > 0) {
+        const hashed = createHash('sha256').update(run.id).digest().readUInt32BE(0);
+        seedEntry = seedRows[hashed % seedRows.length] ?? null;
+      }
+    } else {
+      // Pre-Phase-5 / default 'highest_elo': pick the single highest-elo seed.
+      // Preserves the exact byte-identical query the pre-Phase-5 code used,
+      // including `.single()` semantics (returns { data: null } when no row).
+      const { data } = await db
+        .from('evolution_variants')
+        .select('id, variant_content, mu, sigma, arena_match_count, synced_to_arena')
+        .eq('prompt_id', run.prompt_id)
+        .eq('synced_to_arena', true)
+        .eq('generation_method', 'seed')
+        .is('archived_at', null)
+        .order('elo_score', { ascending: false })
+        .limit(1)
+        .single();
+      seedEntry = data ?? null;
+    }
 
     if (seedEntry?.variant_content) {
       // Belt-and-suspenders invariant: SELECT filtered on synced_to_arena=true,
@@ -286,7 +326,10 @@ async function resolveContent(
         });
         return { originalText: null, seedPrompt: promptText };
       }
-      logger?.info('Content resolved from arena seed article', { contentLength: seedEntry.variant_content.length, source: 'arena_seed', phaseName: 'setup' });
+      logger?.info('Content resolved from arena seed article', {
+        contentLength: seedEntry.variant_content.length, source: 'arena_seed',
+        seedSelection: mode, phaseName: 'setup',
+      });
       const seedVariantRow = isSeedRatingReuseEnabled() ? buildSeedVariantRow(seedEntry) : undefined;
       return { originalText: seedEntry.variant_content, seedVariantRow };
     }
@@ -389,12 +432,50 @@ export async function buildRunContext(
       ? (await getJudgeRubricForEvaluation(db, stratConfig.judgeRubricId)) ?? undefined
       : undefined;
 
+  // investigate_sequential_paragraph_recombine_performance_20260615 Phase 1d (Fix 5b):
+  // Resolve the strategy's paragraphJudgeRubricId the same way as the article rubric.
+  // Same kill switch — flipping EVOLUTION_RUBRIC_JUDGING_ENABLED='false' disables BOTH.
+  // If the id is set but resolution returns null (rubric was deleted/archived between
+  // strategy create and run time), log a warn and fall back to the hardcoded paragraph
+  // rubric so the run still proceeds rather than failing.
+  let paragraphJudgeRubric: ResolvedJudgeRubric | undefined;
+  if (rubricEnabled && stratConfig.paragraphJudgeRubricId) {
+    const resolved = await getJudgeRubricForEvaluation(db, stratConfig.paragraphJudgeRubricId);
+    if (resolved) {
+      paragraphJudgeRubric = resolved;
+    } else {
+      // TOCTOU silent-fallback observability — operator sees the fallback in logs.
+      // Without this, a deleted rubric would silently revert to the hardcoded one
+      // with no signal to the operator.
+      console.warn(
+        '[buildRunContext] paragraphJudgeRubricId set but rubric did not resolve; ' +
+        'falling back to hardcoded paragraph rubric',
+        { paragraphJudgeRubricId: stratConfig.paragraphJudgeRubricId, runId: claimedRun.id },
+      );
+    }
+  }
+
+  // Multi-judge escalation in the PROD ranking path (judge_escalation_prod_wiring_phase4). DEFAULT ON
+  // (per-strategy opt-in via ensembleConfigId): resolve the chain + rule when the strategy author
+  // sets `ensembleConfigId`. A strategy that doesn't set it → undefined → byte-identical single-judge
+  // ranking. The kill switch EVOLUTION_JUDGE_ESCALATION_ENABLED='false' is an emergency lever that
+  // disables escalation for ALL strategies without a redeploy; unset/anything-else = enabled.
+  const ensembleEnabled = process.env.EVOLUTION_JUDGE_ESCALATION_ENABLED !== 'false';
+  const ensemble =
+    ensembleEnabled && stratConfig.ensembleConfigId
+      ? resolveEnsembleConfig(stratConfig.ensembleConfigId) ?? undefined
+      : undefined;
+
   const config: EvolutionConfig = {
     iterationConfigs: stratConfig.iterationConfigs,
     budgetUsd: claimedRun.budget_cap_usd ?? 1.0,
     judgeModel: stratConfig.judgeModel,
     judgeRubricId: stratConfig.judgeRubricId,
     judgeRubric,
+    paragraphJudgeRubricId: stratConfig.paragraphJudgeRubricId,
+    paragraphJudgeRubric,
+    ensembleConfigId: stratConfig.ensembleConfigId,
+    ensemble,
     generationModel: stratConfig.generationModel,
     calibrationOpponents: 5,
     tournamentTopK: 5,
@@ -423,7 +504,9 @@ export async function buildRunContext(
     phaseName: 'setup',
   });
 
-  const { originalText, seedPrompt, seedVariantRow } = await resolveContent(claimedRun, db, llmProvider, logger);
+  const { originalText, seedPrompt, seedVariantRow } = await resolveContent(
+    claimedRun, db, llmProvider, logger, stratConfig.seedSelection,
+  );
   if (!originalText && !seedPrompt) {
     let reason: string;
     if (claimedRun.explanation_id != null) {

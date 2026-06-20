@@ -28,6 +28,15 @@ const EVOLUTION_SYSTEM_USERID = '00000000-0000-4000-8000-000000000001';
 
 const DEFAULT_MAX_CONCURRENT_RUNS = 5;
 
+/** D5 (fix_structured_judging_evolution_bugs): output-token cap for every evolution LLM call,
+ *  forwarded to callLLM as `maxOutputTokens` → OpenAI `max_tokens` (non-reasoning models only;
+ *  reasoning models are exempted inside callLLM). Covers the largest evolution per-call estimate
+ *  (evaluate_and_suggest ≈ 2300 tokens) with margin while clearing OpenRouter's 402 affordability
+ *  pre-check (which otherwise reserves the model max ~65535). Env kill-switch: set
+ *  EVOLUTION_MAX_OUTPUT_TOKENS to a large value (or unset → default) to neutralize a truncation
+ *  regression without a redeploy (runner restart required to pick up the env change). */
+const EVOLUTION_MAX_OUTPUT_TOKENS = parseInt(process.env.EVOLUTION_MAX_OUTPUT_TOKENS ?? '', 10) || 4096;
+
 // ─── Types ───────────────────────────────────────────────────────
 
 export interface RunnerOptions {
@@ -208,6 +217,11 @@ export async function claimAndExecuteRun(
             // to createSupabaseServiceClient (Next.js-coupled, broken from CLI runner — see
             // docs/planning/debug_evolution_run_cost_20260426).
             trackingDb: supabase,
+            // D5: cap output tokens for ALL evolution calls (single chokepoint — every
+            // generation/ranking/seed/judge call routes through this complete()). Set
+            // unconditionally here, NOT via `opts`, because the opts shape above is fixed and
+            // would drop an un-threaded field. callLLM ignores it for reasoning models.
+            maxOutputTokens: EVOLUTION_MAX_OUTPUT_TOKENS,
             // Thread the evolution_invocation_id when available so llmCallTracking rows
             // can join back to evolution_agent_invocations for per-invocation cost audit.
             evolutionInvocationId: opts?.invocationId,

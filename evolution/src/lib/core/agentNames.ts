@@ -49,6 +49,16 @@ export const AGENT_NAMES = [
   //     both labels through its pairwise-verdict path.
   'paragraph_rewrite',
   'paragraph_rank',
+  // Sequential context-aware generation (debug_performance_paragraph_recombine_20260612):
+  // ONE coordinator LLM call per invocation that returns the per-paragraph plan
+  // (role + M variation directives + temperatures + skip flags). Cost lands in the
+  // umbrella paragraph_recombine_cost alongside paragraph_rewrite + paragraph_rank.
+  'paragraph_recombine_coordinator',
+  // investigate_sequential_paragraph_recombine_performance_20260615 Phase 2 (Fix 2):
+  // Mid-sequence coordinator replan call. Separate label from the initial coordinator
+  // so cost-error tracking can attribute replan cost distinctly (env-gated by
+  // EVOLUTION_PARAGRAPH_RECOMBINE_REPLAN_ENABLED, default false).
+  'paragraph_recombine_coordinator_replan',
 ] as const;
 export type AgentName = typeof AGENT_NAMES[number];
 
@@ -98,4 +108,10 @@ export const COST_METRIC_BY_AGENT: Partial<Record<AgentName, MetricName>> = {
   // getPhaseCosts to runTracker. The invariant above is now TRUE post-fix.
   paragraph_rewrite: 'paragraph_recombine_cost',
   paragraph_rank: 'paragraph_recombine_cost',
+  // Sequential coordinator (debug_performance_paragraph_recombine_20260612).
+  paragraph_recombine_coordinator: 'paragraph_recombine_cost',
+  // Phase 2 (Fix 2): mid-sequence coordinator replan rolls up into the same
+  // paragraph_recombine_cost umbrella — both initial and replan are coordinator
+  // overhead from the same agent's perspective.
+  paragraph_recombine_coordinator_replan: 'paragraph_recombine_cost',
 };

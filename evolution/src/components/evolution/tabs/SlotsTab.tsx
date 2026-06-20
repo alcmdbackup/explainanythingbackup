@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react';
 import { ArenaLeaderboardTable } from '../arena/ArenaLeaderboardTable';
 import { formatParagraphLabel } from '@evolution/lib/shared/paragraphLabels';
 import { formatElo } from '@evolution/lib/utils/formatters';
-import type { SlotRecombineExecutionDetail } from '@evolution/lib/schemas';
+import type { SlotRecombineExecutionDetail, CoordinatorPlan } from '@evolution/lib/schemas';
 
 type SlotDetail = SlotRecombineExecutionDetail['slots'][number];
 
@@ -19,6 +19,11 @@ interface SlotsTabProps {
   kindLabel?: string;     // 'paragraph' for v1
   slotNoun?: string;      // 'paragraph'
   slotNounPlural?: string; // 'paragraphs'
+  /** Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612):
+   *  when provided, renders the plan summary header strip at the top of the left pane and
+   *  shows per-variation directives in the right pane's slot context block. Absent on the
+   *  legacy parallel path. */
+  coordinatorPlan?: CoordinatorPlan;
 }
 
 function previewText(text: string, max = 80): string {
@@ -48,6 +53,7 @@ export function SlotsTab({
   slots,
   slotNoun = 'paragraph',
   slotNounPlural = 'paragraphs',
+  coordinatorPlan,
 }: SlotsTabProps): JSX.Element {
   const [selectedIdx, setSelectedIdx] = useState<number>(slots[0]?.slotIndex ?? 0);
   const [filterMode, setFilterMode] = useState<'all' | 'this'>('all');
@@ -80,6 +86,30 @@ export function SlotsTab({
     <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4" data-testid="slots-tab">
       {/* Left pane: slot list */}
       <aside className="space-y-1 max-h-[70vh] overflow-y-auto pr-2" data-testid="slots-tab-list">
+        {/* Sequential Context-Aware Generation: coordinator plan summary strip. Synthesized
+            from execution_detail.coordinatorPlan when present (sequential path); absent on
+            the legacy parallel path. Shows paragraph count, role distribution, skip count
+            + link to the Subagents tab where the full plan tree lives. */}
+        {coordinatorPlan && (
+          <div
+            className="text-xs font-ui border border-[var(--border-default)] rounded-book p-2 mb-2 bg-[var(--surface-secondary)]"
+            data-testid="coordinator-plan-summary"
+          >
+            <div className="font-semibold text-[var(--text-primary)] uppercase tracking-wide text-xs">
+              Coordinator plan
+            </div>
+            <div className="text-[var(--text-secondary)] mt-1">
+              {coordinatorPlan.paragraphPlans.length} paragraph{coordinatorPlan.paragraphPlans.length === 1 ? '' : 's'} ·{' '}
+              {coordinatorPlan.paragraphPlans.reduce((s, p) => s + p.M, 0)} candidates
+            </div>
+            <div className="text-[var(--text-muted)] mt-1">
+              roles: {summarizeRoleDistribution(coordinatorPlan)}
+            </div>
+            <div className="text-[var(--text-muted)]">
+              {coordinatorPlan.paragraphPlans.filter((p) => !p.shouldRewrite).length} skipped
+            </div>
+          </div>
+        )}
         <div className="text-xs uppercase tracking-wide text-[var(--text-muted)] py-2 px-2">
           {slots.length} {slotNounPlural}
         </div>
@@ -112,7 +142,7 @@ export function SlotsTab({
               ) : discard ? (
                 <div className="mt-1">
                   <span
-                    className="inline-block px-2 py-0.5 rounded-full text-[10px] font-ui bg-[var(--status-error)] text-white"
+                    className="inline-block px-2 py-0.5 rounded-full text-xs font-ui bg-[var(--status-error)] text-white"
                     data-testid={`slot-abort-badge-${slot.slotIndex}`}
                   >
                     ⚠ {discard.failurePoint} abort
@@ -161,6 +191,16 @@ export function SlotsTab({
               View in arena ↗
             </Link>
           </div>
+          {/* Sequential Context-Aware Generation: coordinator's per-variation directives
+              for the selected slot. Shown only when execution_detail.coordinatorPlan is
+              populated (sequential path). Helps operators debug "why did slot N pick
+              variation J — what was J told to do?" */}
+          {coordinatorPlan && (
+            <CoordinatorDirectivesForSlot
+              plan={coordinatorPlan}
+              slotIndex={selectedSlot.slotIndex}
+            />
+          )}
         </header>
 
         <div className="border border-[var(--border-default)] rounded-book p-3 bg-[var(--surface-elevated)]">
@@ -221,5 +261,51 @@ export function SlotsTab({
         </div>
       </section>
     </div>
+  );
+}
+
+function summarizeRoleDistribution(plan: CoordinatorPlan): string {
+  const counts: Record<string, number> = {};
+  for (const p of plan.paragraphPlans) {
+    counts[p.role] = (counts[p.role] ?? 0) + 1;
+  }
+  return Object.entries(counts)
+    .map(([role, n]) => `${role}(${n})`)
+    .join(' ');
+}
+
+interface CoordinatorDirectivesForSlotProps {
+  plan: CoordinatorPlan;
+  slotIndex: number;
+}
+
+function CoordinatorDirectivesForSlot({ plan, slotIndex }: CoordinatorDirectivesForSlotProps): JSX.Element | null {
+  const paragraphPlan = plan.paragraphPlans.find((p) => p.paragraphIndex === slotIndex);
+  if (!paragraphPlan) return null;
+  return (
+    <details
+      className="mt-3 border-t border-[var(--border-default)] pt-2"
+      data-testid="coordinator-directives-sub-row"
+    >
+      <summary className="cursor-pointer text-xs font-ui font-semibold text-[var(--text-primary)]">
+        Coordinator directives ({paragraphPlan.role} · M={paragraphPlan.M})
+      </summary>
+      <div className="mt-2 space-y-1">
+        {paragraphPlan.candidates.map((c, idx) => (
+          <div
+            key={idx}
+            className="text-xs font-ui text-[var(--text-secondary)] pl-2 border-l-2 border-[var(--border-default)]"
+          >
+            <span className="font-mono text-[var(--text-muted)]">V{idx} · temp {c.temperature}:</span>{' '}
+            {c.directive}
+          </div>
+        ))}
+        {paragraphPlan.rationale && (
+          <div className="mt-1 text-[var(--text-muted)] italic">
+            rationale: {paragraphPlan.rationale}
+          </div>
+        )}
+      </div>
+    </details>
   );
 }

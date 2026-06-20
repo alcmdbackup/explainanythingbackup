@@ -178,6 +178,13 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
       // Downstream detail-view pages assume validated detail shape; writing null+success=true
       // hid the failure and crashed the UI renderer on a subsequent read.
       const detailInvalid = !parseResult.success;
+      // D1 (fix_structured_judging_evolution_bugs): an agent can hard-fail (LLM error, unknown
+      // tactic) and RETURN a non-thrown AgentOutput whose detail is still schema-valid. output.failure
+      // marks those paths so we don't persist success=true. detailInvalid still forces failure
+      // independently, and execution_detail stays gated on schema validity ONLY (the partial-detail
+      // preservation invariant is unchanged). Legit surfaced=false discards + budget aborts never
+      // set output.failure, so they stay success=true.
+      const isFailure = detailInvalid || output.failure !== undefined;
       // B048: extract a `surfaced` flag from the agent's result when present (generate
       // agents populate `result.surfaced`). Persisted as `variant_surfaced` so tactic-cost
       // rollups can filter with `variant_surfaced IS NOT FALSE` (B053) and stop counting
@@ -188,19 +195,21 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
         : undefined;
       await updateInvocation(ctx.db, invocationId, {
         cost_usd: cost,
-        success: !detailInvalid,
+        success: !isFailure,
         execution_detail: parseResult.success ? (detail as unknown as Record<string, unknown>) : undefined,
         error_message: detailInvalid
           ? `detail_invalid: ${parseResult.error!.issues.slice(0, 3).map(i => i.message).join('; ').slice(0, 1000)}`
-          : undefined,
+          : output.failure
+            ? `${output.failure.code}: ${output.failure.message}`.slice(0, 1000)
+            : undefined,
         duration_ms: durationMs,
         variant_surfaced: surfacedFlag,
       });
 
       ctx.logger.info(`Agent ${this.name} completed`, { phaseName: this.name, iteration: ctx.iteration, cost, durationMs });
 
-      // B051: return-value success must match what we wrote to the invocation row.
-      return { success: !detailInvalid, result: output.result, cost, durationMs, invocationId };
+      // B051 + D1: return-value success must match what we wrote to the invocation row.
+      return { success: !isFailure, result: output.result, cost, durationMs, invocationId };
 
     } catch (error) {
       const cost = costScope.getOwnSpent();

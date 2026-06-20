@@ -211,6 +211,12 @@ The `budgetFraction` is computed by the pipeline supervisor before each ranking 
 
 ## Cost Estimation
 
+### 402 / no-max_tokens failure mode (fix_structured_judging_evolution_bugs_20260611)
+
+Until 2026-06-12, `callOpenAIModel` (`src/lib/services/llms.ts`) never set `max_tokens` on the OpenAI/OpenRouter request, so OpenRouter reserved the model's **full max output (~65535 tokens)** for its credit-affordability pre-check. On a low OpenRouter balance this returned **HTTP 402** (`"requires more credits, or fewer max_tokens. You requested up to 65535…"`) *before any tokens were billed*, even though real evolution output is ~1–2.3K tokens. Every generation then failed, the run produced 0 variants at $0 cost, and finalize marked it silently `completed`/`arena_only` (the cascade through latent defects D1/D2/D3). This fired on **2026-05-02 and 2026-06-11**.
+
+**Fix (D5):** the evolution pipeline now passes `maxOutputTokens` (`CallLLMOptions`) — set to `EVOLUTION_MAX_OUTPUT_TOKENS` (default **4096**, env kill-switch) at the single chokepoint `claimAndExecuteRun.ts` `complete()` — which `callOpenAIModel` forwards as `max_tokens` **only for non-reasoning models** (reasoning models are exempted because `max_tokens` caps reasoning+completion together). A `finish_reason === 'length'` guard throws so a future truncation fails loudly (→ D1 `success=false`) instead of returning silently-partial text. The cap shrinks the affordability requirement ~16× and clears the 402 at low balances. The offline `runJudgeEval.ts` / `runPromptEditorConfig.ts` paths bypass this chokepoint and remain uncapped (follow-up). Recurrence detector: `evolution/scripts/detectArenaOnlyWipeouts.ts` + `.github/workflows/evolution-run-health.yml`.
+
 ### Per-Call Estimation (Reserve-Before-Spend)
 
 **File:** `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts`
@@ -286,11 +292,17 @@ The propose / forward / mirror calls all bucket to one **umbrella metric** (`pro
 
 **Strategy/experiment-level rollups**: `total_proposer_approver_criteria_cost` (sum) and `avg_proposer_approver_criteria_cost_per_run` (avg). Same shape as the `iterative_edit_*` propagation pattern.
 
+### `disableApproverFiltering` cost impact (meta_analysis Phase 6)
+
+Setting `disableApproverFiltering: true` on a Mode B (`iterative_editing_rewrite`) iteration sends every diff atomic to the approver as its own singleton group instead of bundled groups capped at K=10. At `editingProposerSoftCap=8` the proposer typically emits 40-60 atomics per cycle; the per-cycle ceiling `AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30` clamps to at most 30 approver decisions. On `gemini-2.5-flash-lite` the per-cycle approver call moves from ~$0.0006 (10 groups) → ~$0.0011 (~30 groups). Per-run cost (2 editing iterations × up to 3 cycles each = ≤6 approver calls) shifts from ~$0.038 → ~$0.041, well below the typical $0.05 per-run cap. The field is FIELD_GATES-stripped pre-hash for non-rewrite agent types so it can't drift other strategies' `config_hash`.
+
 **Single-pass criteria** (`SinglePassEvaluateCriteriaAndGenerateAgent`) cost stack is identical to the legacy criteria wrapper: one `evaluate_and_suggest` call + GFPA generation + ranking. The new 3 guardrail directives in the customPrompt add ~300 chars of overhead, captured by `estimateGenerationCost(seedArticleChars + 300, ...)` in the projector. Negligible cost difference (~$0.0001) but worth being right.
 
 ### Paragraph-Recombine Cost (rank_individual_paragraphs_evolution_20260525)
 
-The `ParagraphRecombineAgent` cost stack scales as `N slots × M rewrites × (rewrite + ranking)`. Both layers bucket into the single umbrella metric `paragraph_recombine_cost` via two dedicated AgentName labels: `'paragraph_rewrite'` (rewrite calls) and `'paragraph_rank'` (per-slot ranking calls — the agent relabels `rankNewVariant`'s `'ranking'` calls so they don't pollute the article-level `ranking_cost`). The agent writes the run-level metric once per invocation as the SUM of the two phase-cost accumulators (MAX-safe because both are run-cumulative as of Phase 12 of `analyze_effectiveness_paragraph_recombine_20260530`; pre-Phase-12 the iter tracker returned per-iter, silently shadowing smaller per-iter contributions under writeMetricMax GREATEST — kill switch `EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED='false'` reverts to legacy behavior for rollback).
+The `ParagraphRecombineAgent` cost stack scales as `N slots × M rewrites × (rewrite + ranking)` plus an optional coordinator call. The agent buckets cost into the single umbrella metric `paragraph_recombine_cost` via three dedicated AgentName labels: `'paragraph_rewrite'` (rewrite calls), `'paragraph_rank'` (per-slot ranking calls — the agent relabels `rankNewVariant`'s `'ranking'` calls so they don't pollute the article-level `ranking_cost`), and `'paragraph_recombine_coordinator'` (the sequential-mode pre-loop planner call, debug_performance_paragraph_recombine_20260612). The agent writes the run-level metric once per invocation as the SUM of the three phase-cost accumulators (MAX-safe because all three are run-cumulative as of Phase 12 of `analyze_effectiveness_paragraph_recombine_20260530`; pre-Phase-12 the iter tracker returned per-iter, silently shadowing smaller per-iter contributions under writeMetricMax GREATEST — kill switch `EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED='false'` reverts to legacy behavior for rollback).
+
+**Sequential Context-Aware Generation cost shape** (default-on via `EVOLUTION_PARAGRAPH_RECOMBINE_SEQUENTIAL_ENABLED='true'`): adds one coordinator call up-front (~$0.0005 at gpt-4.1-nano output ≈ paragraphCount × 350 chars of plan JSON) AND grows the per-paragraph rewrite + rank prompt lengths triangularly because each round embeds PRIOR CONTEXT (paragraphs 0..i-1, capped at 6 paragraphs and `PRIOR_PICKS_MAX_CHARS=32000`). Cost envelope at defaults rises from ~$0.011 (legacy parallel) to ~$0.012–0.015 (sequential) depending on parent length. The per-invocation safety cap correspondingly bumps from `LEGACY_PER_INVOCATION_CAP_USD=0.05` to `SEQUENTIAL_PER_INVOCATION_CAP_USD=0.060`. Low-cap dispatchers can opt back into legacy via the `PARAGRAPH_RECOMBINE_SEQUENTIAL_OPT_OUT` allowlist (B.5 carve-out).
 
 | Knob | Default | Range | Effect |
 |---|---|---|---|
@@ -329,6 +341,10 @@ The new run-level metrics that paragraph_recombine joins automatically (no final
 - `cost_estimation_error_pct` — top-level error %.
 - `estimated_cost` — top-level projector `expected`.
 - New per-phase rollups: `paragraph_rewrite_estimation_error_pct`, `paragraph_rank_estimation_error_pct` + their `avg_*` propagation to strategy/experiment.
+
+#### Option L — Coordinator mid-sequence replan (investigate_sequential_paragraph_recombine_performance_20260615 Phase 2)
+
+After slot 0 finalizes, the coordinator is re-called with `priorPicks + firstSlot=1` so slots 1..N-1's directives match the chosen opener voice. **Unconditional** — the env flag introduced during planning was retired before merge. Cost impact: **~$0.0014 per invocation** — one additional `paragraph_recombine_coordinator_replan` LLM call (label split from the initial coordinator so cost-error tracking attributes them distinctly). Auto-disabled per-invocation when `perInvocationCapUsd < REPLAN_MIN_CAP_USD = 0.030` to avoid pushing the next slot into budget-exhausted fallback. **Projector NOT updated in this iteration** — `estimateParagraphRecombineCost` will systematically under-project by the replan cost; tracked as the next item on this project's backlog. Counters surface via `execution_detail.sequentialCounters.{replanCount, replanFailureCount, replanSkippedCount, replanSkippedReason}`. See `evolution/docs/paragraph_recombine.md` Sequential perf tuning section for the full design.
 
 ### Budget-Aware Dispatch
 

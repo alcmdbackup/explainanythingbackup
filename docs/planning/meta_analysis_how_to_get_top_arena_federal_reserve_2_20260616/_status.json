@@ -1,0 +1,29 @@
+{
+  "branch": "feat/meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616",
+  "created_at": "2026-06-16T23:50:58Z",
+  "prerequisites": {
+    "todos_created": "2026-06-17T00:06:00Z"
+  },
+  "relevantDocs": [
+    "evolution/docs/arena.md",
+    "evolution/docs/architecture.md",
+    "evolution/docs/agents/overview.md",
+    "evolution/docs/criteria_agents.md",
+    "evolution/docs/editing_agents.md",
+    "evolution/docs/paragraph_recombine.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/strategies_and_experiments.md",
+    "evolution/docs/multi_iteration_strategies.md",
+    "evolution/docs/variant_lineage.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/visualization.md"
+  ],
+  "analyses": [
+    "docs/analysis/rewrite-efficacy-decay-federal-reserve-2-20260617/",
+    "docs/analysis/arena-elo-distribution-federal-reserve-2-20260617/",
+    "docs/analysis/rewrite-success-by-top-tier-federal-reserve-2-20260618/",
+    "docs/analysis/cost-to-reach-p90-from-seed-federal-reserve-2-20260618/"
+  ]
+}

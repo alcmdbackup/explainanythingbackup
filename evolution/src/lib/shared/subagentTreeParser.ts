@@ -311,6 +311,27 @@ export function parseParagraphRecombineTree(detail: Record<string, unknown> | nu
   const out: SubagentNode[] = [];
   let slotsReplaced = 0;
 
+  // Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612):
+  // when the invocation took the sequential path, the coordinator left a `coordinatorPlan`
+  // + `coordinator` sub-objects in execution_detail. Emit a virtual L1.5 coordinator row
+  // BEFORE the L2 slot rows so the admin UI's Subagents tab can render the per-paragraph
+  // plan (role, M, per-variation directives + temperatures, rationale) as a single
+  // expandable composite. No actual invocation row exists for the coordinator — this is
+  // synthesized from JSONB.
+  const coordinatorDetail = detail.coordinator as Record<string, unknown> | undefined;
+  const coordinatorPlan = detail.coordinatorPlan as Record<string, unknown> | undefined;
+  if (coordinatorDetail || coordinatorPlan) {
+    const coordCost = num(coordinatorDetail?.cost);
+    const coordRetried = coordinatorDetail?.retried === true;
+    const plans = (coordinatorPlan?.paragraphPlans as Array<Record<string, unknown>> | undefined) ?? [];
+    const planSummary = plans.length > 0
+      ? `${plans.length} paragraph plan${plans.length === 1 ? '' : 's'}${coordRetried ? ' · retried' : ''}`
+      : (coordRetried ? 'retried' : undefined);
+    out.push(makeChild([], 'coordinator', 'LLM', 0, coordCost, {
+      ...(planSummary !== undefined && { summary: planSummary }),
+    }));
+  }
+
   slots.forEach((slot, slotIdx) => {
     const slotPath = [`slot.${slotIdx}`];
     const children: SubagentNode[] = [];

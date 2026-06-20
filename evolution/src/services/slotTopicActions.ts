@@ -17,6 +17,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { formatSlotTopicName } from '@evolution/lib/shared/paragraphLabels';
 import { ratingToDb, type Rating } from '@evolution/lib/shared/computeRatings';
 import type { V2Match } from '@evolution/lib/pipeline/infra/types';
+import { randomUUID } from 'crypto';
+import {
+  buildArenaSubmatchPersistence,
+  insertArenaSubmatches,
+  type ArenaSubmatchRow,
+  type ArenaSubmatchDimensionRow,
+} from '@evolution/lib/shared/arenaSubmatchPersist';
 
 export interface UpsertSlotTopicResult {
   /** UUID of the slot's arena topic row in evolution_prompts. */
@@ -174,6 +181,10 @@ export async function persistSlotMatches(
     return { inserted: 0 };
   }
 
+  // Phase 4: accumulate ensemble submatch + dimension rows (FK to the client-generated comparison id).
+  const submatchRowsAll: ArenaSubmatchRow[] = [];
+  const dimensionRowsAll: ArenaSubmatchDimensionRow[] = [];
+
   const arenaRows = slotMatches
     .filter((m) => m.confidence > 0) // Skip failed comparisons (matches MergeRatingsAgent precedent).
     .map((match) => {
@@ -206,6 +217,17 @@ export async function persistSlotMatches(
         bAfterDb = ratingToDb(ratings.bAfter);
       }
 
+      // Phase 4: ensemble matches get a client id + chain summary; submatch rows accumulate for a
+      // post-insert write. Single-judge matches: ensembleCols = {} (DB generates the id).
+      let ensembleCols: Record<string, unknown> = {};
+      if (match.submatches) {
+        const comparisonId = randomUUID();
+        const persisted = buildArenaSubmatchPersistence(comparisonId, match.submatches);
+        submatchRowsAll.push(...persisted.submatchRows);
+        dimensionRowsAll.push(...persisted.dimensionRows);
+        ensembleCols = { id: comparisonId, ...persisted.parent };
+      }
+
       return {
         run_id: runId,
         prompt_id: slotTopicId,
@@ -228,6 +250,7 @@ export async function persistSlotMatches(
         // ParagraphRecombineAgent); these are always null here, kept for column parity.
         rubric_breakdown: match.rubricBreakdown ?? null,
         judge_rubric_id: match.rubricBreakdown?.rubricId ?? null,
+        ...ensembleCols,
       };
     });
 
@@ -239,6 +262,14 @@ export async function persistSlotMatches(
     const { error } = await db.from('evolution_arena_comparisons').insert(arenaRows);
     if (error) {
       return { inserted: 0, error: error.message };
+    }
+    // Phase 4: write submatch + dimension rows (best-effort; a failure here doesn't fail the batch).
+    if (submatchRowsAll.length > 0) {
+      try {
+        await insertArenaSubmatches(db, submatchRowsAll, dimensionRowsAll);
+      } catch {
+        // Submatch rows are an enrichment; the consolidated comparison rows already landed.
+      }
     }
     return { inserted: arenaRows.length };
   } catch (err) {

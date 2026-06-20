@@ -1,5 +1,6 @@
 // Batch runner for V2 evolution pipeline: claims pending runs via claimAndExecuteRun, handles shutdown.
 // Usage: npx tsx evolution/scripts/processRunQueue.ts [--dry-run] [--max-runs N] [--parallel N] [--max-concurrent-llm N]
+//        [--target-run-id <uuid>]    — smoke-test a single run by UUID; forces --parallel 1 --max-runs 1.
 
 import { hostname } from 'os';
 import dotenv from 'dotenv';
@@ -18,9 +19,39 @@ function parseIntArg(flag: string, defaultVal: number): number {
   return Number.isFinite(val) && val > 0 ? val : defaultVal;
 }
 
+function parseStringArg(flag: string, defaultVal: string | undefined): string | undefined {
+  const idx = process.argv.indexOf(flag);
+  if (idx === -1 || idx + 1 >= process.argv.length) return defaultVal;
+  return process.argv[idx + 1];
+}
+
+// Phase 6: exported for unit tests of the --target-run-id coercion behavior.
+// When targetRunId is set, force single-run single-parallel — a second concurrent
+// claim attempt against the same UUID returns claimed=false and would idle-exit.
+export function resolveRunQueueLimits(
+  targetRunId: string | undefined,
+  rawMaxRuns: number,
+  rawParallel: number,
+): { maxRuns: number; parallel: number } {
+  if (targetRunId) return { maxRuns: 1, parallel: 1 };
+  return { maxRuns: rawMaxRuns, parallel: rawParallel };
+}
+
+// meta_analysis Phase 6: targeted single-run smoke. When set, the runner
+// claims only this run UUID (claim_evolution_run accepts p_run_id). The flag
+// forces PARALLEL=1 and MAX_RUNS=1 — a second concurrent claim against the
+// same UUID would return claimed=false and idle-exit immediately.
+const TARGET_RUN_ID = parseStringArg('--target-run-id', undefined);
+if (TARGET_RUN_ID !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(TARGET_RUN_ID)) {
+  console.error(`[FATAL] --target-run-id is not a valid UUID: ${TARGET_RUN_ID}`);
+  process.exit(2);
+}
+
 const DRY_RUN = process.argv.includes('--dry-run');
-const MAX_RUNS = parseIntArg('--max-runs', 10);
-const PARALLEL = parseIntArg('--parallel', 1);
+// When --target-run-id is set, coerce single-run single-parallel to avoid a
+// second concurrent claim attempt against the same UUID idle-exiting the runner.
+const MAX_RUNS = TARGET_RUN_ID ? 1 : parseIntArg('--max-runs', 10);
+const PARALLEL = TARGET_RUN_ID ? 1 : parseIntArg('--parallel', 1);
 const MAX_CONCURRENT_LLM = parseIntArg('--max-concurrent-llm', 20);
 const MAX_DURATION_MS = parseIntArg('--max-duration', 6_000_000);
 const RUNNER_ID = `v2-${hostname()}-${process.pid}-${Date.now()}`;
@@ -142,7 +173,9 @@ async function main() {
     }));
     targetCursor = (targetCursor + batchSize) % targets.length;
 
-    // Execute batch in parallel (preserves --parallel N behavior)
+    // Execute batch in parallel (preserves --parallel N behavior).
+    // Phase 6: when --target-run-id is set, MAX_RUNS=1 and PARALLEL=1 so batch
+    // has exactly one entry; pass the targetRunId through to the RPC.
     const results = await Promise.allSettled(
       batch.map(({ target }) =>
         claimAndExecuteRun({
@@ -151,6 +184,7 @@ async function main() {
           dryRun: DRY_RUN || undefined,
           maxDurationMs: MAX_DURATION_MS,
           signal: abortController.signal,
+          targetRunId: TARGET_RUN_ID,
         }).then(result => ({ result, target })),
       ),
     );

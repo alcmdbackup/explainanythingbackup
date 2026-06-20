@@ -46,7 +46,7 @@ export interface EvolutionResult {
   totalCost: number;
   /** Actual iterations completed (distinct from config.iterations). */
   iterationsRun: number;
-  stopReason: 'total_budget_exceeded' | 'killed' | 'deadline' | 'completed';
+  stopReason: 'total_budget_exceeded' | 'killed' | 'deadline' | 'completed' | 'all_generations_failed';
   /** Per-iteration results with stop reasons, budget usage, and counts. */
   iterationResults?: IterationResult[];
   /** eloHistory[i] = array of elo values for top-K variants after iteration i. */

@@ -514,6 +514,30 @@ Fix: add context.`);
     expect(result.detail.weakestCriteriaNames).toEqual(['clarity']);
   });
 
+  it('D1: forwards inner GFPA hard-fail (generation error) as output.failure', async () => {
+    // eval+suggest succeeds, but the inner GFPA generation LLM hard-fails (e.g. 402).
+    const llm = {
+      complete: jest.fn(async (_p: string, agentName: string) => {
+        if (agentName === 'evaluate_and_suggest') return `clarity: 2
+engagement: 5
+depth: 4
+
+### Suggestion 1
+Criterion: clarity
+Example: x
+Issue: y
+Fix: z`;
+        if (agentName === 'generation') throw new Error('402 This request requires more credits, or fewer max_tokens.');
+        return 'A';
+      }),
+      completeStructured: jest.fn(async () => { throw new Error('not used'); }),
+    } as unknown as EvolutionLLMClient;
+    const result = await agent.execute(baseInput(llm), makeCtx());
+    expect(result.failure).toBeDefined();
+    expect(result.failure?.code).toBe('generation_failed');
+    expect(result.result.variant).toBeNull();
+  });
+
   it('totalCost = combined LLM cost + inner GFPA totalCost (single AgentCostScope)', async () => {
     const llm = makeMockLlm(() => `clarity: 1
 engagement: 5

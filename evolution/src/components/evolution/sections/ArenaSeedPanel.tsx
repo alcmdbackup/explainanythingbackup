@@ -1,11 +1,7 @@
-// Top-of-arena-topic-page panel that prominently displays the topic's seed variant.
-// The inline "Seed" badge in the leaderboard row is easy to miss; this panel makes
-// the seed a first-class surface with content preview, Elo, match count, and a link
-// to the seed variant's detail page.
-//
-// Data source: getArenaTopicDetailAction.seedVariant — NOT the paginated leaderboard
-// entries array, so the panel is always present regardless of which leaderboard page
-// the user is on. The call site renders nothing when seedVariant === null.
+// Top-of-arena-topic-page panel that prominently displays the topic's seed variants.
+// Phase 5 (investigate_sequential_paragraph_recombine_performance_20260615): extended
+// to multi-seed — renders 1 card per seed for topics like Federal Reserve 3 that
+// curate multiple seeds, while single-seed topics render identically to pre-Phase-5.
 
 'use client';
 
@@ -19,10 +15,13 @@ import type { ArenaEntry } from '@evolution/services/arenaActions';
 const CONTENT_PREVIEW_MAX_CHARS = 80;
 
 export interface ArenaSeedPanelProps {
-  seed: ArenaEntry;
+  /** All seeds for the topic. Empty array → component renders nothing.
+   *  Single-element → identical render to pre-Phase-5 single-seed UI.
+   *  Multi-element → N seed cards, ordered as provided (caller sorts by elo). */
+  seeds: ArenaEntry[];
 }
 
-export function ArenaSeedPanel({ seed }: ArenaSeedPanelProps): JSX.Element {
+function SeedCard({ seed }: { seed: ArenaEntry }): JSX.Element {
   // Inline copy-to-clipboard for the full variant UUID. Mirrors the handler in
   // EntityDetailHeader.tsx:37-54; a shared hook can be extracted once a third
   // call site appears (YAGNI for now).
@@ -55,23 +54,10 @@ export function ArenaSeedPanel({ seed }: ArenaSeedPanelProps): JSX.Element {
   const shortId = seed.id.substring(0, 8);
 
   return (
-    <section
+    <div
       className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 shadow-warm-lg"
-      data-testid="arena-seed-panel"
+      data-testid="arena-seed-card"
     >
-      <div className="flex items-center gap-2 mb-3">
-        <h2 className="text-2xl font-display text-[var(--text-primary)]">Seed Variant</h2>
-        <span
-          className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-ui font-semibold uppercase tracking-wider"
-          style={{
-            backgroundColor: 'color-mix(in srgb, var(--accent-gold) 25%, transparent)',
-            color: 'var(--accent-gold)',
-          }}
-        >
-          Seed
-        </span>
-      </div>
-
       <p className="text-sm font-body text-[var(--text-secondary)] mb-3 italic">
         &ldquo;{preview}&rdquo;
       </p>
@@ -109,6 +95,45 @@ export function ArenaSeedPanel({ seed }: ArenaSeedPanelProps): JSX.Element {
           View seed variant &rarr;
         </Link>
       </div>
+    </div>
+  );
+}
+
+export function ArenaSeedPanel({ seeds }: ArenaSeedPanelProps): JSX.Element | null {
+  if (seeds.length === 0) return null;
+
+  const isMulti = seeds.length > 1;
+
+  return (
+    <section
+      className="bg-[var(--surface-default)] border border-[var(--border-default)] rounded-book p-6"
+      data-testid="arena-seed-panel"
+      data-seed-count={seeds.length}
+    >
+      <div className="flex items-center gap-2 mb-4">
+        <h2 className="text-2xl font-display text-[var(--text-primary)]">
+          {isMulti ? `Seed Variants (${seeds.length})` : 'Seed Variant'}
+        </h2>
+        <span
+          className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-ui font-semibold uppercase tracking-wider"
+          style={{
+            backgroundColor: 'color-mix(in srgb, var(--accent-gold) 25%, transparent)',
+            color: 'var(--accent-gold)',
+          }}
+        >
+          Seed
+        </span>
+      </div>
+
+      {isMulti ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {seeds.map((s) => (
+            <SeedCard key={s.id} seed={s} />
+          ))}
+        </div>
+      ) : (
+        <SeedCard seed={seeds[0]!} />
+      )}
     </section>
   );
 }

@@ -54,6 +54,7 @@ const FIELD_GATES: Partial<Record<keyof IterCfg, (t: AgentType) => boolean>> = {
   editingMaxCycles: (t) => isEditingAgentType(t) || t === 'proposer_approver_criteria_generate',
   editingEligibilityCutoff: (t) => isEditingAgentType(t) || t === 'proposer_approver_criteria_generate',
   editingProposerSoftCap: (t) => t === 'iterative_editing_rewrite',
+  disableApproverFiltering: (t) => t === 'iterative_editing_rewrite',
   criteriaIds: (t) => CRITERIA_BASED.has(t),
   weakestK: (t) => CRITERIA_BASED.has(t),
   lengthCapRatio: (t) => t === 'proposer_approver_criteria_generate',

@@ -1,0 +1,8 @@
+{
+  "branch": "deploy/main-to-production-jun19",
+  "commit": "78dffc7df5fbac57a093ddbe550e3dd9393159cd",
+  "reason": "Local checks all pass (lint/tsc/build/unit/integration ✓ 496 passed); local E2E hit dual-server/idle-watcher infra race during retries (not code regression — see memories project_e2e_test_mode_tmux_gap and project_guest_autologin_shared_password); user explicitly approved relying on PR CI 4-shard E2E + post-deploy smoke as authoritative checks; nightly-red audit already recorded for OpenAI ops issue (run 27813251064)",
+  "approved_at": "2026-06-20T15:19:10Z",
+  "approved_by": "abel@minddojo.org",
+  "schema_version": 1
+}

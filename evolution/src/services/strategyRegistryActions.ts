@@ -9,6 +9,7 @@ import type { StrategyConfig } from '@evolution/lib/pipeline/infra/types';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
 import { z } from 'zod';
 import { iterationConfigSchema, generationGuidanceSchema } from '@evolution/lib/schemas';
+import { listEnsembleConfigIds, resolveEnsembleConfig } from '@evolution/lib/shared/judgeEnsemble/chainRegistry';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -36,12 +37,26 @@ const createStrategySchema = z.object({
   judgeModel: z.string().min(1).max(100),
   /** Optional rubric-set id for rubric-based pairwise judging (validated below). */
   judgeRubricId: z.string().uuid().optional(),
+  /** Phase 1d (Fix 5b): optional per-paragraph rubric-set id (validated below). */
+  paragraphJudgeRubricId: z.string().uuid().optional(),
+  /** Optional named multi-judge escalation chain (chainRegistry id). Empty → single-judge ranking.
+   *  Resolved at run time in buildRunContext; escalates only when the lead judge is indecisive. */
+  ensembleConfigId: z.string().max(100).optional(),
   /** Iterative-editing Proposer model (optional). Falls back to generationModel at runtime. */
   editingModel: z.string().max(100).optional(),
   /** Iterative-editing Approver model (optional). Falls back to editingModel (which falls back
    *  to generationModel) at runtime. Same-as-editingModel surfaces a rubber-stamping warning
    *  in the wizard per Decisions §16. */
   approverModel: z.string().max(100).optional(),
+  /** Phase 4d: paragraph_recombine coordinator model (optional). Decouples the coordinator
+   *  from the rewrite generation model — a stronger long-context model at-the-source produces
+   *  better per-slot directives, preventing topic substitution / cross-section redundancy
+   *  before they happen. Falls back to generationModel at runtime when unset. */
+  coordinatorModel: z.string().max(100).optional(),
+  /** Phase 5 / 5a-1: seed selection mode for multi-seed topics. Default 'highest_elo'
+   *  (omitted) preserves pre-Phase-5 behavior. 'random' picks a deterministic per-run
+   *  seed via SHA-256(run.id). See evolution/src/lib/schemas.ts strategyConfigSchema. */
+  seedSelection: z.enum(['highest_elo', 'random']).optional(),
   iterationConfigs: z.array(iterationConfigSchema).min(1).max(20),
   budgetUsd: z.number().min(0.01).max(100).optional(),
   pipeline_type: z.string().max(50).optional(),
@@ -173,13 +188,29 @@ export const createStrategyAction = adminAction(
       const { validateJudgeRubricId } = await import('./judgeRubricActions');
       await validateJudgeRubricId(parsed.judgeRubricId, ctx.supabase);
     }
+    // Phase 1d (Fix 5b): validate the paragraph rubric the same way. Reuses the same
+    // helper — rubrics in evolution_judge_rubrics are not typed by article/paragraph,
+    // strategy author picks which to use where.
+    if (parsed.paragraphJudgeRubricId) {
+      const { validateJudgeRubricId } = await import('./judgeRubricActions');
+      await validateJudgeRubricId(parsed.paragraphJudgeRubricId, ctx.supabase);
+    }
+
+    // Validate the ensemble chain id resolves to a known composition (fail fast, not at run time).
+    if (parsed.ensembleConfigId && !resolveEnsembleConfig(parsed.ensembleConfigId)) {
+      throw new Error(`Unknown ensembleConfigId: ${parsed.ensembleConfigId}`);
+    }
 
     const config: StrategyConfig = {
       generationModel: parsed.generationModel,
       judgeModel: parsed.judgeModel,
       judgeRubricId: parsed.judgeRubricId,
+      paragraphJudgeRubricId: parsed.paragraphJudgeRubricId,
+      ensembleConfigId: parsed.ensembleConfigId,
       editingModel: parsed.editingModel,
       approverModel: parsed.approverModel,
+      coordinatorModel: parsed.coordinatorModel,
+      seedSelection: parsed.seedSelection,
       iterationConfigs: parsed.iterationConfigs,
       budgetUsd: parsed.budgetUsd,
       generationGuidance: parsed.generationGuidance,
@@ -218,6 +249,16 @@ export const createStrategyAction = adminAction(
     stratLogger.info('Strategy created', { name: parsed.name, pipelineType: parsed.pipeline_type ?? 'full' });
 
     return data;
+  },
+);
+
+/** The named escalation-chain ids selectable in the wizard. Server-side so the client never imports
+ *  chainRegistry (which pulls in node-only deps via the aggregation/computeRatings chain). */
+export const listEnsembleConfigsAction = adminAction(
+  'listEnsembleConfigs',
+  async (ctx: AdminContext): Promise<{ ids: string[] }> => {
+    void ctx; // admin gating only; the config list is static.
+    return { ids: listEnsembleConfigIds() };
   },
 );
 

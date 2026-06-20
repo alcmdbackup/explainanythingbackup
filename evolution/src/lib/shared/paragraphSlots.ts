@@ -101,11 +101,21 @@ export interface ParagraphValidationResult {
 }
 
 /**
+ * Symmetric ±20% length-cap ratios for `validateParagraphRewrite`. Exported so
+ * `buildSequentialRewritePrompt` can show the LLM the exact bounds it must hit
+ * (Phase 1b-i — investigate_sequential_paragraph_recombine_performance_20260615).
+ * Single source of truth — prompt and validator MUST use the same constants to
+ * prevent drift.
+ */
+export const PARAGRAPH_REWRITE_MIN_RATIO = 0.8;
+export const PARAGRAPH_REWRITE_MAX_RATIO = 1.2;
+
+/**
  * Pre-validate a paragraph rewrite BEFORE it consumes ranking budget. Per D7/D12 of
  * rank_individual_paragraphs_evolution_20260525.
  *
- * Symmetric ±20% length cap: `0.80 <= len(rewrite)/originalLength <= 1.20`. Widened
- * from the prior ±10% window, which rejected ~60% of otherwise-valid rewrites in
+ * Symmetric ±20% length cap: `PARAGRAPH_REWRITE_MIN_RATIO <= ratio <= PARAGRAPH_REWRITE_MAX_RATIO`.
+ * Widened from the prior ±10% window, which rejected ~60% of otherwise-valid rewrites in
  * staging runs (LLM rewrites routinely vary paragraph length 20-30% while staying
  * complete and well-formed). The cap still catches gross compression/expansion.
  *
@@ -124,8 +134,8 @@ export function validateParagraphRewrite(
   if (/^\s*#\s/m.test(stripped)) return { valid: false, dropReason: 'no_h1' };
 
   const ratio = rewriteText.length / Math.max(originalLength, 1);
-  if (ratio < 0.8) return { valid: false, dropReason: 'length_under' };
-  if (ratio > 1.2) return { valid: false, dropReason: 'length_over' };
+  if (ratio < PARAGRAPH_REWRITE_MIN_RATIO) return { valid: false, dropReason: 'length_under' };
+  if (ratio > PARAGRAPH_REWRITE_MAX_RATIO) return { valid: false, dropReason: 'length_over' };
 
   // Require at least one sentence-ending punctuation mark. countShortParagraphs returns 1
   // when the paragraph has < 2 sentences — but 1-sentence rewrites are fine (paragraphs can
