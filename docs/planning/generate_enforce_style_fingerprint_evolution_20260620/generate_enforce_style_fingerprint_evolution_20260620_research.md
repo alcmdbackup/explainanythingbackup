@@ -17,13 +17,13 @@ This will later be injected into a prompt to guide generation, and into a rubric
 **This is primarily an EVOLUTION-PIPELINE feature, not a main-app feature.** The feature's "a piece" = the parent/seed article that evolution's `generate_from_previous_article` rewrites from. The main app (`returnExplanation`) generates from a *query/title*, not from a source article (sources there are for citation grounding, not voice mirroring), so it has no natural "source piece" to fingerprint. We confirmed clean injection points already exist in the evolution pipeline for all three legs: (1) extract fingerprint from the source, (2) inject into generation prompt, (3) inject into judging rubric.
 
 The shape of the work:
-1. **Extract** a compact style fingerprint from the source article via one standalone LLM call (new `EvolutionLLMClient` call with a new `AgentName` cost label + a Zod `StyleFingerprint` schema), triggered once per run right after `resolveContent()` makes the source text available — before the iteration loop.
-2. **Store** it as a JSONB column on `evolution_runs` (idempotent `ADD COLUMN IF NOT EXISTS`, GIN index optional), regen DB types, add to the run Zod schema.
-3. **Thread** it via `AgentContext.styleFingerprint` (populated in `claimAndExecuteRun`/run-context build) down to the generation agent input.
-4. **Inject into generation** by adding an optional style-guide section to `buildEvolutionPrompt` (between `instructions` and `FORMAT_RULES`), fed from the fingerprint.
-5. **Inject into judging** by adding a `stylistic_accuracy` `evolution_criteria` row (name is constraint-legal) referenced as a rubric dimension — the recommended path is data-driven (criteria row + `evolution_judge_rubric_dimensions` junction) requiring near-zero judge-code change, with the fingerprint text supplied as the "expectation" the dimension scores against.
+1. **Fingerprint is a first-class, reusable entity** (NOT a per-run blob — see "Additional Requirements" below): its own table, computed over a *set* of one-or-more source articles, independently saveable, and incrementally updatable by adding an article to its set. A run/strategy *references* a fingerprint by id rather than computing a throwaway one.
+2. **Extract/compute** the fingerprint from the article set via a standalone `EvolutionLLMClient` call (new `AgentName` cost label + Zod `StyleFingerprint` schema). This runs at fingerprint-create/update time (CRUD), and is reused by any run that references the fingerprint — decoupled from the per-run loop.
+3. **Thread** the resolved fingerprint into a run via `AgentContext.styleFingerprint` (populated in `claimAndExecuteRun`/run-context build from the referenced fingerprint id) down to the generation agent input.
+4. **Inject into generation** by adding an optional style-guide section to `buildEvolutionPrompt` (between `instructions` and `FORMAT_RULES`), fed from the fingerprint's rendered prose.
+5. **Inject into judging** by adding a `stylistic_accuracy` `evolution_criteria` row (name is constraint-legal) referenced as a rubric dimension — the recommended path is data-driven (criteria row + `evolution_judge_rubric_dimensions` junction) requiring near-zero judge-code change, with the fingerprint prose supplied as the "expectation" the dimension scores against.
 
-Key design tension to resolve in planning: the rubric judge is *pairwise* (A vs B) and criteria `evaluation_guidance` anchors are *static* prose, whereas the style fingerprint is *per-run dynamic*. So the fingerprint must reach the judge prompt as runtime context (like the parent text), not baked into the static criterion anchors. This is the main open architectural question (see Open Questions).
+Key design tension to resolve in planning: the rubric judge is *pairwise* (A vs B) and criteria `evaluation_guidance` anchors are *static* prose, whereas the style fingerprint is *per-run dynamic* (varies by which fingerprint the run references). So the fingerprint must reach the judge prompt as runtime context (like the parent text), not baked into the static criterion anchors. This is the main open architectural question (see Open Questions).
 
 ## Documents Read
 
@@ -85,10 +85,24 @@ Key design tension to resolve in planning: the rubric judge is *pairwise* (A vs 
 2. **Generation injection is a one-param change** to `buildEvolutionPrompt` plus threading `styleFingerprint` through `AgentContext` → `GenerateFromPreviousInput`. Both the tactic branch and the `customPrompt` branch must render it.
 3. **Judging injection is best done data-first:** a `stylistic_accuracy` `evolution_criteria` row + rubric-dimension junction needs near-zero judge code — BUT the per-run fingerprint (the "expectation") must be passed to the judge prompt as runtime context, since criteria anchors are static. This is the one non-trivial code change on the judging side.
 4. **Name constraint confirmed:** `stylistic_accuracy` (or `style_fidelity`) is legal; `[anything]` / spaces are not (matches reference memory).
-5. **One new storage column** (`evolution_runs.style_fingerprint JSONB`) + Zod schema + types regen; idempotent migration pattern exists.
+5. **New fingerprint entity + junction tables** (`evolution_style_fingerprints` + `evolution_style_fingerprint_articles`) following the DB-first entity pattern (`evolution_prompts`/`evolution_criteria`) — CRUD via `executeEntityAction`, Zod schemas, types regen. A run/strategy references it by `styleFingerprintId`. (Supersedes the earlier single-column idea — see Additional Requirements.)
 6. **One new `AgentName`** (`style_extraction`) for cost attribution; decide whether its cost rolls into `seed_cost` or a dedicated metric.
 7. **Extraction is a single standalone LLM call** using the existing `EvolutionLLMClient`, triggered once per run after `resolveContent()` — cheap, cached on the run, reused across all iterations and both legs (generation + judging).
 8. **Anti-overuse requirement** ("note idiosyncratic words/phrases but don't overuse them") must be encoded as an explicit directive in BOTH the generation prompt ("use sparingly, do not force") and the rubric anchors (penalize over-saturation), not just listed as phrases to inject.
+
+## Additional Requirements (added by user 2026-06-20)
+The fingerprint must be a **first-class entity**, not a per-run side effect:
+1. **Independently saveable** — a fingerprint exists on its own (its own table/CRUD), decoupled from any single run. Mirrors the existing DB-first entity pattern used by `evolution_prompts` / `evolution_criteria` (own table, soft-delete via `deleted_at`/status, CRUD via the `executeEntityAction` dispatcher, Zod insert schema).
+2. **Computed over a SET of articles** — the input is one-or-more articles, not a single piece. Needs a fingerprint↔articles relationship (junction table). Open: an "article" = an `explanations` row reference vs. an arbitrary stored text blob vs. either (see Open Questions).
+3. **Incrementally updatable** — adding a new article to an existing fingerprint's set updates both the underlying set (insert junction row) AND the fingerprint itself (recompute or merge). Open: full recompute over the enlarged set vs. true incremental merge (feed prior fingerprint + new article to the LLM) (see Open Questions).
+
+**Data-model implication (revised from earlier single-column idea):**
+- New table `evolution_style_fingerprints` — `id`, `name`, `fingerprint` JSONB (structured traits), `fingerprint_prose` TEXT (rendered for prompts) or render-on-read, `article_count`, `status`/`deleted_at`, audit cols. (Name likely wants a constraint-legal slug if it ever maps to a metric, like `evolution_criteria`.)
+- New junction `evolution_style_fingerprint_articles` — `fingerprint_id`, plus either `explanation_id UUID` (FK) and/or `article_text TEXT` + ordering/added_at. GIN/btree indexes per existing migration patterns.
+- A run/strategy references a fingerprint via a new `styleFingerprintId UUID` config field (instead of an inline per-run JSONB). The per-run JSONB column idea is superseded; the run only needs the *reference* (it can denormalize a snapshot if reproducibility-of-historical-runs matters — Open Question).
+- Recompute path is the same standalone `EvolutionLLMClient` extraction call, now fed the concatenated/sampled article set and (for incremental) the prior fingerprint.
+
+**Surfaces still to confirm:** admin UI for fingerprint CRUD (mirrors strategy/criteria registry pages under `/admin/evolution/*`) — in scope? The issue text implies compute+enforce; CRUD UI may be a follow-on. Flagged in Open Questions.
 
 ## Decisions (confirmed with user 2026-06-20)
 - **Scope:** Evolution pipeline only for v1. Main-app generation is explicitly out of scope (resolves Q7).
@@ -96,10 +110,13 @@ Key design tension to resolve in planning: the rubric judge is *pairwise* (A vs 
 - **Representation:** Structured JSONB (`{sentenceLength, spellingRegion, signaturePhrases[], tone, …}`) for metrics PLUS a rendered prose block for prompts (resolves Q2).
 
 ## Open Questions
-1. **Fingerprint → judge wiring:** how should the per-run fingerprint reach `buildRubricComparisonPrompt`? Options: (a) thread it as runtime context appended to the rubric prompt; (b) store it on each variant and let the judge compare each variant's adherence; (c) phase 1 = generation-only, judging in a follow-up. Recommend (a).
-2. **Fingerprint representation:** structured JSONB (`{sentenceLength, spellingRegion, signaturePhrases[], tone, …}`) vs. a single prose paragraph vs. both (structured for metrics + a rendered prose block for prompts). Affects schema + prompt rendering.
-3. **Config surface:** is style enforcement always-on per run, or opt-in via a strategy/iteration config flag (e.g. `styleFingerprintEnabled`)? A flag keeps A/B isolation clean and lets the acceptance gate measure effect.
-4. **Cost label/metric:** dedicated `style_extraction_cost` metric vs. rolling into `seed_cost`.
-5. **Prompt-based (no source) runs:** when there's no parent article (pure prompt runs that generate a seed), is there a piece to fingerprint at all? Likely: skip extraction, no-op the injection.
-6. **Acceptance/measurement:** what's the success metric — a `stylistic_accuracy` rubric score lift, a held-out style-match eval, or human spot-check? Ties to the project's eventual gate.
-7. **Main-app scope:** confirm with user whether main-app generation is explicitly out of scope for this project.
+_(Resolved earlier: representation = structured JSONB + prose; enforcement = per-strategy opt-in flag; scope = evolution-only / main-app out. See Decisions.)_
+
+1. **Article identity — what goes in the set?** Each article in a fingerprint's set is: (a) a reference to an existing `explanations` row (`explanation_id` FK); (b) an arbitrary pasted text blob (`article_text`); or (c) either/both. Affects the junction schema and the CRUD/ingest surface.
+2. **Incremental update strategy.** When an article is added to an existing fingerprint, do we (a) full-recompute the fingerprint over the enlarged set (simple, deterministic, more tokens), or (b) true incremental merge (feed prior fingerprint + new article to the LLM → updated fingerprint; cheaper, but can drift)? Affects extraction prompt design + cost.
+3. **Run reference vs. snapshot.** Does a run store only `styleFingerprintId` (always reads the live fingerprint — simplest), or also denormalize a JSONB snapshot at run start (so a later fingerprint edit doesn't retroactively change what historical runs were judged against — reproducibility)? 
+4. **Fingerprint → judge wiring.** How should the fingerprint reach `buildRubricComparisonPrompt`? (a) thread it as runtime context appended to the rubric prompt; (b) store it on each variant and let the judge score adherence; (c) phase 1 = generation-only, judging follow-up. Recommend (a).
+5. **Admin CRUD UI scope.** Is a `/admin/evolution/*` fingerprint registry page (create/edit/add-article, mirroring strategy/criteria registries) in scope for v1, or is server-action/CRUD + wiring enough with UI as a follow-on?
+6. **Cost label/metric.** Dedicated `style_extraction_cost` metric vs. rolling into `seed_cost`; and is extraction cost attributed to a run, or to the fingerprint entity (since it's computed outside any run)?
+7. **Prompt-based (no source) runs.** When a run references no fingerprint (or a strategy opts out), injection is a clean no-op — confirm that's the only behavior, and that fingerprints are never auto-derived from a run's own seed (they're authored as entities).
+8. **Acceptance/measurement.** Success metric — `stylistic_accuracy` rubric score lift vs. control arm, a held-out style-match eval, or human spot-check? Ties to the eventual acceptance gate.
