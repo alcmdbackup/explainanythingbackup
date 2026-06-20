@@ -256,6 +256,72 @@ Evolution ▸ Tools ▸ Implied Rubric Weights ▸ Fed-rubric v1
 
 **Flow:** create session (topic + criteria + audit rate, see ratings-needed preview) → drain Step 1 overall verdicts → Step 2 per-criterion verdicts unlock → Results updates live (weights, CIs, bias audit, "≈N more pairs") → Export writes a real rubric.
 
+### Auto-mode UI deltas
+Auto mode reuses the same shell — only the input changes. The human's two judging screens are replaced by a one-time setup + a batch-progress view; the sessions list, Results, and Export are shared (Results gains a provenance line + an "explanatory power" headline). The Judge/Compare panels are conditionally hidden when `mode==='auto'`.
+
+| Screen | Human mode | Auto mode |
+|---|---|---|
+| Sessions list | — | adds a **Mode** column (`Human` / `Auto·<model>`) |
+| New-session dialog | "ratings needed" preview | **mode toggle** → judge model/temp/reasoning/repeats + **estimated-cost** preview |
+| Judging | Step 1 overall → Step 2 per-criterion screens | **hidden** — replaced by a **Run** tab (batch progress) |
+| Results | weights + CIs + bias audit | same **+ provenance line + "criteria explain X%"** read |
+| Export | identical | identical |
+
+New-session dialog (Auto selected — Human variant has no judge block + the ratings-needed preview of wireframe 2):
+```
+┌────────────────────  New inference session  ────────────────────┐
+│  Name          [ Fed-auto qwen______________________________ ]   │
+│  Mode          ( ○ Human )   ( ◉ Auto — LLM as judge )           │
+│  Arena topic   [ Federal Reserve 2                  ▼ ]          │
+│  Criteria to weight   [ select… ▼ ]   (5 selected)               │
+│  Article pool size      [  30 ]                                  │
+│  ┌── Auto judge settings ──────────────────────────────────┐    │
+│  │  Judge model   [ qwen-2.5-7b-instruct        ▼ ]         │    │
+│  │  Temperature   [ 0.0 ]     Reasoning [ none ▼ ]          │    │
+│  │  Repeats/pair  [  1 ]    (>1 measures self-consistency)  │    │
+│  └──────────────────────────────────────────────────────────┘   │
+│  ┌── Preview: estimated cost ──────────────────────────────┐    │
+│  │  ≈ 86 pairs × 4 calls = 344 LLM calls                   │    │
+│  │  est. $0.04   ✓ within cap ($5.00 / 8000 calls)         │    │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                   [ Cancel ]  [ Create & run ]   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Session detail (Auto) — a **Run** tab replaces the human Judge/Progress tabs:
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│  Fed-auto qwen                                        ● running            │
+│  Topic: Federal Reserve 2 · 5 criteria · Auto · judge qwen-2.5-7b @ 0.0    │
+├────────[ Run ]────[ Results ]─────────────────────────────────────────────┤
+│  Judging pairs with the LLM…                                               │
+│   ███████████████░░░░░  62/86 pairs   (overall + per-criterion)            │
+│   LLM calls 248/344    spend $0.03/$0.04    position-bias 6%   errors 0     │
+│                                                  [ Pause ]   ⟳ auto-refresh │
+│  (Judge / Compare panels hidden — no human input in Auto mode)             │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+Results (Auto) — identical weight bars/CIs/bias-audit layout, plus a provenance line and the explanatory-power headline:
+```
+│  Inferred weights   86 pairs · judge qwen-2.5-7b @ 0.0 · repeats 1         │
+│  Criteria explain 88% of the judge's holistic calls  (held-out 85%)       │
+│   …weight bars + CI whiskers (identical layout)…                           │
+│  Judge-bias audit (2-pass reversal): position-bias 6% ✓  consistency 94% ✓ │
+│  Provenance: LLM · qwen-2.5-7b-instruct · temp 0.0 · 344 calls · $0.04     │
+│                                   [  Export as judge rubric →  ]           │
+```
+
+Optional follow-up — human-vs-LLM side-by-side (when both a human and an auto session exist for the same topic+criteria):
+```
+┌─ Human-implied vs LLM-implied weights ───────────────────────────────────┐
+│  criterion    human   LLM(qwen)   Δ     per-criterion agreement           │
+│  depth 34%/33% (−1, 92%) · clarity 27%/28% (+1, 100%) · tone 6%/6% (0,75%⚠)│
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+**Auto flow:** create session (mode=Auto, judge settings, see est. cost) → Create & run → Run tab streams batch progress (calls/spend/position-bias) → on completion Results renders (weights, CIs, judge-bias audit, explanatory-power, provenance) → Export writes a real rubric.
+
 ## Phased Execution Plan
 
 ### Phase 1: Migration + schemas + statistics core
