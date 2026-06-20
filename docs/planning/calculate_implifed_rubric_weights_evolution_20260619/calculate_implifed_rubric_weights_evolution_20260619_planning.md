@@ -88,6 +88,143 @@ Admin → "Implied Rubric Weights" (Tools nav)
 - Nav: append one `NavItem` to the **Tools** group in `src/components/admin/EvolutionSidebar.tsx` (`href:'/admin/evolution/weight-inference'`, `testId:'evolution-sidebar-nav-weight-inference'`). Midnight Scholar tokens; obey design-system ESLint rules.
 - Kill switch: `EVOLUTION_WEIGHT_INFERENCE_ENABLED` (default on; `'false'` ⇒ actions reject / nav item inert), mirroring the prompt-editor/feature-flag convention.
 
+## UI Wireframes
+
+Layout/flow only — actual styling is the Midnight Scholar theme (warm tokens, Playfair/Source Serif, gold accents, `paper-texture` cards). Deliberate choices: Step 2 **hides** the earlier overall verdict (anti-anchoring; alternative was to show it for context); the overall screen uses a plain side-by-side, with an optional `SideBySideWordDiff` toggle only on the per-criterion screen (a word-diff can bias toward "what changed" over holistic quality).
+
+### 1. Sessions landing — `/admin/evolution/weight-inference`
+```
+Evolution ▸ Tools ▸ Implied Rubric Weights
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│  Implied Rubric Weights                               [ + New session ]    │
+│  Infer judge-rubric weights from human pairwise verdicts                   │
+├──────────────────────────────────────────────────────────────────────────┤
+│  ☐ Hide test content                            Search: [____________]     │
+│  Name              Topic            Criteria  Progress       Status        │
+│  ────────────────────────────────────────────────────────────────────────│
+│  Fed-rubric v1     Federal Reserve 2   5      48/75 pairs    ● collecting  │
+│  Clarity-weighting Quantum Computing   3      ready          ✓ fitted      │
+│                                                    ‹ Prev   1 2 3   Next ›  │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+### 2. New-session dialog (with upfront "ratings needed" preview)
+```
+┌────────────────────  New inference session  ────────────────────┐
+│  Name          [ Fed-rubric v1______________________________ ]   │
+│  Description    [ optional________________________________ ]      │
+│  Arena topic    [ Federal Reserve 2                  ▼ ]          │
+│                  → 312 variants available                        │
+│  Criteria to weight   [ select… ▼ ]   (5 selected)               │
+│    ☑ clarity   ☑ engagement  ☑ structure  ☑ depth  ☑ tone        │
+│    ☐ point_of_view   ☐ sentence_variety   [+ manage criteria]    │
+│  Article pool size      [  30 ]  variants sampled                │
+│  Reversal audit rate    [ 15 %]  of pairs re-shown swapped       │
+│  ┌─ Preview: ratings needed ────────────────────────────────┐   │
+│  │  ≈ 75 pairs  (target: stable weights for 5 criteria)      │   │
+│  │   → 75 overall verdicts                                   │   │
+│  │   → 375 per-criterion verdicts  (75 × 5)                  │   │
+│  │   + ~15% reversal audit  ⇒ ≈ 86 pairs to judge total      │   │
+│  │  Rough estimate — refines live as you judge.              │   │
+│  └───────────────────────────────────────────────────────────┘  │
+│                                       [ Cancel ]  [ Create ]     │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 3. Session detail — tabs + progress (overall-first visible)
+```
+Evolution ▸ Tools ▸ Implied Rubric Weights ▸ Fed-rubric v1
+┌──────────────────────────────────────────────────────────────────────────┐
+│  Fed-rubric v1                                        ● collecting         │
+│  Topic: Federal Reserve 2 · 5 criteria · pool 30 · audit 15%               │
+├────────[ Judge ]────[ Progress ]────[ Results ]───────────────────────────┤
+│   Step 1 — Overall            Step 2 — By criterion                        │
+│   ████████████░░░  48/75       ███████░░░░░░  31/48                         │
+│   (judge these first)          (unlocks per pair after its overall)        │
+│                    [ ▶ Continue judging ]                                  │
+│   ≈ 27 more pairs to reach stable weights.                                 │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+### 4. Step 1 — Judge OVERALL (holistic gut call, judged first)
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│  Overall judgment           Pair 49 of ~86          Step 1 of 2   skip ⏭   │
+│  Which article is better — overall?                                        │
+├───────────────────────────────────┬────────────────────────────────────────┤
+│             ARTICLE A             │             ARTICLE B                  │
+│  ┌─────────────────────────────┐  │  ┌──────────────────────────────────┐ │
+│  │ # The Federal Reserve…      │  │  │ # How the Fed Works              │ │
+│  │ The Federal Reserve is the  │  │  │ Picture the economy as a car —   │ │
+│  │ central bank of the U.S. …  │  │  │ the Fed is the foot on the pedal.│ │
+│  │ …                  [scroll] │  │  │ …                       [scroll] │ │
+│  └─────────────────────────────┘  │  └──────────────────────────────────┘ │
+│      (  ◉ A is better  )    (  ○ Tie  )    (  ○ B is better  )             │
+│                          [  Submit & next →  ]                             │
+│  ⓘ Judge holistically — you'll rate individual criteria later.             │
+└──────────────────────────────────────────────────────────────────────────┘
+  (left/right randomized per pair; ~15% reappear later sides-swapped → bias audit)
+```
+
+### 5. Step 2 — Judge BY CRITERION (same pairs, after their overall is done)
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│  Per-criterion judgment     Pair 31 of ~86          Step 2 of 2            │
+│  For each criterion, which article is better?                              │
+├───────────────────────────────────┬────────────────────────────────────────┤
+│   ARTICLE A  # The Federal…  [▾]   │   ARTICLE B  # How the Fed…   [▾]      │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                          A better    Tie    B better       │
+│   clarity        ⓘ                      (   ◉   )  (  ○  )  (   ○   )      │
+│   engagement     ⓘ                      (   ○   )  (  ○  )  (   ◉   )      │
+│   structure      ⓘ                      (   ○   )  (  ◉  )  (   ○   )      │
+│   depth          ⓘ                      (   ○   )  (  ○  )  (   ◉   )      │
+│   tone           ⓘ                      (   ◉   )  (  ○  )  (   ○   )      │
+├──────────────────────────────────────────────────────────────────────────┤
+│  ⓘ Judge each criterion on its own merits.   [  Submit & next →  ]         │
+└──────────────────────────────────────────────────────────────────────────┘
+  (the earlier overall verdict is intentionally NOT shown here)
+```
+
+### 6. Results — inferred weights + CIs + bias audit + export
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│  Inferred weights            68 pairs fitted · train 91% · held-out 84%    │
+├──────────────────────────────────────────────────────────────────────────┤
+│  Implied rubric weight (normalized, sum = 100%)        ├─┤ = 95% CI         │
+│   depth       ███████████████████████  34%      ├──┤  [28–40%]             │
+│   clarity     ██████████████████  27%           ├──┤  [22–33%]             │
+│   structure   ████████████  19%               ├───┤   [13–25%]             │
+│   engagement  ████████  14%                  ├────┤   [8–20%]              │
+│   tone        ███  6%  ⚠ barely matters      ├──┤     [1–11%]              │
+│  ⚠ Flags: tone near-zero (consider dropping); none disagree with overall   │
+│  Reviewer-bias audit  (12 reversal-checked pairs)                          │
+│    Position-bias 8% ✓ low    Self-consistency 92% ✓ high                   │
+│    Per-criterion: clarity 100% · depth 92% · tone 75% ⚠                     │
+│  Stability: ≈ 7 more pairs to tighten CIs.                                 │
+│                                   [  Export as judge rubric →  ]           │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+### 7. Export dialog → creates a real `evolution_judge_rubrics` row
+```
+┌─────────────────  Export as judge rubric  ─────────────────┐
+│  Creates a new rubric in Judge Rubrics with the inferred    │
+│  weights — usable by rubric-based judging immediately.      │
+│  Rubric name   [ Fed-rubric v1 (inferred)______________ ]   │
+│  Label         [ optional____________________________ ]     │
+│  Description   [ optional____________________________ ]     │
+│  Dimensions (normalized):                                   │
+│    depth 34% · clarity 27% · structure 19% ·                │
+│    engagement 14% · tone 6%                                 │
+│    ☐ Drop "barely matters" criteria (tone)                  │
+│                          [ Cancel ]  [ Create rubric ]      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Flow:** create session (topic + criteria + audit rate, see ratings-needed preview) → drain Step 1 overall verdicts → Step 2 per-criterion verdicts unlock → Results updates live (weights, CIs, bias audit, "≈N more pairs") → Export writes a real rubric.
+
 ## Phased Execution Plan
 
 ### Phase 1: Migration + schemas + statistics core
