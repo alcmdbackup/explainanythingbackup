@@ -1,0 +1,390 @@
+// Judge Lab → Agreement sweep launcher + leaderboard. Runs a HOLISTIC (no-rubric) judge AND a RUBRIC
+// judge on the same frozen test set, then surfaces how often the rubric agrees with the holistic
+// winner (overall + per criterion) and each side's accuracy vs the Elo ground truth. Client component
+// calling the cap-gated createAgreementSweepAction + the zero-cost read actions.
+
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { toast } from 'sonner';
+import { EvolutionBreadcrumb } from '@evolution/components/evolution';
+import { getEvolutionModelIds, DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
+import {
+  listTestSetsAction,
+  getJudgeModelOptionsAction,
+  createAgreementSweepAction,
+  getAgreementLeaderboardAction,
+} from '@evolution/services/judgeEvalActions';
+import { listJudgeRubricsAction } from '@evolution/services/judgeRubricActions';
+
+type Kind = 'article' | 'paragraph' | 'both';
+
+interface TestSetOption {
+  id: string;
+  name: string;
+}
+interface RubricOption {
+  id: string;
+  name: string;
+}
+interface LeaderboardRow {
+  agreement_run_id: string | null;
+  judge_model: string | null;
+  judge_rubric_id: string | null;
+  pair_kind: string | null;
+  n_calls: number | null;
+  strict_agree_rate: number | null;
+  both_decisive_agree_rate: number | null;
+  abstain_divergence_rate: number | null;
+  holistic_accuracy: number | null;
+  rubric_accuracy: number | null;
+  total_cost_usd: number | null;
+}
+
+function pct(v: number | null): string {
+  return v == null ? '—' : `${(v * 100).toFixed(0)}%`;
+}
+function delta(rubric: number | null, holistic: number | null): string {
+  if (rubric == null || holistic == null) return '—';
+  const d = (rubric - holistic) * 100;
+  return `${d >= 0 ? '+' : ''}${d.toFixed(0)}%`;
+}
+
+export default function AgreementSweepPage(): JSX.Element {
+  const [modelIds, setModelIds] = useState<string[]>(() => getEvolutionModelIds());
+  const [testSets, setTestSets] = useState<TestSetOption[]>([]);
+  const [rubrics, setRubrics] = useState<RubricOption[]>([]);
+
+  const [testSetId, setTestSetId] = useState<string>('');
+  const [testSetName, setTestSetName] = useState<string>('');
+  const [kind, setKind] = useState<Kind>('both');
+  const [judgeModel, setJudgeModel] = useState<string>(DEFAULT_JUDGE_MODEL);
+  const [judgeRubricId, setJudgeRubricId] = useState<string>('');
+  const [temperature, setTemperature] = useState<number>(0);
+  const [reasoning, setReasoning] = useState<'none' | 'low' | 'medium'>('none');
+  const [repeats, setRepeats] = useState<number>(10);
+
+  const [launching, setLaunching] = useState(false);
+  const [estimate, setEstimate] = useState<string | null>(null);
+
+  const [viewKind, setViewKind] = useState<Kind>('both');
+  const [rows, setRows] = useState<LeaderboardRow[]>([]);
+  const [loadingBoard, setLoadingBoard] = useState(false);
+
+  useEffect(() => {
+    document.title = 'Judge Lab · Agreement';
+    void (async () => {
+      const ts = await listTestSetsAction();
+      if (ts.success && ts.data) {
+        const opts = ts.data.map((t) => ({ id: t.id, name: t.name }));
+        setTestSets(opts);
+        if (opts[0]) {
+          setTestSetId(opts[0].id);
+          setTestSetName(opts[0].name);
+        }
+      }
+      const models = await getJudgeModelOptionsAction();
+      if (models.success && models.data && models.data.length > 0) setModelIds(models.data);
+      const rb = await listJudgeRubricsAction({ status: 'active' });
+      if (rb.success && rb.data) {
+        const opts = rb.data.items.map((r) => ({ id: r.id, name: r.name }));
+        setRubrics(opts);
+        if (opts[0]) setJudgeRubricId(opts[0].id);
+      }
+    })();
+  }, []);
+
+  const loadBoard = useCallback(async () => {
+    if (!testSetId) return;
+    setLoadingBoard(true);
+    const res = await getAgreementLeaderboardAction({ testSetId, kind: viewKind });
+    setLoadingBoard(false);
+    if (res.success && res.data) setRows(res.data as LeaderboardRow[]);
+    else if (!res.success) toast.error(res.error?.message ?? 'Failed to load leaderboard');
+  }, [testSetId, viewKind]);
+
+  useEffect(() => {
+    void loadBoard();
+  }, [loadBoard]);
+
+  const run = useCallback(
+    async (dryRun: boolean) => {
+      if (!testSetName) return toast.error('Pick a test set');
+      if (!judgeRubricId) return toast.error('Pick a rubric');
+      setLaunching(true);
+      setEstimate(null);
+      const res = await createAgreementSweepAction({
+        testSetName,
+        kindFilter: kind,
+        judgeModel,
+        temperature,
+        reasoningEffort: reasoning === 'none' ? null : reasoning,
+        judgeRubricId,
+        repeats,
+        dryRun,
+      });
+      setLaunching(false);
+      if (!res.success) {
+        toast.error(res.error?.message ?? 'Sweep failed');
+        return;
+      }
+      const o = res.data!;
+      setEstimate(
+        `${o.pairCount} pairs × ${repeats} repeats × 4 calls = ${o.plannedCalls} calls · est $${o.estimate.estimatedCostUsd.toFixed(4)}`,
+      );
+      if (dryRun) return;
+      toast.success(`Agreement run complete · ${o.callCount} calls`);
+      void loadBoard();
+    },
+    [testSetName, judgeRubricId, kind, judgeModel, temperature, reasoning, repeats, loadBoard],
+  );
+
+  const inputStyle = { borderColor: 'var(--border-default)', background: 'var(--bg-secondary)' };
+
+  return (
+    <div className="space-y-4 p-4">
+      <EvolutionBreadcrumb
+        items={[
+          { label: 'Evolution', href: '/admin/evolution-dashboard' },
+          { label: 'Judge Lab', href: '/admin/evolution/judge-lab' },
+          { label: 'Agreement' },
+        ]}
+      />
+
+      <div
+        className="rounded-book paper-texture card-enhanced p-4 space-y-3"
+        data-testid="judge-lab-agreement-launcher"
+      >
+        <p className="text-sm font-ui" style={{ color: 'var(--text-secondary)' }}>
+          Run a holistic (no-rubric) judge AND a rubric judge on the same pairs, then measure how often
+          the rubric — overall and per criterion — agrees with the holistic winner. 4 LLM calls per
+          pair·repeat (2 holistic + 2 rubric).
+        </p>
+
+        <div className="grid grid-cols-2 gap-3 text-xs font-ui md:grid-cols-3">
+          <label className="flex flex-col gap-1">
+            <span>Test set</span>
+            <select
+              data-testid="agreement-test-set-select"
+              className="rounded border px-2 py-1"
+              style={inputStyle}
+              value={testSetId}
+              onChange={(e) => {
+                setTestSetId(e.target.value);
+                setTestSetName(testSets.find((t) => t.id === e.target.value)?.name ?? '');
+              }}
+            >
+              {testSets.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span>Judge model (both judges)</span>
+            <select
+              data-testid="agreement-model-select"
+              className="rounded border px-2 py-1"
+              style={inputStyle}
+              value={judgeModel}
+              onChange={(e) => setJudgeModel(e.target.value)}
+            >
+              {modelIds.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span>Rubric (required)</span>
+            <select
+              data-testid="agreement-rubric-select"
+              className="rounded border px-2 py-1"
+              style={inputStyle}
+              value={judgeRubricId}
+              onChange={(e) => setJudgeRubricId(e.target.value)}
+            >
+              <option value="">— select a rubric —</option>
+              {rubrics.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="flex flex-col gap-1">
+            <span>Kind</span>
+            <div className="flex gap-1">
+              {(['both', 'article', 'paragraph'] as Kind[]).map((k) => (
+                <button
+                  key={k}
+                  data-testid={`agreement-kind-${k}`}
+                  className="rounded border px-2 py-1"
+                  style={{
+                    borderColor: 'var(--border-default)',
+                    background: kind === k ? 'var(--accent-gold)' : 'transparent',
+                    color: kind === k ? 'var(--text-on-primary)' : 'var(--text-secondary)',
+                  }}
+                  onClick={() => setKind(k)}
+                >
+                  {k}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <label className="flex flex-col gap-1">
+            <span>Temperature</span>
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              max="2"
+              className="rounded border px-2 py-1"
+              style={inputStyle}
+              value={temperature}
+              onChange={(e) => setTemperature(Number(e.target.value))}
+            />
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span>Reasoning</span>
+            <select
+              className="rounded border px-2 py-1"
+              style={inputStyle}
+              value={reasoning}
+              onChange={(e) => setReasoning(e.target.value as 'none' | 'low' | 'medium')}
+            >
+              {(['none', 'low', 'medium'] as const).map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span>Repeats</span>
+            <input
+              type="number"
+              min="1"
+              max="50"
+              className="rounded border px-2 py-1"
+              style={inputStyle}
+              value={repeats}
+              onChange={(e) => setRepeats(Number(e.target.value))}
+            />
+          </label>
+        </div>
+
+        {estimate && (
+          <div className="text-xs font-ui" data-testid="agreement-est" style={{ color: 'var(--text-muted)' }}>
+            {estimate}
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <button
+            data-testid="agreement-dry-run"
+            disabled={launching}
+            className="text-xs px-3 py-1 rounded border"
+            style={{ borderColor: 'var(--border-default)' }}
+            onClick={() => void run(true)}
+          >
+            Dry run
+          </button>
+          <button
+            data-testid="agreement-launch"
+            disabled={launching}
+            className="text-xs px-3 py-1 rounded border"
+            style={{ borderColor: 'var(--border-default)', background: 'var(--accent-gold)', color: 'var(--text-on-primary)' }}
+            onClick={() => void run(false)}
+          >
+            {launching ? 'Running…' : 'Launch sweep'}
+          </button>
+        </div>
+      </div>
+
+      {/* Leaderboard */}
+      <div className="rounded-book paper-texture card-enhanced p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-ui font-semibold">Agreement runs</div>
+          <div className="flex gap-1">
+            {(['both', 'article', 'paragraph'] as Kind[]).map((k) => (
+              <button
+                key={k}
+                data-testid={`view-${k}`}
+                className="text-xs px-2 py-1 rounded border"
+                style={{
+                  borderColor: 'var(--border-default)',
+                  background: viewKind === k ? 'var(--accent-gold)' : 'transparent',
+                  color: viewKind === k ? 'var(--text-on-primary)' : 'var(--text-secondary)',
+                }}
+                onClick={() => setViewKind(k)}
+              >
+                {k}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <table className="w-full text-xs font-ui" data-testid="agreement-leaderboard">
+          <thead>
+            <tr style={{ color: 'var(--text-muted)' }}>
+              <th className="text-left py-1">Run</th>
+              <th className="text-left">Model</th>
+              <th className="text-left">Kind</th>
+              <th className="text-right">Per-rep</th>
+              <th className="text-right">Both-dec</th>
+              <th className="text-right">Abstain</th>
+              <th className="text-right">Acc Δ</th>
+              <th className="text-right">N</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={8} className="py-2" style={{ color: 'var(--text-muted)' }}>
+                  {loadingBoard ? 'Loading…' : 'No agreement runs for this test set yet.'}
+                </td>
+              </tr>
+            )}
+            {rows.map((r, i) => (
+              <tr key={`${r.agreement_run_id}-${r.pair_kind}-${i}`} data-testid="agreement-leaderboard-row">
+                <td className="py-1">
+                  {r.agreement_run_id ? (
+                    <Link
+                      href={`/admin/evolution/judge-lab/agreement/runs/${r.agreement_run_id}`}
+                      style={{ color: 'var(--accent-gold)' }}
+                    >
+                      {r.agreement_run_id.slice(0, 8)}
+                    </Link>
+                  ) : (
+                    '—'
+                  )}
+                </td>
+                <td>{r.judge_model ?? '—'}</td>
+                <td>{r.pair_kind ?? '—'}</td>
+                <td className="text-right">{pct(r.strict_agree_rate)}</td>
+                <td className="text-right">{pct(r.both_decisive_agree_rate)}</td>
+                <td className="text-right">{pct(r.abstain_divergence_rate)}</td>
+                <td className="text-right">{delta(r.rubric_accuracy, r.holistic_accuracy)}</td>
+                <td className="text-right">{r.n_calls ?? 0}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="text-xs font-ui" style={{ color: 'var(--text-muted)' }}>
+          Per-rep = per-repeat label match · Both-dec = agreement when both judges decisive · Acc Δ =
+          rubric − holistic accuracy vs Elo ground truth (large-gap pairs).
+        </p>
+      </div>
+    </div>
+  );
+}

@@ -318,6 +318,19 @@ export default function JudgeLabPage(): JSX.Element {
             {label}
           </button>
         ))}
+        {/* Agreement sweep lives on its own sub-route (separate run-detail param). */}
+        <Link
+          href="/admin/evolution/judge-lab/agreement"
+          data-testid="judge-lab-mode-agreement"
+          className="text-xs px-2 py-1 rounded border"
+          style={{
+            borderColor: 'var(--border-default)',
+            background: 'transparent',
+            color: 'var(--text-secondary)',
+          }}
+        >
+          Agreement
+        </Link>
       </div>
 
       {/* Sweep launcher */}

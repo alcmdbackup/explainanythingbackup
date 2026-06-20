@@ -69,6 +69,32 @@ export function buildEscalationSettingsKey(i: EscalationSettingsKeyInput): strin
   return createHash('sha256').update(canonical).digest('hex').slice(0, 32);
 }
 
+export interface AgreementSettingsKeyInput {
+  judgeModel: string;
+  temperature: number;
+  reasoningEffort: JudgeReasoningEffort | null;
+  judgeRubricId: string;
+  kindFilter: JudgeKindFilter;
+  repeats: number;
+  testSetId: string;
+}
+
+/** Idempotency key for an AGREEMENT sweep (holistic + rubric paired). The `agreement` prefix
+ *  guarantees no collision with single-judge (`buildSettingsKey`) or escalation keys. */
+export function buildAgreementSettingsKey(i: AgreementSettingsKeyInput): string {
+  const canonical = [
+    'agreement',
+    i.judgeModel,
+    i.temperature.toFixed(2),
+    i.reasoningEffort ?? 'none',
+    i.judgeRubricId,
+    i.kindFilter,
+    String(i.repeats),
+    i.testSetId,
+  ].join('|');
+  return createHash('sha256').update(canonical).digest('hex').slice(0, 32);
+}
+
 export interface CapInput {
   /** Distinct settings cells in the sweep (models × temps × reasoning × prompt variants). */
   cells: number;

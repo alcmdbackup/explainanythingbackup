@@ -401,6 +401,18 @@ the winner" a queryable table instead of a JSONB blob. The **`criteria_split`** 
 submatch per rubric dimension (each judging a single-criterion sub-rubric, possibly on a different
 model), folded by the `criteria_weighted` aggregation rule.
 
+**Agreement sweep** (Judge Lab, migration `20260619000001`) — a separate family answering "how often
+does a rubric judge agree with the holistic no-rubric judge?": `judge_eval_agreement_runs` (one per
+settings tuple, UNIQUE `settings_key` with an `agreement|` prefix; carries `judge_rubric_id`),
+`judge_eval_agreement_calls` (per (pair × repeat): `holistic_winner`/`rubric_winner` + confidences,
+`holistic_decisive`/`rubric_decisive` GENERATED `(confidence > 0.6)`, `rubric_matches_holistic`, split
+cost/tokens, per-pass raw audit, and the same frozen ground-truth snapshot), and
+`judge_eval_agreement_criterion_verdicts` (one flat row per criterion per call: `dimension_winner`,
+`agrees_with_holistic` BOOLEAN NULL-on-abstain, `matches_ground_truth` BOOLEAN NULL-unless-large-gap).
+Plus VIEW `judge_eval_agreement_leaderboard` (per run × `pair_kind`: strict / both-decisive agreement,
+abstain-divergence, holistic/rubric accuracy; FILTER+NULLIF guarded). All deny-all + `service_role_all`
+RLS. Distinct from `favored_match_winner`, which compares a criterion to the rubric's OWN aggregate.
+
 ## Entity Relationships
 
 For a visual diagram, see [`entities.md`](./entities.md) and [`entity_diagram.png`](./entity_diagram.png).

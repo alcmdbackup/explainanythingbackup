@@ -79,6 +79,51 @@ persist normalized submatch + per-dimension rows (`evolution_arena_submatches` /
 Viewer (escalation badge + per-submatch dimension tables; legacy single-judge matches render
 unchanged). Flipping the env var in prod is the deliberate go-live step.
 
+## Agreement Sweep — rubric ↔ holistic (`evolution/src/lib/judgeEval/agreement.ts`)
+
+A third sweep mode (project `Compare_critera_judge_vs_whole_article_paragraph_judge_evolution_20260619`)
+answers a different question than the escalation/criteria-split sweeps: **how often does a rubric judge
+agree with the holistic (no-rubric) judge?** For each pair it runs BOTH a holistic 2-pass judge AND a
+rubric 2-pass judge (all criteria in one response) with the **same model** — **4 LLM calls per
+pair·repeat** (2 holistic + 2 rubric) — and records whether the aggregated rubric verdict and each
+individual criterion agree with the holistic winner, plus each side's accuracy vs the Elo-gap ground
+truth. (This is distinct from `judge_eval_dimension_verdicts.favored_match_winner`, which compares a
+criterion to the rubric's OWN aggregate, not to a separate holistic verdict.)
+
+The engine mirrors `escalation.ts` (inlined `Promise.all` 2-pass over an injected `JudgeFn` from
+`createCallLLMJudge` — NOT `compareWithBiasMitigation`): holistic = `buildComparisonPrompt` +
+`aggregateWinners`; rubric = `buildRubricComparisonPrompt` + `aggregateRubric`; per-criterion winner =
+`reconcilePasses(forward, reverse)`. Temperature/reasoning reach the model only via the closure's
+`CallLLMOptions`. The cost gate uses `assertWithinJudgeEvalCap({chainCap: 2})` → `plannedCalls =
+cells·pairs·repeats·2·2 = ×4`, and inherits the `JUDGE_EVAL_ENABLED` kill switch.
+
+**Data model (migration `20260619000001_judge_eval_agreement.sql`, additive + idempotent, deny-all +
+service_role_all RLS):**
+
+| Table / view | Purpose |
+|---|---|
+| `judge_eval_agreement_runs` | One row per settings tuple; `settings_key` (sha256 with an `agreement\|` prefix) UNIQUE → idempotent re-run. Carries `judge_rubric_id` (required). |
+| `judge_eval_agreement_calls` | Per (pair × repeat): holistic + rubric winner/confidence, `holistic_decisive`/`rubric_decisive` (GENERATED `confidence > 0.6`), `rubric_matches_holistic`, split + summed cost/tokens, per-pass raw audit, and the frozen ground-truth snapshot. |
+| `judge_eval_agreement_criterion_verdicts` | One flat row per criterion per call (SQL-queryable for `/analysis`): `dimension_winner`, `agrees_with_holistic` (NULL on criterion TIE/abstain), `matches_ground_truth` (NULL unless large-gap decisive). |
+| `judge_eval_agreement_leaderboard` (VIEW) | One row per run × `pair_kind`: strict / both-decisive agreement, abstain-divergence, and holistic/rubric accuracy (FILTER + NULLIF guard zero-large-gap runs). RLS-locked to `service_role`. |
+
+**Reducer** `computeAgreementMetrics` (`agreementMetrics.ts`, pure, reused by run-detail + tests): the
+three TIE buckets (strict / both-decisive `conf>0.6` / abstain-divergence), per-pair-modal vs
+per-repeat agreement, per-criterion agree/disagree/abstain (criterion TIE excluded from the
+agree/disagree denominator), and holistic/rubric/per-criterion accuracy on large-gap pairs only.
+
+**Server actions** (`judgeEvalActions.ts`): `createAgreementSweepAction` (cap-gated; **hard-fails when
+the rubric resolves to null** — no silent holistic fallback), `getAgreementLeaderboardAction` (SQL
+view), `getAgreementRunDetailAction` (run + Core calls + criterion verdicts → the page slices by kind
+and runs the reducer). **CLI:** `agreement-sweep --test-set <name> --model <id> --rubric <id>`.
+
+**Admin UI** (`src/app/admin/evolution/judge-lab/agreement/`): a third "Agreement" entry on the
+launcher mode toggle links to the sub-route (its run-detail lives at `agreement/runs/[agreementRunId]/`
+— nested so it doesn't collide with the existing `runs/[evalRunId]`). The run-detail `view-{kind}`
+toggle re-slices every panel: the metric tiles (3 TIE buckets + per-repeat), the per-criterion
+agreement table (with the aggregated-rubric summary row), the ground-truth accuracy panel, and the
+disagreement drill-down (Open in Match Viewer via `findArenaComparisonForVariantsAction`).
+
 ## Metrics (`evolution/src/lib/judgeEval/metrics.ts`)
 
 `decisive_rate` (conf > 0.6), self-consistency / agreement, avg confidence, **position-bias rate**

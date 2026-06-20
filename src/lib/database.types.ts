@@ -110,6 +110,224 @@ export type Database = {
           }
         ]
       }
+      judge_eval_agreement_runs: {
+        Row: {
+          id: string
+          test_set_id: string
+          judge_model: string
+          temperature: number
+          reasoning_effort: string | null
+          kind_filter: string
+          judge_rubric_id: string
+          repeats: number
+          settings_key: string
+          notes: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          test_set_id: string
+          judge_model: string
+          temperature?: number
+          reasoning_effort?: string | null
+          kind_filter?: string
+          judge_rubric_id: string
+          repeats?: number
+          settings_key: string
+          notes?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          test_set_id?: string
+          judge_model?: string
+          temperature?: number
+          reasoning_effort?: string | null
+          kind_filter?: string
+          judge_rubric_id?: string
+          repeats?: number
+          settings_key?: string
+          notes?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "judge_eval_agreement_runs_test_set_id_fkey"
+            columns: ["test_set_id"]
+            isOneToOne: false
+            referencedRelation: "judge_eval_test_sets"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      judge_eval_agreement_calls: {
+        Row: {
+          id: string
+          agreement_run_id: string
+          pair_label: string
+          pair_kind: string
+          repeat_index: number
+          holistic_winner: string
+          holistic_confidence: number
+          holistic_decisive: boolean
+          rubric_winner: string
+          rubric_confidence: number
+          rubric_decisive: boolean
+          rubric_matches_holistic: boolean | null
+          holistic_cost_usd: number | null
+          rubric_cost_usd: number | null
+          cost_usd: number | null
+          prompt_tokens: number | null
+          output_tokens: number | null
+          reasoning_tokens: number | null
+          wall_ms: number | null
+          holistic_forward_raw: string | null
+          holistic_reverse_raw: string | null
+          rubric_forward_raw: string | null
+          rubric_reverse_raw: string | null
+          error: string | null
+          mu_a: number | null
+          mu_b: number | null
+          sigma_a: number | null
+          sigma_b: number | null
+          baseline_confidence: number | null
+          gap_kind: string | null
+          expected_winner: string | null
+          variant_a_id: string | null
+          variant_b_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          agreement_run_id: string
+          pair_label: string
+          pair_kind: string
+          repeat_index: number
+          holistic_winner: string
+          holistic_confidence: number
+          rubric_winner: string
+          rubric_confidence: number
+          rubric_matches_holistic?: boolean | null
+          holistic_cost_usd?: number | null
+          rubric_cost_usd?: number | null
+          cost_usd?: number | null
+          prompt_tokens?: number | null
+          output_tokens?: number | null
+          reasoning_tokens?: number | null
+          wall_ms?: number | null
+          holistic_forward_raw?: string | null
+          holistic_reverse_raw?: string | null
+          rubric_forward_raw?: string | null
+          rubric_reverse_raw?: string | null
+          error?: string | null
+          mu_a?: number | null
+          mu_b?: number | null
+          sigma_a?: number | null
+          sigma_b?: number | null
+          baseline_confidence?: number | null
+          gap_kind?: string | null
+          expected_winner?: string | null
+          variant_a_id?: string | null
+          variant_b_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          agreement_run_id?: string
+          pair_label?: string
+          pair_kind?: string
+          repeat_index?: number
+          holistic_winner?: string
+          holistic_confidence?: number
+          rubric_winner?: string
+          rubric_confidence?: number
+          rubric_matches_holistic?: boolean | null
+          holistic_cost_usd?: number | null
+          rubric_cost_usd?: number | null
+          cost_usd?: number | null
+          prompt_tokens?: number | null
+          output_tokens?: number | null
+          reasoning_tokens?: number | null
+          wall_ms?: number | null
+          holistic_forward_raw?: string | null
+          holistic_reverse_raw?: string | null
+          rubric_forward_raw?: string | null
+          rubric_reverse_raw?: string | null
+          error?: string | null
+          mu_a?: number | null
+          mu_b?: number | null
+          sigma_a?: number | null
+          sigma_b?: number | null
+          baseline_confidence?: number | null
+          gap_kind?: string | null
+          expected_winner?: string | null
+          variant_a_id?: string | null
+          variant_b_id?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "judge_eval_agreement_calls_agreement_run_id_fkey"
+            columns: ["agreement_run_id"]
+            isOneToOne: false
+            referencedRelation: "judge_eval_agreement_runs"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      judge_eval_agreement_criterion_verdicts: {
+        Row: {
+          id: string
+          agreement_call_id: string
+          criteria_id: string | null
+          criteria_name: string
+          weight: number
+          forward_verdict: string | null
+          reverse_verdict: string | null
+          dimension_winner: string | null
+          agrees_with_holistic: boolean | null
+          matches_ground_truth: boolean | null
+          position: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          agreement_call_id: string
+          criteria_id?: string | null
+          criteria_name: string
+          weight: number
+          forward_verdict?: string | null
+          reverse_verdict?: string | null
+          dimension_winner?: string | null
+          agrees_with_holistic?: boolean | null
+          matches_ground_truth?: boolean | null
+          position?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          agreement_call_id?: string
+          criteria_id?: string | null
+          criteria_name?: string
+          weight?: number
+          forward_verdict?: string | null
+          reverse_verdict?: string | null
+          dimension_winner?: string | null
+          agrees_with_holistic?: boolean | null
+          matches_ground_truth?: boolean | null
+          position?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "judge_eval_agreement_criterion_verdicts_agreement_call_id_fkey"
+            columns: ["agreement_call_id"]
+            isOneToOne: false
+            referencedRelation: "judge_eval_agreement_calls"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       judge_eval_dimension_verdicts: {
         Row: {
           id: string
@@ -2114,6 +2332,27 @@ export type Database = {
       }
     }
     Views: {
+      judge_eval_agreement_leaderboard: {
+        Row: {
+          agreement_run_id: string | null
+          test_set_id: string | null
+          judge_model: string | null
+          temperature: number | null
+          reasoning_effort: string | null
+          judge_rubric_id: string | null
+          kind_filter: string | null
+          repeats: number | null
+          pair_kind: string | null
+          n_calls: number | null
+          strict_agree_rate: number | null
+          both_decisive_agree_rate: number | null
+          abstain_divergence_rate: number | null
+          holistic_accuracy: number | null
+          rubric_accuracy: number | null
+          total_cost_usd: number | null
+        }
+        Relationships: []
+      }
       judge_eval_settings_leaderboard: {
         Row: {
           test_set_id: string | null

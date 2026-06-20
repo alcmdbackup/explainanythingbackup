@@ -25,6 +25,10 @@ import {
   executeEscalationSweep,
   type EscalationSweepOutcome,
 } from '@evolution/lib/judgeEval/executeEscalationSweep';
+import {
+  executeAgreementSweep,
+  type AgreementSweepOutcome,
+} from '@evolution/lib/judgeEval/executeAgreementSweep';
 import { seedPairBankFromTopic } from '@evolution/lib/judgeEval/seed';
 import { getJudgeRubricForEvaluation } from './judgeRubricActions';
 import {
@@ -514,5 +518,139 @@ export const findArenaComparisonForVariantsAction = adminAction(
       .maybeSingle();
     if (error) throw error;
     return { comparisonId: data?.id ?? null };
+  },
+);
+
+// ─── Agreement sweep (holistic ↔ rubric) ────────────────────────────────────────────────────────
+// Compare_critera_judge_vs_whole_article_paragraph_judge_evolution_20260619: runs a HOLISTIC
+// (no-rubric) judge AND a RUBRIC judge on the same pairs and measures how often the rubric — overall
+// and per criterion — agrees with the holistic winner (+ each side's accuracy vs the Elo ground truth).
+
+// Core (no raw audit) columns for judge_eval_agreement_calls reads — never SELECT *.
+const CORE_AGREEMENT_CALL_COLUMNS =
+  'id, agreement_run_id, pair_label, pair_kind, repeat_index, holistic_winner, holistic_confidence, ' +
+  'holistic_decisive, rubric_winner, rubric_confidence, rubric_decisive, rubric_matches_holistic, ' +
+  'holistic_cost_usd, rubric_cost_usd, cost_usd, wall_ms, error, created_at, mu_a, mu_b, sigma_a, ' +
+  'sigma_b, baseline_confidence, gap_kind, expected_winner, variant_a_id, variant_b_id';
+const AGREEMENT_CRITERION_COLUMNS =
+  'id, agreement_call_id, criteria_id, criteria_name, weight, dimension_winner, ' +
+  'agrees_with_holistic, matches_ground_truth, position';
+
+export type AgreementCallCore =
+  Database['public']['Tables']['judge_eval_agreement_calls']['Row'];
+export type AgreementCriterionRow =
+  Database['public']['Tables']['judge_eval_agreement_criterion_verdicts']['Row'];
+
+const createAgreementSweepSchema = z.object({
+  testSetName: z.string().min(1),
+  kindFilter: kindFilterSchema.default('both'),
+  judgeModel: z.string().min(1),
+  temperature: z.number().min(0).max(2).default(0),
+  reasoningEffort: reasoningEffortSchema.nullable().default(null),
+  judgeRubricId: z.string().uuid(),
+  repeats: z.number().int().min(1).max(50).default(10),
+  dryRun: z.boolean().default(false),
+});
+
+export const createAgreementSweepAction = adminAction(
+  'createAgreementSweep',
+  async (
+    input: z.input<typeof createAgreementSweepSchema>,
+    ctx: AdminContext,
+  ): Promise<AgreementSweepOutcome> => {
+    const parsed = createAgreementSweepSchema.parse(input);
+
+    const allowed = new Set(getEvolutionModelIds());
+    if (!allowed.has(parsed.judgeModel)) throw new Error(`Invalid judgeModel: ${parsed.judgeModel}`);
+
+    const testSet = await loadTestSetByName(db(ctx), parsed.testSetName);
+    if (!testSet) throw new Error(`Test set not found: ${parsed.testSetName}`);
+
+    // A rubric is REQUIRED for an agreement sweep — hard-fail rather than silently falling back to a
+    // holistic-only run (which would make the comparison meaningless).
+    const rubric = await getJudgeRubricForEvaluation(db(ctx), parsed.judgeRubricId);
+    if (!rubric) {
+      throw new Error(`Judge rubric not found or has no active criteria: ${parsed.judgeRubricId}`);
+    }
+
+    // executeAgreementSweep enforces the hard cost ceiling (4 calls/pair·repeat) + JUDGE_EVAL_ENABLED
+    // before any LLM call. trackingDb writes an llmCallTracking row per judge call.
+    return executeAgreementSweep(
+      db(ctx),
+      {
+        testSetId: testSet.id,
+        kindFilter: parsed.kindFilter,
+        judgeModel: parsed.judgeModel,
+        temperature: parsed.temperature,
+        reasoningEffort: parsed.reasoningEffort as JudgeReasoningEffort | null,
+        rubric,
+        repeats: parsed.repeats,
+      },
+      { dryRun: parsed.dryRun, userId: ctx.adminUserId, trackingDb: db(ctx) },
+    );
+  },
+);
+
+const agreementLeaderboardSchema = z.object({
+  testSetId: z.string().uuid(),
+  kind: z.enum(['article', 'paragraph', 'both']).default('both'),
+});
+
+/** Headline agreement aggregates per run × pair_kind (SQL view). Zero LLM cost. */
+export const getAgreementLeaderboardAction = adminAction(
+  'getAgreementLeaderboard',
+  async (input: z.input<typeof agreementLeaderboardSchema>, ctx: AdminContext) => {
+    const parsed = agreementLeaderboardSchema.parse(input);
+    let q = db(ctx)
+      .from('judge_eval_agreement_leaderboard')
+      .select('*')
+      .eq('test_set_id', parsed.testSetId)
+      .order('strict_agree_rate', { ascending: false, nullsFirst: false });
+    if (parsed.kind !== 'both') q = q.eq('pair_kind', parsed.kind);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data ?? [];
+  },
+);
+
+const agreementRunDetailSchema = z.object({ runId: z.string().uuid() });
+
+/** One agreement run's full data: the run row, all per-(pair × repeat) Core call rows (both kinds),
+ *  and all per-criterion verdict rows for those calls. The page slices by kind + runs the pure
+ *  computeAgreementMetrics reducer (matching the runs/[evalRunId] TS-reducer pattern). */
+export const getAgreementRunDetailAction = adminAction(
+  'getAgreementRunDetail',
+  async (input: z.input<typeof agreementRunDetailSchema>, ctx: AdminContext) => {
+    const { runId } = agreementRunDetailSchema.parse(input);
+
+    const runRes = await db(ctx)
+      .from('judge_eval_agreement_runs')
+      .select('*')
+      .eq('id', runId)
+      .single();
+    if (runRes.error) throw runRes.error;
+
+    const callsRes = await db(ctx)
+      .from('judge_eval_agreement_calls')
+      .select(CORE_AGREEMENT_CALL_COLUMNS)
+      .eq('agreement_run_id', runId)
+      .order('pair_label', { ascending: true })
+      .order('repeat_index', { ascending: true });
+    if (callsRes.error) throw callsRes.error;
+    const calls = (callsRes.data ?? []) as unknown as AgreementCallCore[];
+
+    // Criterion verdicts for this run's calls (the FK is to the calls table, not the run).
+    const callIds = calls.map((c) => c.id);
+    let criterionVerdicts: AgreementCriterionRow[] = [];
+    if (callIds.length > 0) {
+      const cvRes = await db(ctx)
+        .from('judge_eval_agreement_criterion_verdicts')
+        .select(AGREEMENT_CRITERION_COLUMNS)
+        .in('agreement_call_id', callIds);
+      if (cvRes.error) throw cvRes.error;
+      criterionVerdicts = (cvRes.data ?? []) as unknown as AgreementCriterionRow[];
+    }
+
+    return { run: runRes.data, calls, criterionVerdicts };
   },
 );

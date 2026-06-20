@@ -18,6 +18,7 @@ import { seedPairBankFromTopic } from '@evolution/lib/judgeEval/seed';
 import { loadPairBankByName, loadTestSetByName, getOrCreateTestSet } from '@evolution/lib/judgeEval/persist';
 import { executeSweep } from '@evolution/lib/judgeEval/executeSweep';
 import { executeEscalationSweep } from '@evolution/lib/judgeEval/executeEscalationSweep';
+import { executeAgreementSweep } from '@evolution/lib/judgeEval/executeAgreementSweep';
 import { getJudgeRubricForEvaluation } from '@evolution/services/judgeRubricActions';
 import { computeMetrics } from '@evolution/lib/judgeEval/metrics';
 import type { JudgeReasoningEffort, JudgeKindFilter } from '@evolution/lib/judgeEval/schemas';
@@ -226,7 +227,49 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.error('Unknown command. Use: seed | create-test-set | sweep | escalation-sweep');
+  if (cmd === 'agreement-sweep') {
+    const testSetName = flag(args, 'test-set');
+    if (!testSetName) throw new Error('agreement-sweep requires --test-set');
+    const testSet = await loadTestSetByName(db, testSetName);
+    if (!testSet) throw new Error(`Test set not found: ${testSetName}`);
+
+    const judgeModel = flag(args, 'model');
+    if (!judgeModel) throw new Error('agreement-sweep requires --model <id>');
+    const rubricId = flag(args, 'rubric');
+    if (!rubricId) throw new Error('agreement-sweep requires --rubric <id>');
+    const rubric = await getJudgeRubricForEvaluation(db, rubricId);
+    if (!rubric) throw new Error(`Judge rubric not found or has no active criteria: ${rubricId}`);
+
+    const reasoning = flag(args, 'reasoning');
+    const dryRun = has(args, 'dry-run');
+
+    const outcome = await executeAgreementSweep(
+      db,
+      {
+        testSetId: testSet.id,
+        kindFilter: (flag(args, 'kind') as JudgeKindFilter) ?? 'both',
+        judgeModel,
+        temperature: num(flag(args, 'temperature'), 0),
+        reasoningEffort: (reasoning && reasoning !== 'none' ? reasoning : null) as JudgeReasoningEffort | null,
+        rubric,
+        repeats: num(flag(args, 'repeats'), 10),
+      },
+      { dryRun, trackingDb: db, userId: undefined },
+    );
+
+    console.log(`Test set ${testSetName} (${outcome.testSetId}) · ${outcome.pairCount} pairs`);
+    console.log(
+      `Agreement (holistic ↔ rubric ${rubricId}) · ${outcome.plannedCalls} calls (4/pair·repeat) · est $${outcome.estimate.estimatedCostUsd.toFixed(4)}`,
+    );
+    if (dryRun || outcome.runId == null) {
+      console.log('(dry run — no LLM calls made)');
+      return;
+    }
+    console.log(`Run ${outcome.runId} · ${outcome.callCount} calls · ${outcome.criterionCount} criterion verdicts`);
+    return;
+  }
+
+  console.error('Unknown command. Use: seed | create-test-set | sweep | escalation-sweep | agreement-sweep');
   process.exitCode = 1;
 }
 
