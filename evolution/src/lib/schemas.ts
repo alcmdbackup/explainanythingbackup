@@ -1108,6 +1108,14 @@ const evolutionConfigBaseSchema = z.object({
   /** Resolved ensemble chain + aggregation rule. Present ONLY when ensembleConfigId resolved AND the
    *  EVOLUTION_JUDGE_ESCALATION_ENABLED kill switch is on; undefined → single-judge ranking. */
   ensemble: z.custom<EnsembleConfig>().optional(),
+  /** Optional model overrides propagated from StrategyConfig. The agent layer reads
+   *  them off ctx.config via cast (mirrors IterativeEditingAgent.ts:155-167 pattern).
+   *  Required here in the resolved EvolutionConfig so the propagation from
+   *  stratConfig → ctx.config doesn't silently drop them (Phase 4d canary B
+   *  silent-fallback bug observed 2026-06-19). */
+  editingModel: z.string().optional(),
+  approverModel: z.string().optional(),
+  coordinatorModel: z.string().optional(),
 });
 
 export const evolutionConfigSchema = z.preprocess(preprocessBudgetFloor, evolutionConfigBaseSchema);

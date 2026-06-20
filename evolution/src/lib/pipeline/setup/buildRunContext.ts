@@ -477,6 +477,15 @@ export async function buildRunContext(
     ensembleConfigId: stratConfig.ensembleConfigId,
     ensemble,
     generationModel: stratConfig.generationModel,
+    // Phase 4d (investigate_sequential_paragraph_recombine_performance_20260615) +
+    // pre-existing editingModel/approverModel: these optional model-override fields
+    // are read off ctx.config at the agent layer (mirroring IterativeEditingAgent.ts:155-167
+    // pattern). They MUST be propagated from stratConfig here or the cast on the
+    // agent side resolves to undefined → silent fallback to generationModel — which
+    // was the canary-B-failure root cause observed on 2026-06-19.
+    coordinatorModel: stratConfig.coordinatorModel,
+    editingModel: stratConfig.editingModel,
+    approverModel: stratConfig.approverModel,
     calibrationOpponents: 5,
     tournamentTopK: 5,
     generationGuidance: stratConfig.generationGuidance,

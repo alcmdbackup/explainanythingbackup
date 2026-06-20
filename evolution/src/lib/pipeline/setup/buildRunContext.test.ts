@@ -168,6 +168,40 @@ describe('buildRunContext', () => {
     }
   });
 
+  // Regression test for fix/propagate_optional_model_fields_evolution_config_20260619.
+  // Phase 4d's coordinatorModel + the pre-existing editingModel + approverModel are
+  // read off ctx.config by the agent layer via `(ctx.config as { coordinatorModel?: string })`.
+  // If buildRunContext does NOT propagate these from stratConfig into the constructed
+  // EvolutionConfig, the cast silently resolves to undefined → agent falls back to
+  // generationModel → strategy override does NOTHING. This was caught when Canary B
+  // with `coordinatorModel: 'gpt-5-mini'` showed identical coordinator-call cost to
+  // Canary A (no override) on staging 2026-06-19.
+  it('propagates optional model overrides (coordinatorModel, editingModel, approverModel) from stratConfig into ctx.config', async () => {
+    const { db } = makeMockDb({
+      contentText: validText,
+      strategyConfig: {
+        generationModel: 'gpt-4.1-nano',
+        judgeModel: 'gpt-4.1-nano',
+        iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
+        coordinatorModel: 'gpt-5-mini',
+        editingModel: 'gpt-4.1',
+        approverModel: 'gpt-4.1-mini',
+      },
+    });
+    const run = makeClaimedRun();
+
+    const result = await buildRunContext('run-1', run, db, makeProvider());
+
+    expect('context' in result).toBe(true);
+    if ('context' in result) {
+      // The agent-side cast `(ctx.config as { coordinatorModel?: string })` reads these
+      // off ctx.config directly. Verify each is present with the strategy's value.
+      expect(result.context.config.coordinatorModel).toBe('gpt-5-mini');
+      expect(result.context.config.editingModel).toBe('gpt-4.1');
+      expect(result.context.config.approverModel).toBe('gpt-4.1-mini');
+    }
+  });
+
   it('passes generationGuidance from strategy config to EvolutionConfig', async () => {
     const guidance = [
       { tactic: 'engagement_amplify', percent: 60 },
