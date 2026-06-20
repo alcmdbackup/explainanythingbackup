@@ -86,7 +86,6 @@ describe('weight-inference integration', () => {
     // criteria (TESTEVO-…-<ms> form; brackets illegal in evolution_criteria.name)
     const critRows = ['clarity', 'depth', 'tone'].map((n) => ({
       name: `${n}-${TS}-t`,
-      label: n,
       description: `test ${n}`,
       min_rating: 1,
       max_rating: 10,
