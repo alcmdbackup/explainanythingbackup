@@ -90,6 +90,16 @@ interface IterationRow {
    *  target — keeps existing strategy behavior identical when unset. */
   maxDispatches?: number;
   perInvocationCapUsd?: number;
+  /** meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6:
+   *  Mode B (iterative_editing_rewrite) only. Soft-cap on proposer atomic edits
+   *  per cycle. Default 3; range 1-10. */
+  editingProposerSoftCap?: number;
+  /** meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6:
+   *  Mode B (iterative_editing_rewrite) only. When true, IterativeEditingAgent
+   *  skips the post-parse coalesceAdjacentGroups + capGroupsByMagnitude steps
+   *  so the approver sees every diff atomic as its own singleton group.
+   *  Default false (production behavior unchanged). */
+  disableApproverFiltering?: boolean;
 }
 
 // Paragraph_recombine wizard defaults — match agent constants.
@@ -173,6 +183,10 @@ interface IterationConfigPayload {
   paragraphRewriteModel?: string;
   maxDispatches?: number;
   perInvocationCapUsd?: number;
+  /** Phase 6: Mode B only. */
+  editingProposerSoftCap?: number;
+  /** Phase 6: Mode B only. */
+  disableApproverFiltering?: boolean;
 }
 
 /** Variant-producing agent types share the same parent-article source machinery
@@ -305,6 +319,16 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
       : {}),
     ...(it.agentType === 'paragraph_recombine' && it.perInvocationCapUsd != null && it.perInvocationCapUsd !== PARAGRAPH_RECOMBINE_DEFAULTS.perInvocationCapUsd
       ? { perInvocationCapUsd: it.perInvocationCapUsd }
+      : {}),
+    // meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6:
+    // Mode B (iterative_editing_rewrite) only. Both fields are stripped pre-hash
+    // by FIELD_GATES if they appear on a non-rewrite agent type, but only emit
+    // them here when truly applicable to keep the payload tidy.
+    ...(it.agentType === 'iterative_editing_rewrite' && it.editingProposerSoftCap != null
+      ? { editingProposerSoftCap: it.editingProposerSoftCap }
+      : {}),
+    ...(it.agentType === 'iterative_editing_rewrite' && it.disableApproverFiltering === true
+      ? { disableApproverFiltering: true }
       : {}),
   }));
 }
@@ -654,6 +678,8 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         delete updated.debateJudgeReasoningEffort;
+        delete updated.editingProposerSoftCap;
+        delete updated.disableApproverFiltering;
         return updated;
       }
       // Debate selects parents internally; reject sourceMode + qualityCutoff per Phase 4.7.
@@ -671,6 +697,8 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.lengthCapRatio;
         delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
+        delete updated.editingProposerSoftCap;
+        delete updated.disableApproverFiltering;
         return updated;
       }
       // iterative_editing + iterative_editing_rewrite: keep editingMaxCycles + editingCutoff*; drop variant-flow fields.
@@ -682,6 +710,13 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.lengthCapRatio;
         delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
+        // Phase 6: editingProposerSoftCap + disableApproverFiltering are Mode B
+        // only. The shared branch covers both Mode A and Mode B, so guard the
+        // delete on Mode A only — Mode B keeps the fields.
+        if (updated.agentType === 'iterative_editing') {
+          delete updated.editingProposerSoftCap;
+          delete updated.disableApproverFiltering;
+        }
       } else if (updated.agentType === 'proposer_approver_criteria_generate') {
         // Single-cycle propose/approve agent. editingMaxCycles fixed at 1.
         delete updated.tacticGuidance;
@@ -695,6 +730,8 @@ export default function NewStrategyPage(): JSX.Element {
         updated.lengthCapRatio ??= 1.10;
         updated.redundancyJaccardThreshold ??= 0.35;
         updated.includesMirrorApprover ??= true;
+        delete updated.editingProposerSoftCap;
+        delete updated.disableApproverFiltering;
       } else if (updated.agentType === 'single_pass_evaluate_criteria_and_generate') {
         delete updated.tacticGuidance;
         delete updated.reflectionTopN;
@@ -706,6 +743,8 @@ export default function NewStrategyPage(): JSX.Element {
         updated.criteriaIds ??= [];
         updated.weakestK ??= 1;
         updated.redundancyJaccardThreshold ??= 0.35;
+        delete updated.editingProposerSoftCap;
+        delete updated.disableApproverFiltering;
       } else if (updated.agentType === 'reflect_and_generate') {
         // Shape A: tacticGuidance is generate-only. Switching to reflect_and_generate
         // clears any guidance so the schema mutex stays satisfied.
@@ -717,6 +756,8 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.includesMirrorApprover;
         delete updated.debateJudgeReasoningEffort;
         updated.reflectionTopN ??= 3;
+        delete updated.editingProposerSoftCap;
+        delete updated.disableApproverFiltering;
       } else if (updated.agentType === 'criteria_and_generate') {
         delete updated.tacticGuidance;
         delete updated.reflectionTopN;
@@ -726,6 +767,8 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.debateJudgeReasoningEffort;
         updated.criteriaIds ??= [];
         updated.weakestK ??= 1;
+        delete updated.editingProposerSoftCap;
+        delete updated.disableApproverFiltering;
       } else if (updated.agentType === 'paragraph_recombine') {
         // Clear unrelated criteria/editing/reflection/debate fields.
         delete updated.tacticGuidance;
@@ -747,6 +790,8 @@ export default function NewStrategyPage(): JSX.Element {
         // payload emission skips defaults so back-compat hash is preserved.
         updated.maxDispatches ??= PARAGRAPH_RECOMBINE_DEFAULTS.maxDispatches;
         updated.perInvocationCapUsd ??= PARAGRAPH_RECOMBINE_DEFAULTS.perInvocationCapUsd;
+        delete updated.editingProposerSoftCap;
+        delete updated.disableApproverFiltering;
       } else {
         // generate: drop reflection + criteria + debate + paragraph fields (stale from prior selection).
         delete updated.reflectionTopN;
@@ -762,6 +807,8 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.paragraphRewriteModel;
         delete updated.maxDispatches;
         delete updated.perInvocationCapUsd;
+        delete updated.editingProposerSoftCap;
+        delete updated.disableApproverFiltering;
       }
       // Variant-producing: ensure sourceMode is always set so payload emission is deterministic.
       updated.sourceMode ??= 'seed';
@@ -1559,6 +1606,47 @@ export default function NewStrategyPage(): JSX.Element {
                         </select>
                         <span className="text-[var(--text-muted)]" title="Caps how many top-Elo variants from the pool can be edited this iteration. Default 10 — most strategies are budget-bound first.">
                           &nbsp;· caps editable variants per iteration
+                        </span>
+                      </div>
+                    )}
+                    {/* Phase 6 Mode-B-only knobs: editingProposerSoftCap + disableApproverFiltering.
+                        Added by meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616. */}
+                    {it.agentType === 'iterative_editing_rewrite' && (
+                      <div
+                        className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
+                        data-testid={`iteration-rewrite-controls-${idx}`}
+                      >
+                        <span className="text-[var(--text-primary)]" title="Soft-cap on how many distinct improvements the proposer is asked to suggest per cycle. Surfaces in the prompt as 'AT MOST N distinct improvements'. Default 3; range 1-10.">
+                          🎯 Proposer soft-cap:
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          step={1}
+                          value={it.editingProposerSoftCap ?? 3}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Number(e.target.value);
+                            updateIteration(idx, { editingProposerSoftCap: v });
+                          }}
+                          className="w-14 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                          data-testid={`editing-proposer-soft-cap-${idx}`}
+                        />
+                        <label
+                          className="ml-4 inline-flex items-center gap-1 text-[var(--text-primary)] cursor-pointer"
+                          title="When checked, the approver sees every diff atomic as its own group — no coalescing into multi-atomic bundles, no top-10 magnitude cap. Quality gates (heading/quote/code-fence rules, max edit length, per-cycle ceiling) still apply. Expect more approver decisions per cycle and slightly higher approver cost. Off by default."
+                        >
+                          <input
+                            type="checkbox"
+                            checked={it.disableApproverFiltering === true}
+                            onChange={e => updateIteration(idx, { disableApproverFiltering: e.target.checked })}
+                            className="w-3.5 h-3.5 accent-[var(--accent-gold)]"
+                            data-testid={`disable-approver-filtering-${idx}`}
+                          />
+                          <span>Disable approver filtering</span>
+                        </label>
+                        <span className="text-[var(--text-muted)] basis-full pl-6">
+                          Sends every diff atomic individually to the approver. Skips coalescer + magnitude cap.
                         </span>
                       </div>
                     )}

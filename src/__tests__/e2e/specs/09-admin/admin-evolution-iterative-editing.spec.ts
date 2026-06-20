@@ -374,4 +374,54 @@ adminTest.describe('Iterative Editing Wizard', { tag: '@evolution' }, () => {
     await expect(adminPage.getByTestId('editing-cutoff-value-1')).toBeVisible();
     await expect(adminPage.getByTestId('editing-cutoff-mode-1')).toBeVisible();
   });
+
+  // meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6:
+  // the wizard exposes Mode B-only knobs `editingProposerSoftCap` and
+  // `disableApproverFiltering`. Both controls must (a) appear only on
+  // iterative_editing_rewrite rows, (b) hide on agent-type switch, (c)
+  // persist their values across re-renders.
+  adminTest('strategy wizard exposes Mode B knobs editingProposerSoftCap + disableApproverFiltering', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/strategies/new');
+    await adminPage.locator('#strategy-name').fill('[TEST_EVO] Mode B knobs');
+    await adminPage.locator('#generation-model').selectOption({ index: 1 });
+    await adminPage.locator('#judge-model').selectOption({ index: 1 });
+    await adminPage.getByRole('button', { name: /^Next:/i }).click();
+
+    const select = adminPage.locator('[data-testid="agent-type-select-1"]');
+    await select.selectOption('iterative_editing_rewrite');
+
+    // The Mode B rewrite controls block is visible.
+    await expect(adminPage.getByTestId('iteration-rewrite-controls-1')).toBeVisible();
+
+    // editingProposerSoftCap input: default 3, accepts 8, rejects 11.
+    const softCap = adminPage.getByTestId('editing-proposer-soft-cap-1');
+    await expect(softCap).toBeVisible();
+    await expect(softCap).toHaveValue('3');
+    await softCap.fill('8');
+    await expect(softCap).toHaveValue('8');
+    // Browser-native validation clamps via the input element's min/max attrs.
+    await expect(softCap).toHaveAttribute('max', '10');
+    await expect(softCap).toHaveAttribute('min', '1');
+
+    // disableApproverFiltering checkbox: default unchecked, toggleable.
+    const cb = adminPage.getByTestId('disable-approver-filtering-1');
+    await expect(cb).toBeVisible();
+    await expect(cb).not.toBeChecked();
+    await cb.check();
+    await expect(cb).toBeChecked();
+
+    // Switch agent type away from Mode B → controls hide AND values clear.
+    await select.selectOption('iterative_editing'); // Mode A
+    await expect(adminPage.getByTestId('iteration-rewrite-controls-1')).not.toBeVisible();
+    // Switching back to Mode B should show defaults again (Mode A cleanup
+    // deleted the saved values).
+    await select.selectOption('iterative_editing_rewrite');
+    await expect(adminPage.getByTestId('iteration-rewrite-controls-1')).toBeVisible();
+    await expect(adminPage.getByTestId('editing-proposer-soft-cap-1')).toHaveValue('3');
+    await expect(adminPage.getByTestId('disable-approver-filtering-1')).not.toBeChecked();
+
+    // Switching to a different agent type (generate) also hides the block.
+    await select.selectOption('generate');
+    await expect(adminPage.getByTestId('iteration-rewrite-controls-1')).not.toBeVisible();
+  });
 });

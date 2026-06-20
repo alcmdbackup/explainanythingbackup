@@ -292,6 +292,10 @@ The propose / forward / mirror calls all bucket to one **umbrella metric** (`pro
 
 **Strategy/experiment-level rollups**: `total_proposer_approver_criteria_cost` (sum) and `avg_proposer_approver_criteria_cost_per_run` (avg). Same shape as the `iterative_edit_*` propagation pattern.
 
+### `disableApproverFiltering` cost impact (meta_analysis Phase 6)
+
+Setting `disableApproverFiltering: true` on a Mode B (`iterative_editing_rewrite`) iteration sends every diff atomic to the approver as its own singleton group instead of bundled groups capped at K=10. At `editingProposerSoftCap=8` the proposer typically emits 40-60 atomics per cycle; the per-cycle ceiling `AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30` clamps to at most 30 approver decisions. On `gemini-2.5-flash-lite` the per-cycle approver call moves from ~$0.0006 (10 groups) → ~$0.0011 (~30 groups). Per-run cost (2 editing iterations × up to 3 cycles each = ≤6 approver calls) shifts from ~$0.038 → ~$0.041, well below the typical $0.05 per-run cap. The field is FIELD_GATES-stripped pre-hash for non-rewrite agent types so it can't drift other strategies' `config_hash`.
+
 **Single-pass criteria** (`SinglePassEvaluateCriteriaAndGenerateAgent`) cost stack is identical to the legacy criteria wrapper: one `evaluate_and_suggest` call + GFPA generation + ranking. The new 3 guardrail directives in the customPrompt add ~300 chars of overhead, captured by `estimateGenerationCost(seedArticleChars + 300, ...)` in the projector. Negligible cost difference (~$0.0001) but worth being right.
 
 ### Paragraph-Recombine Cost (rank_individual_paragraphs_evolution_20260525)
