@@ -108,6 +108,8 @@ All test content uses the `[TEST]` prefix at the start of titles to:
 
 > **Note:** Evolution-related test data also uses `[E2E]` and `[TEST_EVO]` prefixes. All three prefixes (`[TEST]`, `[E2E]`, `[TEST_EVO]`) are filtered by the test content filter in `evolution/src/services/shared.ts`.
 
+> **Evolution-runner test-content gate (since 2026-06-21):** E2E and integration tests can freely insert pending `evolution_runs` rows on `[TEST]`/`[TEST_EVO]` strategies without burning provider $$ — the minicomputer's queue claim (`claim_evolution_run`) skips them by default. If a test needs to verify queue-claim semantics (Pattern A-2, mocked LLM), set `executable: true` on `CreateTestRunOptions` (E2E factory) or `allow_test_execution: true` directly on the insert (integration test). Targeted claims via `/api/evolution/run` POST with `targetRunId` always work. See `evolution/docs/cost_optimization.md` → Test cost containment.
+
 ### Title Format
 
 | Content Type | Format Example |
