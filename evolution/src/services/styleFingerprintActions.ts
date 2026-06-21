@@ -19,6 +19,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid, applyTestContentColumnFilter } from './shared';
 import { callLLM, DEFAULT_MODEL, type LLMUsageMetadata } from '@/lib/services/llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import { extractStyleFingerprint } from '@evolution/lib/pipeline/setup/extractStyleFingerprint';
 import { renderFingerprintProse } from '@evolution/lib/pipeline/setup/renderFingerprintProse';
 import { writeMetricMax } from '@evolution/lib/metrics/writeMetrics';
@@ -93,7 +94,7 @@ async function extractWithCallLLM(
 ): Promise<{ traits: StyleFingerprintTraits; costUsd: number }> {
   let costUsd = 0;
   const callFn = async (prompt: string): Promise<string> =>
-    callLLM(prompt, 'style_extraction', userId, DEFAULT_MODEL, false, null, null, null, false, {
+    callLLM(prompt, CALL_SOURCES.evolutionStyleFingerprintExtraction, userId, DEFAULT_MODEL, false, null, null, null, false, {
       onUsage: (u: LLMUsageMetadata) => { costUsd += u.estimatedCostUsd; },
     });
   const traits = await extractStyleFingerprint(texts, callFn);
