@@ -1,23 +1,25 @@
 // Judge Lab → Agreement run detail. Loads the run's paired holistic↔rubric calls + per-criterion
-// verdicts, slices by kind (Both/Article/Paragraph) and runs the pure computeAgreementMetrics reducer
-// (matching the runs/[evalRunId] TS-reducer pattern). Renders the three TIE buckets + per-repeat,
-// per-criterion agreement table, ground-truth accuracy, and a disagreement drill-down.
+// verdicts + server-side-derived position-bias aggregates, slices by kind, and runs the pure
+// computeAgreementMetrics reducer. Renders 6 metric tiles (incl. holistic + rubric position bias),
+// per-criterion agreement table with Wilson CIs, ground-truth accuracy, and a link to the full
+// match-browse sub-route at /matches. Both-decisive opposite-winner disagreements are summarized
+// with a count; full browsing happens on the matches page.
 
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { EvolutionBreadcrumb, MetricGrid } from '@evolution/components/evolution';
-import {
-  getAgreementRunDetailAction,
-  findArenaComparisonForVariantsAction,
-} from '@evolution/services/judgeEvalActions';
+import { getAgreementRunDetailAction } from '@evolution/services/judgeEvalActions';
 import {
   computeAgreementMetrics,
   type AgreementCallMetricsInput,
   type AgreementCriterionMetricsInput,
+  type PositionBiasAggregates,
 } from '@evolution/lib/judgeEval/agreementMetrics';
+import type { WilsonInterval } from '@evolution/lib/shared/wilsonCI';
 
 type Kind = 'article' | 'paragraph' | 'both';
 
@@ -50,10 +52,25 @@ interface RunRow {
   kind_filter: string;
   repeats: number;
 }
+interface PositionBiasByKind {
+  article: PositionBiasAggregates;
+  paragraph: PositionBiasAggregates;
+  both: PositionBiasAggregates;
+}
 
 function pct(v: number | null): string {
   return v == null ? '—' : `${(v * 100).toFixed(0)}%`;
 }
+function pctWithCI(value: number | null, ci: WilsonInterval | null): string {
+  if (value == null) return '—';
+  const main = `${(value * 100).toFixed(0)}%`;
+  if (!ci) return main;
+  return `${main} [${(ci.low * 100).toFixed(0)}, ${(ci.high * 100).toFixed(0)}]`;
+}
+
+// Tooltip strings are inlined where used. MetricGrid does not accept per-tile title attributes today,
+// so per-tile tooltips would require lifting the metric labels to wrapped spans — out of scope here.
+// The <details>What do these mean?</summary> block above the tiles carries the canonical definitions.
 
 export default function AgreementRunDetailPage(): JSX.Element {
   const params = useParams<{ agreementRunId: string }>();
@@ -61,6 +78,7 @@ export default function AgreementRunDetailPage(): JSX.Element {
   const [run, setRun] = useState<RunRow | null>(null);
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [criteria, setCriteria] = useState<CriterionRow[]>([]);
+  const [positionBias, setPositionBias] = useState<PositionBiasByKind | null>(null);
   const [viewKind, setViewKind] = useState<Kind>('both');
   const [loading, setLoading] = useState(true);
 
@@ -76,11 +94,12 @@ export default function AgreementRunDetailPage(): JSX.Element {
       setRun(res.data.run as unknown as RunRow);
       setCalls(res.data.calls as unknown as CallRow[]);
       setCriteria(res.data.criterionVerdicts as unknown as CriterionRow[]);
+      setPositionBias(res.data.positionBias as PositionBiasByKind);
     })();
   }, [runId]);
 
   // Error-free calls of the selected kind + their criterion rows → the reducer.
-  const { metrics, disagreements } = useMemo(() => {
+  const { metrics, disagreementCount } = useMemo(() => {
     const errorFree = calls.filter((c) => c.error == null);
     const kindCalls = viewKind === 'both' ? errorFree : errorFree.filter((c) => c.pair_kind === viewKind);
     const callInputs: AgreementCallMetricsInput[] = kindCalls.map((c) => ({
@@ -102,31 +121,24 @@ export default function AgreementRunDetailPage(): JSX.Element {
         agrees_with_holistic: cv.agrees_with_holistic,
         matches_ground_truth: cv.matches_ground_truth,
       }));
-    // Both-decisive opposite-winner disagreements (the meaningful conflict).
-    const disagreements = kindCalls.filter(
+    const bias = positionBias ? positionBias[viewKind] : undefined;
+    // Both-decisive opposite-winner count (the meaningful conflict — surfaced as a count + link).
+    const disagreementCount = kindCalls.filter(
       (c) =>
         c.holistic_confidence > 0.6 &&
         c.rubric_confidence > 0.6 &&
         c.holistic_winner !== c.rubric_winner,
-    );
-    return { metrics: computeAgreementMetrics(callInputs, critInputs), disagreements };
-  }, [calls, criteria, viewKind]);
-
-  const openInMatchViewer = useCallback(async (c: CallRow) => {
-    if (!c.variant_a_id || !c.variant_b_id) return toast.error('No variant ids on this row');
-    const res = await findArenaComparisonForVariantsAction({ variantA: c.variant_a_id, variantB: c.variant_b_id });
-    if (res.success && res.data?.comparisonId) {
-      window.open(`/admin/evolution/matches/${res.data.comparisonId}`, '_blank');
-    } else {
-      toast.error('No matching arena comparison found');
-    }
-  }, []);
+    ).length;
+    return { metrics: computeAgreementMetrics(callInputs, critInputs, bias), disagreementCount };
+  }, [calls, criteria, viewKind, positionBias]);
 
   const tiles = [
-    { label: 'Per-pair agree', value: pct(metrics.perPairModalAgreeRate) },
-    { label: 'Agree (both-dec)', value: pct(metrics.bothDecisiveAgreeRate) },
-    { label: 'Abstain / diverge', value: pct(metrics.abstainDivergenceRate) },
-    { label: 'Per-repeat agree', value: pct(metrics.perRepeatAgreeRate) },
+    { label: 'Per-pair agreement', value: pctWithCI(metrics.perPairModalAgreeRate, metrics.perPairModalAgreeRateCi) },
+    { label: 'Per-repeat agreement', value: pctWithCI(metrics.perRepeatAgreeRate, metrics.perRepeatAgreeRateCi) },
+    { label: 'Both-decisive agreement', value: pctWithCI(metrics.bothDecisiveAgreeRate, metrics.bothDecisiveAgreeRateCi) },
+    { label: 'Single-judge abstain', value: pctWithCI(metrics.abstainDivergenceRate, metrics.abstainDivergenceRateCi) },
+    { label: 'Holistic position bias', value: pctWithCI(metrics.holisticPositionBiasRate, metrics.holisticPositionBiasRateCi) },
+    { label: 'Rubric position bias', value: pctWithCI(metrics.rubricPositionBiasRate, metrics.rubricPositionBiasRateCi) },
   ];
 
   return (
@@ -146,23 +158,61 @@ export default function AgreementRunDetailPage(): JSX.Element {
         </p>
       )}
 
-      <div className="flex gap-1" data-testid="agreement-view-toggle">
-        {(['both', 'article', 'paragraph'] as Kind[]).map((k) => (
-          <button
-            key={k}
-            data-testid={`view-${k}`}
-            className="text-xs px-2 py-1 rounded border"
-            style={{
-              borderColor: 'var(--border-default)',
-              background: viewKind === k ? 'var(--accent-gold)' : 'transparent',
-              color: viewKind === k ? 'var(--text-on-primary)' : 'var(--text-secondary)',
-            }}
-            onClick={() => setViewKind(k)}
-          >
-            {k}
-          </button>
-        ))}
+      <div className="flex items-center justify-between">
+        <div className="flex gap-1" data-testid="agreement-view-toggle">
+          {(['both', 'article', 'paragraph'] as Kind[]).map((k) => (
+            <button
+              key={k}
+              data-testid={`view-${k}`}
+              className="text-xs px-2 py-1 rounded border"
+              style={{
+                borderColor: 'var(--border-default)',
+                background: viewKind === k ? 'var(--accent-gold)' : 'transparent',
+                color: viewKind === k ? 'var(--text-on-primary)' : 'var(--text-secondary)',
+              }}
+              onClick={() => setViewKind(k)}
+            >
+              {k}
+            </button>
+          ))}
+        </div>
+        <Link
+          data-testid="agreement-view-all-matches"
+          href={`/admin/evolution/judge-lab/agreement/runs/${runId}/matches`}
+          className="text-xs underline"
+          style={{ color: 'var(--accent-gold)' }}
+        >
+          View all matches →
+        </Link>
       </div>
+
+      <details data-testid="agreement-definitions" className="text-xs font-ui" style={{ color: 'var(--text-muted)' }}>
+        <summary className="cursor-pointer">What do these mean?</summary>
+        <ul className="mt-2 space-y-1 pl-4 list-disc">
+          <li>
+            <strong>Per-repeat agreement</strong> — Fraction of (pair × repeat) calls where rubric winner equals holistic
+            winner. Strict — no decisive filter.
+          </li>
+          <li>
+            <strong>Per-pair (modal) agreement</strong> — Reduce each judge to its modal winner per pair, compare once per pair.
+            Smooths over per-call noise.
+          </li>
+          <li>
+            <strong>Both-decisive agreement</strong> — Among calls where both judges had confidence &gt; 0.6, fraction that agreed.
+          </li>
+          <li>
+            <strong>Single-judge abstain</strong> — Fraction of calls where exactly one judge was decisive (the other abstained
+            / returned TIE).
+          </li>
+          <li>
+            <strong>Holistic / Rubric position bias</strong> — Fraction of calls where forward-pass and reverse-pass picked
+            different winners. High values indicate the judge&apos;s verdict depends on text ordering.
+          </li>
+          <li>
+            <strong>[low, high]</strong> — 95% Wilson score interval (binomial CI on the proportion).
+          </li>
+        </ul>
+      </details>
 
       {loading ? (
         <p className="text-sm font-ui" style={{ color: 'var(--text-muted)' }}>
@@ -171,11 +221,13 @@ export default function AgreementRunDetailPage(): JSX.Element {
       ) : (
         <div className="space-y-4" data-testid={`kind-block-${viewKind}`}>
           <div className="rounded-book paper-texture card-enhanced p-4 space-y-2">
-            <div className="text-sm font-ui font-semibold">Rubric ↔ Holistic agreement ({metrics.n} calls)</div>
-            <MetricGrid metrics={tiles} columns={4} variant="card" testId="agreement-metrics" />
+            <div className="text-sm font-ui font-semibold">
+              Rubric ↔ Holistic agreement ({metrics.n} calls)
+            </div>
+            <MetricGrid metrics={tiles} columns={3} variant="card" testId="agreement-metrics" />
             <p className="text-xs font-ui" style={{ color: 'var(--text-muted)' }}>
-              Both decisive &amp; opposite: rubric A / holistic B {pct(metrics.rubricAHolisticBRate)} ·
-              rubric B / holistic A {pct(metrics.rubricBHolisticARate)}
+              Both decisive &amp; opposite: rubric A / holistic B {pct(metrics.rubricAHolisticBRate)} · rubric B / holistic A{' '}
+              {pct(metrics.rubricBHolisticARate)}
             </p>
           </div>
 
@@ -187,10 +239,10 @@ export default function AgreementRunDetailPage(): JSX.Element {
                 <tr style={{ color: 'var(--text-muted)' }}>
                   <th className="text-left py-1">Criterion</th>
                   <th className="text-right">Weight</th>
-                  <th className="text-right">Agree</th>
-                  <th className="text-right">Disagree</th>
-                  <th className="text-right">Abstain</th>
-                  <th className="text-right">GT-Acc</th>
+                  <th className="text-right" title="Fraction of decided rows where this criterion agreed with the holistic winner.">Agree</th>
+                  <th className="text-right" title="Fraction of decided rows where this criterion disagreed with the holistic winner.">Disagree</th>
+                  <th className="text-right" title="Fraction of rows where this criterion abstained (TIE / unparsed). Excluded from Agree/Disagree denominators.">Abstain</th>
+                  <th className="text-right" title="Among large-gap decisive rows, fraction matching the Elo ground truth.">GT-Acc</th>
                 </tr>
               </thead>
               <tbody>
@@ -205,17 +257,17 @@ export default function AgreementRunDetailPage(): JSX.Element {
                   <tr key={c.name} data-testid="per-criterion-row">
                     <td className="py-1">{c.name}</td>
                     <td className="text-right">{c.weight.toFixed(2)}</td>
-                    <td className="text-right">{pct(c.agreeRate)}</td>
-                    <td className="text-right">{pct(c.disagreeRate)}</td>
-                    <td className="text-right">{pct(c.abstainRate)}</td>
-                    <td className="text-right">{pct(c.groundTruthAccuracy)}</td>
+                    <td className="text-right">{pctWithCI(c.agreeRate, c.agreeRateCi)}</td>
+                    <td className="text-right">{pctWithCI(c.disagreeRate, c.disagreeRateCi)}</td>
+                    <td className="text-right">{pctWithCI(c.abstainRate, c.abstainRateCi)}</td>
+                    <td className="text-right">{pctWithCI(c.groundTruthAccuracy, c.groundTruthAccuracyCi)}</td>
                   </tr>
                 ))}
                 <tr style={{ fontWeight: 600 }}>
                   <td className="py-1">Aggregated rubric</td>
                   <td className="text-right">—</td>
-                  <td className="text-right">{pct(metrics.bothDecisiveAgreeRate)}</td>
-                  <td className="text-right">{pct(metrics.bothDecisiveOppositeRate)}</td>
+                  <td className="text-right">{pctWithCI(metrics.bothDecisiveAgreeRate, metrics.bothDecisiveAgreeRateCi)}</td>
+                  <td className="text-right">{pctWithCI(metrics.bothDecisiveOppositeRate, metrics.bothDecisiveOppositeRateCi)}</td>
                   <td className="text-right">—</td>
                   <td className="text-right">—</td>
                 </tr>
@@ -230,8 +282,8 @@ export default function AgreementRunDetailPage(): JSX.Element {
             </div>
             <MetricGrid
               metrics={[
-                { label: 'Holistic judge', value: pct(metrics.holisticAccuracy) },
-                { label: 'Rubric judge', value: pct(metrics.rubricAccuracy) },
+                { label: 'Holistic judge', value: pctWithCI(metrics.holisticAccuracy, metrics.holisticAccuracyCi) },
+                { label: 'Rubric judge', value: pctWithCI(metrics.rubricAccuracy, metrics.rubricAccuracyCi) },
                 {
                   label: 'Δ (rubric − holistic)',
                   value: metrics.accuracyDelta == null ? '—' : pct(metrics.accuracyDelta),
@@ -243,54 +295,20 @@ export default function AgreementRunDetailPage(): JSX.Element {
             />
           </div>
 
-          {/* Disagreement drill-down */}
+          {/* Disagreement summary + link to /matches */}
           <div className="rounded-book paper-texture card-enhanced p-4 space-y-2">
-            <div className="text-sm font-ui font-semibold">
-              Disagreement pairs (both decisive, opposite winner) — {disagreements.length}
-            </div>
-            <table className="w-full text-xs font-ui" data-testid="disagree-table">
-              <thead>
-                <tr style={{ color: 'var(--text-muted)' }}>
-                  <th className="text-left py-1">Pair</th>
-                  <th className="text-left">Kind</th>
-                  <th className="text-left">Holistic</th>
-                  <th className="text-left">Rubric</th>
-                  <th className="text-left">GT</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {disagreements.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="py-2" style={{ color: 'var(--text-muted)' }}>
-                      No both-decisive disagreements in this view.
-                    </td>
-                  </tr>
-                )}
-                {disagreements.slice(0, 100).map((c) => (
-                  <tr key={c.id} data-testid="disagree-row">
-                    <td className="py-1">{c.pair_label}</td>
-                    <td>{c.pair_kind}</td>
-                    <td>
-                      {c.holistic_winner} ({c.holistic_confidence.toFixed(1)})
-                    </td>
-                    <td>
-                      {c.rubric_winner} ({c.rubric_confidence.toFixed(1)})
-                    </td>
-                    <td>{c.gap_kind === 'large' ? c.expected_winner ?? '—' : '—'}</td>
-                    <td className="text-right">
-                      <button
-                        className="text-xs underline"
-                        style={{ color: 'var(--accent-gold)' }}
-                        onClick={() => void openInMatchViewer(c)}
-                      >
-                        Match Viewer ↗
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="text-sm font-ui font-semibold">Both-decisive disagreement pairs</div>
+            <p className="text-xs font-ui" style={{ color: 'var(--text-muted)' }}>
+              {disagreementCount} both-decisive opposite-winner call{disagreementCount === 1 ? '' : 's'} in this view.{' '}
+              <Link
+                data-testid="agreement-view-disagreements"
+                href={`/admin/evolution/judge-lab/agreement/runs/${runId}/matches?disagree=1`}
+                className="underline"
+                style={{ color: 'var(--accent-gold)' }}
+              >
+                Browse them in the match-history view →
+              </Link>
+            </p>
           </div>
         </div>
       )}

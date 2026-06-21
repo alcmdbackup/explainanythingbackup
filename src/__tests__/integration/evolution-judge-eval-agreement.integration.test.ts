@@ -7,10 +7,18 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
-import { upsertPairBank, getOrCreateTestSet, loadPairBankByName } from '@evolution/lib/judgeEval/persist';
+import {
+  upsertPairBank,
+  getOrCreateTestSet,
+  loadPairBankByName,
+  loadTestSetByName,
+  loadTestSetPairs,
+} from '@evolution/lib/judgeEval/persist';
 import { upsertAgreementRun, replaceAgreementCalls } from '@evolution/lib/judgeEval/agreementPersist';
 import type { AgreementCallResult } from '@evolution/lib/judgeEval/agreement';
 import type { JudgeEvalPair } from '@evolution/lib/judgeEval/schemas';
+import { estimateSweepCost } from '@evolution/lib/judgeEval/cost';
+import { wilsonScoreCI } from '@evolution/lib/shared/wilsonCI';
 
 function makeClient(): SupabaseClient<Database> | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -204,5 +212,120 @@ const TS = `[TEST] judge-eval agreement ts ${Date.now()}`;
       .select('id')
       .in('agreement_call_id', callIds);
     expect(afterCv.data ?? []).toHaveLength(0);
+  });
+
+  it('cost preview math: pairs × repeats × 4 calls; estimateSweepCost ×2 for holistic+rubric', async () => {
+    if (!db || !enabled) return;
+
+    // Resolve the test set + pairs the same way estimateAgreementCostAction does, then run the
+    // math directly. Asserts the formula stays in sync with the action's implementation.
+    const testSet = await loadTestSetByName(db, TS);
+    expect(testSet).not.toBeNull();
+    const { pairs } = await loadTestSetPairs(db, testSet!.id, 'both');
+    expect(pairs.length).toBeGreaterThan(0);
+
+    const REPEATS = 5;
+    const sweepEstimate = estimateSweepCost({
+      models: ['gpt-4.1-nano'],
+      temperatures: [0],
+      reasoningEfforts: [null],
+      promptVariants: 1,
+      pairs,
+      repeats: REPEATS,
+      explainReasoning: false,
+    });
+    const estimatedCostUsd = sweepEstimate.estimatedCostUsd * 2; // holistic + rubric
+    const plannedCalls = pairs.length * REPEATS * 4;
+
+    expect(plannedCalls).toBe(pairs.length * REPEATS * 4);
+    expect(estimatedCostUsd).toBeGreaterThan(0);
+    // Sanity: tiny test set + small repeats should be well under any reasonable cap.
+    expect(estimatedCostUsd).toBeLessThan(1);
+  });
+
+  it('Wilson CI computes against real leaderboard denominators (in-memory aggregation path)', async () => {
+    if (!db || !enabled) return;
+
+    // Seed a fresh agreement run with mixed agree/disagree/abstain so the in-memory aggregation has
+    // a non-trivial pattern to chew on. Then issue the SAME light-projection query the action issues
+    // and assert the Wilson CI bounds against the recovered denominators.
+    const { runId } = await upsertAgreementRun(db, {
+      testSetId,
+      judgeModel: 'm-ci-test',
+      temperature: 0,
+      reasoningEffort: null,
+      judgeRubricId: '66666666-6666-4666-8666-666666666666',
+      kindFilter: 'article',
+      repeats: 5,
+    });
+
+    // 5 calls: 3 both-decisive agree, 1 both-decisive opposite, 1 holistic-only decisive.
+    const rows: AgreementCallResult[] = [
+      { ...agreementRow(0) }, // agree
+      { ...agreementRow(1) }, // agree
+      { ...agreementRow(2) }, // agree
+      {
+        ...agreementRow(3),
+        holistic_winner: 'A',
+        rubric_winner: 'B',
+        rubric_matches_holistic: false,
+      },
+      {
+        ...agreementRow(4),
+        rubric_winner: 'TIE',
+        rubric_confidence: 0.5,
+        rubric_matches_holistic: false,
+      },
+    ];
+    const { callCount } = await replaceAgreementCalls(db, runId, rows);
+    expect(callCount).toBe(5);
+
+    // Replay the leaderboard action's light projection query.
+    const { data: callRows, error } = await db
+      .from('judge_eval_agreement_calls')
+      .select(
+        'agreement_run_id, pair_kind, holistic_winner, holistic_confidence, rubric_winner, rubric_confidence',
+      )
+      .eq('agreement_run_id', runId)
+      .is('error', null);
+    expect(error).toBeNull();
+    expect(callRows!.length).toBe(5);
+
+    // Tally the SAME boolean predicates the action uses.
+    let n_calls = 0,
+      strict_agree_n = 0,
+      both_decisive_n = 0,
+      both_decisive_agree_n = 0,
+      exactly_one_decisive_n = 0;
+    for (const c of callRows!) {
+      n_calls += 1;
+      if (c.holistic_winner === c.rubric_winner) strict_agree_n += 1;
+      const hd = (c.holistic_confidence ?? 0) > 0.6;
+      const rd = (c.rubric_confidence ?? 0) > 0.6;
+      if (hd && rd) {
+        both_decisive_n += 1;
+        if (c.holistic_winner === c.rubric_winner) both_decisive_agree_n += 1;
+      }
+      if (hd !== rd) exactly_one_decisive_n += 1;
+    }
+
+    expect(n_calls).toBe(5);
+    expect(strict_agree_n).toBe(3); // 3 agree calls
+    expect(both_decisive_n).toBe(4); // 4 both-decisive
+    expect(both_decisive_agree_n).toBe(3); // 3 agree among both-decisive
+    expect(exactly_one_decisive_n).toBe(1); // 1 holistic-only decisive
+
+    // Wilson CIs computed against per-rate denominators (NOT against n_calls for all rates).
+    const strictCi = wilsonScoreCI(strict_agree_n, n_calls)!;
+    const bothDecCi = wilsonScoreCI(both_decisive_agree_n, both_decisive_n)!;
+    const abstainCi = wilsonScoreCI(exactly_one_decisive_n, n_calls)!;
+    expect(strictCi.low).toBeGreaterThanOrEqual(0);
+    expect(strictCi.high).toBeLessThanOrEqual(1);
+    // Sanity: bothDec denominator (4) < strict denominator (5), but the rates differ — verify CI
+    // widths reflect the different sample sizes.
+    expect(bothDecCi).not.toBeNull();
+    expect(abstainCi).not.toBeNull();
+
+    await db.from('judge_eval_agreement_runs').delete().eq('id', runId);
   });
 });

@@ -183,4 +183,94 @@ describe('computeAgreementMetrics', () => {
     const grammar = m.perCriterion.find((c) => c.name === 'Grammar')!;
     expect(grammar.groundTruthAccuracy).toBeCloseTo(0.5);
   });
+
+  // ── Wilson CI integration ──────────────────────────────────────────────────────────
+  it('Wilson CI: rates carry parallel *Ci bounds matching their denominators', () => {
+    const calls = [
+      call({}),  // agree
+      call({ pair_label: 'p2' }),  // agree
+      call({ pair_label: 'p3', rubric_winner: 'B' }),  // disagree
+    ];
+    const m = computeAgreementMetrics(calls, []);
+    expect(m.perRepeatAgreeRate).toBeCloseTo(2 / 3);
+    expect(m.perRepeatAgreeRateCi).not.toBeNull();
+    expect(m.perRepeatAgreeRateCi!.low).toBeGreaterThanOrEqual(0);
+    expect(m.perRepeatAgreeRateCi!.high).toBeLessThanOrEqual(1);
+    expect(m.perRepeatAgreeRateCi!.low).toBeLessThan(m.perRepeatAgreeRate);
+    expect(m.perRepeatAgreeRateCi!.high).toBeGreaterThan(m.perRepeatAgreeRate);
+  });
+
+  it('Wilson CI: null when denominator is 0', () => {
+    const m = computeAgreementMetrics([], []);
+    expect(m.perRepeatAgreeRateCi).toBeNull();
+    expect(m.bothDecisiveAgreeRateCi).toBeNull();
+    expect(m.holisticAccuracyCi).toBeNull();
+  });
+
+  it('Wilson CI: per-rate denominators differ — both-decisive CI uses its OWN n, not total n', () => {
+    // 10 calls: 2 both-decisive (both agree), 8 with holistic TIE.
+    // strict_agree denom = 10, both_decisive denom = 2 — CIs should differ in width.
+    const calls = [
+      ...Array.from({ length: 2 }, (_, i) =>
+        call({ pair_label: `p${i}`, holistic_confidence: 1.0, rubric_confidence: 1.0 }),
+      ),
+      ...Array.from({ length: 8 }, (_, i) =>
+        call({ pair_label: `p${i + 2}`, holistic_winner: 'TIE', holistic_confidence: 0.5, rubric_winner: 'A', rubric_confidence: 1.0 }),
+      ),
+    ];
+    const m = computeAgreementMetrics(calls, []);
+    const strictWidth = m.perRepeatAgreeRateCi!.high - m.perRepeatAgreeRateCi!.low;
+    const bothDecWidth = m.bothDecisiveAgreeRateCi!.high - m.bothDecisiveAgreeRateCi!.low;
+    expect(bothDecWidth).toBeGreaterThan(strictWidth); // smaller n → wider CI
+  });
+
+  it('per-criterion CIs populate alongside rates', () => {
+    const criteria = [
+      crit({ criteria_name: 'X', agrees_with_holistic: true }),
+      crit({ criteria_name: 'X', agrees_with_holistic: true }),
+      crit({ criteria_name: 'X', agrees_with_holistic: false }),
+    ];
+    const m = computeAgreementMetrics([call({})], criteria);
+    const x = m.perCriterion[0]!;
+    expect(x.agreeRate).toBeCloseTo(2 / 3);
+    expect(x.agreeRateCi).not.toBeNull();
+    expect(x.disagreeRateCi).not.toBeNull();
+    expect(x.abstainRateCi).not.toBeNull();
+  });
+
+  // ── Position bias ─────────────────────────────────────────────────────────────────
+  it('position bias: null when not provided (legacy/no raws)', () => {
+    const m = computeAgreementMetrics([call({})], []);
+    expect(m.holisticPositionBiasRate).toBeNull();
+    expect(m.holisticPositionBiasRateCi).toBeNull();
+    expect(m.rubricPositionBiasRate).toBeNull();
+    expect(m.rubricPositionBiasRateCi).toBeNull();
+  });
+
+  it('position bias: rate = mismatch / parsed; CI populates', () => {
+    const m = computeAgreementMetrics([call({})], [], {
+      holisticMismatch: 3,
+      holisticParsed: 10,
+      rubricMismatch: 1,
+      rubricParsed: 8,
+    });
+    expect(m.holisticPositionBiasRate).toBeCloseTo(0.3);
+    expect(m.rubricPositionBiasRate).toBeCloseTo(0.125);
+    expect(m.holisticPositionBiasRateCi).not.toBeNull();
+    expect(m.rubricPositionBiasRateCi).not.toBeNull();
+  });
+
+  it('position bias: parsed=0 → rate null but input was provided', () => {
+    const m = computeAgreementMetrics([call({})], [], {
+      holisticMismatch: 0,
+      holisticParsed: 0,
+      rubricMismatch: 0,
+      rubricParsed: 0,
+    });
+    expect(m.holisticPositionBiasRate).toBeNull();
+    expect(m.rubricPositionBiasRate).toBeNull();
+    // CI is also null when n=0.
+    expect(m.holisticPositionBiasRateCi).toBeNull();
+    expect(m.rubricPositionBiasRateCi).toBeNull();
+  });
 });

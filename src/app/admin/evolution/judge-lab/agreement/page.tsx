@@ -2,6 +2,11 @@
 // judge on the same frozen test set, then surfaces how often the rubric agrees with the holistic
 // winner (overall + per criterion) and each side's accuracy vs the Elo ground truth. Client component
 // calling the cap-gated createAgreementSweepAction + the zero-cost read actions.
+//
+// Live cost preview: estimateAgreementCostAction (ZERO LLM calls) recomputes on every input change,
+// debounced 300ms. `cancelled` flag is the sole stale-response guard (Next.js server actions do not
+// honor AbortSignal). Launch button color-shifts + disables when the estimate exceeds the cap; estimate
+// failure ≠ disabled (preserves user agency when a transient action error occurs).
 
 'use client';
 
@@ -15,6 +20,9 @@ import {
   getJudgeModelOptionsAction,
   createAgreementSweepAction,
   getAgreementLeaderboardAction,
+  estimateAgreementCostAction,
+  type AgreementCostEstimate,
+  type AgreementLeaderboardRow,
 } from '@evolution/services/judgeEvalActions';
 import { listJudgeRubricsAction } from '@evolution/services/judgeRubricActions';
 
@@ -28,28 +36,39 @@ interface RubricOption {
   id: string;
   name: string;
 }
-interface LeaderboardRow {
-  agreement_run_id: string | null;
-  judge_model: string | null;
-  judge_rubric_id: string | null;
-  pair_kind: string | null;
-  n_calls: number | null;
-  strict_agree_rate: number | null;
-  both_decisive_agree_rate: number | null;
-  abstain_divergence_rate: number | null;
-  holistic_accuracy: number | null;
-  rubric_accuracy: number | null;
-  total_cost_usd: number | null;
-}
 
 function pct(v: number | null): string {
   return v == null ? '—' : `${(v * 100).toFixed(0)}%`;
+}
+function pctWithCI(value: number | null, low: number | null, high: number | null): string {
+  if (value == null) return '—';
+  const main = `${(value * 100).toFixed(0)}%`;
+  if (low == null || high == null) return main;
+  return `${main} [${(low * 100).toFixed(0)}, ${(high * 100).toFixed(0)}]`;
 }
 function delta(rubric: number | null, holistic: number | null): string {
   if (rubric == null || holistic == null) return '—';
   const d = (rubric - holistic) * 100;
   return `${d >= 0 ? '+' : ''}${d.toFixed(0)}%`;
 }
+
+// Estimate state shape. `error: true` is the graceful fallback when the action throws.
+type EstimateState = AgreementCostEstimate | { error: true } | null;
+
+const TT_REPEATS =
+  'Number of times each pair is judged. 4 LLM calls per repeat (2 holistic + 2 rubric). Doubling repeats doubles cost and halves per-pair noise.';
+const TT_TEMPERATURE =
+  '0 (recommended — matches the production judge path). Higher temperatures introduce judge noise on nano-class models.';
+const TT_PER_REP =
+  'Per-repeat agreement: fraction of (pair × repeat) calls where rubric winner equals holistic winner. Strict — no decisive filter.';
+const TT_BOTH_DEC =
+  'Both-decisive agreement: among calls where both judges had confidence > 0.6, the fraction that agreed. The cleanest "do they really agree" signal.';
+const TT_ABSTAIN =
+  'Abstain divergence: fraction of calls where exactly one judge was decisive (the other abstained / returned TIE).';
+const TT_ACC_DELTA =
+  'Accuracy delta vs Elo ground truth on large-gap pairs. Positive = rubric judge more accurate than holistic; negative = the reverse.';
+const TT_WORST_CRIT =
+  'The criterion whose verdict most often diverged from the holistic judge in this run (highest disagree rate among decided rows).';
 
 export default function AgreementSweepPage(): JSX.Element {
   const [modelIds, setModelIds] = useState<string[]>(() => getEvolutionModelIds());
@@ -66,10 +85,10 @@ export default function AgreementSweepPage(): JSX.Element {
   const [repeats, setRepeats] = useState<number>(10);
 
   const [launching, setLaunching] = useState(false);
-  const [estimate, setEstimate] = useState<string | null>(null);
+  const [estimate, setEstimate] = useState<EstimateState>(null);
 
   const [viewKind, setViewKind] = useState<Kind>('both');
-  const [rows, setRows] = useState<LeaderboardRow[]>([]);
+  const [rows, setRows] = useState<AgreementLeaderboardRow[]>([]);
   const [loadingBoard, setLoadingBoard] = useState(false);
 
   useEffect(() => {
@@ -95,12 +114,41 @@ export default function AgreementSweepPage(): JSX.Element {
     })();
   }, []);
 
+  // Live cost preview — debounced; cancelled flag is the sole stale-response guard.
+  useEffect(() => {
+    // Min-input-length guard: skip estimate when key inputs missing.
+    if (!testSetName || !judgeModel || repeats < 1) {
+      setEstimate(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const res = await estimateAgreementCostAction({
+        testSetName,
+        kindFilter: kind,
+        repeats,
+        judgeModel,
+        reasoningEffort: reasoning === 'none' ? null : reasoning,
+      });
+      if (cancelled) return; // stale-response guard
+      if (!res.success) {
+        setEstimate({ error: true }); // graceful fallback — Launch stays enabled
+        return;
+      }
+      setEstimate(res.data);
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [testSetName, judgeModel, kind, repeats, reasoning]);
+
   const loadBoard = useCallback(async () => {
     if (!testSetId) return;
     setLoadingBoard(true);
     const res = await getAgreementLeaderboardAction({ testSetId, kind: viewKind });
     setLoadingBoard(false);
-    if (res.success && res.data) setRows(res.data as LeaderboardRow[]);
+    if (res.success && res.data) setRows(res.data);
     else if (!res.success) toast.error(res.error?.message ?? 'Failed to load leaderboard');
   }, [testSetId, viewKind]);
 
@@ -113,7 +161,6 @@ export default function AgreementSweepPage(): JSX.Element {
       if (!testSetName) return toast.error('Pick a test set');
       if (!judgeRubricId) return toast.error('Pick a rubric');
       setLaunching(true);
-      setEstimate(null);
       const res = await createAgreementSweepAction({
         testSetName,
         kindFilter: kind,
@@ -130,10 +177,10 @@ export default function AgreementSweepPage(): JSX.Element {
         return;
       }
       const o = res.data!;
-      setEstimate(
-        `${o.pairCount} pairs × ${repeats} repeats × 4 calls = ${o.plannedCalls} calls · est $${o.estimate.estimatedCostUsd.toFixed(4)}`,
-      );
-      if (dryRun) return;
+      if (dryRun) {
+        toast.success(`Dry run: ${o.plannedCalls} calls planned, est $${o.estimate.estimatedCostUsd.toFixed(4)}`);
+        return;
+      }
       toast.success(`Agreement run complete · ${o.callCount} calls`);
       void loadBoard();
     },
@@ -141,6 +188,9 @@ export default function AgreementSweepPage(): JSX.Element {
   );
 
   const inputStyle = { borderColor: 'var(--border-default)', background: 'var(--bg-secondary)' };
+  const estIsError = estimate !== null && 'error' in estimate;
+  const estData = estimate !== null && !('error' in estimate) ? estimate : null;
+  const capBlocking = estData?.capStatus !== 'ok' && estData !== null;
 
   return (
     <div className="space-y-4 p-4">
@@ -240,7 +290,7 @@ export default function AgreementSweepPage(): JSX.Element {
           </div>
 
           <label className="flex flex-col gap-1">
-            <span>Temperature</span>
+            <span title={TT_TEMPERATURE}>Temperature</span>
             <input
               type="number"
               step="0.1"
@@ -251,6 +301,9 @@ export default function AgreementSweepPage(): JSX.Element {
               value={temperature}
               onChange={(e) => setTemperature(Number(e.target.value))}
             />
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              0 (recommended — matches production judge). Higher introduces judge noise.
+            </span>
           </label>
 
           <label className="flex flex-col gap-1">
@@ -270,7 +323,7 @@ export default function AgreementSweepPage(): JSX.Element {
           </label>
 
           <label className="flex flex-col gap-1">
-            <span>Repeats</span>
+            <span title={TT_REPEATS}>Repeats</span>
             <input
               type="number"
               min="1"
@@ -278,22 +331,40 @@ export default function AgreementSweepPage(): JSX.Element {
               className="rounded border px-2 py-1"
               style={inputStyle}
               value={repeats}
+              data-testid="agreement-repeats-input"
               onChange={(e) => setRepeats(Number(e.target.value))}
             />
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Each pair judged N times. 4 calls/repeat (2 holistic + 2 rubric). Doubles cost; halves noise.
+            </span>
           </label>
         </div>
 
-        {estimate && (
-          <div className="text-xs font-ui" data-testid="agreement-est" style={{ color: 'var(--text-muted)' }}>
-            {estimate}
-          </div>
-        )}
+        {/* Live cost preview — compact one-liner above buttons. */}
+        <div
+          className="text-xs font-ui"
+          data-testid="agreement-cost-preview"
+          style={{
+            color: estIsError ? 'var(--text-muted)' : capBlocking ? 'var(--accent-error, #c0392b)' : 'var(--text-muted)',
+          }}
+        >
+          {estimate === null && '—'}
+          {estIsError && 'Cost preview unavailable'}
+          {estData && (
+            <>
+              {estData.pairCount} pairs × {repeats} repeats × 4 calls = {estData.plannedCalls} calls · est ${estData.estimatedCostUsd.toFixed(4)}
+              {estData.capStatus === 'over_usd' && ` · exceeds $${estData.maxUsd} cap`}
+              {estData.capStatus === 'over_calls' && ` · exceeds ${estData.maxCalls} calls cap`}
+              {estData.capStatus === 'ok' && ` · within $${estData.maxUsd} cap`}
+            </>
+          )}
+        </div>
 
         <div className="flex gap-2">
           <button
             data-testid="agreement-dry-run"
-            disabled={launching}
-            className="text-xs px-3 py-1 rounded border"
+            disabled={launching || capBlocking}
+            className="text-xs px-3 py-1 rounded border disabled:opacity-50"
             style={{ borderColor: 'var(--border-default)' }}
             onClick={() => void run(true)}
           >
@@ -301,8 +372,8 @@ export default function AgreementSweepPage(): JSX.Element {
           </button>
           <button
             data-testid="agreement-launch"
-            disabled={launching}
-            className="text-xs px-3 py-1 rounded border"
+            disabled={launching || capBlocking}
+            className="text-xs px-3 py-1 rounded border disabled:opacity-50"
             style={{ borderColor: 'var(--border-default)', background: 'var(--accent-gold)', color: 'var(--text-on-primary)' }}
             onClick={() => void run(false)}
           >
@@ -334,23 +405,53 @@ export default function AgreementSweepPage(): JSX.Element {
           </div>
         </div>
 
+        <details data-testid="agreement-definitions" className="text-xs font-ui" style={{ color: 'var(--text-muted)' }}>
+          <summary className="cursor-pointer">What do these mean?</summary>
+          <ul className="mt-2 space-y-1 pl-4 list-disc">
+            <li>
+              <strong>Per-rep</strong> — Per-repeat agreement: fraction of (pair × repeat) calls where rubric winner equals
+              holistic winner. Strict — no decisive filter.
+            </li>
+            <li>
+              <strong>Both-dec</strong> — Both-decisive agreement: among calls where both judges had confidence &gt; 0.6, the
+              fraction that agreed. The cleanest signal that they really agree.
+            </li>
+            <li>
+              <strong>Abstain</strong> — Abstain divergence: fraction of calls where exactly one judge was decisive (the other
+              abstained / returned TIE).
+            </li>
+            <li>
+              <strong>Acc Δ</strong> — Rubric minus holistic accuracy on large-gap ground-truth pairs (Elo gap large enough to
+              have a known correct answer).
+            </li>
+            <li>
+              <strong>Worst criterion</strong> — Rubric dimension whose verdicts diverged from the holistic winner most often
+              in this run.
+            </li>
+            <li>
+              <strong>[low, high]</strong> — 95% Wilson score interval (binomial CI on the proportion).
+            </li>
+          </ul>
+        </details>
+
         <table className="w-full text-xs font-ui" data-testid="agreement-leaderboard">
           <thead>
             <tr style={{ color: 'var(--text-muted)' }}>
               <th className="text-left py-1">Run</th>
               <th className="text-left">Model</th>
               <th className="text-left">Kind</th>
-              <th className="text-right">Per-rep</th>
-              <th className="text-right">Both-dec</th>
-              <th className="text-right">Abstain</th>
-              <th className="text-right">Acc Δ</th>
+              <th className="text-right" title={TT_PER_REP}>Per-rep</th>
+              <th className="text-right" title={TT_BOTH_DEC}>Both-dec</th>
+              <th className="text-right" title={TT_ABSTAIN}>Abstain</th>
+              <th className="text-right" title={TT_ACC_DELTA}>Acc Δ</th>
+              <th className="text-left" title={TT_WORST_CRIT}>Worst criterion</th>
               <th className="text-right">N</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={8} className="py-2" style={{ color: 'var(--text-muted)' }}>
+                <td colSpan={9} className="py-2" style={{ color: 'var(--text-muted)' }}>
                   {loadingBoard ? 'Loading…' : 'No agreement runs for this test set yet.'}
                 </td>
               </tr>
@@ -371,19 +472,26 @@ export default function AgreementSweepPage(): JSX.Element {
                 </td>
                 <td>{r.judge_model ?? '—'}</td>
                 <td>{r.pair_kind ?? '—'}</td>
-                <td className="text-right">{pct(r.strict_agree_rate)}</td>
-                <td className="text-right">{pct(r.both_decisive_agree_rate)}</td>
-                <td className="text-right">{pct(r.abstain_divergence_rate)}</td>
+                <td className="text-right" data-testid="agreement-leaderboard-per-rep">
+                  {pctWithCI(r.strict_agree_rate, r.strict_agree_ci_low, r.strict_agree_ci_high)}
+                </td>
+                <td className="text-right" data-testid="agreement-leaderboard-both-dec">
+                  {pctWithCI(r.both_decisive_agree_rate, r.both_decisive_agree_ci_low, r.both_decisive_agree_ci_high)}
+                </td>
+                <td className="text-right" data-testid="agreement-leaderboard-abstain">
+                  {pctWithCI(r.abstain_divergence_rate, r.abstain_divergence_ci_low, r.abstain_divergence_ci_high)}
+                </td>
                 <td className="text-right">{delta(r.rubric_accuracy, r.holistic_accuracy)}</td>
+                <td data-testid="agreement-leaderboard-worst-criterion">
+                  {r.worst_criterion_name
+                    ? `${r.worst_criterion_name} (${pct(r.worst_criterion_disagree_rate)})`
+                    : '—'}
+                </td>
                 <td className="text-right">{r.n_calls ?? 0}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        <p className="text-xs font-ui" style={{ color: 'var(--text-muted)' }}>
-          Per-rep = per-repeat label match · Both-dec = agreement when both judges decisive · Acc Δ =
-          rubric − holistic accuracy vs Elo ground truth (large-gap pairs).
-        </p>
       </div>
     </div>
   );
