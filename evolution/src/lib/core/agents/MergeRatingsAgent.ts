@@ -34,7 +34,7 @@ export interface MergeMatchEntry {
 }
 
 export interface MergeRatingsInput {
-  iterationType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'iterative_editing' | 'iterative_editing_rewrite' | 'swiss' | 'debate_and_generate' | 'paragraph_recombine';
+  iterationType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'iterative_editing' | 'iterative_editing_rewrite' | 'swiss' | 'debate_and_generate' | 'paragraph_recombine' | 'paragraph_recombine_with_coherence_pass';
   /** One inner array per source agent (1 for swiss, N for generate). */
   matchBuffers: ReadonlyArray<ReadonlyArray<MergeMatchEntry>>;
   /** Variants to add to the pool (generate iterations only — empty for swiss). */

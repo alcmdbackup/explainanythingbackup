@@ -192,6 +192,20 @@ export class ExperimentEntity extends Entity<EvolutionExperimentFullDb> {
       { ...METRIC_CATALOG.avg_paragraph_recombine_cost_per_run,
         sourceEntity: 'run', sourceMetric: 'paragraph_recombine_cost',
         aggregate: aggregateAvg, aggregationMethod: 'avg' },
+      // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — coherence
+      // cost rollups + provenance ratio bootstrap-mean rollups (same noise caveat).
+      { ...METRIC_CATALOG.total_paragraph_recombine_coherence_cost,
+        sourceEntity: 'run', sourceMetric: 'paragraph_recombine_coherence_cost',
+        aggregate: aggregateSum, aggregationMethod: 'sum' },
+      { ...METRIC_CATALOG.avg_paragraph_recombine_coherence_cost_per_run,
+        sourceEntity: 'run', sourceMetric: 'paragraph_recombine_coherence_cost',
+        aggregate: aggregateAvg, aggregationMethod: 'avg' },
+      { ...METRIC_CATALOG.avg_slot_provenance_ratio_p25,
+        sourceEntity: 'run', sourceMetric: 'slot_provenance_ratio_p25',
+        aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
+      { ...METRIC_CATALOG.avg_slot_provenance_ratio_p50,
+        sourceEntity: 'run', sourceMetric: 'slot_provenance_ratio_p50',
+        aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
       // Universal sentence-overlap rollup
       { ...METRIC_CATALOG.avg_median_sentence_verbatim_ratio,
         sourceEntity: 'run', sourceMetric: 'median_sentence_verbatim_ratio',

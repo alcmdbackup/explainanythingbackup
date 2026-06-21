@@ -87,6 +87,14 @@ export const STATIC_METRIC_NAMES = [
   'paragraph_recombine_cost',
   'total_paragraph_recombine_cost', 'avg_paragraph_recombine_cost_per_run',
   'paragraph_slot_match_persist_failures',
+  // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — coherence-pass
+  // umbrella cost metric + propagation rollups + observability counter +
+  // slot-level provenance ratio metrics (observational only — see metrics.md noise caveat).
+  'paragraph_recombine_coherence_cost',
+  'total_paragraph_recombine_coherence_cost', 'avg_paragraph_recombine_coherence_cost_per_run',
+  'coherence_pass_silent_rejection_count',
+  'slot_provenance_ratio_p25', 'slot_provenance_ratio_p50',
+  'avg_slot_provenance_ratio_p25', 'avg_slot_provenance_ratio_p50',
   // G7 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
   // per-phase estimation-error rollups for paragraph_recombine.
   'paragraph_rewrite_estimation_error_pct', 'paragraph_rank_estimation_error_pct',

@@ -572,6 +572,48 @@ export const METRIC_CATALOG = {
     timing: 'at_propagation',
     description: 'Average paragraph_recombine_cost per child run.',
   },
+
+  // === paragraph_recombine_agent_with_coherence_pass_evolution_20260620 ===
+  paragraph_recombine_coherence_cost: {
+    name: 'paragraph_recombine_coherence_cost', label: 'Paragraph Recombine Coherence Cost', category: 'cost', formatter: 'cost',
+    timing: 'during_execution', listView: true,
+    description: 'Umbrella LLM spend on the coherence-pass step (coherence_pass_propose + coherence_pass_review) for the new ParagraphRecombineWithCoherencePassAgent. Routed via COST_METRIC_BY_AGENT.',
+  },
+  coherence_pass_silent_rejection_count: {
+    name: 'coherence_pass_silent_rejection_count', label: 'Coherence Pass Silent Rejection Count', category: 'count', formatter: 'integer',
+    timing: 'during_execution',
+    description: 'Counter — increments when the coherence-pass approver returns approverGroups.length > 0 but appliedGroups.length === 0 (quietly-rejecting approver that could masquerade as "article was already coherent").',
+  },
+  slot_provenance_ratio_p25: {
+    name: 'slot_provenance_ratio_p25', label: 'Slot Provenance Ratio P25', category: 'rating', formatter: 'percent',
+    timing: 'at_finalization',
+    description: 'P25 of per-rewrite provenance ratios across all slots in the run. Sentence-level Levenshtein matching is NOISY for REORDER/RESTRUCTURE directives — low values do NOT necessarily indicate prompt violation. See metrics.md for the caveat.',
+  },
+  slot_provenance_ratio_p50: {
+    name: 'slot_provenance_ratio_p50', label: 'Slot Provenance Ratio P50 (median)', category: 'rating', formatter: 'percent',
+    timing: 'at_finalization',
+    description: 'P50 (median) of per-rewrite provenance ratios across all slots in the run. Same noise caveat as P25.',
+  },
+  total_paragraph_recombine_coherence_cost: {
+    name: 'total_paragraph_recombine_coherence_cost', label: 'Total Paragraph Recombine Coherence Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation', listView: true,
+    description: 'Sum of paragraph_recombine_coherence_cost across child runs.',
+  },
+  avg_paragraph_recombine_coherence_cost_per_run: {
+    name: 'avg_paragraph_recombine_coherence_cost_per_run', label: 'Avg Paragraph Recombine Coherence Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Average paragraph_recombine_coherence_cost per child run.',
+  },
+  avg_slot_provenance_ratio_p25: {
+    name: 'avg_slot_provenance_ratio_p25', label: 'Avg Slot Provenance P25', category: 'rating', formatter: 'percent',
+    timing: 'at_propagation',
+    description: 'Bootstrap mean of slot_provenance_ratio_p25 across child runs. Same noise caveat applies.',
+  },
+  avg_slot_provenance_ratio_p50: {
+    name: 'avg_slot_provenance_ratio_p50', label: 'Avg Slot Provenance P50 (median)', category: 'rating', formatter: 'percent',
+    timing: 'at_propagation',
+    description: 'Bootstrap mean of slot_provenance_ratio_p50 across child runs. Same noise caveat applies.',
+  },
 } as const satisfies Record<string, CatalogMetricDef>;
 
 export type CatalogMetricName = keyof typeof METRIC_CATALOG;

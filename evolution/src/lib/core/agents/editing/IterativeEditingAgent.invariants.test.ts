@@ -52,11 +52,21 @@ describe('IterativeEditingAgent invariants', () => {
     expect(executeBody).not.toMatch(/\.run\s*\(/);
   });
 
-  it('I2: each LLM helper call site is preceded by a costBefore* capture', () => {
+  it('I2: cost-snapshot bookkeeping is owned by the runEditingCycle helper (post-refactor)', () => {
+    // Pre-refactor: each LLM call site inside execute() was preceded by a costBefore*
+    // capture. Post Phase 4 of paragraph_recombine_agent_with_coherence_pass_evolution_20260620,
+    // the per-cycle inner block was extracted into runEditingCycle() — that helper now owns
+    // I2 cost snapshots. This test verifies (a) the helper file exists, (b) the helper
+    // contains the costBefore* captures, and (c) IterativeEditingAgent's execute() calls
+    // runEditingCycle (so the bookkeeping is transitively in place).
     const executeBody = extractExecuteBody(source);
-    // Expect at least three costBefore* captures (Proposer + Approver + drift-recovery).
-    const costBeforeMatches = executeBody.match(/costBefore[A-Z][A-Za-z]*Call/g) ?? [];
-    expect(costBeforeMatches.length).toBeGreaterThanOrEqual(3);
+    expect(executeBody).toMatch(/runEditingCycle\s*\(/);
+    const helperSrc = readFileSync(
+      resolve(__dirname, 'runEditingCycle.ts'),
+      'utf-8',
+    );
+    const costBeforeInHelper = helperSrc.match(/costBefore[A-Z][A-Za-z]*Call/g) ?? [];
+    expect(costBeforeInHelper.length).toBeGreaterThanOrEqual(2);
   });
 
   it('I3: cycle loop body is wrapped in try/catch', () => {

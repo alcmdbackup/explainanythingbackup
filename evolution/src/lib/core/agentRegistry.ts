@@ -19,6 +19,13 @@ import { MergeRatingsAgent } from './agents/MergeRatingsAgent';
 // InvocationEntity at registry init, and so the entities.test.ts parity test
 // against DETAIL_VIEW_CONFIGS catches future regressions.
 import { CreateSeedArticleAgent } from './agents/createSeedArticle';
+// paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — NOT registered
+// here for the same reason ParagraphRecombineAgent isn't: both agents import
+// `syncToArena` from `persistRunResults.ts`, which pulls in server-only
+// `@/lib/server_utilities` (uses `fs`). Registering them here would drag those
+// imports into the client bundle via the EntityMetricsTab → entityRegistry →
+// agentRegistry chain, breaking the Next.js build. Both agents are instead
+// instantiated at runtime by `runIterationLoop` (server-only path).
 import { assertCostCalibrationPhaseEnumsMatch } from './startupAssertions';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

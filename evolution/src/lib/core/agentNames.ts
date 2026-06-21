@@ -59,6 +59,15 @@ export const AGENT_NAMES = [
   // so cost-error tracking can attribute replan cost distinctly (env-gated by
   // EVOLUTION_PARAGRAPH_RECOMBINE_REPLAN_ENABLED, default false).
   'paragraph_recombine_coordinator_replan',
+  // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — coherence-pass
+  // proposer + approver labels. The new agent's per-slot pipeline REUSES existing
+  // 'paragraph_rewrite' + 'paragraph_rank' labels (which route to paragraph_recombine_cost);
+  // ONLY these two new labels route to the new paragraph_recombine_coherence_cost umbrella.
+  // Rationale: AgentName→cost-metric mapping is global 1:1; routing the same label to two
+  // metrics is not architecturally possible. Strategy-level A/B vs the existing
+  // paragraph_recombine agent relies on the marker tactic, not cost-bucket separation.
+  'coherence_pass_propose',
+  'coherence_pass_review',
 ] as const;
 export type AgentName = typeof AGENT_NAMES[number];
 
@@ -114,4 +123,9 @@ export const COST_METRIC_BY_AGENT: Partial<Record<AgentName, MetricName>> = {
   // paragraph_recombine_cost umbrella — both initial and replan are coordinator
   // overhead from the same agent's perspective.
   paragraph_recombine_coordinator_replan: 'paragraph_recombine_cost',
+  // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — the two new
+  // labels collapse into the new paragraph_recombine_coherence_cost umbrella. Per-purpose
+  // split (proposer vs approver cost) lives in execution_detail.coherencePass.cycles[0].
+  coherence_pass_propose: 'paragraph_recombine_coherence_cost',
+  coherence_pass_review: 'paragraph_recombine_coherence_cost',
 };
