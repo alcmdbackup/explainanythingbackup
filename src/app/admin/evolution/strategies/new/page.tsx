@@ -25,6 +25,7 @@ import { TACTICS_BY_CATEGORY, TACTIC_PALETTE } from '@evolution/lib/core/tactics
 import { DispatchPlanView } from '@evolution/components/evolution/DispatchPlanView';
 import { listCriteriaAction, type CriteriaListItem } from '@evolution/services/criteriaActions';
 import { listJudgeRubricsAction, type JudgeRubricListItem } from '@evolution/services/judgeRubricActions';
+import { listStyleFingerprintsAction, type StyleFingerprintListItem } from '@evolution/services/styleFingerprintActions';
 import { CriteriaMultiSelect } from './CriteriaMultiSelect';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -138,6 +139,10 @@ interface StrategyFormState {
   approverModel: string;
   /** Optional escalation-chain id (chainRegistry). Empty → single-judge ranking. */
   ensembleConfigId: string;
+  /** generate_enforce_style_fingerprint_evolution_20260620: per-strategy style enforcement opt-in. */
+  styleFingerprintEnabled: boolean;
+  /** Style fingerprint id to enforce. Empty → no style enforcement (even if enabled). */
+  styleFingerprintId: string;
   /** Phase 4d: paragraph_recombine coordinator model. Empty → falls back to
    *  generationModel at runtime. A stronger long-context model at-the-source
    *  improves per-slot directives at the cost of higher coordinator-phase spend. */
@@ -482,6 +487,8 @@ export default function NewStrategyPage(): JSX.Element {
     editingModel: '',
     approverModel: '',
     ensembleConfigId: '',
+    styleFingerprintEnabled: false,
+    styleFingerprintId: '',
     coordinatorModel: '',
     seedSelection: '',
     generationTemperature: '',
@@ -498,6 +505,7 @@ export default function NewStrategyPage(): JSX.Element {
   const [availableCriteria, setAvailableCriteria] = useState<CriteriaListItem[]>([]);
   const [availableRubrics, setAvailableRubrics] = useState<JudgeRubricListItem[]>([]);
   const [availableEnsembleConfigs, setAvailableEnsembleConfigs] = useState<string[]>([]);
+  const [availableStyleFingerprints, setAvailableStyleFingerprints] = useState<StyleFingerprintListItem[]>([]);
 
   // Fetch active criteria + judge rubrics + escalation chain ids once on mount.
   useEffect(() => {
@@ -508,6 +516,8 @@ export default function NewStrategyPage(): JSX.Element {
       if (rubrics.success && rubrics.data) setAvailableRubrics(rubrics.data.items);
       const ensembles = await listEnsembleConfigsAction();
       if (ensembles.success && ensembles.data) setAvailableEnsembleConfigs(ensembles.data.ids);
+      const fingerprints = await listStyleFingerprintsAction({ status: 'active', filterTestContent: true, limit: 200 });
+      if (fingerprints.success && fingerprints.data) setAvailableStyleFingerprints(fingerprints.data.items);
     })();
   }, []);
 
@@ -866,6 +876,8 @@ export default function NewStrategyPage(): JSX.Element {
         editingModel: form.editingModel || undefined,
         approverModel: form.approverModel || undefined,
         ensembleConfigId: form.ensembleConfigId || undefined,
+        styleFingerprintEnabled: form.styleFingerprintEnabled || undefined,
+        styleFingerprintId: (form.styleFingerprintEnabled && form.styleFingerprintId) ? form.styleFingerprintId : undefined,
         coordinatorModel: form.coordinatorModel || undefined,
         seedSelection: form.seedSelection || undefined,
         budgetUsd: parseFloat(form.budgetUsd),
@@ -1107,6 +1119,36 @@ export default function NewStrategyPage(): JSX.Element {
                 <p className="mt-1 text-xs text-[var(--text-muted)]">
                   Escalates to additional judges only when the lead judge is indecisive. Disabled globally by
                   <code> EVOLUTION_JUDGE_ESCALATION_ENABLED=&apos;false&apos;</code>.
+                </p>
+              </div>
+
+              <div>
+                <label className={labelClasses}>Style Enforcement (optional)</label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    data-testid="style-fingerprint-enabled"
+                    checked={form.styleFingerprintEnabled}
+                    onChange={e => updateForm({ styleFingerprintEnabled: e.target.checked })}
+                  />
+                  Enable style fingerprint
+                </label>
+                <select
+                  id="style-fingerprint"
+                  data-testid="style-fingerprint-select"
+                  value={form.styleFingerprintId}
+                  onChange={e => updateForm({ styleFingerprintId: e.target.value })}
+                  disabled={!form.styleFingerprintEnabled}
+                  className={inputCls(false)}
+                >
+                  <option value="">Select a fingerprint…</option>
+                  {availableStyleFingerprints.map(fp => (
+                    <option key={fp.id} value={fp.id}>{fp.name}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-[var(--text-muted)]">
+                  When enabled, each run snapshots the selected fingerprint and injects it into generation
+                  and the <code>stylistic_accuracy</code> judge dimension.
                 </p>
               </div>
 
