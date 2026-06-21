@@ -221,14 +221,21 @@ export async function createTestRun(options?: CreateTestRunOptions): Promise<Tes
   const strategyId = options?.strategyId ?? (await createTestStrategy()).id;
   const promptId = options?.promptId ?? (await createTestPrompt()).id;
 
+  // Only include allow_test_execution when caller explicitly opts in. The default
+  // path stays byte-identical to pre-gate behavior so this helper continues to work
+  // even before the 20260621000001_evolution_claim_gate.sql migration has propagated
+  // through PostgREST's schema cache (which doesn't reliably refresh from NOTIFY).
+  const insertPayload: Record<string, unknown> = {
+    strategy_id: strategyId,
+    prompt_id: promptId,
+    status: options?.status ?? 'pending',
+  };
+  if (options?.executable === true) {
+    insertPayload.allow_test_execution = true;
+  }
   const { data, error } = await supabase
     .from('evolution_runs')
-    .insert({
-      strategy_id: strategyId,
-      prompt_id: promptId,
-      status: options?.status ?? 'pending',
-      allow_test_execution: options?.executable ?? false,
-    })
+    .insert(insertPayload)
     .select('id')
     .single();
 
