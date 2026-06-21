@@ -11,21 +11,26 @@ function feedbackSection(feedback?: Feedback): string {
 
 /**
  * Build a standard evolution prompt with consistent structure:
- * preamble → source text → optional feedback → task instructions → format rules.
+ * preamble → source text → optional feedback → task instructions → optional target style → format rules.
+ *
+ * The trailing optionals are an options bag (generate_enforce_style_fingerprint_evolution_20260620):
+ * `styleGuide` injects a `## Target Style` block between the task instructions and FORMAT_RULES.
+ * Output is byte-identical to the pre-style version when `styleGuide` is omitted.
  */
 export function buildEvolutionPrompt(
   preamble: string,
   textLabel: string,
   text: string,
   instructions: string,
-  feedback?: Feedback,
+  opts?: { feedback?: Feedback; styleGuide?: string },
 ): string {
+  const styleSection = opts?.styleGuide ? `## Target Style\n${opts.styleGuide}\n` : '';
   return `${preamble}
 
 ## ${textLabel}
 ${text}
-${feedbackSection(feedback)}## Task
+${feedbackSection(opts?.feedback)}## Task
 ${instructions}
-${FORMAT_RULES}
+${styleSection}${FORMAT_RULES}
 Output ONLY the improved text, no explanations.`;
 }

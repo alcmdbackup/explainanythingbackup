@@ -5,6 +5,7 @@ import type { EntityLogger } from '../pipeline/infra/createEntityLogger';
 import type { V2CostTracker } from '../pipeline/infra/trackBudget';
 import type { EvolutionConfig } from '../pipeline/infra/types';
 import type { MetricValue } from '../metrics/experimentMetrics';
+import type { StyleFingerprintTraits } from '../schemas';
 
 export type { MetricRow, ExecutionContext, FinalizationContext } from '../metrics/types';
 import type { MetricRow, ExecutionContext, FinalizationContext } from '../metrics/types';
@@ -183,6 +184,12 @@ export interface AgentContext {
   experimentId?: string;
   /** Strategy ID for the run, denormalized for the same reason as experimentId. */
   strategyId?: string;
+  /** generate_enforce_style_fingerprint_evolution_20260620: resolved per-run target style.
+   *  Populated in buildRunContext from the run's style_fingerprint_snapshot ONLY when the
+   *  strategy opted in (styleFingerprintEnabled + styleFingerprintId). Generation agents read
+   *  `prose` (article-shaped) and inject it via buildEvolutionPrompt's styleGuide. Undefined ⇒
+   *  clean no-op (no style steering). */
+  styleFingerprint?: { prose: string; traits: StyleFingerprintTraits };
   /** Cached map of tactic name → recent ELO delta (mean elo_score - 1200) computed once
    *  per iteration in runIterationLoop and read by ReflectAndGenerateFromPreviousArticleAgent
    *  to populate the reflection prompt. Phase 4 of the same project. */

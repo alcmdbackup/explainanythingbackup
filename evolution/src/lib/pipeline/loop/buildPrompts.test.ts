@@ -14,7 +14,7 @@ describe('buildEvolutionPrompt', () => {
   };
 
   it('builds complete prompt with all sections in order', () => {
-    const result = buildEvolutionPrompt(preamble, textLabel, text, instructions, feedback);
+    const result = buildEvolutionPrompt(preamble, textLabel, text, instructions, { feedback });
 
     const preambleIdx = result.indexOf(preamble);
     const textLabelIdx = result.indexOf(`## ${textLabel}`);
@@ -33,7 +33,7 @@ describe('buildEvolutionPrompt', () => {
   });
 
   it('includes feedback section when provided', () => {
-    const result = buildEvolutionPrompt(preamble, textLabel, text, instructions, feedback);
+    const result = buildEvolutionPrompt(preamble, textLabel, text, instructions, { feedback });
 
     expect(result).toContain('## Feedback');
     expect(result).toContain('Weakest dimension: coherence');
@@ -50,7 +50,7 @@ describe('buildEvolutionPrompt', () => {
   });
 
   it('always includes FORMAT_RULES regardless of feedback', () => {
-    const withFeedback = buildEvolutionPrompt(preamble, textLabel, text, instructions, feedback);
+    const withFeedback = buildEvolutionPrompt(preamble, textLabel, text, instructions, { feedback });
     const withoutFeedback = buildEvolutionPrompt(preamble, textLabel, text, instructions);
 
     expect(withFeedback).toContain(FORMAT_RULES);
@@ -63,6 +63,22 @@ describe('buildEvolutionPrompt', () => {
 
     expect(result).toContain(multilineText);
     expect(result).toContain('Line one.\n\nLine two.\n\nLine three');
+  });
+
+  it('injects a Target Style block only when styleGuide is provided', () => {
+    const guide = 'Match this terse, declarative voice. Use american spelling.';
+    const withStyle = buildEvolutionPrompt(preamble, textLabel, text, instructions, { styleGuide: guide });
+    const withoutStyle = buildEvolutionPrompt(preamble, textLabel, text, instructions);
+
+    expect(withStyle).toContain('## Target Style');
+    expect(withStyle).toContain(guide);
+    // Target Style sits between the task instructions and FORMAT_RULES.
+    expect(withStyle.indexOf('## Task')).toBeLessThan(withStyle.indexOf('## Target Style'));
+    expect(withStyle.indexOf('## Target Style')).toBeLessThan(withStyle.indexOf(FORMAT_RULES));
+
+    expect(withoutStyle).not.toContain('## Target Style');
+    // Byte-identical to the pre-style builder when styleGuide is omitted.
+    expect(withoutStyle).toEqual(buildEvolutionPrompt(preamble, textLabel, text, instructions, {}));
   });
 
   it('handles empty inputs without breaking structure', () => {
