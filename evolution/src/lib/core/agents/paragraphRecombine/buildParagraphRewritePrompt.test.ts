@@ -47,4 +47,13 @@ describe('buildParagraphRewritePrompt', () => {
     expect(p1).toContain(PARAGRAPH_REWRITE_DIRECTIVES[1]);
     expect(p0).not.toEqual(p1);
   });
+
+  it('injects a TARGET STYLE block only when styleGuide is provided (byte-identical when absent)', () => {
+    const withStyle = buildParagraphRewritePrompt('My Title', 'The original paragraph text.', 0, 5, undefined, 'Terse, american spelling.');
+    const withoutStyle = buildParagraphRewritePrompt('My Title', 'The original paragraph text.', 0, 5, undefined);
+    expect(withStyle).toContain('TARGET STYLE');
+    expect(withStyle).toContain('Terse, american spelling.');
+    expect(withoutStyle).not.toContain('TARGET STYLE');
+    expect(withoutStyle).toEqual(buildParagraphRewritePrompt('My Title', 'The original paragraph text.', 0, 5, undefined, undefined));
+  });
 });
