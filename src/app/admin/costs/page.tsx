@@ -105,10 +105,13 @@ export default function AdminCostsPage(): React.ReactElement {
       const spendFilters = { ...filters, granularity, includeTest };
 
       const [summaryRes, dailyRes, modelRes, userRes, bucketRes, entityRes, reconRes] = await Promise.all([
-        getCostSummaryAction(filters),
+        // Pass includeTest so the headline Total Cost + By Model/User reconcile with the provider
+        // bill (exclude mock/test-runtime pollution when the toggle is off). Daily costs reads a
+        // view without is_test, so the toggle doesn't affect it (see getDailyCostsAction).
+        getCostSummaryAction({ ...filters, includeTest }),
         getDailyCostsAction(filters),
-        getCostByModelAction(filters),
-        getCostByUserAction({ ...filters, limit: 10 }),
+        getCostByModelAction({ ...filters, includeTest }),
+        getCostByUserAction({ ...filters, includeTest, limit: 10 }),
         getSpendByGranularityAction(spendFilters),
         getCostByEntityAction(spendFilters),
         getEvolutionReconciliationAction(filters)
@@ -153,8 +156,26 @@ export default function AdminCostsPage(): React.ReactElement {
         setSpendingSummary(spendingRes.data);
       }
 
-      if (!summaryRes.success) {
-        setError(summaryRes.error?.message || 'Failed to load data');
+      // Surface EVERY action's failure (not just summary) so partial failures aren't silently
+      // hidden (e.g. spend-buckets RPC or spending-summary failing while summary succeeds).
+      const failures: string[] = [];
+      const pushIf = (
+        label: string,
+        res: { success: boolean; error: { message?: string } | null },
+      ) => {
+        if (!res.success) failures.push(`${label}: ${res.error?.message ?? 'failed'}`);
+      };
+      pushIf('summary', summaryRes);
+      pushIf('daily costs', dailyRes);
+      pushIf('cost by model', modelRes);
+      pushIf('cost by user', userRes);
+      pushIf('spend buckets', bucketRes);
+      pushIf('cost by entity', entityRes);
+      pushIf('reconciliation', reconRes);
+      pushIf('cost config', configRes);
+      pushIf('spending summary', spendingRes);
+      if (failures.length > 0) {
+        setError(`Failed to load — ${failures.join('; ')}`);
       }
     } catch {
       setError('Failed to load cost data');
@@ -312,7 +333,7 @@ export default function AdminCostsPage(): React.ReactElement {
       )}
 
       {error && (
-        <div className="p-3 bg-red-900/20 border border-red-600 rounded-md text-red-400">
+        <div data-testid="admin-costs-error" className="p-3 bg-red-900/20 border border-red-600 rounded-md text-red-400">
           {error}
         </div>
       )}

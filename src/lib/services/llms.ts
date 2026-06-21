@@ -117,6 +117,12 @@ export interface CallLLMOptions {
    *  evolution pipeline (see claimAndExecuteRun). IGNORED for reasoning-capable models, where
    *  `max_tokens` would cap reasoning+completion together and could truncate the trace. */
   maxOutputTokens?: number;
+  /** FAIL-CLOSED tracking. When `true`, a failure to write the `llmCallTracking` row RE-THROWS
+   *  (blocking the call) instead of being swallowed. Set by every evolution call site so evolution
+   *  spend can never be silently lost (the 2026-02-23 audit gap). The full would-be-row payload is
+   *  always dead-lettered to an `error` log before the throw, so spent dollars stay recoverable even
+   *  when the DB write fails. Main-app calls omit this and keep best-effort (swallow-and-log). */
+  requireTracking?: boolean;
 }
 
 type ResponseObject = z.ZodObject<any> | null;
@@ -153,13 +159,6 @@ export const ANONYMOUS_USER_UUID = '00000000-0000-0000-0000-000000000000';
  *  because warn-level logs were the only signal). */
 let trackingFailureCount = 0;
 
-/** When `EVOLUTION_TRACKING_STRICT === 'true'` (set in CI / dev), tracking failures throw
- *  instead of being swallowed. Production stays fire-and-forget so a tracking blip cannot
- *  fail user-facing LLM calls. */
-function isStrictMode(): boolean {
-    return process.env.EVOLUTION_TRACKING_STRICT === 'true';
-}
-
 /** Save one llmCallTracking row. When `injectedDb` is provided, uses that client
  *  (required from non-Next.js contexts). Otherwise falls back to the Next.js-resolved
  *  service client — which is currently broken from the CLI batch runner, see
@@ -169,22 +168,20 @@ export async function saveLlmCallTracking(
     injectedDb?: SupabaseClient<Database>,
 ): Promise<void> {
     if (!injectedDb && !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-        // No way to construct a client. Always-loud: this is a configuration error
-        // that should be surfaced on the first failure, not the third.
+        // No way to construct a client — a configuration error. ALWAYS throw: the swallow-vs-throw
+        // decision lives in the caller (saveTrackingAndNotify, gated on requireTracking), so this
+        // surfaces on the first failure regardless of environment.
         logger.error('saveLlmCallTracking: no client available — SUPABASE_SERVICE_ROLE_KEY unset and no injectedDb provided', {
             call_source: trackingData.call_source,
             model: trackingData.model,
         });
         trackingFailureCount++;
-        if (isStrictMode()) {
-            throw new ServiceError(
-                ERROR_CODES.DATABASE_ERROR,
-                'saveLlmCallTracking: no client available (set SUPABASE_SERVICE_ROLE_KEY or pass trackingDb)',
-                'saveLlmCallTracking',
-                { details: { callSource: trackingData.call_source } },
-            );
-        }
-        return;
+        throw new ServiceError(
+            ERROR_CODES.DATABASE_ERROR,
+            'saveLlmCallTracking: no client available (set SUPABASE_SERVICE_ROLE_KEY or pass trackingDb)',
+            'saveLlmCallTracking',
+            { details: { callSource: trackingData.call_source } },
+        );
     }
 
     try {
@@ -248,34 +245,25 @@ export async function saveLlmCallTracking(
     }
 }
 
-/** Save tracking data and invoke the onUsage callback. Tracking failures are LOUD —
- *  every failure logs at `error` level with structured fields (so observability tools
- *  surface them immediately), and `EVOLUTION_TRACKING_STRICT=true` re-throws so CI/dev
- *  catch regressions like the 2026-02-22 → 2026-04-23 audit gap. Default behavior in
- *  prod still does NOT throw — LLM calls must not fail because tracking failed. */
-async function saveTrackingAndNotify(
+/** Save tracking data and invoke the onUsage callback.
+ *
+ *  Tracking failures are always LOUD (logged at `error` level with the full would-be-row payload
+ *  so spent dollars are recoverable from logs — the dead-letter of last resort).
+ *
+ *  FAIL-CLOSED: when `options.requireTracking` is set (every evolution call site), a tracking
+ *  failure RE-THROWS so the LLM call is treated as failed and the run cannot silently continue —
+ *  this is what closes the 2026-02-23 evolution audit gap. Main-app calls omit `requireTracking`
+ *  and keep best-effort swallow-and-log (a tracking blip must not fail a user-facing call).
+ *
+ *  `onUsage` fires BEFORE any re-throw so the caller's usage/cost accounting reflects the real
+ *  spend that already occurred, even on a call whose tracking then fails. */
+export async function saveTrackingAndNotify(
     trackingData: LlmCallTrackingType,
     usageMeta: LLMUsageMetadata,
     options?: CallLLMOptions,
 ): Promise<void> {
-    try {
-        await saveLlmCallTracking(trackingData, options?.trackingDb);
-    } catch (trackingError) {
-        trackingFailureCount++;
-        // Always log at error level — warn-level was the reason the audit gap hid for 2 months.
-        logger.error(`LLM call tracking save failed (non-fatal, failure #${trackingFailureCount})`, {
-            error: trackingError instanceof Error ? trackingError.message : String(trackingError),
-            call_source: trackingData.call_source,
-            model: trackingData.model,
-            evolution_invocation_id: trackingData.evolution_invocation_id ?? null,
-            had_injected_db: options?.trackingDb ? true : false,
-            tracking_failure_count: trackingFailureCount,
-        });
-        if (isStrictMode()) {
-            throw trackingError;
-        }
-    }
-
+    // Fire onUsage first — the provider was already billed, so caller accounting must reflect it
+    // regardless of whether the tracking write below succeeds or throws.
     if (options?.onUsage) {
         try {
             options.onUsage(usageMeta);
@@ -284,6 +272,34 @@ async function saveTrackingAndNotify(
                 error: callbackError instanceof Error ? callbackError.message : String(callbackError),
                 call_source: trackingData.call_source,
             });
+        }
+    }
+
+    try {
+        await saveLlmCallTracking(trackingData, options?.trackingDb);
+    } catch (trackingError) {
+        trackingFailureCount++;
+        // Dead-letter: full would-be-row payload at error level so the spend is never invisible,
+        // even when the DB row write fails. (Warn-level was why the audit gap hid for 2 months.)
+        logger.error(`LLM call tracking save failed (failure #${trackingFailureCount})`, {
+            error: trackingError instanceof Error ? trackingError.message : String(trackingError),
+            require_tracking: options?.requireTracking ?? false,
+            call_source: trackingData.call_source,
+            model: trackingData.model,
+            userid: trackingData.userid,
+            prompt_tokens: trackingData.prompt_tokens,
+            completion_tokens: trackingData.completion_tokens,
+            reasoning_tokens: trackingData.reasoning_tokens ?? null,
+            total_tokens: trackingData.total_tokens,
+            estimated_cost_usd: trackingData.estimated_cost_usd,
+            is_test: trackingData.is_test ?? null,
+            evolution_invocation_id: trackingData.evolution_invocation_id ?? null,
+            had_injected_db: options?.trackingDb ? true : false,
+            tracking_failure_count: trackingFailureCount,
+        });
+        // FAIL-CLOSED: evolution (and any requireTracking) call must fail when its spend can't be recorded.
+        if (options?.requireTracking) {
+            throw trackingError;
         }
     }
 }

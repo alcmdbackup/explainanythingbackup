@@ -41,7 +41,7 @@ jest.mock('./llmSpendingGate', () => ({
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
-import { callLLM, callLLMModel, callOpenAIModel, isAnthropicModel, isLocalModel, isOpenRouterModel, DEFAULT_MODEL, LIGHTER_MODEL, saveLlmCallTracking, applyTestLlmModelOverride, __resetTrackingFailureCount, __getTrackingFailureCount, type LLMUsageMetadata } from './llms';
+import { callLLM, callLLMModel, callOpenAIModel, isAnthropicModel, isLocalModel, isOpenRouterModel, DEFAULT_MODEL, LIGHTER_MODEL, saveLlmCallTracking, saveTrackingAndNotify, applyTestLlmModelOverride, __resetTrackingFailureCount, __getTrackingFailureCount, type LLMUsageMetadata } from './llms';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { testSource } from '@/lib/services/llmCallSource';
 import { ERROR_CODES } from '@/lib/errorHandling';
@@ -1573,10 +1573,10 @@ describe('llms', () => {
       // to error at >=3 so transient blips don't spam the error stream). Accept
       // either — the test cares that the non-fatal message went through SOME log.
       const viaError = (logger.error as jest.Mock).mock.calls.some(
-        ([msg]: [string]) => typeof msg === 'string' && msg.includes('LLM call tracking save failed (non-fatal'),
+        ([msg]: [string]) => typeof msg === 'string' && msg.includes('LLM call tracking save failed'),
       );
       const viaWarn = (logger.warn as jest.Mock).mock.calls.some(
-        ([msg]: [string]) => typeof msg === 'string' && msg.includes('LLM call tracking save failed (non-fatal'),
+        ([msg]: [string]) => typeof msg === 'string' && msg.includes('LLM call tracking save failed'),
       );
       expect(viaError || viaWarn).toBe(true);
     });
@@ -1605,7 +1605,7 @@ describe('llms', () => {
 
       expect(result).toBe('Claude response');
       expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining('LLM call tracking save failed (non-fatal'),
+        expect.stringContaining('LLM call tracking save failed'),
         expect.objectContaining({ call_source: testSource('test_source'), model: 'claude-sonnet-4-20250514' }),
       );
     });
@@ -1693,7 +1693,9 @@ describe('llms', () => {
     it('logs at error level (not warn) when no client and no env key — first failure must be loud', async () => {
       delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-      await saveLlmCallTracking(validRow);
+      // saveLlmCallTracking now ALWAYS throws on no-client (the swallow-vs-throw decision lives in
+      // the caller, saveTrackingAndNotify, gated on requireTracking).
+      await expect(saveLlmCallTracking(validRow)).rejects.toThrow(/no client available/);
 
       expect(logger.error).toHaveBeenCalledWith(
         expect.stringContaining('no client available'),
@@ -1707,26 +1709,16 @@ describe('llms', () => {
       );
     });
 
-    it('throws when EVOLUTION_TRACKING_STRICT=true and no client is available', async () => {
+    it('always throws when no client is available (fail-closed; no env flag gates this anymore)', async () => {
       delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-      process.env.EVOLUTION_TRACKING_STRICT = 'true';
 
       await expect(saveLlmCallTracking(validRow)).rejects.toThrow(/no client available/);
-
-      delete process.env.EVOLUTION_TRACKING_STRICT;
-    });
-
-    it('does NOT throw in default (non-strict) mode when no client is available', async () => {
-      delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-      // No EVOLUTION_TRACKING_STRICT set.
-
-      await expect(saveLlmCallTracking(validRow)).resolves.toBeUndefined();
     });
 
     it('resets the failure counter on a successful write so transient blips do not permanently elevate logs', async () => {
-      // Cause one failure first.
+      // Cause one failure first (no client → throws).
       delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-      await saveLlmCallTracking(validRow);
+      await expect(saveLlmCallTracking(validRow)).rejects.toThrow();
       expect(__getTrackingFailureCount()).toBeGreaterThan(0);
 
       // Now succeed via injected client.
@@ -1787,6 +1779,82 @@ describe('llms', () => {
         expect.objectContaining({ message: 'permission denied for table llmCallTracking' }),
       );
     });
+  });
+});
+
+describe('saveTrackingAndNotify (fail-closed tracking)', () => {
+  const row = {
+    userid: '00000000-0000-4000-8000-000000000001',
+    prompt: 'p',
+    content: 'c',
+    call_source: 'evolution_generation',
+    raw_api_response: '{}',
+    model: 'gpt-4.1-mini',
+    prompt_tokens: 10,
+    completion_tokens: 20,
+    total_tokens: 30,
+    finish_reason: 'stop',
+    estimated_cost_usd: 0.001,
+  };
+  const usageMeta: LLMUsageMetadata = {
+    promptTokens: 10,
+    completionTokens: 20,
+    totalTokens: 30,
+    reasoningTokens: 0,
+    estimatedCostUsd: 0.001,
+    model: 'gpt-4.1-mini',
+  };
+  const origKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  beforeEach(() => {
+    __resetTrackingFailureCount();
+    jest.clearAllMocks();
+    // Force the underlying save to fail (no client available) so we exercise the failure path.
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  });
+  afterEach(() => {
+    process.env.SUPABASE_SERVICE_ROLE_KEY = origKey;
+  });
+
+  it('RE-THROWS when requireTracking is set and the write fails (evolution fail-closed)', async () => {
+    const onUsage = jest.fn();
+    await expect(
+      saveTrackingAndNotify(row, usageMeta, { requireTracking: true, onUsage }),
+    ).rejects.toThrow(/no client available/);
+    // onUsage fired BEFORE the throw, so caller accounting reflects the real spend.
+    expect(onUsage).toHaveBeenCalledWith(usageMeta);
+    // Dead-letter: full would-be-row payload logged at error level.
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('tracking save failed'),
+      expect.objectContaining({
+        require_tracking: true,
+        call_source: 'evolution_generation',
+        estimated_cost_usd: 0.001,
+        prompt_tokens: 10,
+        completion_tokens: 20,
+      }),
+    );
+  });
+
+  it('SWALLOWS when requireTracking is not set (main-app best-effort)', async () => {
+    const onUsage = jest.fn();
+    await expect(
+      saveTrackingAndNotify(row, usageMeta, { onUsage }),
+    ).resolves.toBeUndefined();
+    expect(onUsage).toHaveBeenCalledWith(usageMeta);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('tracking save failed'),
+      expect.objectContaining({ require_tracking: false }),
+    );
+  });
+
+  it('fires onUsage before the re-throw even when tracking fails', async () => {
+    const order: string[] = [];
+    const onUsage = jest.fn(() => { order.push('onUsage'); });
+    await expect(
+      saveTrackingAndNotify(row, usageMeta, { requireTracking: true, onUsage }),
+    ).rejects.toThrow();
+    expect(order).toEqual(['onUsage']);
   });
 });
 

@@ -169,6 +169,11 @@ const _getCostSummaryAction = withLogging(async (
     if (filters.userId) {
       query = query.eq('userid', filters.userId);
     }
+    // Respect the include-test toggle so the headline Total Cost reconciles with the provider bill
+    // (excludes mock/$0 + test-runtime pollution when off). Default ON shows everything.
+    if (filters.includeTest === false) {
+      query = query.eq('is_test', false);
+    }
 
     const { data, error, count } = await query;
 
@@ -190,6 +195,9 @@ const _getCostSummaryAction = withLogging(async (
     }
     if (filters.userId) {
       nullCountQuery = nullCountQuery.eq('userid', filters.userId);
+    }
+    if (filters.includeTest === false) {
+      nullCountQuery = nullCountQuery.eq('is_test', false);
     }
 
     const { count: nullCount } = await nullCountQuery;
@@ -245,7 +253,11 @@ const _getDailyCostsAction = withLogging(async (
     const endDate = endDateRaw.includes('T') ? endDateRaw.split('T')[0] : endDateRaw;
     const startDate = startDateRaw.includes('T') ? startDateRaw.split('T')[0] : startDateRaw;
 
-    // Use the daily_llm_costs view
+    // Use the daily_llm_costs view.
+    // NOTE: this view does NOT project `is_test`, so the include-test toggle cannot be applied
+    // app-side here (unlike Summary/ByModel/ByUser which query llmCallTracking directly). The
+    // toggle-aware spend view is the Overview stacked chart (get_llm_spend_buckets RPC). Adding
+    // `is_test` to the view (migration) to make this daily chart toggle-aware is a tracked follow-up.
     let query = supabase
       .from('daily_llm_costs')
       .select('date, call_count, total_tokens, total_cost_usd')
@@ -335,6 +347,9 @@ const _getCostByModelAction = withLogging(async (
     if (filters.userId) {
       query = query.eq('userid', filters.userId);
     }
+    if (filters.includeTest === false) {
+      query = query.eq('is_test', false);
+    }
 
     const { data, error } = await query;
 
@@ -421,6 +436,9 @@ const _getCostByUserAction = withLogging(async (
 
     if (filters.model) {
       query = query.eq('model', filters.model);
+    }
+    if (filters.includeTest === false) {
+      query = query.eq('is_test', false);
     }
 
     const { data, error } = await query;

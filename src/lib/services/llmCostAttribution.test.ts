@@ -54,9 +54,19 @@ describe('isTestLlmCall', () => {
     content: 'real model output',
   };
 
-  it('flags rows from known test/system userids', () => {
-    for (const uid of TEST_USER_IDS) {
-      expect(isTestLlmCall({ ...realRow, userid: uid })).toBe(true);
+  it('does NOT flag system/test userids on their own (real evolution + offline-tool spend must count)', () => {
+    // Simulate a real (non-test) runtime — these userids spend real money.
+    const prevNode = process.env.NODE_ENV;
+    const prevE2e = process.env.E2E_TEST_MODE;
+    (process.env as Record<string, string>).NODE_ENV = 'production';
+    delete process.env.E2E_TEST_MODE;
+    try {
+      for (const uid of TEST_USER_IDS) {
+        expect(isTestLlmCall({ ...realRow, userid: uid })).toBe(false);
+      }
+    } finally {
+      (process.env as Record<string, string>).NODE_ENV = prevNode as string;
+      if (prevE2e !== undefined) process.env.E2E_TEST_MODE = prevE2e;
     }
   });
 
@@ -67,6 +77,23 @@ describe('isTestLlmCall', () => {
 
   it('flags the mock content fingerprint', () => {
     expect(isTestLlmCall({ ...realRow, content: 'Unexpected call' })).toBe(true);
+  });
+
+  it('flags the prod-ai harness via LLM_TRACKING_TEST_RUNTIME (real pipeline under …001, test purpose)', () => {
+    const prevNode = process.env.NODE_ENV;
+    const prevE2e = process.env.E2E_TEST_MODE;
+    const prevFlag = process.env.LLM_TRACKING_TEST_RUNTIME;
+    (process.env as Record<string, string>).NODE_ENV = 'production';
+    delete process.env.E2E_TEST_MODE;
+    process.env.LLM_TRACKING_TEST_RUNTIME = 'true';
+    try {
+      expect(isTestLlmCall({ ...realRow, userid: '00000000-0000-4000-8000-000000000001' })).toBe(true);
+    } finally {
+      (process.env as Record<string, string>).NODE_ENV = prevNode as string;
+      if (prevE2e !== undefined) process.env.E2E_TEST_MODE = prevE2e;
+      if (prevFlag !== undefined) process.env.LLM_TRACKING_TEST_RUNTIME = prevFlag;
+      else delete process.env.LLM_TRACKING_TEST_RUNTIME;
+    }
   });
 
   it('does NOT flag a real prod-shaped row (when not in a test env)', () => {

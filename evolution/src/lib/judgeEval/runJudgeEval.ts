@@ -288,6 +288,8 @@ export function createCallLLMJudge(params: {
         ...(params.temperature != null ? { temperature: params.temperature } : {}),
         ...(params.reasoningEffort != null ? { reasoningEffort: params.reasoningEffort } : {}),
         ...(params.trackingDb != null ? { trackingDb: params.trackingDb } : {}),
+        // FAIL-CLOSED: judge-lab spend is real evolution spend — fail the eval if it can't be recorded.
+        requireTracking: true,
         onUsage: (u: LLMUsageMetadata) => {
           costUsd += u.estimatedCostUsd;
           promptTokens += u.promptTokens;

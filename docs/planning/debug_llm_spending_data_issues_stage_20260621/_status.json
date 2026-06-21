@@ -1,0 +1,19 @@
+{
+  "branch": "feat/debug_llm_spending_data_issues_stage_20260621",
+  "created_at": "2026-06-21T16:32:12Z",
+  "prerequisites": {
+    "testing_overview_read": "2026-06-21T17:20:43Z",
+    "testing_setup_read": "2026-06-21T17:20:44Z",
+    "todos_created": "2026-06-21T19:08:32Z"
+  },
+  "relevantDocs": [
+    "evolution/docs/cost_optimization.md",
+    "docs/feature_deep_dives/admin_panel.md",
+    "docs/feature_deep_dives/judge_evaluation.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/evolution_metrics.md",
+    "evolution/docs/logging.md",
+    "evolution/docs/reference.md"
+  ],
+  "analyses": []
+}

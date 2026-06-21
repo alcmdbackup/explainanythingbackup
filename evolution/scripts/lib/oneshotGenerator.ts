@@ -2,10 +2,13 @@
 // Generates a title + article for a given prompt and model using direct LLM SDK calls.
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '../../../src/lib/database.types';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { createTitlePrompt, createExplanationPrompt } from '../../../src/lib/prompts';
 import { calculateLLMCost } from '../../../src/config/llmPricing';
+import { CALL_SOURCES } from '../../../src/lib/services/llmCallSource';
+import { isTestLlmCall } from '../../../src/lib/services/llmCostAttribution';
 import { generateTitle } from '../../src/lib/pipeline/setup/generateSeedArticle';
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -35,11 +38,11 @@ export interface OutlineOneshotResult extends OneshotResult {
 // ─── Supabase Helper ──────────────────────────────────────────────
 
 /** Create a Supabase service-role client from env vars. Returns null if vars missing. */
-export function getSupabaseClient(): SupabaseClient | null {
+export function getSupabaseClient(): SupabaseClient<Database> | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
+  return createClient<Database>(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
 // ─── LLM Call Tracking ───────────────────────────────────────────
@@ -59,9 +62,10 @@ export async function trackLLMCall(
   },
 ): Promise<void> {
   if (!supabase) return;
+  const userid = '00000000-0000-0000-0000-000000000000';
   try {
     await supabase.from('llmCallTracking').insert({
-      userid: '00000000-0000-0000-0000-000000000000',
+      userid,
       prompt: params.prompt,
       content: params.content,
       call_source: params.callSource,
@@ -73,13 +77,21 @@ export async function trackLLMCall(
       reasoning_tokens: 0,
       finish_reason: params.finishReason,
       estimated_cost_usd: params.costUsd,
-      // known-uncovered path: this direct insert bypasses callLLM/saveLlmCallTracking and
-      // all attribution layers. These are offline CLI/experiment runs (userid 0000…0000),
-      // not production spend, so flag them so the spending dashboard classifies them as test.
-      is_test: true,
+      // DOCUMENTED self-tracker: this direct insert deliberately bypasses callLLM/saveLlmCallTracking
+      // (multi-provider direct-SDK script) — allowlisted in the coverage guard. Derive is_test from
+      // the runtime/mock signals (NOT hard-true): a real CLI run spends real money and should count
+      // toward reconciliation; only test-runtime/mock invocations are tagged test.
+      is_test: isTestLlmCall({ userid, callSource: params.callSource, content: params.content }),
     });
-  } catch {
-    // Non-critical: don't fail generation on tracking errors
+  } catch (err) {
+    // Don't fail generation on tracking errors, but be LOUD — silent tracking failures are
+    // exactly what produced the 2026-02-23 audit gap.
+    console.error('[oneshotGenerator] llmCallTracking insert failed', {
+      call_source: params.callSource,
+      model: params.model,
+      estimated_cost_usd: params.costUsd,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -148,7 +160,8 @@ export async function generateOneshotArticle(
   model: string,
   supabase: SupabaseClient | null,
 ): Promise<OneshotResult> {
-  const callSource = `oneshot_${model}`;
+  // Bounded source (model suffix normalized away) so the entity axis stays low-cardinality.
+  const callSource: string = CALL_SOURCES.oneshot;
   const startTime = Date.now();
 
   // Step 1: Generate title
@@ -221,7 +234,7 @@ export async function generateOutlineOneshotArticle(
   model: string,
   supabase: SupabaseClient | null,
 ): Promise<OutlineOneshotResult> {
-  const callSource = `oneshot_outline_${model}`;
+  const callSource: string = CALL_SOURCES.oneshotOutline;
   const startTime = Date.now();
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
