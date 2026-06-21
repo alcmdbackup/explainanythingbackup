@@ -118,7 +118,7 @@ The evolution pipeline has no explicit, reusable, machine-readable description o
 
 ### Phase 5: Judging injection
 - [ ] `evolution/src/lib/shared/rubricJudge.ts` (`buildRubricComparisonPrompt`): add an optional `targetStyleProse?: string` param; when present, append a `Target style (the author voice both variants should match):\n<prose>` block so the `stylistic_accuracy` dimension has an explicit expectation. Static criterion anchors stay generic; the per-run expectation rides as runtime context.
-- [ ] **Carry the prose on `EvolutionConfig`, parallel to `judgeRubric` [fixes A5 — corrected call chain].** Verified production path: `buildRubricComparisonPrompt` is invoked ONLY inside `computeRatings.ts` `runSingleComparison` (~L712), whose public entry is `compareWithBiasMitigation` (~L817, + `dispatchEnsembleComparison`). The PRODUCTION callers are `evolution/src/lib/pipeline/loop/rankSingleVariant.ts` (~L353) and `evolution/src/lib/core/agents/SwissRankingAgent.ts` (~L160) — `rankNewVariant` delegates to `rankSingleVariant`. BOTH already resolve `config.judgeRubric` from `ctx.config` (the `EvolutionConfig` built in `buildRunContext`). So: add `targetStyleProse?` (sourced from the run's `style_fingerprint_snapshot` in `buildRunContext`) onto `EvolutionConfig` next to `judgeRubric`, and have `runSingleComparison`/`compareWithBiasMitigation` read it from `config` and pass it into `buildRubricComparisonPrompt`. This avoids threading a new positional param through 4 layers and matches the existing `judgeRubric` seam (snapshot-sourced ⇒ reproducible).
+- [ ] **Carry the prose on `EvolutionConfig`, parallel to `judgeRubric` [fixes A5 — corrected call chain].** Verified production path: `buildRubricComparisonPrompt` is invoked ONLY inside `computeRatings.ts` `runSingleComparison` (~L712), whose public entry is `compareWithBiasMitigation` (~L817, + `dispatchEnsembleComparison`). The PRODUCTION callers are `evolution/src/lib/pipeline/loop/rankSingleVariant.ts` (~L353) and `evolution/src/lib/core/agents/SwissRankingAgent.ts` (~L160) — `rankNewVariant` delegates to `rankSingleVariant`. BOTH already resolve `config.judgeRubric` from `ctx.config` (the `EvolutionConfig` built in `buildRunContext`). So: add `targetStyleProse?` (sourced from the run's `style_fingerprint_snapshot` in `buildRunContext`) onto `EvolutionConfig` next to `judgeRubric`. Precise seam (matches `judgeRubric` exactly): the **call sites** `rankSingleVariant.ts` (~L353/L359) and `SwissRankingAgent.ts` (~L160/L166) read `config.targetStyleProse` and pass it as an argument into `compareWithBiasMitigation` → `dispatchEnsembleComparison`/`runSingleComparison` → `buildRubricComparisonPrompt` (NOT read inside those fns — `compareWithBiasMitigation` receives a `ResolvedJudgeRubric`/`rubricContext`, not the full config). `buildRubricComparisonPrompt` already has ~7 positional params, so prefer folding the new arg into an **options bag** (same ergonomic concern as `buildEvolutionPrompt` in Phase 4) rather than adding an 8th positional. Snapshot-sourced ⇒ reproducible.
 - [ ] **Scope OUT the offline Judge Lab surface:** `evolution/src/lib/judgeEval/escalation.ts` and `agreement.ts` are the Judge-Lab eval surface (NOT the run-time ranking path); `escalation.ts` calls `buildRubricComparisonPrompt` with its own signature and `agreement.ts`'s holistic path does not use it. They take `undefined`/no style prose for v1 (document as out-of-scope). Match Viewer likewise passes `undefined` unless a fingerprint is explicitly selected.
 - [ ] Respect existing `EVOLUTION_RUBRIC_JUDGING_ENABLED` kill switch (judge already falls back to holistic when off).
 - [ ] Ensure `stylistic_accuracy` dimension is available to attach to a judge rubric (seeded Phase 1); document how to add it to a strategy's `judgeRubricId` bundle.
@@ -297,4 +297,23 @@ The following docs were identified as relevant and may need updates:
 - [ ] docs/feature_deep_dives/admin_panel.md — new registry page + Hide-test behavior
 
 ## Review & Discussion
-[Populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration]
+
+### /plan-review — CONSENSUS REACHED (3 iterations, 2026-06-20)
+3 parallel reviewers (Security & Technical, Architecture & Integration, Testing & CI/CD), each verifying claims against real source.
+
+| Iteration | Security | Architecture | Testing |
+|---|---|---|---|
+| 1 | 2/5 | 2/5 | 4/5 |
+| 2 | 5/5 | 4/5 | 5/5 |
+| 3 | **5/5** | **5/5** | **5/5** |
+
+**Iteration 1 blockers (all fixed):**
+- *Sec:* extraction relied on `completeStructured` (throws "not supported in V2") → switched to `complete()` + JSON.parse + Zod safeParse + repair/retry + typed no-op; `total_extraction_cost` had no write path → declared in MetricName + both registries under `during_execution`, written via `writeMetricMax('style_fingerprint',…)`; CRUD recompute had no consistency policy → compute-first/persist-last/no-op-on-failure; generic `delete` is a hard cascade → soft-delete via `executeAction('delete')` override + `deleted_at IS NULL` filters.
+- *Arch:* missing abstract `detailLinks()` → added; dual `Record<EntityType>` registries are compile-mandatory → made explicit; strategy opt-in UI (W6) unscoped → new Phase 6; generation threading → ctx-read in GFPA (reflect covered transitively); judge threading → enumerated chain.
+- *Test:* `evolution-test-data-factory` extension (new entity-type members + `createTestStyleFingerprint` + FK order) → added as a prerequisite; `afterAll` must delete runs referencing the fingerprint before junction/fingerprint → specified.
+
+**Iteration 2 residual blocker (fixed):** Phase 5 judge call-chain named the offline Judge-Lab files instead of the production path. Corrected to `compareWithBiasMitigation → runSingleComparison` (computeRatings.ts), production callers `rankSingleVariant.ts` + `SwissRankingAgent.ts`, carrying `targetStyleProse` on `EvolutionConfig` (parallel to `judgeRubric`, snapshot-sourced); offline `judgeEval/*` + Match Viewer scoped out.
+
+**Iteration 3:** all 5/5. Remaining items are non-blocking ergonomics (prefer an options-bag over an 8th positional arg in `buildRubricComparisonPrompt`; a couple of test-naming precisions) — folded into the plan text where cheap.
+
+**Status: READY FOR EXECUTION.**
