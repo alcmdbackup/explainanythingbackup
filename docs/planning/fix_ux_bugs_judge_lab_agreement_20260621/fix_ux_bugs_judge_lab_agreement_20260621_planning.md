@@ -373,3 +373,18 @@ The following docs were identified as relevant and may need updates:
 - **`unrouteAll({ behavior: 'wait' })`** explicit in every block.
 
 High-impact minor items folded in across both iterations: Wilson n=0 → null; position-bias null policy; cost-preview error fallback; index hint for criterion-verdict query; wilsonCI.ts → `evolution/src/lib/shared/`; breadcrumb 5-segment note; estimateSweepCost ×2 multiplication frozen; cost_optimization.md promoted to REQUIRED; rollback section added; data-testid plumbing throughout; explicit `?disagree=1` E2E assertion; AgreementAuditDetail plain-text-only render contract.
+
+### Iteration 3 (plan-review) — **CONSENSUS REACHED ✅**
+
+| Perspective | Score | Critical gaps |
+|---|---|---|
+| Security & Technical | **5/5** | 0 |
+| Architecture & Integration | **5/5** | 0 |
+| Testing & CI/CD | **5/5** | 0 |
+
+All three reviewers confirmed the iter-3 polish lifted the plan to 5/5/5 consensus. Plan is ready for execution.
+
+**Residual nits noted by reviewers (non-blocking, capture during execution if relevant):**
+- (Security) Consider a hard row-count guardrail (e.g., abort/log if leaderboard supplemental fetch returns > 250K rows) — defense-in-depth.
+- (Testing) Document the `@critical` exclusion explicitly so the new `@evolution` spec doesn't accidentally fire on PRs to `main`.
+- (Testing) Share the seed UUID between `seed-agreement-fixtures.ts` and the E2E spec via a constant export to prevent drift.
