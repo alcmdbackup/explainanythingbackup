@@ -151,6 +151,93 @@ export type EvaluationGuidance = z.infer<typeof evaluationGuidanceSchema>;
 export type EvolutionCriteriaInsert = z.infer<typeof evolutionCriteriaInsertSchema>;
 export type EvolutionCriteriaFullDb = z.infer<typeof evolutionCriteriaFullDbSchema>;
 
+// ─── 2b-2. evolution_style_fingerprints ──────────────────────────
+// A style fingerprint is a DB-first user-authored entity (mirrors evolution_criteria):
+// a structured + prose description of a writer's style, computed over a SET of articles,
+// injected into generation prompts and the judging rubric. See migration
+// 20260621000001_create_evolution_style_fingerprints.sql.
+
+/** Structured style traits extracted from the article set. Produced by
+ *  extractStyleFingerprint (Phase 3) and rendered to prose by renderFingerprintProse. */
+export const styleFingerprintTraitsSchema = z.object({
+  sentenceLength: z.object({
+    avgWords: z.number().refine(Number.isFinite, { message: 'avgWords must be finite' }),
+    distribution: z.string().min(1).max(300),
+  }),
+  spellingRegion: z.enum(['american', 'british', 'mixed']),
+  vocabularyLevel: z.string().min(1).max(300),
+  tone: z.array(z.string().min(1).max(120)).max(12),
+  signaturePhrases: z.array(z.object({
+    phrase: z.string().min(1).max(200),
+    frequency: z.enum(['rare', 'occasional', 'frequent']),
+  })).max(40),
+  structuralHabits: z.array(z.string().min(1).max(300)).max(20),
+  punctuationHabits: z.array(z.string().min(1).max(300)).max(20),
+  summary: z.string().min(1).max(2000),
+});
+
+export const styleFingerprintStatusEnum = criteriaStatusEnum;
+
+export const evolutionStyleFingerprintInsertSchema = z.object({
+  name: z.string().min(1).max(128).regex(
+    /^[A-Za-z][a-zA-Z0-9_-]*$/,
+    'name must match /^[A-Za-z][a-zA-Z0-9_-]*$/ (parser-safe)',
+  ),
+  description: z.string().nullable().optional(),
+  fingerprint: styleFingerprintTraitsSchema.nullable().optional(),
+  fingerprint_prose: z.string().nullable().optional(),
+  article_count: z.number().int().nonnegative().optional(),
+  status: styleFingerprintStatusEnum.optional().default('active'),
+  is_test_content: z.boolean().optional(),
+  archived_at: z.string().nullable().optional(),
+  deleted_at: z.string().nullable().optional(),
+});
+
+export const evolutionStyleFingerprintFullDbSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(128).regex(/^[A-Za-z][a-zA-Z0-9_-]*$/),
+  description: z.string().nullable(),
+  fingerprint: styleFingerprintTraitsSchema.nullable(),
+  fingerprint_prose: z.string().nullable(),
+  article_count: z.number().int().nonnegative(),
+  status: styleFingerprintStatusEnum,
+  is_test_content: z.boolean(),
+  archived_at: z.string().nullable(),
+  deleted_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+/** A single member of a fingerprint's article set: EITHER an explanation
+ *  reference OR pasted text (exactly one, non-empty). */
+export const evolutionStyleFingerprintArticleSchema = z.object({
+  id: z.string().uuid(),
+  fingerprint_id: z.string().uuid(),
+  explanation_id: z.string().uuid().nullable(),
+  article_text: z.string().min(1).nullable(),
+  position: z.number().int().nonnegative(),
+  added_at: z.string(),
+}).refine(
+  (a) => (a.explanation_id !== null) !== (a.article_text !== null),
+  { message: 'exactly one of explanation_id / article_text must be set', path: ['article_text'] },
+);
+
+/** Input for adding an article to a fingerprint's set (one source). */
+export const addStyleFingerprintArticleInputSchema = z.object({
+  fingerprintId: z.string().uuid(),
+  explanationId: z.string().uuid().optional(),
+  articleText: z.string().min(1).optional(),
+}).refine(
+  (a) => (a.explanationId !== undefined) !== (a.articleText !== undefined),
+  { message: 'provide exactly one of explanationId / articleText', path: ['articleText'] },
+);
+
+export type StyleFingerprintTraits = z.infer<typeof styleFingerprintTraitsSchema>;
+export type EvolutionStyleFingerprintInsert = z.infer<typeof evolutionStyleFingerprintInsertSchema>;
+export type EvolutionStyleFingerprintFullDb = z.infer<typeof evolutionStyleFingerprintFullDbSchema>;
+export type EvolutionStyleFingerprintArticle = z.infer<typeof evolutionStyleFingerprintArticleSchema>;
+export type AddStyleFingerprintArticleInput = z.infer<typeof addStyleFingerprintArticleInputSchema>;
+
 // ─── 2c. evolution_judge_rubrics ─────────────────────────────────
 // Reusable named bundle of judging DIMENSIONS for rubric-based pairwise judging.
 // Thin entity (identity + metadata); the dimensions live in the
@@ -233,6 +320,12 @@ export const evolutionRunInsertSchema = z.object({
   archived: z.boolean().optional().default(false),
   run_summary: z.record(z.string(), z.unknown()).nullable().optional(),
   runner_id: z.string().max(200).nullable().optional(),
+  // generate_enforce_style_fingerprint_evolution_20260620: optional reference to the
+  // style fingerprint this run opted into (no FK — run survives fingerprint hard-delete).
+  style_fingerprint_id: z.string().uuid().nullable().optional(),
+  // Immutable snapshot of the fingerprint (traits + rendered prose) captured at run start,
+  // so later fingerprint edits never retroactively change what this run was judged against.
+  style_fingerprint_snapshot: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 
 export const evolutionRunFullDbSchema = evolutionRunInsertSchema.extend({
@@ -907,6 +1000,12 @@ const strategyConfigBaseSchema = z.object({
    *  buildRunContext to an EnsembleRunner ONLY when EVOLUTION_JUDGE_ESCALATION_ENABLED !== 'false'.
    *  Omit (the default) for single-judge ranking — byte-identical to today. */
   ensembleConfigId: z.string().optional(),
+  /** generate_enforce_style_fingerprint_evolution_20260620: per-strategy opt-in for style
+   *  enforcement. When true AND styleFingerprintId is set, each run snapshots the referenced
+   *  fingerprint at run start and injects it into generation + the stylistic_accuracy judge
+   *  dimension. Default off (no fingerprint ⇒ clean no-op). Validated by validateStyleFingerprintId. */
+  styleFingerprintEnabled: z.boolean().optional(),
+  styleFingerprintId: z.string().uuid().optional(),
   /** Total budget for the run in USD. Per-iteration amounts computed from iterationConfigs[].budgetPercent. */
   budgetUsd: z.number().min(0).optional(),
   generationGuidance: generationGuidanceSchema.optional(),
@@ -1103,6 +1202,12 @@ const evolutionConfigBaseSchema = z.object({
   /** Phase 1d: resolved per-paragraph rubric. Present only when paragraphJudgeRubricId
    *  resolved AND EVOLUTION_RUBRIC_JUDGING_ENABLED is on; undefined → hardcoded paragraph rubric. */
   paragraphJudgeRubric: z.custom<ResolvedJudgeRubric>().optional(),
+  /** generate_enforce_style_fingerprint_evolution_20260620: resolved per-run target-style
+   *  prose, ARTICLE-shaped. Carried on the run config (parallel to judgeRubric), sourced from
+   *  the run's style_fingerprint_snapshot in buildRunContext. The ranking call sites read this
+   *  and thread it into buildRubricComparisonPrompt. Paragraph slot judging OVERRIDES this with
+   *  the paragraph-shaped prose on perSlotConfig (do not inherit the article-shaped value). */
+  targetStyleProse: z.string().optional(),
   /** Named ensemble chain id (from StrategyConfig). Resolved to `ensemble` in buildRunContext. */
   ensembleConfigId: z.string().optional(),
   /** Resolved ensemble chain + aggregation rule. Present ONLY when ensembleConfigId resolved AND the

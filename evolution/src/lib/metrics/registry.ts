@@ -393,6 +393,18 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
     atFinalization: [],
     atPropagation: [],
   },
+  // Style fingerprint (generate_enforce_style_fingerprint_evolution_20260620).
+  // total_extraction_cost is written directly via writeMetricMax from the action layer at
+  // CRUD time (compute returns 0 like the other live-written cost metrics). Declared under
+  // duringExecution so validateTiming accepts the 'during_execution' write.
+  style_fingerprint: {
+    duringExecution: [
+      { name: 'total_extraction_cost', label: 'Total Extraction Cost', category: 'cost', formatter: 'cost',
+        listView: true, compute: () => 0 },
+    ],
+    atFinalization: [],
+    atPropagation: [],
+  },
 };
 
 // ─── Build-time validation ──────────────────────────────────────
