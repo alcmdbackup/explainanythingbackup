@@ -60,11 +60,11 @@ const TT_REPEATS =
 const TT_TEMPERATURE =
   '0 (recommended — matches the production judge path). Higher temperatures introduce judge noise on nano-class models.';
 const TT_PER_REP =
-  'Per-repeat agreement: fraction of (pair × repeat) calls where rubric winner equals holistic winner. Strict — no decisive filter.';
+  'Per-repeat agreement: fraction of (pair × repeat) calls where rubric winner equals holistic winner. Strict — no decisive filter. Note: mutual TIE counts as agreement (both judges agreeing there is no winner).';
 const TT_BOTH_DEC =
-  'Both-decisive agreement: among calls where both judges had confidence > 0.6, the fraction that agreed. The cleanest "do they really agree" signal.';
+  'Both-decisive agreement: among calls where both judges had confidence > 0.6, the fraction that agreed. Note: a confident TIE counts as a verdict — mutual high-confidence TIE counts as agreement.';
 const TT_ABSTAIN =
-  'Abstain divergence: fraction of calls where exactly one judge was decisive (the other abstained / returned TIE).';
+  'Abstain divergence: fraction of calls where exactly one judge committed to A or B (the other abstained or returned TIE). Mutual TIE does NOT count as divergence.';
 const TT_ACC_DELTA =
   'Accuracy delta vs Elo ground truth on large-gap pairs. Positive = rubric judge more accurate than holistic; negative = the reverse.';
 const TT_WORST_CRIT =
@@ -420,32 +420,88 @@ export default function AgreementSweepPage(): JSX.Element {
         </div>
 
         <details data-testid="agreement-definitions" className="text-xs font-ui" style={{ color: 'var(--text-muted)' }}>
-          <summary className="cursor-pointer">What do these mean?</summary>
-          <ul className="mt-2 space-y-1 pl-4 list-disc">
-            <li>
-              <strong>Per-rep</strong> — Per-repeat agreement: fraction of (pair × repeat) calls where rubric winner equals
-              holistic winner. Strict — no decisive filter.
-            </li>
-            <li>
-              <strong>Both-dec</strong> — Both-decisive agreement: among calls where both judges had confidence &gt; 0.6, the
-              fraction that agreed. The cleanest signal that they really agree.
-            </li>
-            <li>
-              <strong>Abstain</strong> — Abstain divergence: fraction of calls where exactly one judge was decisive (the other
-              abstained / returned TIE).
-            </li>
-            <li>
-              <strong>Acc Δ</strong> — Rubric minus holistic accuracy on large-gap ground-truth pairs (Elo gap large enough to
-              have a known correct answer).
-            </li>
-            <li>
-              <strong>Worst criterion</strong> — Rubric dimension whose verdicts diverged from the holistic winner most often
-              in this run.
-            </li>
-            <li>
-              <strong>[low, high]</strong> — 95% Wilson score interval (binomial CI on the proportion).
-            </li>
-          </ul>
+          <summary className="cursor-pointer">Glossary — every term on this page</summary>
+          <div className="mt-3 space-y-3 pl-1">
+
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Form inputs</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li><strong>Test set</strong> — A frozen sample of pairs (drawn once and re-used across runs). Created from a pair-bank.</li>
+              <li><strong>Judge model (both judges)</strong> — The LLM that judges both the holistic and the rubric calls. Same model for both sides.</li>
+              <li><strong>Rubric</strong> — The named bundle of criteria (each with a weight) used by the rubric judge. Required.</li>
+              <li><strong>Kind</strong> — Filter the run to <code>article</code> pairs, <code>paragraph</code> pairs, or <code>both</code>.</li>
+              <li><strong>Temperature</strong> — Sampling temperature for the judge LLM. 0 = deterministic (recommended; matches the production judge path).</li>
+              <li><strong>Reasoning</strong> — Reasoning-mode setting for thinking models. <code>none</code> = off; <code>low</code> / <code>medium</code> = increasing budgets.</li>
+              <li><strong>Repeats</strong> — Number of times each pair is judged. 4 LLM calls per repeat (2 holistic + 2 rubric).</li>
+            </ul>
+          </section>
+
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Cost preview line</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li><strong>pairs</strong> — Number of pairs in the test set after the Kind filter.</li>
+              <li><strong>repeats</strong> — Number of times each pair will be judged.</li>
+              <li><strong>calls</strong> — Total LLM calls planned = pairs × repeats × 4.</li>
+              <li><strong>est $X</strong> — Pre-flight cost estimate. Approximate; the authoritative cost is the per-call onUsage estimate captured during the run.</li>
+              <li><strong>cap</strong> — Hard JUDGE_EVAL_MAX_USD ceiling (default $5). The sweep is rejected before any LLM call if the estimate exceeds the cap.</li>
+              <li><strong>updating…</strong> — A new estimate is in flight (debounced 300ms after input change).</li>
+              <li><strong>Cost preview unavailable</strong> — The estimate action errored. Launch stays enabled — preserves user agency on transient errors.</li>
+            </ul>
+          </section>
+
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Launcher buttons</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li><strong>Dry run</strong> — Computes the sweep plan + estimate but makes NO LLM calls. Useful as a final sanity check before Launch.</li>
+              <li><strong>Launch sweep</strong> — Actually runs the sweep. Disabled when the estimate exceeds the cap.</li>
+            </ul>
+          </section>
+
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Core concepts (used in the leaderboard)</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li><strong>Holistic judge</strong> — Judges the pair with a single overall A/B/TIE prompt (no per-criterion breakdown).</li>
+              <li><strong>Rubric judge</strong> — Judges each criterion separately, then weights the per-criterion verdicts into one overall A/B/TIE decision.</li>
+              <li><strong>2-pass A/B reversal</strong> — Every judge call is made twice — forward (Text A, Text B) and reverse (swapped) — then reconciled into one verdict + confidence.</li>
+              <li><strong>confidence</strong> — 1.0 both passes agreed · 0.7 one TIE + one winner · 0.5 they disagreed (forced TIE) · 0.3 one pass returned nothing · 0.0 both failed.</li>
+              <li><strong>committed</strong> — A judge call where confidence &gt; 0.6 AND the winner is A or B (not TIE).</li>
+              <li><strong>decisive / confident</strong> — Confidence &gt; 0.6 regardless of winner. A high-confidence TIE is &quot;confident&quot; but NOT &quot;committed&quot; — it&apos;s an abstention.</li>
+              <li><strong>TIE</strong> — Verdict meaning &quot;neither text wins&quot;. Includes both genuine ties and &quot;couldn&apos;t pick&quot; outcomes.</li>
+              <li><strong>ground truth / large-gap pair</strong> — A pair whose Elo gap is wide enough that the higher-rated side is the unambiguous <code>expected_winner</code>. Only large-gap pairs feed the accuracy column.</li>
+            </ul>
+          </section>
+
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Leaderboard columns</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li><strong>Run</strong> — First 8 chars of the agreement-run UUID; click to open the detail page.</li>
+              <li><strong>Model</strong> — Judge model used for this run.</li>
+              <li><strong>Kind</strong> — <code>article</code> or <code>paragraph</code>. One row per (run × kind).</li>
+              <li>
+                <strong>Per-rep</strong> — Per-repeat agreement. Fraction of (pair × repeat) calls where rubric_winner = holistic_winner. <em>Mutual TIE counts as agreement.</em>
+              </li>
+              <li>
+                <strong>Both-dec</strong> — Both-decisive agreement. Among calls where both judges&apos; confidence &gt; 0.6, fraction with matching winners. <em>A confident TIE counts as a verdict — mutual high-confidence TIE counts as agreement.</em>
+              </li>
+              <li>
+                <strong>Abstain</strong> — Abstain divergence. Fraction of calls where exactly one judge committed to A or B (the other abstained or returned TIE). <em>Mutual TIE does NOT count as divergence.</em>
+              </li>
+              <li>
+                <strong>Acc Δ</strong> — Rubric accuracy − holistic accuracy on large-gap pairs. Only counts calls where the judge committed to A or B; confident TIEs are abstentions, not wrong guesses.
+              </li>
+              <li><strong>Worst criterion</strong> — The rubric dimension whose verdicts diverged from the holistic winner most often in this run.</li>
+              <li><strong>N</strong> — Total error-free calls in this (run × kind) — the denominator for Per-rep / Abstain.</li>
+            </ul>
+          </section>
+
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Inline notation</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li><strong>[low, high]</strong> — 95% Wilson score interval (binomial CI on the proportion). Tight = lots of data; wide = few data points.</li>
+              <li><strong>—</strong> — Insufficient data to compute this rate (typically n=0).</li>
+            </ul>
+          </section>
+          </div>
         </details>
 
         <table className="w-full text-xs font-ui" data-testid="agreement-leaderboard">

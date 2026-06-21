@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
-import { EvolutionBreadcrumb, MetricGrid } from '@evolution/components/evolution';
+import { EvolutionBreadcrumb } from '@evolution/components/evolution';
 import { getAgreementRunDetailAction } from '@evolution/services/judgeEvalActions';
 import {
   computeAgreementMetrics,
@@ -68,9 +68,33 @@ function pctWithCI(value: number | null, ci: WilsonInterval | null): string {
   return `${main} [${(ci.low * 100).toFixed(0)}, ${(ci.high * 100).toFixed(0)}]`;
 }
 
-// Tooltip strings are inlined where used. MetricGrid does not accept per-tile title attributes today,
-// so per-tile tooltips would require lifting the metric labels to wrapped spans — out of scope here.
-// The <details>What do these mean?</summary> block above the tiles carries the canonical definitions.
+// Tile = label + value/CI + always-visible formula. Self-documenting: the formula text makes the
+// exact computation unambiguous so operators don't need to consult docs. (We deliberately do NOT
+// use MetricGrid here — MetricGrid hides the description behind a hover-only tooltip and lacks
+// space for the formula line.) Formulas use plain-language pseudo-SQL — `count(condition) / count(*)`
+// over the error-free per-(pair × repeat) call set, kind-filtered.
+function Tile({
+  label,
+  value,
+  formula,
+  testId,
+}: {
+  label: string;
+  value: string;
+  formula: string;
+  testId?: string;
+}): JSX.Element {
+  return (
+    <div
+      className="p-3 bg-[var(--surface-elevated)] rounded-page space-y-1"
+      data-testid={testId}
+    >
+      <div className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">{label}</div>
+      <div className="text-sm font-mono text-[var(--text-primary)]">{value}</div>
+      <div className="text-xs font-mono italic text-[var(--text-muted)] leading-tight">{formula}</div>
+    </div>
+  );
+}
 
 export default function AgreementRunDetailPage(): JSX.Element {
   const params = useParams<{ agreementRunId: string }>();
@@ -132,13 +156,46 @@ export default function AgreementRunDetailPage(): JSX.Element {
     return { metrics: computeAgreementMetrics(callInputs, critInputs, bias), disagreementCount };
   }, [calls, criteria, viewKind, positionBias]);
 
-  const tiles = [
-    { label: 'Per-pair agreement', value: pctWithCI(metrics.perPairModalAgreeRate, metrics.perPairModalAgreeRateCi) },
-    { label: 'Per-repeat agreement', value: pctWithCI(metrics.perRepeatAgreeRate, metrics.perRepeatAgreeRateCi) },
-    { label: 'Both-decisive agreement', value: pctWithCI(metrics.bothDecisiveAgreeRate, metrics.bothDecisiveAgreeRateCi) },
-    { label: 'Single-judge abstain', value: pctWithCI(metrics.abstainDivergenceRate, metrics.abstainDivergenceRateCi) },
-    { label: 'Holistic position bias', value: pctWithCI(metrics.holisticPositionBiasRate, metrics.holisticPositionBiasRateCi) },
-    { label: 'Rubric position bias', value: pctWithCI(metrics.rubricPositionBiasRate, metrics.rubricPositionBiasRateCi) },
+  // Each tile carries its computation as a small formula line so the metric is unambiguous
+  // without consulting docs. Formulas are evaluated over the error-free per-(pair × repeat)
+  // call set, kind-filtered. "committed" = confidence > 0.6 AND winner ∈ {A, B}.
+  const tiles: Array<{ label: string; value: string; formula: string; testId: string }> = [
+    {
+      label: 'Per-pair agreement',
+      value: pctWithCI(metrics.perPairModalAgreeRate, metrics.perPairModalAgreeRateCi),
+      formula: 'pairs where modal(rubric_winner) = modal(holistic_winner) / total pairs · TIE=TIE counts as agreement',
+      testId: 'tile-per-pair',
+    },
+    {
+      label: 'Per-repeat agreement',
+      value: pctWithCI(metrics.perRepeatAgreeRate, metrics.perRepeatAgreeRateCi),
+      formula: 'calls where rubric_winner = holistic_winner / total calls · TIE=TIE counts as agreement · no decisive filter',
+      testId: 'tile-per-repeat',
+    },
+    {
+      label: 'Both-decisive agreement',
+      value: pctWithCI(metrics.bothDecisiveAgreeRate, metrics.bothDecisiveAgreeRateCi),
+      formula: 'calls where rubric_winner = holistic_winner AND both confidence > 0.6 / calls where both confidence > 0.6 · mutual TIE@>0.6 counts as agreement',
+      testId: 'tile-both-decisive',
+    },
+    {
+      label: 'Single-judge abstain',
+      value: pctWithCI(metrics.abstainDivergenceRate, metrics.abstainDivergenceRateCi),
+      formula: 'calls where exactly one judge is committed to A or B / total calls · committed = confidence > 0.6 AND winner ∈ {A, B} · mutual TIE does NOT count as divergence',
+      testId: 'tile-abstain',
+    },
+    {
+      label: 'Holistic position bias',
+      value: pctWithCI(metrics.holisticPositionBiasRate, metrics.holisticPositionBiasRateCi),
+      formula: 'calls where holistic_forward_winner ≠ holistic_reverse_winner / calls where both passes parsed · derived server-side from stored raws',
+      testId: 'tile-holistic-pos-bias',
+    },
+    {
+      label: 'Rubric position bias',
+      value: pctWithCI(metrics.rubricPositionBiasRate, metrics.rubricPositionBiasRateCi),
+      formula: 'calls where rubric_forward_winner ≠ rubric_reverse_winner / calls where both passes parsed · derived server-side from stored raws',
+      testId: 'tile-rubric-pos-bias',
+    },
   ];
 
   return (
@@ -187,31 +244,125 @@ export default function AgreementRunDetailPage(): JSX.Element {
       </div>
 
       <details data-testid="agreement-definitions" className="text-xs font-ui" style={{ color: 'var(--text-muted)' }}>
-        <summary className="cursor-pointer">What do these mean?</summary>
-        <ul className="mt-2 space-y-1 pl-4 list-disc">
-          <li>
-            <strong>Per-repeat agreement</strong> — Fraction of (pair × repeat) calls where rubric winner equals holistic
-            winner. Strict — no decisive filter.
-          </li>
-          <li>
-            <strong>Per-pair (modal) agreement</strong> — Reduce each judge to its modal winner per pair, compare once per pair.
-            Smooths over per-call noise.
-          </li>
-          <li>
-            <strong>Both-decisive agreement</strong> — Among calls where both judges had confidence &gt; 0.6, fraction that agreed.
-          </li>
-          <li>
-            <strong>Single-judge abstain</strong> — Fraction of calls where exactly one judge was decisive (the other abstained
-            / returned TIE).
-          </li>
-          <li>
-            <strong>Holistic / Rubric position bias</strong> — Fraction of calls where forward-pass and reverse-pass picked
-            different winners. High values indicate the judge&apos;s verdict depends on text ordering.
-          </li>
-          <li>
-            <strong>[low, high]</strong> — 95% Wilson score interval (binomial CI on the proportion).
-          </li>
-        </ul>
+        <summary className="cursor-pointer">Glossary — every term on this page</summary>
+        <div className="mt-3 space-y-3 pl-1">
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Core concepts</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li>
+                <strong>Holistic judge</strong> — Judges the two texts against a single overall A/B/TIE prompt (no per-criterion breakdown).
+              </li>
+              <li>
+                <strong>Rubric judge</strong> — Judges each criterion separately, then weights the per-criterion verdicts into one overall A/B/TIE decision.
+              </li>
+              <li>
+                <strong>2-pass A/B reversal</strong> — Every judge call is made twice: forward shows (Text A, Text B); reverse swaps them. The two passes are reconciled into one verdict + confidence.
+              </li>
+              <li>
+                <strong>confidence</strong> — 1.0 both passes agreed · 0.7 one TIE + one winner · 0.5 they disagreed on a winner (forced TIE) · 0.3 one pass returned nothing · 0.0 both failed.
+              </li>
+              <li>
+                <strong>committed</strong> — A call where confidence &gt; 0.6 AND the winner is A or B (not TIE). The right denominator for accuracy / abstain-divergence.
+              </li>
+              <li>
+                <strong>decisive / confident</strong> — A call where confidence &gt; 0.6 regardless of winner. A high-confidence TIE is &quot;confident&quot; but NOT &quot;committed&quot; — it&apos;s an abstention.
+              </li>
+              <li>
+                <strong>TIE</strong> — Verdict meaning &quot;neither text wins&quot;. Includes both genuine ties and &quot;couldn&apos;t pick&quot; outcomes.
+              </li>
+              <li>
+                <strong>abstention</strong> — A TIE verdict. Excluded from accuracy denominators (a TIE on a known A/B pair is not a wrong guess).
+              </li>
+              <li>
+                <strong>repeat</strong> — One full 4-call cycle (2 holistic + 2 rubric) for a single pair. Each pair is judged N times where N = the run&apos;s <code>repeats</code> setting.
+              </li>
+              <li>
+                <strong>pair</strong> — One (variant_a, variant_b) comparison drawn from the test set.
+              </li>
+              <li>
+                <strong>kind</strong> — <code>article</code> or <code>paragraph</code>. The toggle re-slices every panel.
+              </li>
+            </ul>
+          </section>
+
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Ground truth</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li>
+                <strong>Elo ground truth</strong> — Each pair carries the Elo skill ratings of variant_a and variant_b from the evolution arena.
+              </li>
+              <li>
+                <strong>large-gap pair</strong> — A pair whose Elo gap is wide enough that one side is the unambiguous expected winner. Only large-gap pairs feed the accuracy panel.
+              </li>
+              <li>
+                <strong>expected_winner</strong> — On a large-gap pair, the side with the higher Elo (A or B). Null on close pairs.
+              </li>
+              <li>
+                <strong>close pair</strong> — Elo gap too small to declare a winner; excluded from accuracy.
+              </li>
+            </ul>
+          </section>
+
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Tile metrics (top panel)</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li>
+                <strong>Per-pair agreement</strong> — Reduce each judge to its modal (most-common) winner across repeats on each pair, compare once per pair. Mutual TIE counts as agreement.
+              </li>
+              <li>
+                <strong>Per-repeat agreement</strong> — Every (pair × repeat) call: was rubric_winner = holistic_winner? No decisive filter. Mutual TIE counts as agreement.
+              </li>
+              <li>
+                <strong>Both-decisive agreement</strong> — Subset to calls where both judges&apos; confidence &gt; 0.6. Fraction with matching winners. Mutual high-confidence TIE counts as agreement.
+              </li>
+              <li>
+                <strong>Single-judge abstain</strong> — Fraction of calls where exactly one judge committed to A or B (the other abstained or returned TIE). Mutual TIE does NOT count as divergence.
+              </li>
+              <li>
+                <strong>Holistic / Rubric position bias</strong> — Fraction of calls where the forward pass picked one winner and the reverse pass picked a different one. High = the judge&apos;s verdict depends on text ordering.
+              </li>
+            </ul>
+          </section>
+
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Per-criterion table</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li>
+                <strong>Weight</strong> — The criterion&apos;s contribution to the rubric&apos;s aggregate score. Higher weight = more influence on the rubric_winner.
+              </li>
+              <li>
+                <strong>Agree / Disagree</strong> — Among rows where this criterion committed to A or B, fraction that matched (Agree) or differed from (Disagree) the holistic winner. Abstaining rows excluded.
+              </li>
+              <li>
+                <strong>Abstain</strong> — Fraction of all rows where this criterion returned TIE or unparseable.
+              </li>
+              <li>
+                <strong>GT-Acc</strong> — Among large-gap rows where this criterion committed, fraction matching the expected_winner. The criterion&apos;s accuracy when it actually picks a side.
+              </li>
+              <li>
+                <strong>Aggregated rubric</strong> (bold row at bottom) — Same Agree / Disagree as the per-criterion rows but for the rubric_winner as a whole. Denominator: both-decisive calls.
+              </li>
+            </ul>
+          </section>
+
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Inline notation</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li>
+                <strong>[low, high]</strong> — 95% Wilson score interval (binomial CI on the proportion). Tight = lots of data; wide = few data points.
+              </li>
+              <li>
+                <strong>rubric A / holistic B</strong> — Fraction of calls where the rubric committed to A while the holistic committed to B. The two-direction breakdown of &quot;both-decisive opposite winner&quot;.
+              </li>
+              <li>
+                <strong>n=N</strong> — Number of calls in the relevant subset (the denominator).
+              </li>
+              <li>
+                <strong>Δ (rubric − holistic)</strong> — Rubric accuracy minus holistic accuracy. Positive = rubric beats holistic.
+              </li>
+            </ul>
+          </section>
+        </div>
       </details>
 
       {loading ? (
@@ -224,7 +375,11 @@ export default function AgreementRunDetailPage(): JSX.Element {
             <div className="text-sm font-ui font-semibold">
               Rubric ↔ Holistic agreement ({metrics.n} calls)
             </div>
-            <MetricGrid metrics={tiles} columns={3} variant="card" testId="agreement-metrics" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3" data-testid="agreement-metrics">
+              {tiles.map((t) => (
+                <Tile key={t.label} label={t.label} value={t.value} formula={t.formula} testId={t.testId} />
+              ))}
+            </div>
             <p className="text-xs font-ui" style={{ color: 'var(--text-muted)' }}>
               Both decisive &amp; opposite: rubric A / holistic B {pct(metrics.rubricAHolisticBRate)} · rubric B / holistic A{' '}
               {pct(metrics.rubricBHolisticARate)}
@@ -276,23 +431,35 @@ export default function AgreementRunDetailPage(): JSX.Element {
           </div>
 
           {/* Ground-truth accuracy */}
-          <div className="rounded-book paper-texture card-enhanced p-4">
-            <div className="text-sm font-ui font-semibold mb-2">
+          <div className="rounded-book paper-texture card-enhanced p-4 space-y-2">
+            <div className="text-sm font-ui font-semibold">
               Accuracy vs Elo ground truth (large-gap pairs, n={metrics.nLargeGap})
             </div>
-            <MetricGrid
-              metrics={[
-                { label: 'Holistic judge', value: pctWithCI(metrics.holisticAccuracy, metrics.holisticAccuracyCi) },
-                { label: 'Rubric judge', value: pctWithCI(metrics.rubricAccuracy, metrics.rubricAccuracyCi) },
-                {
-                  label: 'Δ (rubric − holistic)',
-                  value: metrics.accuracyDelta == null ? '—' : pct(metrics.accuracyDelta),
-                },
-              ]}
-              columns={3}
-              variant="card"
-              testId="agreement-accuracy"
-            />
+            <p className="text-xs font-ui" style={{ color: 'var(--text-muted)' }}>
+              Large-gap pair = the two variants&apos; Elo gap is wide enough that the higher-rated one is the
+              expected winner. Accuracy denominator counts only calls where the judge committed to A or B
+              (confidence &gt; 0.6 AND winner ∈ &#123;A, B&#125;) — confident TIE is an abstention, not a wrong guess.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3" data-testid="agreement-accuracy">
+              <Tile
+                label="Holistic judge"
+                value={pctWithCI(metrics.holisticAccuracy, metrics.holisticAccuracyCi)}
+                formula="committed holistic calls where holistic_winner = expected_winner / committed holistic calls on large-gap pairs"
+                testId="tile-holistic-acc"
+              />
+              <Tile
+                label="Rubric judge"
+                value={pctWithCI(metrics.rubricAccuracy, metrics.rubricAccuracyCi)}
+                formula="committed rubric calls where rubric_winner = expected_winner / committed rubric calls on large-gap pairs"
+                testId="tile-rubric-acc"
+              />
+              <Tile
+                label="Δ (rubric − holistic)"
+                value={metrics.accuracyDelta == null ? '—' : pct(metrics.accuracyDelta)}
+                formula="rubric_accuracy − holistic_accuracy · positive = rubric beats holistic; negative = the reverse"
+                testId="tile-acc-delta"
+              />
+            </div>
           </div>
 
           {/* Disagreement summary + link to /matches */}

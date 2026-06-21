@@ -294,6 +294,64 @@ export default function AgreementMatchHistoryPage(): JSX.Element {
         </label>
       </div>
 
+      <details data-testid="matches-definitions" className="text-xs font-ui" style={{ color: 'var(--text-muted)' }}>
+        <summary className="cursor-pointer">Glossary — every term on this page</summary>
+        <div className="mt-3 space-y-3 pl-1">
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Filter</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li>
+                <strong>Show only both-decisive disagreements</strong> — Filter to calls where BOTH judges had confidence &gt; 0.6 AND
+                they picked different winners. The most informative subset for &quot;why don&apos;t the two judges agree?&quot;.
+              </li>
+            </ul>
+          </section>
+
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Table columns</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li><strong>Pair</strong> — Pair label. Format: <code>{`<kind>#<index>`}</code> (e.g. <code>art#42</code> or <code>para#17</code>).</li>
+              <li><strong>Kind</strong> — <code>article</code> or <code>paragraph</code>.</li>
+              <li><strong>Rep</strong> — Repeat index (0-based) for this (pair × repeat) call.</li>
+              <li><strong>Holistic</strong> — Holistic judge&apos;s aggregated verdict and confidence: <code>A (1.0)</code>, <code>B (0.7)</code>, <code>TIE (0.5)</code>, etc.</li>
+              <li><strong>Rubric</strong> — Rubric judge&apos;s aggregated verdict and confidence.</li>
+              <li><strong>Agree?</strong> — Did the rubric and holistic pick the same winner on this call? <code>yes</code> / <code>no</code> / <code>—</code> (errored).</li>
+              <li><strong>Gap</strong> — <code>large</code> = the variant pair has wide enough Elo gap to have an unambiguous expected winner; <code>close</code> = no expected winner.</li>
+              <li><strong>GT</strong> — Ground-truth expected winner (A or B) — populated only on large-gap pairs.</li>
+            </ul>
+          </section>
+
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Row actions</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li><strong>View I/O</strong> — Expand to show the raw LLM input/output for all 4 passes (holistic forward + reverse, rubric forward + reverse) plus per-criterion verdicts.</li>
+              <li><strong>Open in Match Viewer</strong> — Resolve this (variant_a, variant_b) pair to its arena comparison and open the standalone Match Viewer in a new tab.</li>
+            </ul>
+          </section>
+
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Expanded audit detail</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li><strong>Content A / Content B</strong> — The two variant texts as shown to the judge. Extracted from the rendered prompt.</li>
+              <li><strong>Holistic forward pass / reverse pass</strong> — Raw LLM output for the no-rubric judge in each text-ordering frame (forward = original; reverse = swapped).</li>
+              <li><strong>Rubric forward pass / reverse pass</strong> — Raw LLM output for the rubric judge in each frame.</li>
+            </ul>
+          </section>
+
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Per-criterion verdicts table</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li><strong>Criterion</strong> — Name of the rubric criterion (e.g. clarity, depth).</li>
+              <li><strong>Weight</strong> — Contribution to the rubric&apos;s aggregate score; higher = more influence on the rubric_winner.</li>
+              <li><strong>Forward / Reverse</strong> — This criterion&apos;s verdict in each pass: <code>A</code> / <code>B</code> / <code>TIE</code> / <code>—</code> (unparseable).</li>
+              <li><strong>Winner</strong> — Reconciled per-criterion winner from the 2 passes. <code>TIE</code> if passes disagreed on which side wins, or if both said TIE.</li>
+              <li><strong>Agrees holistic?</strong> — Did this criterion&apos;s reconciled winner match the holistic judge&apos;s winner? <code>yes</code> / <code>no</code> / <code>—</code> (criterion abstained).</li>
+              <li><strong>Matches GT?</strong> — On large-gap pairs only: did this criterion&apos;s reconciled winner match the expected_winner? <code>yes</code> / <code>no</code> / <code>—</code> (not applicable — close pair, abstain, or criterion not decisive).</li>
+            </ul>
+          </section>
+        </div>
+      </details>
+
       <div className="rounded-book paper-texture card-enhanced p-4">
         <table className="w-full text-xs" data-testid="agreement-matches-table">
           <thead>
