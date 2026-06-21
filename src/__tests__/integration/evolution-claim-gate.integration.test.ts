@@ -118,14 +118,32 @@ async function callClaim(
   return (data ?? []) as Array<{ id: string }>;
 }
 
+async function gateMigrationApplied(sb: SupabaseClient): Promise<boolean> {
+  // Probe whether evolution_runs has the new allow_test_execution column by trying
+  // to SELECT it. If the column doesn't exist, the migration hasn't been applied
+  // locally — skip the test (it'll run against staging in CI after deploy-migrations).
+  const { error } = await sb.from('evolution_runs').select('allow_test_execution').limit(1);
+  return error === null;
+}
+
 describe('claim_evolution_run is_test_content gate', () => {
   let sb: SupabaseClient;
   let tracker: CleanupTracker;
   let tablesExist = true;
+  let migrationApplied = true;
 
   beforeAll(async () => {
     sb = createTestSupabaseClient();
     tablesExist = await evolutionTablesExist(sb);
+    if (tablesExist) {
+      migrationApplied = await gateMigrationApplied(sb);
+      if (!migrationApplied) {
+        console.warn(
+          'evolution-claim-gate: SKIPPING — 20260621000001_evolution_claim_gate.sql not applied to local DB. ' +
+            'Run `supabase db reset` or wait for CI deploy-migrations to apply against staging.',
+        );
+      }
+    }
   });
 
   beforeEach(() => {
@@ -133,7 +151,7 @@ describe('claim_evolution_run is_test_content gate', () => {
   });
 
   afterEach(async () => {
-    if (!tablesExist) return;
+    if (!tablesExist || !migrationApplied) return;
     // Always release any rows we accidentally claimed back to pending so they don't
     // block other concurrent runs. Then cascade-delete via tracker.
     if (tracker.runIds.length > 0) {
@@ -146,7 +164,7 @@ describe('claim_evolution_run is_test_content gate', () => {
   });
 
   test('queue claim SKIPS pending run on is_test_content strategy without opt-in', async () => {
-    if (!tablesExist) return;
+    if (!tablesExist || !migrationApplied) return;
     const stratId = await makeStrategy(sb, tracker, '[TEST] gate strategy A');
     const promptId = await makePrompt(sb, tracker, true);
     const runId = await makeRun(sb, tracker, stratId, promptId, { status: 'pending' });
@@ -157,7 +175,7 @@ describe('claim_evolution_run is_test_content gate', () => {
   });
 
   test('queue claim CLAIMS pending run on is_test_content strategy WITH opt-in', async () => {
-    if (!tablesExist) return;
+    if (!tablesExist || !migrationApplied) return;
     const stratId = await makeStrategy(sb, tracker, '[TEST] gate strategy B');
     const promptId = await makePrompt(sb, tracker, true);
     const runId = await makeRun(sb, tracker, stratId, promptId, {
@@ -171,7 +189,7 @@ describe('claim_evolution_run is_test_content gate', () => {
   });
 
   test('queue claim CLAIMS pending run on non-test strategy (regression check)', async () => {
-    if (!tablesExist) return;
+    if (!tablesExist || !migrationApplied) return;
     const stratId = await makeStrategy(sb, tracker, 'Claim Gate Real Strategy');
     const promptId = await makePrompt(sb, tracker, false);
     const runId = await makeRun(sb, tracker, stratId, promptId, { status: 'pending' });
@@ -182,7 +200,7 @@ describe('claim_evolution_run is_test_content gate', () => {
   });
 
   test('targeted claim BYPASSES gate on is_test_content strategy (no opt-in needed)', async () => {
-    if (!tablesExist) return;
+    if (!tablesExist || !migrationApplied) return;
     const stratId = await makeStrategy(sb, tracker, '[TEST] gate strategy C');
     const promptId = await makePrompt(sb, tracker, true);
     const runId = await makeRun(sb, tracker, stratId, promptId, { status: 'pending' });
