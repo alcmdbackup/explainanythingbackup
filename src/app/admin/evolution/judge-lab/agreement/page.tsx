@@ -86,6 +86,7 @@ export default function AgreementSweepPage(): JSX.Element {
 
   const [launching, setLaunching] = useState(false);
   const [estimate, setEstimate] = useState<EstimateState>(null);
+  const [estimating, setEstimating] = useState(false);
 
   const [viewKind, setViewKind] = useState<Kind>('both');
   const [rows, setRows] = useState<AgreementLeaderboardRow[]>([]);
@@ -115,12 +116,18 @@ export default function AgreementSweepPage(): JSX.Element {
   }, []);
 
   // Live cost preview — debounced; cancelled flag is the sole stale-response guard.
+  // Sets `estimating=true` while the debounce + roundtrip is in-flight so the UI can show an
+  // explicit "updating…" state; otherwise the preview line would mix the user's current input
+  // (immediate React state for `repeats`) with the previous action's `plannedCalls` and look
+  // mathematically inconsistent for ~300-500ms after every keystroke.
   useEffect(() => {
     // Min-input-length guard: skip estimate when key inputs missing.
     if (!testSetName || !judgeModel || repeats < 1) {
       setEstimate(null);
+      setEstimating(false);
       return;
     }
+    setEstimating(true);
     let cancelled = false;
     const timer = setTimeout(async () => {
       const res = await estimateAgreementCostAction({
@@ -131,6 +138,7 @@ export default function AgreementSweepPage(): JSX.Element {
         reasoningEffort: reasoning === 'none' ? null : reasoning,
       });
       if (cancelled) return; // stale-response guard
+      setEstimating(false);
       if (!res.success) {
         setEstimate({ error: true }); // graceful fallback — Launch stays enabled
         return;
@@ -340,7 +348,12 @@ export default function AgreementSweepPage(): JSX.Element {
           </label>
         </div>
 
-        {/* Live cost preview — compact one-liner above buttons. */}
+        {/* Live cost preview — compact one-liner above buttons. Every value below comes from
+            the action result (estData.*) so the displayed math stays internally consistent;
+            the immediate-update React state for `repeats` is intentionally NOT rendered here
+            (would otherwise read N pairs × M-from-state × 4 ≠ plannedCalls-from-action result
+            until the next debounced action lands). The "updating…" suffix surfaces the
+            in-flight state instead. */}
         <div
           className="text-xs font-ui"
           data-testid="agreement-cost-preview"
@@ -348,14 +361,15 @@ export default function AgreementSweepPage(): JSX.Element {
             color: estIsError ? 'var(--text-muted)' : capBlocking ? 'var(--accent-error, #c0392b)' : 'var(--text-muted)',
           }}
         >
-          {estimate === null && '—'}
+          {estimate === null && (estimating ? 'Computing estimate…' : '—')}
           {estIsError && 'Cost preview unavailable'}
           {estData && (
             <>
-              {estData.pairCount} pairs × {repeats} repeats × 4 calls = {estData.plannedCalls} calls · est ${estData.estimatedCostUsd.toFixed(4)}
+              {estData.pairCount} pairs × {estData.repeats} repeats × 4 calls = {estData.plannedCalls} calls · est ${estData.estimatedCostUsd.toFixed(4)}
               {estData.capStatus === 'over_usd' && ` · exceeds $${estData.maxUsd} cap`}
               {estData.capStatus === 'over_calls' && ` · exceeds ${estData.maxCalls} calls cap`}
               {estData.capStatus === 'ok' && ` · within $${estData.maxUsd} cap`}
+              {estimating && ' · updating…'}
             </>
           )}
         </div>

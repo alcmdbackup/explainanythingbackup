@@ -1057,6 +1057,11 @@ const estimateAgreementCostSchema = z.object({
 
 export interface AgreementCostEstimate {
   pairCount: number;
+  /** Echoed back so the launcher can render an internally-consistent preview line (the
+   *  client's React state for `repeats` updates immediately on keystroke but the action
+   *  result is debounced — without echoing repeats back, the preview shows a transient
+   *  N pairs × M repeats × 4 ≠ plannedCalls inconsistency until the new result lands). */
+  repeats: number;
   plannedCalls: number;
   estimatedCostUsd: number;
   capStatus: 'ok' | 'over_calls' | 'over_usd';
@@ -1097,6 +1102,7 @@ export const estimateAgreementCostAction = adminAction(
 
     return {
       pairCount: pairs.length,
+      repeats: parsed.repeats,
       plannedCalls: callsPlanned,
       estimatedCostUsd,
       capStatus,

@@ -243,6 +243,39 @@ const TS = `[TEST] judge-eval agreement ts ${Date.now()}`;
     expect(estimatedCostUsd).toBeLessThan(1);
   });
 
+  it('cost-preview math scales linearly with repeats (regression: the action returns updated values for changed inputs)', async () => {
+    if (!db || !enabled) return;
+    const testSet = await loadTestSetByName(db, TS);
+    expect(testSet).not.toBeNull();
+    const { pairs } = await loadTestSetPairs(db, testSet!.id, 'both');
+
+    const sample = (repeats: number) => {
+      const est = estimateSweepCost({
+        models: ['gpt-4.1-nano'],
+        temperatures: [0],
+        reasoningEfforts: [null],
+        promptVariants: 1,
+        pairs,
+        repeats,
+        explainReasoning: false,
+      });
+      return {
+        plannedCalls: pairs.length * repeats * 4,
+        estimatedCostUsd: est.estimatedCostUsd * 2,
+      };
+    };
+
+    const r5 = sample(5);
+    const r10 = sample(10);
+    const r20 = sample(20);
+    // plannedCalls scales exactly linearly.
+    expect(r10.plannedCalls).toBe(r5.plannedCalls * 2);
+    expect(r20.plannedCalls).toBe(r5.plannedCalls * 4);
+    // estimatedCostUsd scales linearly with repeats (input tokens × output tokens grow linearly).
+    expect(r10.estimatedCostUsd).toBeCloseTo(r5.estimatedCostUsd * 2, 6);
+    expect(r20.estimatedCostUsd).toBeCloseTo(r5.estimatedCostUsd * 4, 6);
+  });
+
   it('Wilson CI computes against real leaderboard denominators (in-memory aggregation path)', async () => {
     if (!db || !enabled) return;
 
