@@ -26,6 +26,7 @@ import {
   evolutionStyleFingerprintFullDbSchema,
   evolutionStyleFingerprintArticleSchema,
   addStyleFingerprintArticleInputSchema,
+  styleFingerprintTraitsSchema,
   type EvolutionStyleFingerprintFullDb,
   type EvolutionStyleFingerprintArticle,
   type StyleFingerprintTraits,
@@ -49,6 +50,11 @@ const createSchema = z.object({
 const updateSchema = z.object({
   id: z.string().uuid(),
   description: z.string().trim().max(2000).nullable().optional(),
+});
+
+const updateDetailsSchema = z.object({
+  id: z.string().uuid(),
+  fingerprint: styleFingerprintTraitsSchema,
 });
 
 // ─── internal: article-set resolution + recompute ──────────────────────────
@@ -197,6 +203,30 @@ export const updateStyleFingerprintAction = adminAction(
       .eq('id', parsed.id).is('deleted_at', null).select().single();
     if (error) throw error;
     return data as StyleFingerprintListItem;
+  },
+);
+
+/**
+ * Manually edit the GENERATED details (structured traits) of a fingerprint after extraction.
+ * Persists the edited traits + re-renders the article-shaped prose from them (no LLM call, no
+ * cost). NOTE: a later add/remove-article or re-extract recomputes from the article set and
+ * OVERWRITES these manual edits — the UI warns about this.
+ */
+export const updateStyleFingerprintDetailsAction = adminAction(
+  'updateStyleFingerprintDetails',
+  async (input: z.input<typeof updateDetailsSchema>, ctx: AdminContext): Promise<void> => {
+    const parsed = updateDetailsSchema.parse(input);
+    if (!validateUuid(parsed.id)) throw new Error('Invalid fingerprintId');
+    const { error } = await ctx.supabase
+      .from(TABLE)
+      .update({
+        fingerprint: parsed.fingerprint,
+        fingerprint_prose: renderFingerprintProse(parsed.fingerprint, 'article'),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', parsed.id)
+      .is('deleted_at', null);
+    if (error) throw error;
   },
 );
 

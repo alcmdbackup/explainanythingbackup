@@ -2,7 +2,7 @@
 // signature-phrase handling (article includes the anti-overuse directive; paragraph omits it).
 
 import { renderFingerprintProse } from './renderFingerprintProse';
-import type { StyleFingerprintTraits } from '../../schemas';
+import { styleFingerprintTraitsSchema, type StyleFingerprintTraits } from '../../schemas';
 
 const TRAITS: StyleFingerprintTraits = {
   sentenceLength: { avgWords: 11.4, distribution: 'short, declarative' },
@@ -45,5 +45,15 @@ describe('renderFingerprintProse', () => {
 
   it('is deterministic for the same inputs', () => {
     expect(renderFingerprintProse(TRAITS, 'article')).toEqual(renderFingerprintProse(TRAITS, 'article'));
+  });
+
+  // Mirrors updateStyleFingerprintDetailsAction: manually-edited traits validate, then the
+  // article prose re-renders from them (no LLM). Guards the manual-edit path.
+  it('edited traits validate and re-render the article prose consistently', () => {
+    const edited: StyleFingerprintTraits = { ...TRAITS, spellingRegion: 'british', summary: 'A measured British voice.' };
+    const parsed = styleFingerprintTraitsSchema.parse(edited);
+    const prose = renderFingerprintProse(parsed, 'article');
+    expect(prose).toContain('british');
+    expect(prose).toContain('A measured British voice.');
   });
 });

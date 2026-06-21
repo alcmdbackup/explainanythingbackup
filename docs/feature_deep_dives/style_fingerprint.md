@@ -41,6 +41,8 @@ Migration: `supabase/migrations/20260621000001_create_evolution_style_fingerprin
 
 The set-mutating actions use **compute-first / persist-last**: resolve the resulting set, run extraction, and only persist the junction change + fingerprint together on success — so the set and fingerprint never diverge on an LLM failure.
 
+**Manual edit of generated details.** `updateStyleFingerprintDetailsAction(id, traits)` lets an admin hand-edit the generated structured traits on the detail page (Overview → "Edit details"). It validates via `styleFingerprintTraitsSchema` and re-renders `fingerprint_prose` from the edited traits (no LLM call, no cost). Because the runtime re-derives both article- and paragraph-shaped prose from `traits`, editing traits is the meaningful edit. A later add/remove-article or Re-extract recomputes from the article set and **overwrites** manual edits — the editor warns about this.
+
 ## Injection
 
 **Generation.** `buildEvolutionPrompt` gains an optional `styleGuide` (options bag) that renders a `## Target Style` block; agents read `ctx.styleFingerprint?.prose`. Paragraph rewrites render the **paragraph-shaped** prose (drops the cross-piece anti-overuse directive — a single paragraph naturally won't contain most signature phrases). Output is byte-identical when no fingerprint is referenced.

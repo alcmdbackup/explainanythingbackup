@@ -10,8 +10,10 @@ import {
   removeArticleFromFingerprintAction,
   reorderFingerprintArticlesAction,
   reExtractFingerprintAction,
+  updateStyleFingerprintDetailsAction,
   type StyleFingerprintDetail,
 } from '@evolution/services/styleFingerprintActions';
+import type { StyleFingerprintTraits } from '@evolution/lib/schemas';
 import type { TabDef } from '@evolution/lib/core/types';
 
 const TABS: TabDef[] = [
@@ -20,10 +22,156 @@ const TABS: TabDef[] = [
   { id: 'metrics', label: 'Metrics' },
 ];
 
+const inputCls = 'w-full px-2 py-1 text-sm border border-[var(--border-default)] rounded bg-transparent';
+const FREQUENCIES = ['rare', 'occasional', 'frequent'] as const;
+
+function EditDetailsForm(
+  { initial, onCancel, onSave }: {
+    initial: StyleFingerprintTraits;
+    onCancel: () => void;
+    onSave: (traits: StyleFingerprintTraits) => Promise<void>;
+  },
+): JSX.Element {
+  const [avgWords, setAvgWords] = useState(String(initial.sentenceLength.avgWords));
+  const [distribution, setDistribution] = useState(initial.sentenceLength.distribution);
+  const [spellingRegion, setSpellingRegion] = useState<StyleFingerprintTraits['spellingRegion']>(initial.spellingRegion);
+  const [vocabularyLevel, setVocabularyLevel] = useState(initial.vocabularyLevel);
+  const [tone, setTone] = useState(initial.tone.join(', '));
+  const [phrases, setPhrases] = useState(initial.signaturePhrases.map((p) => ({ ...p })));
+  const [structural, setStructural] = useState(initial.structuralHabits.join('\n'));
+  const [punctuation, setPunctuation] = useState(initial.punctuationHabits.join('\n'));
+  const [summary, setSummary] = useState(initial.summary);
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const traits: StyleFingerprintTraits = {
+        sentenceLength: { avgWords: Number(avgWords), distribution: distribution.trim() },
+        spellingRegion,
+        vocabularyLevel: vocabularyLevel.trim(),
+        tone: tone.split(',').map((s) => s.trim()).filter(Boolean),
+        signaturePhrases: phrases
+          .filter((p) => p.phrase.trim().length > 0)
+          .map((p) => ({ phrase: p.phrase.trim(), frequency: p.frequency })),
+        structuralHabits: structural.split('\n').map((s) => s.trim()).filter(Boolean),
+        punctuationHabits: punctuation.split('\n').map((s) => s.trim()).filter(Boolean),
+        summary: summary.trim(),
+      };
+      await onSave(traits);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3" data-testid="edit-details-form">
+      <p className="text-xs text-[var(--status-warning)]">
+        Editing the generated details directly. A later add/remove-article or Re-extract recomputes from
+        the article set and overwrites these edits.
+      </p>
+      <div>
+        <label className="text-xs text-[var(--text-muted)]">Summary</label>
+        <textarea value={summary} onChange={(e) => setSummary(e.target.value)} rows={2} className={inputCls} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs text-[var(--text-muted)]">Avg words / sentence</label>
+          <input type="number" value={avgWords} onChange={(e) => setAvgWords(e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className="text-xs text-[var(--text-muted)]">Spelling region</label>
+          <select
+            value={spellingRegion}
+            onChange={(e) => setSpellingRegion(e.target.value as StyleFingerprintTraits['spellingRegion'])}
+            className={inputCls}
+          >
+            <option value="american">american</option>
+            <option value="british">british</option>
+            <option value="mixed">mixed</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label className="text-xs text-[var(--text-muted)]">Sentence-length distribution</label>
+        <input value={distribution} onChange={(e) => setDistribution(e.target.value)} className={inputCls} />
+      </div>
+      <div>
+        <label className="text-xs text-[var(--text-muted)]">Vocabulary level</label>
+        <input value={vocabularyLevel} onChange={(e) => setVocabularyLevel(e.target.value)} className={inputCls} />
+      </div>
+      <div>
+        <label className="text-xs text-[var(--text-muted)]">Tone (comma-separated)</label>
+        <input value={tone} onChange={(e) => setTone(e.target.value)} className={inputCls} />
+      </div>
+      <div>
+        <label className="text-xs text-[var(--text-muted)]">Signature phrases</label>
+        <div className="space-y-1">
+          {phrases.map((p, i) => (
+            <div key={i} className="flex gap-2">
+              <input
+                value={p.phrase}
+                onChange={(e) => setPhrases((prev) => prev.map((x, j) => (j === i ? { ...x, phrase: e.target.value } : x)))}
+                placeholder="phrase"
+                className={inputCls}
+              />
+              <select
+                value={p.frequency}
+                onChange={(e) => setPhrases((prev) => prev.map((x, j) => (j === i ? { ...x, frequency: e.target.value as typeof x.frequency } : x)))}
+                className="px-2 py-1 text-sm border border-[var(--border-default)] rounded bg-transparent"
+              >
+                {FREQUENCIES.map((f) => <option key={f} value={f}>{f}</option>)}
+              </select>
+              <button onClick={() => setPhrases((prev) => prev.filter((_, j) => j !== i))} className="px-2 text-[var(--status-error)]" aria-label="Remove phrase">✕</button>
+            </div>
+          ))}
+          <button
+            onClick={() => setPhrases((prev) => [...prev, { phrase: '', frequency: 'occasional' as const }])}
+            className="text-xs text-[var(--accent-gold)]"
+          >
+            + Add phrase
+          </button>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs text-[var(--text-muted)]">Structural habits (one per line)</label>
+          <textarea value={structural} onChange={(e) => setStructural(e.target.value)} rows={3} className={inputCls} />
+        </div>
+        <div>
+          <label className="text-xs text-[var(--text-muted)]">Punctuation habits (one per line)</label>
+          <textarea value={punctuation} onChange={(e) => setPunctuation(e.target.value)} rows={3} className={inputCls} />
+        </div>
+      </div>
+      <div className="flex gap-2 justify-end">
+        <button onClick={onCancel} disabled={busy} className="px-3 py-1.5 text-sm border border-[var(--border-default)] rounded disabled:opacity-40">Cancel</button>
+        <button data-testid="save-details-button" onClick={save} disabled={busy} className="px-3 py-1.5 text-sm border border-[var(--accent-gold)] text-[var(--accent-gold)] rounded disabled:opacity-40">
+          {busy ? 'Saving…' : 'Save details'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function OverviewTab(
-  { detail, onReExtract, busy }: { detail: StyleFingerprintDetail; onReExtract: () => void; busy: boolean },
+  { detail, onReExtract, onChange, busy }: {
+    detail: StyleFingerprintDetail;
+    onReExtract: () => void;
+    onChange: () => Promise<void>;
+    busy: boolean;
+  },
 ): JSX.Element {
   const fp = detail.fingerprint.fingerprint;
+  const [editing, setEditing] = useState(false);
+
+  const saveDetails = async (traits: StyleFingerprintTraits) => {
+    const result = await updateStyleFingerprintDetailsAction({ id: detail.fingerprint.id, fingerprint: traits });
+    if (!result.success) { toast.error(result.error?.message ?? 'Save failed'); return; }
+    toast.success('Details updated');
+    setEditing(false);
+    await onChange();
+  };
+
   return (
     <div className="space-y-4">
       <section>
@@ -33,18 +181,32 @@ function OverviewTab(
         </p>
       </section>
 
-      <div className="flex justify-end">
-        <button
-          data-testid="re-extract-button"
-          onClick={onReExtract}
-          disabled={busy || detail.fingerprint.article_count === 0}
-          className="px-3 py-1.5 text-sm border border-[var(--border-default)] rounded disabled:opacity-40"
-        >
-          {busy ? 'Re-extracting…' : 'Re-extract'}
-        </button>
-      </div>
+      {!editing && (
+        <div className="flex justify-end gap-2">
+          {fp && (
+            <button
+              data-testid="edit-details-button"
+              onClick={() => setEditing(true)}
+              disabled={busy}
+              className="px-3 py-1.5 text-sm border border-[var(--border-default)] rounded disabled:opacity-40"
+            >
+              Edit details
+            </button>
+          )}
+          <button
+            data-testid="re-extract-button"
+            onClick={onReExtract}
+            disabled={busy || detail.fingerprint.article_count === 0}
+            className="px-3 py-1.5 text-sm border border-[var(--border-default)] rounded disabled:opacity-40"
+          >
+            {busy ? 'Re-extracting…' : 'Re-extract'}
+          </button>
+        </div>
+      )}
 
-      {fp ? (
+      {editing && fp ? (
+        <EditDetailsForm initial={fp} onCancel={() => setEditing(false)} onSave={saveDetails} />
+      ) : fp ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <section>
             <h3 className="text-sm font-ui font-semibold text-[var(--text-secondary)] mb-2">Structured traits</h3>
@@ -255,7 +417,7 @@ export function StyleFingerprintDetailContent({ fingerprintId }: { fingerprintId
       <EntityDetailHeader title={detail.fingerprint.name} entityId={detail.fingerprint.id} />
 
       <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
-        {activeTab === 'overview' && <OverviewTab detail={detail} onReExtract={reExtract} busy={busy} />}
+        {activeTab === 'overview' && <OverviewTab detail={detail} onReExtract={reExtract} onChange={load} busy={busy} />}
         {activeTab === 'articles' && <ArticlesTab detail={detail} onChange={load} />}
         {activeTab === 'metrics' && <EntityMetricsTab entityType="style_fingerprint" entityId={fingerprintId} />}
       </EntityDetailTabs>
