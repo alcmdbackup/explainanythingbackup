@@ -1,0 +1,22 @@
+{
+  "branch": "feat/fix_ux_bugs_judge_lab_agreement_20260621",
+  "created_at": "2026-06-21T17:06:18Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/feature_deep_dives/judge_evaluation.md",
+    "evolution/docs/implicit_rubric_weights.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/visualization.md",
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/criteria_agents.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/strategies_and_experiments.md",
+    "evolution/docs/architecture.md",
+    "evolution/docs/arena.md",
+    "evolution/docs/entities.md",
+    "evolution/docs/reference.md",
+    "evolution/docs/README.md"
+  ],
+  "analyses": []
+}
