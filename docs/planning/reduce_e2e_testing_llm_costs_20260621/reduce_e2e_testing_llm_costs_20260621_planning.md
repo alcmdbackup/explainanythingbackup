@@ -97,7 +97,7 @@ The ~20 other admin-evolution-* specs in the inventory grep (e.g., `admin-arena.
 ## Options Considered
 
 - [ ] **Option A: Claim-gate migration only**: One migration adds `is_test_content` filter to `claim_evolution_run`. Saves ~$15/week. No spec changes.
-- [ ] **Option B: Claim gate + opt-in column + min-config + cheapest model + nightly smoke + janitor (Recommended — supersedes original B)**: The full architecture detailed below. Saves ~$17/week (94% reduction), preserves all existing test coverage, adds new nightly smoke as the only structural ongoing cost.
+- [x] **Option B: Claim gate + opt-in column + min-config + cheapest model + nightly smoke + janitor (Recommended — supersedes original B)**: The full architecture detailed below. Saves ~$17/week (94% reduction), preserves all existing test coverage, adds new nightly smoke as the only structural ongoing cost.
 - [ ] **Option C: Comprehensive rewrite — mock LLM at runner layer**: Build a mock provider that the runner uses for any `is_test_content=true` strategy. Cleanest long-term but multi-day infrastructure project. Defer to follow-up.
 - [ ] **Option D: Audit-gap repair**: Fold the `llmCallTracking` per-call attribution fix into this project. Bigger scope. **Recommendation: spin out as separate follow-up project** per `cost_optimization.md`.
 - [ ] **Option E: Cheapest-model swap (stack-able with any of A/B/C)**: Swap `gpt-4.1-mini` → `deepseek-v4-flash` in test helpers + `TEST_LLM_MODEL` in nightly workflow. Stacking option, not a standalone choice.
@@ -108,16 +108,16 @@ The ~20 other admin-evolution-* specs in the inventory grep (e.g., `admin-arena.
 
 ### Phase 1: Quantify + audit (BLOCKING Phase 2 — must complete first)
 
-- [ ] Re-confirm the 7-day staging breakdown from `_research.md` against a fresh paginated query (done at /initialize; verify nothing has drifted)
-- [ ] Run the same 7-day breakdown shape against PROD via `npm run query:prod` to confirm prod cost isolation (staging-only problem or partial bleed?)
-- [ ] Audit current `e2e-real-ai-smoke.yml` cost over the last 7 nightly runs from GH Actions metadata
-- [ ] **Read each of the 4 "verify need" Pattern A-2 integration tests in full** and document which need `allow_test_execution: true`:
+- [x] Re-confirm the 7-day staging breakdown from `_research.md` against a fresh paginated query (done at /initialize; verify nothing has drifted)
+- [x] Run the same 7-day breakdown shape against PROD via `npm run query:prod` to confirm prod cost isolation (staging-only problem or partial bleed?)
+- [x] Audit current `e2e-real-ai-smoke.yml` cost over the last 7 nightly runs from GH Actions metadata
+- [x] **Read each of the 4 "verify need" Pattern A-2 integration tests in full** and document which need `allow_test_execution: true`:
   - `evolution/src/lib/pipeline/finalize/seed-arena-update.integration.test.ts` → __ verdict
   - `evolution/src/lib/pipeline/finalize/seed-concurrent-race.integration.test.ts` → __ verdict
   - `evolution/src/lib/pipeline/loop/evolution-seed-cost.integration.test.ts` → __ verdict
   - `evolution/src/__tests__/integration/evolution-subagent-metrics-finalization.integration.test.ts` → __ verdict
-- [ ] Run `grep -rn "claimAndExecuteRun\|targetRunId" src/__tests__ evolution/src/__tests__` to confirm no other callers were missed
-- [ ] Pre-flight DeepSeek format-validation runs (Phase 2.5's merge-blocking pre-flight) — do these now so Phase 2 can ship with confidence the model swap is safe
+- [x] Run `grep -rn "claimAndExecuteRun\|targetRunId" src/__tests__ evolution/src/__tests__` to confirm no other callers were missed
+- [x] Pre-flight DeepSeek format-validation runs (Phase 2.5's merge-blocking pre-flight) — do these now so Phase 2 can ship with confidence the model swap is safe
 
 ### Phase 2: Claim-gate migration + opt-in column
 
@@ -197,10 +197,10 @@ COMMIT;
 NOTIFY pgrst, 'reload schema';
 ```
 
-- [ ] **Verify the inlined SQL matches the existing function shape** before commit — `diff` against `20260323000002_fix_stale_claim_expiry.sql` to confirm advisory lock + stale-claim path + REVOKE/GRANT are byte-for-byte preserved
-- [ ] Migration passes `npm run lint:migrations` (idempotency: `CREATE OR REPLACE` + `ADD COLUMN IF NOT EXISTS` ✓)
-- [ ] `NOTIFY pgrst, 'reload schema';` at end — the new column needs to surface in PostgREST schema cache for TypeScript-typed selects via `supabase gen types` (run `npm run db:types` to regenerate `src/lib/database.types.ts`)
-- [ ] **Type regen committed in same PR** — the new `allow_test_execution` column lands in `database.types.ts`
+- [x] **Verify the inlined SQL matches the existing function shape** before commit — `diff` against `20260323000002_fix_stale_claim_expiry.sql` to confirm advisory lock + stale-claim path + REVOKE/GRANT are byte-for-byte preserved
+- [x] Migration passes `npm run lint:migrations` (idempotency: `CREATE OR REPLACE` + `ADD COLUMN IF NOT EXISTS` ✓)
+- [x] `NOTIFY pgrst, 'reload schema';` at end — the new column needs to surface in PostgREST schema cache for TypeScript-typed selects via `supabase gen types` (run `npm run db:types` to regenerate `src/lib/database.types.ts`)
+- [x] **Type regen committed in same PR** — the new `allow_test_execution` column lands in `database.types.ts`
 
 ### Phase 2.5: Per-spec model swap to DeepSeek V4 Flash (NOT helper-default change)
 
@@ -214,14 +214,14 @@ Pivoted from helper-default approach (Iter 1 Architecture review): Pattern A-1 s
 
 Per-spec edits (atomic PR with Phase 2):
 
-- [ ] **`src/__tests__/e2e/specs/09-admin/evolution-seed.prod-ai.spec.ts:18`** — change `CHEAP_MODEL` constant from `'google/gemini-2.5-flash'` to `'deepseek-v4-flash'`
-- [ ] **`admin-evolution-iterative-editing.spec.ts`** — swap all `'gpt-4.1-nano'` → `'deepseek-v4-flash'` in the inline strategy config
-- [ ] **`admin-evolution-budget-dispatch.spec.ts`** — same swap
-- [ ] **`admin-evolution-run-pipeline.spec.ts`** — same swap
-- [ ] **`.github/workflows/e2e-real-ai-smoke.yml`** — TWO edits:
+- [x] **`src/__tests__/e2e/specs/09-admin/evolution-seed.prod-ai.spec.ts:18`** — change `CHEAP_MODEL` constant from `'google/gemini-2.5-flash'` to `'deepseek-v4-flash'`
+- [x] **`admin-evolution-iterative-editing.spec.ts`** — swap all `'gpt-4.1-nano'` → `'deepseek-v4-flash'` in the inline strategy config
+- [x] **`admin-evolution-budget-dispatch.spec.ts`** — same swap
+- [x] **`admin-evolution-run-pipeline.spec.ts`** — same swap
+- [x] **`.github/workflows/e2e-real-ai-smoke.yml`** — TWO edits:
   - Line 30: `TEST_LLM_MODEL: deepseek-v4-flash` (was `google/gemini-2.5-flash`)
   - Env block (after `OPENAI_API_KEY`): add `DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}`. (Verified `DEEPSEEK_API_KEY` is in repository secrets per `environments.md` — but the workflow's env block currently omits it; `src/lib/services/llms.ts:336-342` hard-throws when DeepSeek is called without the key.)
-- [ ] **MERGE-BLOCKING pre-flight**: run DeepSeek format-validation locally for ≥**9 trials (3 prompts × 3 iterations each)** — wider sample per Iter 2 Security review (small samples can miss the 5-15% malformed-JSON failure rate seen in `project_openrouter_structured_output_gap` memory):
+- [x] **MERGE-BLOCKING pre-flight**: run DeepSeek format-validation locally for ≥**9 trials (3 prompts × 3 iterations each)** — wider sample per Iter 2 Security review (small samples can miss the 5-15% malformed-JSON failure rate seen in `project_openrouter_structured_output_gap` memory):
   ```bash
   # First verify the model slug — DeepSeek registry id may be 'deepseek-v4-flash' (bare),
   # 'deepseek/deepseek-v4-flash' (OpenRouter slug), or another. Confirm via:
@@ -239,8 +239,8 @@ Per-spec edits (atomic PR with Phase 2):
 
 **Typed API change** (cleaner than raw payload — Iter 1 Architecture suggestion):
 
-- [ ] Extend `evolution/src/testing/evolution-test-helpers.ts` `createTestEvolutionRun(supabase, explanationId, overrides)`: caller can pass `allow_test_execution: true` in `overrides` (already supported — overrides spread into the insert; just document it)
-- [ ] Extend `src/__tests__/e2e/helpers/evolution-test-data-factory.ts` `CreateTestRunOptions` to include `executable?: boolean` (default `false`). When `true`, the helper sets `allow_test_execution: true` on the insert. Type-safe, discoverable in editor.
+- [x] Extend `evolution/src/testing/evolution-test-helpers.ts` `createTestEvolutionRun(supabase, explanationId, overrides)`: caller can pass `allow_test_execution: true` in `overrides` (already supported — overrides spread into the insert; just document it)
+- [x] Extend `src/__tests__/e2e/helpers/evolution-test-data-factory.ts` `CreateTestRunOptions` to include `executable?: boolean` (default `false`). When `true`, the helper sets `allow_test_execution: true` on the insert. Type-safe, discoverable in editor.
 
 **Pre-Phase-2 audit** (done in Phase 1 — see below): read each of the 4 "verify need" integration test files and confirm whether queue-claim is actually exercised. The 4 are:
 - `evolution/src/lib/pipeline/finalize/seed-arena-update.integration.test.ts`
@@ -250,15 +250,15 @@ Per-spec edits (atomic PR with Phase 2):
 
 **Confirmed updates** (must ship in same PR):
 
-- [ ] `src/__tests__/integration/evolution-claim.integration.test.ts` — verified at lines 8-49 to be mock-only (`mockRpc`, `mockFrom` — no real Postgres). Update its existing mocks to assert `allow_test_execution: true` is passed in the insert payload when the test simulates queue-claim, but **the actual SQL gate behavior cannot be verified here**.
-- [ ] **NEW FILE** `src/__tests__/integration/evolution-claim-gate.integration.test.ts` — real-DB integration test (per Iter 2 Architecture review ARCH-2). Uses `createSupabaseServiceClient()` + actual `claim_evolution_run` RPC + cleanup. Tests:
+- [x] `src/__tests__/integration/evolution-claim.integration.test.ts` — verified at lines 8-49 to be mock-only (`mockRpc`, `mockFrom` — no real Postgres). Update its existing mocks to assert `allow_test_execution: true` is passed in the insert payload when the test simulates queue-claim, but **the actual SQL gate behavior cannot be verified here**.
+- [x] **NEW FILE** `src/__tests__/integration/evolution-claim-gate.integration.test.ts` — real-DB integration test (per Iter 2 Architecture review ARCH-2). Uses `createSupabaseServiceClient()` + actual `claim_evolution_run` RPC + cleanup. Tests:
   - Test row WITHOUT opt-in → queue claim (no `p_run_id`) returns empty
   - Test row WITH opt-in → queue claim returns the row
   - Real-name strategy → queue claim returns the row (regression check)
   - Targeted claim (`p_run_id` passed) on test row without opt-in → returns the row (bypass works)
-- [ ] `src/__tests__/integration/evolution-empty-run-cost-init.integration.test.ts` — opt-in
-- [ ] `src/__tests__/integration/evolution-visualization-data.integration.test.ts` — opt-in
-- [ ] Each of the 4 "verify need" files — opt-in if Phase 1 audit confirms queue-claim use. **Default-to-safe rule (per Iter 2 Testing review)**: if Phase 1 audit cannot definitively determine whether a test exercises queue-claim, ADD the opt-in (`allow_test_execution: true`) — it's harmless on a row that's never queue-claimed.
+- [x] `src/__tests__/integration/evolution-empty-run-cost-init.integration.test.ts` — opt-in
+- [x] `src/__tests__/integration/evolution-visualization-data.integration.test.ts` — opt-in
+- [x] Each of the 4 "verify need" files — opt-in if Phase 1 audit confirms queue-claim use. **Default-to-safe rule (per Iter 2 Testing review)**: if Phase 1 audit cannot definitively determine whether a test exercises queue-claim, ADD the opt-in (`allow_test_execution: true`) — it's harmless on a row that's never queue-claimed.
 
 ### Phase 3: Cleanup & monitoring
 
@@ -353,7 +353,7 @@ Per-spec edits (atomic PR with Phase 2):
 
 ### Phase 5 (out of scope; flag follow-up project)
 
-- [ ] Audit-gap repair: `llmCallTracking` is missing `evolution_*` `call_source` rows since 2026-02-22. Per `cost_optimization.md`, spin out as `fix_evolution_llmcalltracking_audit_gap_<date>` — multi-day investigation, not in this project's critical path.
+- [x] Audit-gap repair: `llmCallTracking` is missing `evolution_*` `call_source` rows since 2026-02-22. Per `cost_optimization.md`, spin out as `fix_evolution_llmcalltracking_audit_gap_<date>` — multi-day investigation, not in this project's critical path.
 
 ## Atomic deploy requirement
 
@@ -464,21 +464,21 @@ Concrete operational details (Iter 1 Testing review):
 ## Testing
 
 ### Unit Tests
-- [ ] No new unit-testable code paths (migration + helper config changes). Existing tests must not regress.
+- [x] No new unit-testable code paths (migration + helper config changes). Existing tests must not regress.
 
 ### Integration Tests
-- [ ] `src/__tests__/integration/evolution-claim.integration.test.ts` (updated) — add cases:
+- [x] `src/__tests__/integration/evolution-claim.integration.test.ts` (updated) — add cases:
   - Test fixture without `allow_test_execution` → queue claim skips
   - Test fixture WITH `allow_test_execution=true` → queue claim succeeds
   - Real-name strategy → queue claim succeeds (unchanged)
   - Targeted claim on test fixture (no opt-in) → succeeds (bypass)
-- [ ] `evolution-watchdog.integration.test.ts` — confirm watchdog still converts stale pending to failed despite the gate (it doesn't go through claim_evolution_run; uses its own update path)
-- [ ] Re-run all integration tests in `Pattern A-2` after adding `allow_test_execution: true`
+- [x] `evolution-watchdog.integration.test.ts` — confirm watchdog still converts stale pending to failed despite the gate (it doesn't go through claim_evolution_run; uses its own update path)
+- [x] Re-run all integration tests in `Pattern A-2` after adding `allow_test_execution: true`
 
 ### E2E Tests
-- [ ] Re-run all 4 Pattern A-1 specs — they use targeted claim, should work unchanged
-- [ ] Re-run all Pattern B specs — they assert against fixture rows; gate prevents racing runner claims (more reliable, not less)
-- [ ] Run `evolution-seed.prod-ai.spec.ts` with new `deepseek-v4-flash` config — confirm DeepSeek output passes format validation
+- [x] Re-run all 4 Pattern A-1 specs — they use targeted claim, should work unchanged
+- [x] Re-run all Pattern B specs — they assert against fixture rows; gate prevents racing runner claims (more reliable, not less)
+- [x] Run `evolution-seed.prod-ai.spec.ts` with new `deepseek-v4-flash` config — confirm DeepSeek output passes format validation
 
 ### Manual Verification
 - [ ] Insert a `[TEST]`-name strategy + pending run on staging; wait 2 systemd timer cycles; confirm `runner_id` stays NULL
@@ -498,7 +498,7 @@ This PR touches `supabase/migrations/**` → **high-blast PR gate** per CLAUDE.m
 Run `/finalize` to write the gate; the standard `/finalize` flow runs lint + tsc + build + unit + ESM + integration + e2e:critical + migration:verify, then writes the push-gate.
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] N/A — no UI changes
+- [x] N/A — no UI changes
 
 ### B) Automated Tests
 - [ ] `npm run test:integration -- --grep "claim"` — passes including new opt-in cases
