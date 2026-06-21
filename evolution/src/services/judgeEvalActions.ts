@@ -565,7 +565,7 @@ const createAgreementSweepSchema = z.object({
   temperature: z.number().min(0).max(2).default(0),
   reasoningEffort: reasoningEffortSchema.nullable().default(null),
   judgeRubricId: z.string().uuid(),
-  repeats: z.number().int().min(1).max(50).default(10),
+  repeats: z.number().int().min(1).max(50).default(1),
   dryRun: z.boolean().default(false),
 });
 

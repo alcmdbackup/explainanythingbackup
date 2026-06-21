@@ -82,7 +82,7 @@ export default function AgreementSweepPage(): JSX.Element {
   const [judgeRubricId, setJudgeRubricId] = useState<string>('');
   const [temperature, setTemperature] = useState<number>(0);
   const [reasoning, setReasoning] = useState<'none' | 'low' | 'medium'>('none');
-  const [repeats, setRepeats] = useState<number>(10);
+  const [repeats, setRepeats] = useState<number>(1);
 
   const [launching, setLaunching] = useState(false);
   const [estimate, setEstimate] = useState<EstimateState>(null);
