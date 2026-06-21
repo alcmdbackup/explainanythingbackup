@@ -11,7 +11,8 @@ import type { ResolvedJudgeRubric } from '../../shared/rubricJudge';
 import { resolveEnsembleConfig } from '../../shared/judgeEnsemble/chainRegistry';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { createEntityLogger } from '../infra/createEntityLogger';
-import { strategyConfigSchema } from '../../schemas';
+import { strategyConfigSchema, styleFingerprintTraitsSchema, type StyleFingerprintTraits } from '../../schemas';
+import { renderFingerprintProse } from './renderFingerprintProse';
 
 // ─── Arena Types ────────────────────────────────────────────────
 
@@ -466,8 +467,39 @@ export async function buildRunContext(
       ? resolveEnsembleConfig(stratConfig.ensembleConfigId) ?? undefined
       : undefined;
 
+  // generate_enforce_style_fingerprint_evolution_20260620: per-strategy opt-in style enforcement.
+  // Resolve the referenced fingerprint, render the article-shaped prose, snapshot it onto the run
+  // (so later fingerprint edits never change what this run was generated/judged against), and carry
+  // it on the config for generation (AgentContext) + judging. Missing/soft-deleted fingerprint or
+  // no traits ⇒ clean no-op.
+  let styleFingerprint: { prose: string; traits: StyleFingerprintTraits } | undefined;
+  if (stratConfig.styleFingerprintEnabled && stratConfig.styleFingerprintId) {
+    const { data: fpRow } = await db
+      .from('evolution_style_fingerprints')
+      .select('fingerprint')
+      .eq('id', stratConfig.styleFingerprintId)
+      .is('deleted_at', null)
+      .maybeSingle();
+    const traitsParsed = styleFingerprintTraitsSchema.safeParse(fpRow?.fingerprint);
+    if (traitsParsed.success) {
+      const traits = traitsParsed.data;
+      styleFingerprint = { prose: renderFingerprintProse(traits, 'article'), traits };
+      await db
+        .from('evolution_runs')
+        .update({ style_fingerprint_id: stratConfig.styleFingerprintId, style_fingerprint_snapshot: { traits } })
+        .eq('id', claimedRun.id);
+    } else {
+      console.warn(
+        '[buildRunContext] styleFingerprintEnabled but fingerprint missing or has no computed traits; ' +
+        'proceeding with no style enforcement',
+        { styleFingerprintId: stratConfig.styleFingerprintId, runId: claimedRun.id },
+      );
+    }
+  }
+
   const config: EvolutionConfig = {
     iterationConfigs: stratConfig.iterationConfigs,
+    styleFingerprint,
     budgetUsd: claimedRun.budget_cap_usd ?? 1.0,
     judgeModel: stratConfig.judgeModel,
     judgeRubricId: stratConfig.judgeRubricId,

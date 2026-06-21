@@ -354,6 +354,7 @@ async function executePipeline(
       // them as denormalized FKs on evolution_logs rows for cross-aggregation.
       experimentId: claimedRun.experiment_id ?? undefined,
       strategyId: claimedRun.strategy_id,
+      styleFingerprint: config.styleFingerprint,
     };
     const seedAgent = new CreateSeedArticleAgent();
     const seedResult = await seedAgent.run({

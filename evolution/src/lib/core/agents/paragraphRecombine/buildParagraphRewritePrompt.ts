@@ -62,6 +62,9 @@ export function buildParagraphRewritePrompt(
   paragraphIndex: number,
   totalSlots: number,
   directive?: string,
+  // generate_enforce_style_fingerprint_evolution_20260620: PARAGRAPH-shaped target style
+  // (trailing optional ⇒ the promptEditor co-caller stays compiling + un-steered).
+  styleGuide?: string,
 ): string {
   const originalChars = paragraphText.length;
   const minChars = Math.ceil(0.85 * originalChars);
@@ -69,6 +72,12 @@ export function buildParagraphRewritePrompt(
   const approachBlock = directive
     ? `APPROACH FOR THIS REWRITE
   ${directive}
+
+`
+    : '';
+  const styleBlock = styleGuide
+    ? `TARGET STYLE
+  ${styleGuide}
 
 `
     : '';
@@ -93,7 +102,7 @@ ${approachBlock}RULES (violations are silently discarded)
      MUST be at least ${minChars} characters and at most ${maxChars} characters.
      Stay inside this window — rewrites outside it are silently discarded.
 
-OUTPUT
+${styleBlock}OUTPUT
   Plain prose only — no markdown, no preamble, no commentary. Just the
   rewritten paragraph.
 

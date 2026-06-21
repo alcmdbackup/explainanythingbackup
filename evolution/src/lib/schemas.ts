@@ -1203,12 +1203,16 @@ const evolutionConfigBaseSchema = z.object({
   /** Phase 1d: resolved per-paragraph rubric. Present only when paragraphJudgeRubricId
    *  resolved AND EVOLUTION_RUBRIC_JUDGING_ENABLED is on; undefined → hardcoded paragraph rubric. */
   paragraphJudgeRubric: z.custom<ResolvedJudgeRubric>().optional(),
-  /** generate_enforce_style_fingerprint_evolution_20260620: resolved per-run target-style
-   *  prose, ARTICLE-shaped. Carried on the run config (parallel to judgeRubric), sourced from
-   *  the run's style_fingerprint_snapshot in buildRunContext. The ranking call sites read this
-   *  and thread it into buildRubricComparisonPrompt. Paragraph slot judging OVERRIDES this with
-   *  the paragraph-shaped prose on perSlotConfig (do not inherit the article-shaped value). */
-  targetStyleProse: z.string().optional(),
+  /** generate_enforce_style_fingerprint_evolution_20260620: resolved per-run style fingerprint
+   *  (article-shaped prose + structured traits). Carried on the run config (parallel to judgeRubric),
+   *  sourced from the run's style_fingerprint_snapshot in buildRunContext; undefined when the strategy
+   *  did not opt in. Generation reads it via AgentContext.styleFingerprint. Article ranking reads
+   *  `prose` and threads it into buildRubricComparisonPrompt; paragraph slot judging renders the
+   *  PARAGRAPH-shaped prose from `traits` and OVERRIDES it on perSlotConfig. */
+  styleFingerprint: z.object({
+    prose: z.string(),
+    traits: styleFingerprintTraitsSchema,
+  }).optional(),
   /** Named ensemble chain id (from StrategyConfig). Resolved to `ensemble` in buildRunContext. */
   ensembleConfigId: z.string().optional(),
   /** Resolved ensemble chain + aggregation rule. Present ONLY when ensembleConfigId resolved AND the

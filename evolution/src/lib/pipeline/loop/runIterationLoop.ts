@@ -506,6 +506,7 @@ export async function evolveArticle(
             logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
             experimentId: options?.experimentId,
             strategyId: options?.strategyId,
+            styleFingerprint: resolvedConfig.styleFingerprint,
             agentIndex: execOrder,
             rawProvider: llmProvider,
             defaultModel: resolvedConfig.generationModel,
