@@ -91,12 +91,7 @@ describe('arenaActions', () => {
   // ─── getArenaTopicsAction ────────────────────────────────────
 
   describe('getArenaTopicsAction', () => {
-    it('returns topics with entry counts', async () => {
-      const entries = [
-        { prompt_id: VALID_UUID },
-        { prompt_id: VALID_UUID },
-      ];
-
+    it('returns topics with per-topic entry counts (parallel head:exact)', async () => {
       const mock = createTableAwareMock([
         // evolution_prompts
         (b) => {
@@ -104,10 +99,10 @@ describe('arenaActions', () => {
             resolve({ data: [MOCK_TOPIC], error: null })
           );
         },
-        // evolution_variants (arena entry count)
+        // per-topic count head:exact
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: entries, error: null })
+            resolve({ count: 2, error: null })
           );
         },
       ]);
@@ -118,6 +113,106 @@ describe('arenaActions', () => {
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(1);
       expect(result.data![0]!.entry_count).toBe(2);
+    });
+
+    // Regression for the 1000-row supabase-js cap: pre-fix, the count step did a
+    // bare SELECT on evolution_variants and counted in JS, so any topic whose
+    // variant rows fell beyond the 1000-row cap reported entry_count=0 and got
+    // hidden by the page's default "Hide empty topics" filter. Caught 2026-06-20
+    // on staging — Federal Reserve 3 had 429 synced visible variants but showed
+    // Entries: 0 because FR1's 506 + FR2's truncated 494 filled the cap exactly.
+    // Per-topic head:exact aggregates server-side, so each count is independent
+    // of total variant volume across the project.
+    it('correctly counts newer topics even when older topics have many variants (no 1000-row truncation)', async () => {
+      const topicA = { ...MOCK_TOPIC, id: VALID_UUID };
+      const topicB = { ...MOCK_TOPIC, id: VALID_UUID_2, name: 'Newer Topic' };
+      const mock = createTableAwareMock([
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [topicB, topicA], error: null })
+          );
+        },
+        // count for topicB (first in topics array because order DESC on created_at)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ count: 429, error: null })
+          );
+        },
+        // count for topicA
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ count: 506, error: null })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getArenaTopicsAction(undefined);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toHaveLength(2);
+      const counts = Object.fromEntries(result.data!.map(t => [t.id, t.entry_count]));
+      expect(counts[VALID_UUID]).toBe(506);
+      expect(counts[VALID_UUID_2]).toBe(429);
+    });
+
+    it('defaults entry_count to 0 for topics with no matching variants', async () => {
+      const mock = createTableAwareMock([
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [MOCK_TOPIC], error: null })
+          );
+        },
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ count: 0, error: null })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getArenaTopicsAction(undefined);
+
+      expect(result.success).toBe(true);
+      expect(result.data![0]!.entry_count).toBe(0);
+    });
+
+    it('skips count requests and returns empty when no topics match the filters', async () => {
+      const mock = createTableAwareMock([
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [], error: null })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getArenaTopicsAction(undefined);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([]);
+      // Only the evolution_prompts query, no per-topic count fetches.
+      expect(mock.from).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaces count errors as action failure', async () => {
+      const mock = createTableAwareMock([
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [MOCK_TOPIC], error: null })
+          );
+        },
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ count: null, error: { message: 'count failed' } })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getArenaTopicsAction(undefined);
+
+      expect(result.success).toBe(false);
     });
 
     it('returns error on DB failure', async () => {

@@ -189,23 +189,28 @@ export const getArenaTopicsAction = adminAction(
 
     const topics = (data ?? []) as ArenaTopic[];
 
-    // Batch-fetch entry counts
+    // Per-topic entry counts via parallel head:exact requests. We previously did
+    // a bare SELECT prompt_id and counted in JS — but supabase-js silently caps
+    // the response at 1000 rows, so any topic whose variant rows fell beyond
+    // that cap reported entry_count=0 and got hidden by the page's default
+    // "Hide empty topics" filter (e.g. FR3 on 2026-06-20 showed 0 despite having
+    // 429 synced variants). PostgREST does the COUNT server-side; Promise.all
+    // fans out so wall-clock is ~one round-trip regardless of topic count.
     if (topics.length > 0) {
-      const topicIds = topics.map(t => t.id);
-      const { data: counts, error: countError } = await ctx.supabase
-        .from('evolution_variants')
-        .select('prompt_id')
-        .eq('synced_to_arena', true)
-        .in('prompt_id', topicIds)
-        .is('archived_at', null);
-      if (countError) throw countError;
-
-      const countMap = new Map<string, number>();
-      for (const entry of counts ?? []) {
-        const tid = entry.prompt_id;
-        if (!tid) continue;
-        countMap.set(tid, (countMap.get(tid) ?? 0) + 1);
-      }
+      const counts = await Promise.all(
+        topics.map(t =>
+          ctx.supabase
+            .from('evolution_variants')
+            .select('id', { count: 'exact', head: true })
+            .eq('synced_to_arena', true)
+            .eq('prompt_id', t.id)
+            .is('archived_at', null)
+            .then(r => ({ id: t.id, count: r.count ?? 0, error: r.error })),
+        ),
+      );
+      const firstError = counts.find(c => c.error);
+      if (firstError?.error) throw firstError.error;
+      const countMap = new Map(counts.map(c => [c.id, c.count]));
       for (const topic of topics) {
         topic.entry_count = countMap.get(topic.id) ?? 0;
       }
