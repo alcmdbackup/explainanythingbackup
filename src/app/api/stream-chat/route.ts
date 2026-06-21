@@ -1,4 +1,5 @@
 import { callLLM, DEFAULT_MODEL } from '@/lib/services/llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 
 export const maxDuration = 540;
 import { NextRequest, NextResponse } from 'next/server';
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
           // Use callLLM with streaming
           await callLLM(
             prompt,
-            "stream-chat-api",
+            CALL_SOURCES.streamChatApi,
             verifiedUserId,
             DEFAULT_MODEL,
             true,

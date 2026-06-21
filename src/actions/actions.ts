@@ -1,6 +1,7 @@
 'use server';
 
 import { callLLM, DEFAULT_MODEL, ANONYMOUS_USER_UUID } from '@/lib/services/llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { createExplanation } from '@/lib/services/explanations';
 import { explanationInsertSchema, explanationBaseType, type ExplanationInsertType, UserInputType, type UserExplanationEventsType, type ExplanationMetricsType, type ExplanationMetricsTableType, ExplanationStatus, type MatchType } from '@/lib/schemas/schemas';
@@ -1270,7 +1271,7 @@ const _generateAISuggestionsAction = withLogging(
             // Call OpenAI with structured output validation using the schema
             const response = await callLLM(
                 prompt,
-                'editor_ai_suggestions',
+                CALL_SOURCES.editorAiSuggestions,
                 userid,
                 DEFAULT_MODEL,
                 false,
@@ -1340,7 +1341,7 @@ const _applyAISuggestionsAction = withLogging(
 
             const response = await callLLM(
                 prompt,
-                'editor_apply_suggestions',
+                CALL_SOURCES.editorApplySuggestions,
                 userid,
                 DEFAULT_MODEL,
                 false,

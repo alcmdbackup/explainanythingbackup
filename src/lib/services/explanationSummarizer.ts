@@ -5,6 +5,7 @@
  */
 
 import { callLLM, LIGHTER_MODEL } from './llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import { explanationSummarySchema, type ExplanationSummary } from '../schemas/schemas';
 import { logger } from '../server_utilities';
 import { createSupabaseServerClient } from '../utils/supabase/server';
@@ -70,7 +71,7 @@ export async function generateAndSaveExplanationSummary(
 
         const result = await callLLM(
             prompt,
-            'explanation_summarization',
+            CALL_SOURCES.explanationSummarization,
             userid,
             LIGHTER_MODEL,
             false,

@@ -2,6 +2,7 @@
 import React from 'react';
 import { z } from 'zod';
 import { DEFAULT_MODEL, ANONYMOUS_USER_UUID } from '@/lib/services/llms';
+import { CALL_SOURCES, type CallSource } from '@/lib/services/llmCallSource';
 import type { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
 import { validateStep2Output, validateCriticMarkup, PipelineValidationResults, VALIDATION_DESCRIPTIONS } from './validation/pipelineValidation';
 import type { SourceForPromptType, SourceChipType } from '@/lib/schemas/schemas';
@@ -682,7 +683,7 @@ export async function getAndApplyAISuggestions(
 export async function getAISuggestions(
     currentText: string,
     userPrompt: string,
-    callLLM: (prompt: string, call_source: string, userid: string, model: string, streaming: boolean, setText: ((text: string) => void) | null) => Promise<string>,
+    callLLM: (prompt: string, call_source: CallSource, userid: string, model: string, streaming: boolean, setText: ((text: string) => void) | null) => Promise<string>,
     logger: any,
     userId: string = ANONYMOUS_USER_UUID
 ): Promise<string> {
@@ -696,7 +697,7 @@ export async function getAISuggestions(
 
         const response = await callLLM(
             prompt,
-            'editor_ai_suggestions',
+            CALL_SOURCES.editorAiSuggestions,
             userId,
             DEFAULT_MODEL,
             false,

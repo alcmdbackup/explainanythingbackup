@@ -11,6 +11,9 @@ import { zodResponseFormat } from "openai/helpers/zod";
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
+import type { CallSource } from '@/lib/services/llmCallSource';
+import { CALL_SOURCE_SHAPE, captureCallerName } from '@/lib/services/llmCallSource';
+import { isTestLlmCall } from '@/lib/services/llmCostAttribution';
 import { type LlmCallTrackingType, llmCallTrackingSchema, allowedLLMModelSchema, type AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { createLLMSpan } from '../../../instrumentation';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
@@ -185,7 +188,17 @@ export async function saveLlmCallTracking(
     }
 
     try {
-        const validatedData = llmCallTrackingSchema.parse(trackingData);
+        // Derive the test/mock discriminator at this single chokepoint (both OpenAI and
+        // Anthropic save paths flow through here) unless a caller already set it.
+        const dataWithTestFlag: LlmCallTrackingType = {
+            ...trackingData,
+            is_test: trackingData.is_test ?? isTestLlmCall({
+                userid: trackingData.userid,
+                callSource: trackingData.call_source,
+                content: trackingData.content,
+            }),
+        };
+        const validatedData = llmCallTrackingSchema.parse(dataWithTestFlag);
         const supabase = injectedDb ?? await createSupabaseServiceClient();
 
         const { error } = await supabase
@@ -439,7 +452,7 @@ export function isAnthropicModel(model: string): boolean {
 
 async function callOpenAIModel(
     prompt: string,
-    call_source: string,
+    call_source: CallSource,
     userid: string,
     model: AllowedLLMModelType,
     streaming: boolean,
@@ -781,7 +794,7 @@ async function callOpenAIModel(
 
 async function callAnthropicModel(
     prompt: string,
-    call_source: string,
+    call_source: CallSource,
     userid: string,
     model: AllowedLLMModelType,
     streaming: boolean,
@@ -919,7 +932,7 @@ export function applyTestLlmModelOverride(model: AllowedLLMModelType): AllowedLL
 
 async function callLLMModelRaw(
     prompt: string,
-    call_source: string,
+    call_source: CallSource,
     userid: string,
     model: AllowedLLMModelType,
     streaming: boolean,
@@ -929,6 +942,18 @@ async function callLLMModelRaw(
     debug: boolean = true,
     options?: CallLLMOptions,
 ): Promise<string> {
+    // Layer 2 runtime guard: a valid call_source is mandatory. The branded type (Layer 0) +
+    // lint rule (Layer 1) make this unreachable from typed TS, but JS callers / `as` casts can
+    // still slip a blank/malformed source through. Never let it be silently unattributed.
+    if (!call_source || !CALL_SOURCE_SHAPE.test(call_source)) {
+        const caller = captureCallerName();
+        if (process.env.NODE_ENV !== 'production') {
+            throw new Error(`callLLM: invalid/blank call_source (caller: ${caller})`);
+        }
+        logger.error('callLLM: unattributed call_source — using stack fallback', { caller });
+        call_source = `unattributed:${caller}` as CallSource;
+    }
+
     // Apply the test-only model override (no-op in prod / when unset) before cost estimation,
     // routing, and tracking so every downstream step uses the effective model.
     const effectiveModel = applyTestLlmModelOverride(model);
@@ -984,7 +1009,7 @@ async function callLLMModelRaw(
 
 function routeLLMCall(
     prompt: string,
-    call_source: string,
+    call_source: CallSource,
     userid: string,
     model: AllowedLLMModelType,
     streaming: boolean,

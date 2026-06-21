@@ -13,6 +13,7 @@ import {
   aggregateWinners,
 } from '../shared/computeRatings';
 import { callLLM, type CallLLMOptions, type LLMUsageMetadata } from '@/lib/services/llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import { GlobalBudgetExceededError, LLMKillSwitchError } from '@/lib/errors/serviceError';
 import { isTransientError } from '../shared/classifyErrors';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -298,7 +299,7 @@ export function createCallLLMJudge(params: {
       };
       try {
         // call_source 'evolution_judge_eval' → inherits the shared LLM semaphore + global gate.
-        const text = await callLLM(prompt, 'evolution_judge_eval', userId, params.judgeModel, false, null, null, null, false, opts);
+        const text = await callLLM(prompt, CALL_SOURCES.evolutionJudgeEval, userId, params.judgeModel, false, null, null, null, false, opts);
         return { text, costUsd, promptTokens, outputTokens, reasoningTokens, reasoningTrace, reasoningTraceFormat };
       } catch (e) {
         if (e instanceof GlobalBudgetExceededError || e instanceof LLMKillSwitchError) {

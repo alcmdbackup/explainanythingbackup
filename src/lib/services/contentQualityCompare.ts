@@ -2,6 +2,7 @@
 // Ported from Python compare.py — dual verdict types: independent scoring and pairwise comparison.
 
 import { callLLM, LIGHTER_MODEL } from './llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import {
   articleScoreSchema,
   comparisonResultSchema,
@@ -51,7 +52,7 @@ async function scoreArticle(
 
   const raw = await callLLM(
     prompt,
-    'content_quality_compare_score',
+    CALL_SOURCES.contentQualityCompareScore,
     userid,
     LIGHTER_MODEL,
     false,
@@ -153,7 +154,7 @@ async function runComparison(
 
   const raw = await callLLM(
     prompt,
-    'content_quality_compare_pair',
+    CALL_SOURCES.contentQualityComparePair,
     userid,
     LIGHTER_MODEL,
     false,

@@ -12,6 +12,43 @@ import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { logger } from '@/lib/server_utilities';
 import { calculateLLMCost } from '@/config/llmPricing';
 import { logAdminAction } from '@/lib/services/auditLog';
+import { attributeCallSource, type CostCategory } from '@/lib/services/llmCostAttribution';
+
+export type Granularity = 'hour' | 'day' | 'week';
+
+export interface SpendBucket {
+  bucket: string; // ISO timestamp of the date_trunc bucket
+  evolutionCost: number;
+  nonEvolutionCost: number;
+  totalCost: number;
+  callCount: number;
+}
+
+export interface EntityCost {
+  entity: string;
+  category: CostCategory;
+  callCount: number;
+  totalTokens: number;
+  totalCost: number;
+}
+
+export interface EvolutionReconciliation {
+  /** Evolution spend per llmCallTracking (known-incomplete since the 2026-02-23 audit gap). */
+  trackingCost: number;
+  /** Evolution spend per evolution_agent_invocations.cost_usd (source of truth for the gap). */
+  invocationCost: number;
+}
+
+/** One row from the get_llm_spend_buckets RPC. */
+interface SpendBucketRow {
+  bucket: string;
+  call_source: string;
+  model: string;
+  is_test: boolean;
+  call_count: number;
+  total_tokens: number;
+  total_cost: number;
+}
 
 // Types
 export interface CostSummary {
@@ -53,6 +90,47 @@ export interface CostFilters {
   endDate?: string;
   model?: string;
   userId?: string;
+  /** Time-bucket granularity for getSpendByGranularityAction. */
+  granularity?: Granularity;
+  /** When false, exclude is_test rows (default true = show everything). */
+  includeTest?: boolean;
+}
+
+const VALID_GRANULARITIES: readonly Granularity[] = ['hour', 'day', 'week'];
+
+/** Resolve a filter's [start, end) window to ISO timestamps (default: last 30 days). */
+function resolveRange(filters: CostFilters): { start: string; end: string } {
+  const now = new Date();
+  const endRaw = filters.endDate || now.toISOString();
+  const startRaw = filters.startDate || new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  return {
+    start: startRaw.includes('T') ? startRaw : `${startRaw}T00:00:00Z`,
+    end: endRaw.includes('T') ? endRaw : `${endRaw}T23:59:59Z`,
+  };
+}
+
+/** Fetch raw spend buckets via the RPC. Validates granularity at the app boundary
+ *  (defense in depth — the SQL also whitelists it). */
+async function fetchSpendBuckets(
+  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
+  filters: CostFilters,
+): Promise<SpendBucketRow[]> {
+  const granularity: Granularity = filters.granularity ?? 'day';
+  if (!VALID_GRANULARITIES.includes(granularity)) {
+    throw new Error(`Invalid granularity: ${granularity}`);
+  }
+  const { start, end } = resolveRange(filters);
+  const { data, error } = await supabase.rpc('get_llm_spend_buckets', {
+    p_granularity: granularity,
+    p_start: start,
+    p_end: end,
+    p_include_test: filters.includeTest ?? true,
+  });
+  if (error) {
+    logger.error('Error fetching spend buckets', { error: error.message });
+    throw error;
+  }
+  return (data ?? []) as SpendBucketRow[];
 }
 
 /**
@@ -505,3 +583,131 @@ const _backfillCostsAction = withLogging(async (
 }, 'backfillCostsAction');
 
 export const backfillCostsAction = serverReadRequestId(_backfillCostsAction);
+
+/**
+ * Spend over time at hour/day/week granularity, split by evolution vs non-evolution.
+ * Powers the dashboard's stacked time chart.
+ */
+const _getSpendByGranularityAction = withLogging(async (
+  filters: CostFilters = {}
+): Promise<{ success: boolean; data: SpendBucket[] | null; error: ErrorResponse | null }> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+    const rows = await fetchSpendBuckets(supabase, filters);
+
+    const byBucket = new Map<string, SpendBucket>();
+    for (const row of rows) {
+      const { category } = attributeCallSource(row.call_source);
+      const cost = Number(row.total_cost) || 0;
+      const existing = byBucket.get(row.bucket) ?? {
+        bucket: row.bucket,
+        evolutionCost: 0,
+        nonEvolutionCost: 0,
+        totalCost: 0,
+        callCount: 0,
+      };
+      if (category === 'evolution') existing.evolutionCost += cost;
+      else existing.nonEvolutionCost += cost;
+      existing.totalCost += cost;
+      existing.callCount += Number(row.call_count) || 0;
+      byBucket.set(row.bucket, existing);
+    }
+
+    return {
+      success: true,
+      data: Array.from(byBucket.values()).sort((a, b) => a.bucket.localeCompare(b.bucket)),
+      error: null,
+    };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getSpendByGranularityAction', { filters }) };
+  }
+}, 'getSpendByGranularityAction');
+
+export const getSpendByGranularityAction = serverReadRequestId(_getSpendByGranularityAction);
+
+/**
+ * Spend grouped by the entity responsible for the call (folded from call_source via the
+ * canonical attribution map). Powers the dashboard's "Spend by Entity" table.
+ */
+const _getCostByEntityAction = withLogging(async (
+  filters: CostFilters = {}
+): Promise<{ success: boolean; data: EntityCost[] | null; error: ErrorResponse | null }> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+    const rows = await fetchSpendBuckets(supabase, filters);
+
+    const byEntity = new Map<string, EntityCost>();
+    for (const row of rows) {
+      const { entity, category } = attributeCallSource(row.call_source);
+      const existing = byEntity.get(entity) ?? {
+        entity,
+        category,
+        callCount: 0,
+        totalTokens: 0,
+        totalCost: 0,
+      };
+      existing.callCount += Number(row.call_count) || 0;
+      existing.totalTokens += Number(row.total_tokens) || 0;
+      existing.totalCost += Number(row.total_cost) || 0;
+      byEntity.set(entity, existing);
+    }
+
+    return {
+      success: true,
+      data: Array.from(byEntity.values()).sort((a, b) => b.totalCost - a.totalCost),
+      error: null,
+    };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getCostByEntityAction', { filters }) };
+  }
+}, 'getCostByEntityAction');
+
+export const getCostByEntityAction = serverReadRequestId(_getCostByEntityAction);
+
+/**
+ * Reconcile evolution spend: llmCallTracking-based total vs evolution_agent_invocations.cost_usd.
+ * The tracking table under-counts evolution spend since the 2026-02-23 audit gap, so the
+ * dashboard surfaces both and warns when the invocation total is materially higher.
+ */
+const _getEvolutionReconciliationAction = withLogging(async (
+  filters: CostFilters = {}
+): Promise<{ success: boolean; data: EvolutionReconciliation | null; error: ErrorResponse | null }> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+    const { start, end } = resolveRange(filters);
+
+    // Tracking-based evolution spend (call_source prefix).
+    const { data: trackRows, error: trackErr } = await supabase
+      .from('llmCallTracking')
+      .select('estimated_cost_usd')
+      .like('call_source', 'evolution_%')
+      .gte('created_at', start)
+      .lte('created_at', end);
+    if (trackErr) {
+      logger.error('Error fetching evolution tracking cost', { error: trackErr.message });
+      throw trackErr;
+    }
+    const trackingCost = (trackRows ?? []).reduce((s, r) => s + (Number(r.estimated_cost_usd) || 0), 0);
+
+    // Invocation-based evolution spend (source of truth for the audit-gap window).
+    const { data: invRows, error: invErr } = await supabase
+      .from('evolution_agent_invocations')
+      .select('cost_usd')
+      .gte('created_at', start)
+      .lte('created_at', end);
+    if (invErr) {
+      logger.error('Error fetching invocation cost', { error: invErr.message });
+      throw invErr;
+    }
+    const invocationCost = (invRows ?? []).reduce((s, r) => s + (Number(r.cost_usd) || 0), 0);
+
+    return { success: true, data: { trackingCost, invocationCost }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getEvolutionReconciliationAction', { filters }) };
+  }
+}, 'getEvolutionReconciliationAction');
+
+export const getEvolutionReconciliationAction = serverReadRequestId(_getEvolutionReconciliationAction);

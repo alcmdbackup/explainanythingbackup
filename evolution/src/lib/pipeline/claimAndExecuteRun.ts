@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { callLLM } from '@/lib/services/llms';
+import { evolutionSource } from '@/lib/services/llmCallSource';
 import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
 import { buildRunContext, type ClaimedRun } from './setup/buildRunContext';
 import { evolveArticle } from './loop/runIterationLoop';
@@ -202,7 +203,7 @@ export async function claimAndExecuteRun(
         let capturedUsage: { promptTokens: number; completionTokens: number; reasoningTokens?: number; cachedPromptTokens?: number } | null = null;
         const text = await callLLM(
           prompt,
-          `evolution_${label}`,
+          evolutionSource(label),
           EVOLUTION_SYSTEM_USERID,
           allowedLLMModelSchema.parse(opts?.model ?? 'deepseek-chat'),
           false,

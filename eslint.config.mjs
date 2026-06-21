@@ -96,6 +96,16 @@ const eslintConfig = [
       "flakiness/no-duplicate-column-labels": "error",
     },
   },
+  // Mandatory LLM call attribution: ban brand-defeating call_source patterns (blocking).
+  {
+    files: ["src/**/*.ts", "src/**/*.tsx", "evolution/**/*.ts", "evolution/**/*.tsx"],
+    plugins: {
+      flakiness: flakinessRules,
+    },
+    rules: {
+      "flakiness/require-llm-call-source": "error",
+    },
+  },
   // Promise handling rules to catch silent error swallowing
   {
     plugins: {

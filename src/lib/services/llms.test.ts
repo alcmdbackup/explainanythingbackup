@@ -43,6 +43,7 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { callLLM, callLLMModel, callOpenAIModel, isAnthropicModel, isLocalModel, isOpenRouterModel, DEFAULT_MODEL, LIGHTER_MODEL, saveLlmCallTracking, applyTestLlmModelOverride, __resetTrackingFailureCount, __getTrackingFailureCount, type LLMUsageMetadata } from './llms';
 import { ServiceError } from '@/lib/errors/serviceError';
+import { testSource } from '@/lib/services/llmCallSource';
 import { ERROR_CODES } from '@/lib/errorHandling';
 
 describe('llms', () => {
@@ -113,7 +114,7 @@ describe('llms', () => {
 
       const result = await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
@@ -163,7 +164,7 @@ describe('llms', () => {
       const setText = jest.fn();
       const result = await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         true,
@@ -205,7 +206,7 @@ describe('llms', () => {
 
       const result = await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
@@ -239,7 +240,7 @@ describe('llms', () => {
         model: 'google/gemini-2.5-flash',
       });
 
-      await callLLM('p', 'test_source', '00000000-0000-4000-8000-000000000001', 'google/gemini-2.5-flash', false, null, responseSchema, 'TitleQuery', true);
+      await callLLM('p', testSource('test_source'), '00000000-0000-4000-8000-000000000001', 'google/gemini-2.5-flash', false, null, responseSchema, 'TitleQuery', true);
 
       const req = mockCreateSpy.mock.calls[0]![0];
       expect(req.response_format.type).toBe('json_schema');
@@ -255,7 +256,7 @@ describe('llms', () => {
         model: 'qwen/qwen-2.5-7b-instruct',
       });
 
-      await callLLM('p', 'test_source', '00000000-0000-4000-8000-000000000001', 'qwen-2.5-7b-instruct', false, null, responseSchema, 'Ans', true);
+      await callLLM('p', testSource('test_source'), '00000000-0000-4000-8000-000000000001', 'qwen-2.5-7b-instruct', false, null, responseSchema, 'Ans', true);
 
       const req = mockCreateSpy.mock.calls[0]![0];
       expect(req.response_format).toEqual({ type: 'json_object' });
@@ -280,13 +281,13 @@ describe('llms', () => {
 
       it('sets max_tokens for an OpenRouter non-reasoning model when maxOutputTokens is provided', async () => {
         mockCreateSpy.mockResolvedValueOnce(okResponse);
-        await callLLM('p', 'test_source', UID, 'google/gemini-2.5-flash-lite', false, null, null, null, false, { maxOutputTokens: 4096 });
+        await callLLM('p', testSource('test_source'), UID, 'google/gemini-2.5-flash-lite', false, null, null, null, false, { maxOutputTokens: 4096 });
         expect(mockCreateSpy.mock.calls[0]![0].max_tokens).toBe(4096);
       });
 
       it('OMITS max_tokens for OpenAI-direct models even when maxOutputTokens is provided (no OpenRouter pre-check to dodge)', async () => {
         mockCreateSpy.mockResolvedValueOnce({ ...okResponse, model: 'gpt-4.1-mini' });
-        await callLLM('p', 'test_source', UID, 'gpt-4.1-mini', false, null, null, null, false, { maxOutputTokens: 4096 });
+        await callLLM('p', testSource('test_source'), UID, 'gpt-4.1-mini', false, null, null, null, false, { maxOutputTokens: 4096 });
         const reqOptions = mockCreateSpy.mock.calls[0]![0];
         expect(reqOptions).not.toHaveProperty('max_tokens');
         expect(reqOptions).not.toHaveProperty('max_completion_tokens');
@@ -297,7 +298,7 @@ describe('llms', () => {
       // tokens count against the cap → 50% truncation rate on staging canary B5.
       it('OMITS the cap for gpt-5-mini (OpenAI direct) so its internal reasoning tokens are not constrained', async () => {
         mockCreateSpy.mockResolvedValueOnce({ ...okResponse, model: 'gpt-5-mini' });
-        await callLLM('p', 'test_source', UID, 'gpt-5-mini', false, null, null, null, false, { maxOutputTokens: 4096 });
+        await callLLM('p', testSource('test_source'), UID, 'gpt-5-mini', false, null, null, null, false, { maxOutputTokens: 4096 });
         const reqOptions = mockCreateSpy.mock.calls[0]![0];
         expect(reqOptions).not.toHaveProperty('max_tokens');
         expect(reqOptions).not.toHaveProperty('max_completion_tokens');
@@ -305,13 +306,13 @@ describe('llms', () => {
 
       it('OMITS max_tokens for a REASONING OpenRouter model even when maxOutputTokens is provided (exemption)', async () => {
         mockCreateSpy.mockResolvedValueOnce({ ...okResponse, model: 'qwen/qwen3-8b' });
-        await callLLM('p', 'test_source', UID, 'qwen/qwen3-8b', false, null, null, null, false, { maxOutputTokens: 4096 });
+        await callLLM('p', testSource('test_source'), UID, 'qwen/qwen3-8b', false, null, null, null, false, { maxOutputTokens: 4096 });
         expect(mockCreateSpy.mock.calls[0]![0]).not.toHaveProperty('max_tokens');
       });
 
       it('OMITS max_tokens when the option is not provided (main-app callers unaffected)', async () => {
         mockCreateSpy.mockResolvedValueOnce(okResponse);
-        await callLLM('p', 'test_source', UID, 'google/gemini-2.5-flash-lite', false, null, null, null, false);
+        await callLLM('p', testSource('test_source'), UID, 'google/gemini-2.5-flash-lite', false, null, null, null, false);
         expect(mockCreateSpy.mock.calls[0]![0]).not.toHaveProperty('max_tokens');
       });
 
@@ -322,7 +323,7 @@ describe('llms', () => {
           model: 'google/gemini-2.5-flash-lite',
         });
         await expect(
-          callLLM('p', 'test_source', UID, 'google/gemini-2.5-flash-lite', false, null, null, null, false, { maxOutputTokens: 4096 }),
+          callLLM('p', testSource('test_source'), UID, 'google/gemini-2.5-flash-lite', false, null, null, null, false, { maxOutputTokens: 4096 }),
         ).rejects.toThrow(/truncated at output cap/);
       });
 
@@ -333,7 +334,7 @@ describe('llms', () => {
           model: 'gpt-4.1-mini',
         });
         await expect(
-          callLLM('p', 'test_source', UID, 'gpt-4.1-mini', false, null, null, null, false, { maxOutputTokens: 4096 }),
+          callLLM('p', testSource('test_source'), UID, 'gpt-4.1-mini', false, null, null, null, false, { maxOutputTokens: 4096 }),
         ).resolves.toBe('long');
       });
     });
@@ -342,7 +343,7 @@ describe('llms', () => {
       await expect(
         callLLM(
           'Test prompt',
-          'test_source',
+          testSource('test_source'),
           '00000000-0000-4000-8000-000000000001',
           'invalid-model' as any,
           false,
@@ -358,7 +359,7 @@ describe('llms', () => {
       await expect(
         callLLM(
           'Test prompt',
-          'test_source',
+          testSource('test_source'),
           '00000000-0000-4000-8000-000000000001',
           'gpt-4.1-mini',
           true,
@@ -374,7 +375,7 @@ describe('llms', () => {
       await expect(
         callLLM(
           'Test prompt',
-          'test_source',
+          testSource('test_source'),
           '00000000-0000-4000-8000-000000000001',
           'gpt-4.1-mini',
           false,
@@ -394,7 +395,7 @@ describe('llms', () => {
       await expect(
         callLLM(
           'Test prompt',
-          'test_source',
+          testSource('test_source'),
           '00000000-0000-4000-8000-000000000001',
           'gpt-4.1-mini',
           false,
@@ -422,7 +423,7 @@ describe('llms', () => {
       await expect(
         callLLM(
           'Test prompt',
-          'test_source',
+          testSource('test_source'),
           '00000000-0000-4000-8000-000000000001',
           'gpt-4.1-mini',
           false,
@@ -440,7 +441,7 @@ describe('llms', () => {
       await expect(
         callLLM(
           'Test prompt',
-          'test_source',
+          testSource('test_source'),
           '00000000-0000-4000-8000-000000000001',
           'gpt-4.1-mini',
           false,
@@ -459,7 +460,7 @@ describe('llms', () => {
       await expect(
         callLLM(
           'Test prompt',
-          'test_source',
+          testSource('test_source'),
           '00000000-0000-4000-8000-000000000001',
           'gpt-4.1-mini',
           false,
@@ -498,7 +499,7 @@ describe('llms', () => {
       // Tracking errors are non-fatal — function should still return the response
       const result = await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
@@ -548,7 +549,7 @@ describe('llms', () => {
       const setText = jest.fn();
       await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         true,
@@ -586,7 +587,7 @@ describe('llms', () => {
 
       await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
@@ -616,7 +617,7 @@ describe('llms', () => {
       });
 
       const onUsage = jest.fn();
-      await callLLM('Test prompt', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false, { onUsage });
+      await callLLM('Test prompt', testSource('test_source'), '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false, { onUsage });
 
       expect(onUsage).toHaveBeenCalledTimes(1);
       const usage: LLMUsageMetadata = onUsage.mock.calls[0][0];
@@ -641,7 +642,7 @@ describe('llms', () => {
 
       const onUsage = jest.fn();
       const setText = jest.fn();
-      await callLLM('Test', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', true, setText, null, null, false, { onUsage });
+      await callLLM('Test', testSource('test_source'), '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', true, setText, null, null, false, { onUsage });
 
       expect(onUsage).toHaveBeenCalledTimes(1);
       expect(onUsage.mock.calls[0][0].promptTokens).toBe(20);
@@ -653,7 +654,7 @@ describe('llms', () => {
 
       const onUsage = jest.fn();
       await expect(
-        callLLM('Test', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false, { onUsage })
+        callLLM('Test', testSource('test_source'), '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false, { onUsage })
       ).rejects.toThrow('API failure');
 
       expect(onUsage).not.toHaveBeenCalled();
@@ -667,7 +668,7 @@ describe('llms', () => {
       });
 
       // No onUsage argument — backward compatible
-      const result = await callLLM('Test', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false);
+      const result = await callLLM('Test', testSource('test_source'), '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false);
       expect(result).toBe('Test response');
     });
 
@@ -679,7 +680,7 @@ describe('llms', () => {
       });
 
       const onUsage = jest.fn(() => { throw new Error('callback boom'); });
-      const result = await callLLM('Test', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false, { onUsage });
+      const result = await callLLM('Test', testSource('test_source'), '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false, { onUsage });
 
       expect(result).toBe('Good response');
       expect(onUsage).toHaveBeenCalledTimes(1);
@@ -720,7 +721,7 @@ describe('llms', () => {
       mockSuccessResponse();
 
       await callLLM(
-        'p', 't', 'guest-uuid-123', 'gpt-4.1-mini', false, null, null, null, false,
+        'p', testSource('t'), 'guest-uuid-123', 'gpt-4.1-mini', false, null, null, null, false,
       );
       expect(mockCheckPerUserCap).toHaveBeenCalledWith('guest-uuid-123', 10);
     });
@@ -730,7 +731,7 @@ describe('llms', () => {
       mockSuccessResponse();
 
       await callLLM(
-        'p', 't', 'some-other-user', 'gpt-4.1-mini', false, null, null, null, false,
+        'p', testSource('t'), 'some-other-user', 'gpt-4.1-mini', false, null, null, null, false,
       );
       expect(mockCheckPerUserCap).not.toHaveBeenCalled();
     });
@@ -740,7 +741,7 @@ describe('llms', () => {
       mockSuccessResponse();
 
       await callLLM(
-        'p', 't', 'guest-uuid-123', 'gpt-4.1-mini', false, null, null, null, false,
+        'p', testSource('t'), 'guest-uuid-123', 'gpt-4.1-mini', false, null, null, null, false,
       );
       expect(mockCheckPerUserCap).not.toHaveBeenCalled();
     });
@@ -750,7 +751,7 @@ describe('llms', () => {
       mockCheckPerUserCap.mockRejectedValueOnce(new Error('Daily per-user budget exceeded'));
 
       await expect(callLLM(
-        'p', 't', 'guest-uuid-123', 'gpt-4.1-mini', false, null, null, null, false,
+        'p', testSource('t'), 'guest-uuid-123', 'gpt-4.1-mini', false, null, null, null, false,
       )).rejects.toThrow('Daily per-user budget exceeded');
     });
   });
@@ -774,7 +775,7 @@ describe('llms', () => {
 
       await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
@@ -813,7 +814,7 @@ describe('llms', () => {
 
       await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
@@ -846,7 +847,7 @@ describe('llms', () => {
 
       await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini', // Request model is valid, but API returns different model
         false,
@@ -874,7 +875,7 @@ describe('llms', () => {
 
       await callLLM(
         'Test prompt',
-        'evolution_generate',
+        testSource('evolution_generate'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
@@ -901,7 +902,7 @@ describe('llms', () => {
 
       await callLLM(
         'Test prompt',
-        'chat_source',
+        testSource('chat_source'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
@@ -924,7 +925,7 @@ describe('llms', () => {
 
       const result = await callLLM(
         'Test prompt',
-        'evolution_judge',
+        testSource('evolution_judge'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
@@ -967,7 +968,7 @@ describe('llms', () => {
       // Tracking validation errors are non-fatal — function returns the response
       const result = await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
@@ -1003,7 +1004,7 @@ describe('llms', () => {
       await expect(
         callLLM(
           'Test prompt',
-          'test_source',
+          testSource('test_source'),
           '00000000-0000-4000-8000-000000000001',
           'gpt-4.1-mini',
           true,
@@ -1045,7 +1046,7 @@ describe('llms', () => {
 
       await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'deepseek-v4-flash',
         false,
@@ -1085,7 +1086,7 @@ describe('llms', () => {
       let captured: LLMUsageMetadata | undefined;
       await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'deepseek-v4-flash',
         false,
@@ -1115,7 +1116,7 @@ describe('llms', () => {
 
       const result = await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-oss-20b',
         false,
@@ -1140,7 +1141,7 @@ describe('llms', () => {
       await expect(
         callLLM(
           'Test prompt',
-          'test_source',
+          testSource('test_source'),
           '00000000-0000-4000-8000-000000000001',
           'gpt-oss-20b',
           false,
@@ -1164,7 +1165,7 @@ describe('llms', () => {
 
       await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-oss-20b',
         false,
@@ -1192,7 +1193,7 @@ describe('llms', () => {
 
       await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-oss-20b',
         false,
@@ -1220,7 +1221,7 @@ describe('llms', () => {
         usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
         model: 'openai/gpt-oss-20b',
       });
-      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'gpt-oss-20b', false, null, null, null, false);
+      await callLLM('p', testSource('src'), '00000000-0000-4000-8000-000000000001', 'gpt-oss-20b', false, null, null, null, false);
       const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
       expect(request.reasoning).toEqual({ effort: 'low' });
       // OpenAI o-series reasoning_effort param should NOT be set on OpenRouter models
@@ -1233,7 +1234,7 @@ describe('llms', () => {
         usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
         model: 'qwen/qwen3-8b',
       });
-      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'qwen/qwen3-8b', false, null, null, null, false);
+      await callLLM('p', testSource('src'), '00000000-0000-4000-8000-000000000001', 'qwen/qwen3-8b', false, null, null, null, false);
       const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
       expect(request.reasoning).toEqual({ effort: 'none' });
     });
@@ -1244,7 +1245,7 @@ describe('llms', () => {
         usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
         model: 'openai/gpt-oss-20b',
       });
-      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'gpt-oss-20b', false, null, null, null, false, { reasoningEffort: 'medium' });
+      await callLLM('p', testSource('src'), '00000000-0000-4000-8000-000000000001', 'gpt-oss-20b', false, null, null, null, false, { reasoningEffort: 'medium' });
       const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
       expect(request.reasoning).toEqual({ effort: 'medium' });
     });
@@ -1255,7 +1256,7 @@ describe('llms', () => {
         usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
         model: 'gpt-4.1-mini',
       });
-      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false);
+      await callLLM('p', testSource('src'), '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false);
       const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
       expect(request.reasoning).toBeUndefined();
       expect(request.reasoning_effort).toBeUndefined();
@@ -1267,7 +1268,7 @@ describe('llms', () => {
         usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
         model: 'google/gemini-2.5-flash-lite',
       });
-      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'google/gemini-2.5-flash-lite', false, null, null, null, false, { reasoningEffort: 'none' });
+      await callLLM('p', testSource('src'), '00000000-0000-4000-8000-000000000001', 'google/gemini-2.5-flash-lite', false, null, null, null, false, { reasoningEffort: 'none' });
       const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
       expect(request.reasoning).toBeUndefined();
       expect(request.include_reasoning).toBeUndefined();
@@ -1279,7 +1280,7 @@ describe('llms', () => {
         usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
         model: 'qwen/qwen-2.5-7b-instruct',
       });
-      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'qwen-2.5-7b-instruct', false, null, null, null, false, { reasoningEffort: 'none' });
+      await callLLM('p', testSource('src'), '00000000-0000-4000-8000-000000000001', 'qwen-2.5-7b-instruct', false, null, null, null, false, { reasoningEffort: 'none' });
       const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
       expect(request.reasoning).toBeUndefined();
     });
@@ -1290,7 +1291,7 @@ describe('llms', () => {
         usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
         model: 'openai/gpt-oss-20b',
       });
-      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'gpt-oss-20b', false, null, null, null, false, { reasoningEffort: 'none' });
+      await callLLM('p', testSource('src'), '00000000-0000-4000-8000-000000000001', 'gpt-oss-20b', false, null, null, null, false, { reasoningEffort: 'none' });
       const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
       expect(request.reasoning).toEqual({ effort: 'low' }); // coerced, NOT { effort: 'none' }
     });
@@ -1319,7 +1320,7 @@ describe('llms', () => {
 
       const result = await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'LOCAL_qwen2.5:14b',
         false,
@@ -1349,7 +1350,7 @@ describe('llms', () => {
 
       await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'LOCAL_qwen2.5:14b',
         false,
@@ -1376,7 +1377,7 @@ describe('llms', () => {
 
       await callLLM(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'LOCAL_qwen2.5:14b',
         false,
@@ -1438,7 +1439,7 @@ describe('llms', () => {
 
       const result = await callLLMModel(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'claude-sonnet-4-20250514',
         false,
@@ -1466,7 +1467,7 @@ describe('llms', () => {
 
       await callLLMModel(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'claude-sonnet-4-20250514',
         false,
@@ -1495,7 +1496,7 @@ describe('llms', () => {
       await expect(
         callLLMModel(
           'Test prompt',
-          'test_source',
+          testSource('test_source'),
           '00000000-0000-4000-8000-000000000001',
           'claude-sonnet-4-20250514',
           false,
@@ -1513,7 +1514,7 @@ describe('llms', () => {
 
       const result = await callLLMModel(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
@@ -1535,7 +1536,7 @@ describe('llms', () => {
       await expect(
         callLLMModel(
           'Test prompt',
-          'test_source',
+          testSource('test_source'),
           '00000000-0000-4000-8000-000000000001',
           'claude-sonnet-4-20250514',
           false,
@@ -1560,7 +1561,7 @@ describe('llms', () => {
       // callOpenAIModel should NOT throw — tracking errors are non-fatal
       const result = await callOpenAIModel(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
@@ -1595,7 +1596,7 @@ describe('llms', () => {
 
       const result = await callLLMModel(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'claude-sonnet-4-20250514',
         false,
@@ -1605,7 +1606,7 @@ describe('llms', () => {
       expect(result).toBe('Claude response');
       expect(logger.error).toHaveBeenCalledWith(
         expect.stringContaining('LLM call tracking save failed (non-fatal'),
-        expect.objectContaining({ call_source: 'test_source', model: 'claude-sonnet-4-20250514' }),
+        expect.objectContaining({ call_source: testSource('test_source'), model: 'claude-sonnet-4-20250514' }),
       );
     });
 
@@ -1623,7 +1624,7 @@ describe('llms', () => {
       // callOpenAIModel is now an alias for callLLMModel
       const result = await callOpenAIModel(
         'Test prompt',
-        'test_source',
+        testSource('test_source'),
         '00000000-0000-4000-8000-000000000001',
         'claude-sonnet-4-20250514',
         false,

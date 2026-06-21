@@ -73,6 +73,10 @@ export async function trackLLMCall(
       reasoning_tokens: 0,
       finish_reason: params.finishReason,
       estimated_cost_usd: params.costUsd,
+      // known-uncovered path: this direct insert bypasses callLLM/saveLlmCallTracking and
+      // all attribution layers. These are offline CLI/experiment runs (userid 0000…0000),
+      // not production spend, so flag them so the spending dashboard classifies them as test.
+      is_test: true,
     });
   } catch {
     // Non-critical: don't fail generation on tracking errors

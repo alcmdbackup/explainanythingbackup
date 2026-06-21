@@ -228,6 +228,17 @@ The `/admin/costs` page provides LLM usage and spending analytics.
 - Displays count of records with null `estimated_cost_usd`
 - Prompts admin to run backfill
 
+### Spending Tabs, Granularity, and Entity Attribution (build_llm_spending_tab_in_admin_dash_20260620)
+
+The `/admin/costs` page is tabbed — **Overview · By Entity · By Model · Controls** — with shared controls pinned above the tabs:
+
+- **Granularity toggle** (`hour | day | week`) drives the Overview **stacked spend chart** (evolution stacked on non-evolution per bucket), sourced from `getSpendByGranularityAction` → the `get_llm_spend_buckets` Postgres RPC (`date_trunc`-based; one function covers all three granularities).
+- **Include-test toggle** (default on = show everything) filters the new `is_test` discriminator on `llmCallTracking`. `is_test` is set at the single `saveLlmCallTracking` chokepoint via `isTestLlmCall` (system/test userids `…000`/`…001`/`…099`, `E2E_TEST_MODE`/`NODE_ENV=test`, mock fingerprints); historical rows are backfilled by `scripts/backfillLlmIsTest.ts`. This separates real spend from the integration-test/mock pollution that dominates the dev DB.
+- **By Entity tab** groups spend by the *entity responsible* for the call, folded from `call_source` via the canonical map in `src/lib/services/llmCostAttribution.ts` (`attributeCallSource`). `evolution_*` sources collapse to one entity per agent and a single `evolution` category.
+- **Audit-gap banner** surfaces when `getEvolutionReconciliationAction` shows `evolution_agent_invocations.cost_usd` materially exceeds the `llmCallTracking`-based evolution total (the per-call tracking gap since 2026-02-23).
+
+**Mandatory attribution (4 layers):** `call_source` is a branded `CallSource` type (`src/lib/services/llmCallSource.ts`) sourced only from the `CALL_SOURCES` registry or `evolutionSource()`/`testSource()` factories (Layer 0, tsc) → blocking ESLint rule `flakiness/require-llm-call-source` (Layer 1) → a runtime guard in `callLLMModelRaw` that rejects/normalizes blank sources with a stack-derived `unattributed:<caller>` fallback (Layer 2) → an exhaustive entity map (Layer 3).
+
 ### Backfill Costs
 
 The "Backfill Costs" button calculates and populates `estimated_cost_usd` for records that don't have it (e.g., data from before cost tracking was added):

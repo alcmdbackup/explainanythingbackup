@@ -2,6 +2,7 @@
 'use server';
 
 import { callLLM, DEFAULT_MODEL, LIGHTER_MODEL } from '@/lib/services/llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { logger } from '@/lib/client_utilities';
@@ -46,7 +47,7 @@ export const generateAISuggestionsAction = withLogging(
             // Call OpenAI with structured output validation using the schema
             const response = await callLLM(
                 prompt,
-                'editor_ai_suggestions',
+                CALL_SOURCES.editorAiSuggestions,
                 userid,
                 DEFAULT_MODEL,
                 false,
@@ -114,7 +115,7 @@ export const applyAISuggestionsAction = withLogging(
 
             const response = await callLLM(
                 prompt,
-                'editor_apply_suggestions',
+                CALL_SOURCES.editorApplySuggestions,
                 userid,
                 LIGHTER_MODEL,
                 false,

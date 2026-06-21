@@ -48,9 +48,12 @@ describe('LogsTab', () => {
   it('shows entity type badges', async () => {
     render(<LogsTab entityType="run" entityId="run-1" />);
     await waitFor(() => {
-      expect(screen.getByText('run')).toBeInTheDocument();
+      expect(screen.getAllByText('run').length).toBeGreaterThan(0);
     });
-    expect(screen.getByText('invocation')).toBeInTheDocument();
+    // An 'invocation' entity badge renders per matching log row — multiple is valid, so
+    // assert at-least-one rather than exactly-one (getByText throws on multiple matches,
+    // which surfaced as a CI-timing flake when this test became `--changedSince`-affected).
+    expect(screen.getAllByText('invocation').length).toBeGreaterThan(0);
   });
 
   it('shows total count', async () => {

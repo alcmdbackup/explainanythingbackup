@@ -520,6 +520,9 @@ export const llmCallTrackingSchema = z.object({
     estimated_cost_usd: z.number().nonnegative().optional(),
     /** FK to evolution_agent_invocations — only set for evolution pipeline LLM calls. */
     evolution_invocation_id: z.string().uuid().optional(),
+    /** True for integration-test/mock rows (set at insert via isTestLlmCall). Lets the
+     *  spending dashboard separate real spend from test pollution. DB default false. */
+    is_test: z.boolean().optional(),
 });
 
 export type LlmCallTrackingType = z.infer<typeof llmCallTrackingSchema>;

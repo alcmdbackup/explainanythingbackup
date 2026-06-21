@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { callLLM, DEFAULT_MODEL } from '@/lib/services/llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import { getExplanationById } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
 import { matchFoundFromListSchema, type matchWithCurrentContentType, MatchMode, type VectorSearchResult } from '@/lib/schemas/schemas';
@@ -130,7 +131,7 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
       
       // Call the LLM with the schema to force an integer response
       logger.debug('Calling GPT-4 for source selection', { prompt_length: selectionPrompt.length });
-      const result = await callLLM(selectionPrompt, 'findBestMatchFromList', userid, DEFAULT_MODEL, false, null, matchFoundFromListSchema, 'matchSelection');
+      const result = await callLLM(selectionPrompt, CALL_SOURCES.findBestMatchFromList, userid, DEFAULT_MODEL, false, null, matchFoundFromListSchema, 'matchSelection');
       
       // Parse the result
       const parsedResult = matchFoundFromListSchema.safeParse(JSON.parse(result));
@@ -306,7 +307,7 @@ async function enhanceMatchesWithCurrentContentAndDiversityImpl(similarTexts: Ve
 // Wrap all async functions with automatic logging for entry/exit/timing
 export const findBestMatchFromList = withLogging(
   findBestMatchFromListImpl,
-  'findBestMatchFromList',
+  CALL_SOURCES.findBestMatchFromList,
   { logErrors: true }
 );
 

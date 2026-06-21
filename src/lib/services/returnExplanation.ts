@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { callLLM, DEFAULT_MODEL } from '@/lib/services/llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import { createExplanationPrompt, createTitlePrompt, editExplanationPrompt, createLinkCandidatesPrompt, createExplanationWithSourcesPrompt } from '@/lib/prompts';
 import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema, AnchorSet, linkCandidatesExtractionSchema, type SourceCacheFullType, type SourceForPromptType } from '@/lib/schemas/schemas';
 import { findMatchesInVectorDb, maxNumberAnchors, calculateAllowedScores, searchForSimilarVectors } from '@/lib/services/vectorsim';
@@ -41,7 +42,7 @@ export const generateTitleFromUserQuery = withLogging(
     }> {
         try {
             const titlePrompt = createTitlePrompt(userQuery);
-            const titleResult = await callLLM(titlePrompt, "generateTitleFromUserQuery", userid, DEFAULT_MODEL, false, null, titleQuerySchema, 'titleQuery');
+            const titleResult = await callLLM(titlePrompt, CALL_SOURCES.generateTitleFromUserQuery, userid, DEFAULT_MODEL, false, null, titleQuerySchema, 'titleQuery');
             const parsedTitles = titleQuerySchema.safeParse(JSON.parse(titleResult));
 
             if (!parsedTitles.success || !parsedTitles.data.title1) {
@@ -93,7 +94,7 @@ export const extractLinkCandidates = withLogging(
 
             const aiResponse = await callLLM(
                 prompt,
-                'extractLinkCandidates',
+                CALL_SOURCES.extractLinkCandidates,
                 userid,
                 DEFAULT_MODEL,
                 false,
@@ -267,7 +268,7 @@ export const generateNewExplanation = withLogging(
             
             const newExplanationContent = await callLLM(
                 formattedPrompt, 
-                "generateNewExplanation", 
+                CALL_SOURCES.generateNewExplanation,
                 userid, 
                 DEFAULT_MODEL, 
                 shouldStream, 

@@ -3,6 +3,7 @@
  * Provides utilities for heading-to-link mappings and inline link enhancement.
  */
 import { callLLM, DEFAULT_MODEL } from '@/lib/services/llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import { logger } from '@/lib/server_utilities';
 import { createStandaloneTitlePrompt } from '@/lib/prompts';
 import { multipleStandaloneTitlesSchema, type MultipleStandaloneTitlesType } from '@/lib/schemas/schemas';
@@ -103,7 +104,7 @@ async function createMappingsHeadingsToLinksImpl(
 
     const aiResponse = await callLLM(
       prompt, 
-      'enhanceContentWithHeadingLinks', 
+      CALL_SOURCES.enhanceContentWithHeadingLinks, 
       userid, 
       DEFAULT_MODEL, 
       false,
@@ -241,7 +242,7 @@ async function enhanceContentWithInlineLinksImpl(
     const prompt = createLinksInContentPrompt(content);
 
     // Call GPT-4o-mini to enhance the content
-    const enhancedContent = await callLLM(prompt, 'enhanceContentWithInlineLinks', userid, DEFAULT_MODEL, false, null, null, null, debug);
+    const enhancedContent = await callLLM(prompt, CALL_SOURCES.enhanceContentWithInlineLinks, userid, DEFAULT_MODEL, false, null, null, null, debug);
 
     if (debug) {
       logger.debug('Content enhanced with inline links', {
@@ -256,7 +257,7 @@ async function enhanceContentWithInlineLinksImpl(
     throw new ServiceError(
       ERROR_CODES.LLM_API_ERROR,
       'Error enhancing content with inline links',
-      'enhanceContentWithInlineLinks',
+      CALL_SOURCES.enhanceContentWithInlineLinks,
       {
         details: { contentLength: content.length },
         cause: error instanceof Error ? error : undefined
@@ -274,6 +275,6 @@ export const createMappingsHeadingsToLinks = withLogging(
 
 export const enhanceContentWithInlineLinks = withLogging(
   enhanceContentWithInlineLinksImpl,
-  'enhanceContentWithInlineLinks',
+  CALL_SOURCES.enhanceContentWithInlineLinks,
   { logErrors: true }
 );

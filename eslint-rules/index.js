@@ -18,6 +18,7 @@
  * - require-reset-filters: Require resetFilters() in admin specs that seed [TEST]-prefixed data
  * - require-serial-with-beforeall: Require serial mode for describe blocks with beforeAll
  * - warn-slow-with-retries: Warn when test.slow() + retries >= 2 causes timeout cascade
+ * - require-llm-call-source: Require callLLM's call_source from CALL_SOURCES/factories, not literals/casts
  *
  * See docs/docs_overall/testing_overview.md for acceptable exceptions.
  */
@@ -40,5 +41,6 @@ module.exports = {
     'no-point-in-time-pom-helpers': require('./no-point-in-time-pom-helpers'),
     'require-serial-with-beforeall': require('./require-serial-with-beforeall'),
     'warn-slow-with-retries': require('./warn-slow-with-retries'),
+    'require-llm-call-source': require('./require-llm-call-source'),
   },
 };

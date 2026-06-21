@@ -4,6 +4,7 @@
 // shared 'evolution' budget (by design — desirable for cost auditing).
 
 import { callLLM, ANONYMOUS_USER_UUID, type LLMUsageMetadata } from '@/lib/services/llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import { allowedLLMModelSchema, type AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { getModelMaxTemperature } from '@/config/modelRegistry';
 import { GlobalBudgetExceededError, LLMKillSwitchError } from '@/lib/errors/serviceError';
@@ -14,7 +15,7 @@ import type { PromptEditorConfig, PromptEditorConfigResult, RewriteUnit } from '
 
 /** call_source label — the `evolution_` prefix routes spend to the shared evolution budget
  *  category and engages the LLM semaphore (see llms.ts). */
-export const PROMPT_EDITOR_CALL_SOURCE = 'evolution_prompt_editor';
+export const PROMPT_EDITOR_CALL_SOURCE = CALL_SOURCES.evolutionPromptEditor;
 
 /** Resolve the temperature to send: omit (null) when the model reports null/undefined max
  *  temperature; otherwise clamp the requested value to the model's ceiling. */

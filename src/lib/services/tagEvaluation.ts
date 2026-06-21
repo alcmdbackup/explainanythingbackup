@@ -2,6 +2,7 @@
 'use server'
 
 import { callLLM, DEFAULT_MODEL } from '@/lib/services/llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import { logger } from '@/lib/server_utilities';
 import { tagEvaluationSchema } from '@/lib/schemas/schemas';
 import { createTagEvaluationPrompt } from '@/lib/prompts';
@@ -47,7 +48,7 @@ export async function evaluateTags(
     
     const result = await callLLM(
       evaluationPrompt, 
-      'evaluateTags', 
+      CALL_SOURCES.evaluateTags,
       userid, 
       DEFAULT_MODEL,
       false,      

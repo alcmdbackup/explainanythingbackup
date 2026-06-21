@@ -2,6 +2,7 @@
 // Pure evaluation only -- does not persist results to DB.
 
 import { callLLM, LIGHTER_MODEL } from './llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import {
   contentQualityEvalResponseSchema,
   type ContentQualityDimension,
@@ -58,7 +59,7 @@ export async function evaluateContentQuality(
 
     const result = await callLLM(
       prompt,
-      'content_quality_eval',
+      CALL_SOURCES.contentQualityEval,
       userid,
       LIGHTER_MODEL,
       false,

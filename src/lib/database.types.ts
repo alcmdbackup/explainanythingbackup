@@ -1972,6 +1972,7 @@ export type Database = {
           userid: string
           estimated_cost_usd: number | null
           evolution_invocation_id: string | null
+          is_test: boolean
         }
         Insert: {
           id?: number
@@ -1989,6 +1990,7 @@ export type Database = {
           userid: string
           estimated_cost_usd?: number | null
           evolution_invocation_id?: string | null
+          is_test?: boolean
         }
         Update: {
           id?: number
@@ -2006,6 +2008,7 @@ export type Database = {
           userid?: string
           estimated_cost_usd?: number | null
           evolution_invocation_id?: string | null
+          is_test?: boolean
         }
         Relationships: [
         ]
@@ -2420,6 +2423,23 @@ export type Database = {
           p_estimated_cost: number
         }
         Returns: Json
+      }
+      get_llm_spend_buckets: {
+        Args: {
+          p_granularity: string
+          p_start: string
+          p_end: string
+          p_include_test?: boolean
+        }
+        Returns: {
+          bucket: string
+          call_source: string
+          model: string
+          is_test: boolean
+          call_count: number
+          total_tokens: number
+          total_cost: number
+        }[]
       }
       remove_and_renumber_source: {
         Args: {

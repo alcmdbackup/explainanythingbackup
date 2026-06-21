@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import type { Json } from '@/lib/database.types';
 import { logger } from '@/lib/server_utilities';
 import { callLLM, DEFAULT_MODEL } from '@/lib/services/llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import { createStandaloneTitlePrompt } from '@/lib/prompts';
 import { assertUserId } from '@/lib/utils/validation';
 import {
@@ -484,7 +485,7 @@ async function generateHeadingStandaloneTitlesImpl(
   userid: string,
   debug: boolean = false
 ): Promise<Record<string, string>> {
-  assertUserId(userid, 'generateHeadingStandaloneTitles');
+  assertUserId(userid, CALL_SOURCES.generateHeadingStandaloneTitles);
   // Regex to match h2 and h3 headings
   const headingRegex = /^(#{2,3})\s+(.+)$/gm;
   const matches = [...content.matchAll(headingRegex)];
@@ -515,7 +516,7 @@ async function generateHeadingStandaloneTitlesImpl(
 
     const aiResponse = await callLLM(
       prompt,
-      'generateHeadingStandaloneTitles',
+      CALL_SOURCES.generateHeadingStandaloneTitles,
       userid,
       DEFAULT_MODEL,
       false,
@@ -680,7 +681,7 @@ export const deleteHeadingLinksForArticle = withLogging(
 
 export const generateHeadingStandaloneTitles = withLogging(
   generateHeadingStandaloneTitlesImpl,
-  'generateHeadingStandaloneTitles',
+  CALL_SOURCES.generateHeadingStandaloneTitles,
   { logErrors: true }
 );
 

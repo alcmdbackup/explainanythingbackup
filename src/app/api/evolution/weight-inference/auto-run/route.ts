@@ -9,6 +9,7 @@ import { requireAdmin } from '@/lib/services/adminAuth';
 import { logger } from '@/lib/server_utilities';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { callLLM } from '@/lib/services/llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import { runAutoChunk, type JudgeFactory } from '@evolution/lib/weightInference/autoRun';
 import {
   autoModeEnabled,
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
       if (reasoning) opts!.reasoningEffort = reasoning as NonNullable<typeof opts>['reasoningEffort'];
       return callLLM(
         prompt,
-        'evolution_weight_inference',
+        CALL_SOURCES.evolutionWeightInference,
         adminUserId,
         model as Parameters<typeof callLLM>[3],
         false,

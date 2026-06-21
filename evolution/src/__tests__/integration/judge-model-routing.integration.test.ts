@@ -5,6 +5,7 @@
 // as an OpenRouter-routed model.
 
 import { isOpenRouterModel, getOpenRouterApiModelId, DEFAULT_JUDGE_MODEL, getModelInfo } from '@/config/modelRegistry';
+import { testSource } from '@/lib/services/llmCallSource';
 
 describe('judge model routing — Qwen 2.5 7B', () => {
   describe('registry checks', () => {
@@ -65,7 +66,7 @@ describe('judge model routing — Qwen 2.5 7B', () => {
 
       const result = await callLLM(
         'Test prompt',
-        'evolution_ranking',
+        testSource('evolution_ranking'),
         '00000000-0000-4000-8000-000000000001',
         'qwen-2.5-7b-instruct',
         false, null, null, null, false,

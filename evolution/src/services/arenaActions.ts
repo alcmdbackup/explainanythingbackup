@@ -13,6 +13,7 @@ import {
   type ComparisonMode,
 } from '@evolution/lib/shared/computeRatings';
 import { callLLM, type CallLLMOptions } from '@/lib/services/llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import { getEvolutionModelIds, getModelMaxTemperature } from '@/config/modelRegistry';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { GlobalBudgetExceededError, LLMKillSwitchError } from '@/lib/errors/serviceError';
@@ -741,7 +742,7 @@ export const rejudgeComparisonAction = adminAction(
         ...(temperature != null ? { temperature } : {}),
         onUsage: (u) => { costUsd += u.estimatedCostUsd; },
       };
-      return callLLM(prompt, 'match_viewer_rejudge', ctx.adminUserId, judgeModel, false, null, null, null, false, opts);
+      return callLLM(prompt, CALL_SOURCES.matchViewerRejudge, ctx.adminUserId, judgeModel, false, null, null, null, false, opts);
     };
 
     // 2-pass A/B reversal (mirrors run2PassReversal) — capture each pass's raw response BY

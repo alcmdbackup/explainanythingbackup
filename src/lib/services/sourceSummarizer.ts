@@ -1,4 +1,5 @@
 import { callLLM, LIGHTER_MODEL } from '@/lib/services/llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import { logger } from '@/lib/server_utilities';
 import { countWords } from './sourceFetcher';
 
@@ -67,7 +68,7 @@ export async function summarizeSourceContent(
 
     const result = await callLLM(
       prompt,
-      'source_summarization',
+      CALL_SOURCES.sourceSummarization,
       userid,
       LIGHTER_MODEL, // gpt-4.1-nano for cost efficiency
       false, // not streaming

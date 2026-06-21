@@ -608,6 +608,10 @@ Server actions for the admin dashboard, all requiring admin authentication:
 
 - **`backfillCostsAction(options?)`** -- One-time backfill for records with NULL `estimated_cost_usd`. Processes in batches (default 500), supports `dryRun` mode. Logs an audit action on completion.
 
+- **`getSpendByGranularityAction` / `getCostByEntityAction` / `getEvolutionReconciliationAction`** (build_llm_spending_tab_in_admin_dash_20260620) -- power the tabbed `/admin/costs` dashboard. The first two read the `get_llm_spend_buckets(p_granularity, p_start, p_end, p_include_test)` RPC (`date_trunc` hour/day/week; SECURITY DEFINER, search_path-pinned, service_role-only) and fold `call_source → { entity, category }` via `attributeCallSource` (`src/lib/services/llmCostAttribution.ts`). The reconciliation action compares the `llmCallTracking`-based evolution total against `evolution_agent_invocations.cost_usd` to surface the per-call audit-gap (see the caveat at the top of this doc).
+
+> **`is_test` discriminator + mandatory attribution.** `llmCallTracking` now has an `is_test` boolean set at the single `saveLlmCallTracking` chokepoint via `isTestLlmCall` (test/system userids, `E2E_TEST_MODE`/`NODE_ENV=test`, mock fingerprints) so the dashboard separates real spend from integration-test/mock pollution (~90% of dev-DB rows). `call_source` is a branded `CallSource` (`src/lib/services/llmCallSource.ts`) producible only via the `CALL_SOURCES` registry / `evolutionSource()` / `testSource()` factories — enforced by tsc, a blocking ESLint rule, and a runtime guard. The offline `oneshotGenerator.ts` writes `llmCallTracking` directly (its own `trackLLMCall`, bypassing the chokepoint) and sets `is_test=true` itself.
+
 ---
 
 ## Orphaned Reservation Cleanup

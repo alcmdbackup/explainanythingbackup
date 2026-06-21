@@ -7,6 +7,7 @@
 
 import { z } from 'zod';
 import { callLLM, DEFAULT_MODEL } from './llms';
+import { CALL_SOURCES } from '@/lib/services/llmCallSource';
 import { type ImportSource } from '@/lib/schemas/schemas';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
@@ -74,7 +75,7 @@ async function cleanupAndReformatImpl(
 
     const response = await callLLM(
         prompt,
-        `importArticle:${source}`,
+        CALL_SOURCES.importArticle,
         userId,
         DEFAULT_MODEL,
         false,

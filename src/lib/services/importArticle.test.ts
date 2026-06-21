@@ -209,7 +209,7 @@ describe('importArticle service', () => {
 
             expect(mockCallOpenAIModel).toHaveBeenCalledWith(
                 expect.stringContaining('Test input content'),
-                'importArticle:claude',
+                'importArticle', // normalized: source no longer appended to the key (bounded cardinality)
                 'user-456',
                 expect.any(String), // model
                 false,

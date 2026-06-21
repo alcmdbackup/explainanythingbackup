@@ -8,10 +8,17 @@ import {
   getCostByModelAction,
   getCostByUserAction,
   backfillCostsAction,
+  getSpendByGranularityAction,
+  getCostByEntityAction,
+  getEvolutionReconciliationAction,
   type CostSummary,
   type DailyCost,
   type ModelCost,
-  type UserCost
+  type UserCost,
+  type Granularity,
+  type SpendBucket,
+  type EntityCost,
+  type EvolutionReconciliation
 } from '@evolution/services/costAnalytics';
 import { formatCost, getModelPricing } from '@/config/llmPricing';
 import {
@@ -66,6 +73,15 @@ export default function AdminCostsPage(): React.ReactElement {
   const [dateRange, setDateRange] = useState<DateRangeKey>('30d');
   const [backfillStatus, setBackfillStatus] = useState<string | null>(null);
 
+  // Spending-tab state
+  type TabKey = 'overview' | 'entity' | 'model' | 'controls';
+  const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  const [granularity, setGranularity] = useState<Granularity>('day');
+  const [includeTest, setIncludeTest] = useState(true);
+  const [spendBuckets, setSpendBuckets] = useState<SpendBucket[]>([]);
+  const [entityCosts, setEntityCosts] = useState<EntityCost[]>([]);
+  const [reconciliation, setReconciliation] = useState<EvolutionReconciliation | null>(null);
+
   // Cost security state
   const [costConfig, setCostConfig] = useState<CostConfigData | null>(null);
   const [spendingSummary, setSpendingSummary] = useState<SpendingSummary | null>(null);
@@ -86,11 +102,16 @@ export default function AdminCostsPage(): React.ReactElement {
     try {
       const filters = getDateRange();
 
-      const [summaryRes, dailyRes, modelRes, userRes] = await Promise.all([
+      const spendFilters = { ...filters, granularity, includeTest };
+
+      const [summaryRes, dailyRes, modelRes, userRes, bucketRes, entityRes, reconRes] = await Promise.all([
         getCostSummaryAction(filters),
         getDailyCostsAction(filters),
         getCostByModelAction(filters),
-        getCostByUserAction({ ...filters, limit: 10 })
+        getCostByUserAction({ ...filters, limit: 10 }),
+        getSpendByGranularityAction(spendFilters),
+        getCostByEntityAction(spendFilters),
+        getEvolutionReconciliationAction(filters)
       ]);
 
       if (summaryRes.success && summaryRes.data) {
@@ -104,6 +125,15 @@ export default function AdminCostsPage(): React.ReactElement {
       }
       if (userRes.success && userRes.data) {
         setUserCosts(userRes.data);
+      }
+      if (bucketRes.success && bucketRes.data) {
+        setSpendBuckets(bucketRes.data);
+      }
+      if (entityRes.success && entityRes.data) {
+        setEntityCosts(entityRes.data);
+      }
+      if (reconRes.success && reconRes.data) {
+        setReconciliation(reconRes.data);
       }
 
       // Load cost security data
@@ -131,7 +161,7 @@ export default function AdminCostsPage(): React.ReactElement {
     }
 
     setLoading(false);
-  }, [getDateRange]);
+  }, [getDateRange, granularity, includeTest]);
 
   useEffect(() => {
     loadData();
@@ -203,6 +233,25 @@ export default function AdminCostsPage(): React.ReactElement {
             <option value="30d">Last 30 days</option>
             <option value="90d">Last 90 days</option>
           </select>
+          <select
+            data-testid="admin-costs-granularity"
+            value={granularity}
+            onChange={(e) => setGranularity(e.target.value as Granularity)}
+            className="px-3 py-2 border border-[var(--border-color)] rounded-md bg-[var(--bg-secondary)] text-[var(--text-primary)]"
+          >
+            <option value="hour">Hourly</option>
+            <option value="day">Daily</option>
+            <option value="week">Weekly</option>
+          </select>
+          <label className="flex items-center gap-2 px-3 py-2 text-sm text-[var(--text-secondary)]">
+            <input
+              type="checkbox"
+              data-testid="admin-costs-include-test"
+              checked={includeTest}
+              onChange={(e) => setIncludeTest(e.target.checked)}
+            />
+            Include test data
+          </label>
           <button
             onClick={handleBackfill}
             className="px-3 py-2 border border-[var(--border-color)] rounded-md hover:bg-[var(--bg-secondary)] text-sm"
@@ -211,6 +260,40 @@ export default function AdminCostsPage(): React.ReactElement {
             Backfill Costs
           </button>
         </div>
+      </div>
+
+      {/* Evolution audit-gap banner: tracking under-counts evolution spend since 2026-02-23. */}
+      {reconciliation && reconciliation.invocationCost > reconciliation.trackingCost * 1.5 && (
+        <div data-testid="admin-costs-audit-gap" className="p-3 bg-amber-500/10 border border-amber-500/50 rounded-md text-sm">
+          <span className="text-amber-500 font-medium">Evolution spend under-counted.</span>{' '}
+          <span className="text-[var(--text-secondary)]">
+            Per-call tracking shows {formatCost(reconciliation.trackingCost)} but agent invocations
+            record {formatCost(reconciliation.invocationCost)} for this range (audit gap since 2026-02-23).
+          </span>
+        </div>
+      )}
+
+      {/* Tab bar */}
+      <div className="flex gap-2 border-b border-[var(--border-color)]">
+        {([
+          ['overview', 'Overview'],
+          ['entity', 'By Entity'],
+          ['model', 'By Model'],
+          ['controls', 'Controls'],
+        ] as [TabKey, string][]).map(([key, label]) => (
+          <button
+            key={key}
+            data-testid={`admin-costs-tab-${key}`}
+            onClick={() => setActiveTab(key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+              activeTab === key
+                ? 'border-[var(--accent-primary)] text-[var(--text-primary)]'
+                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {backfillStatus && (
@@ -238,7 +321,8 @@ export default function AdminCostsPage(): React.ReactElement {
         <div className="p-8 text-center text-[var(--text-muted)]">Loading...</div>
       ) : (
         <>
-          <div className="p-4 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-color)]">
+          {activeTab === 'controls' && (
+          <div data-testid="admin-costs-controls" className="p-4 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-color)]">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">Spending Gate</h2>
               <div className="flex items-center gap-3">
@@ -327,7 +411,10 @@ export default function AdminCostsPage(): React.ReactElement {
               )}
             </div>
           </div>
+          )}
 
+          {activeTab === 'overview' && (
+          <>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="p-4 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-color)]">
               <div className="text-sm text-[var(--text-muted)]">Total Cost</div>
@@ -355,6 +442,80 @@ export default function AdminCostsPage(): React.ReactElement {
             </div>
           </div>
 
+          <div className="p-4 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-color)]">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">Spend over time ({granularity})</h2>
+              <div className="flex gap-3 text-xs text-[var(--text-muted)]">
+                <span className="flex items-center gap-1"><span className="w-3 h-3 inline-block bg-[var(--accent-primary)] rounded-sm" />evolution</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 inline-block bg-green-500 rounded-sm" />non-evolution</span>
+              </div>
+            </div>
+            {spendBuckets.length === 0 ? (
+              <div className="text-center text-[var(--text-muted)] py-8">No data for this period</div>
+            ) : (
+              <div data-testid="admin-costs-spend-chart" className="flex items-end gap-1 h-48 overflow-x-auto">
+                {spendBuckets.map((b) => {
+                  const max = Math.max(...spendBuckets.map((x) => x.totalCost), 0.01);
+                  const evoH = Math.max((b.evolutionCost / max) * 160, 0);
+                  const nonH = Math.max((b.nonEvolutionCost / max) * 160, 0);
+                  return (
+                    <div key={b.bucket} className="flex-shrink-0 flex flex-col items-center justify-end" style={{ minWidth: '24px' }}>
+                      <div className="w-5 flex flex-col justify-end" title={`${b.bucket}: ${formatCost(b.totalCost)} (${formatNumber(b.callCount)} calls)`}>
+                        <div className="w-5 bg-[var(--accent-primary)] rounded-t" style={{ height: `${evoH}px` }} />
+                        <div className="w-5 bg-green-500" style={{ height: `${nonH}px` }} />
+                      </div>
+                      <div className="text-[8px] text-[var(--text-muted)] mt-1 -rotate-45 origin-top-left whitespace-nowrap">
+                        {b.bucket.slice(5, 16)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          </>
+          )}
+
+          {activeTab === 'entity' && (
+          <div className="p-4 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-color)]">
+            <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">Spend by Entity</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" data-testid="admin-costs-entity-table">
+                <thead className="bg-[var(--bg-tertiary)]">
+                  <tr>
+                    <th className="p-3 text-left">Entity</th>
+                    <th className="p-3 text-left">Category</th>
+                    <th className="p-3 text-right">Calls</th>
+                    <th className="p-3 text-right">Tokens</th>
+                    <th className="p-3 text-right">Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entityCosts.length === 0 ? (
+                    <tr><td colSpan={5} className="p-4 text-center text-[var(--text-muted)]">No data for this period</td></tr>
+                  ) : (
+                    entityCosts.map((e) => (
+                      <tr key={e.entity} data-testid={`admin-costs-entity-row-${e.entity}`} className="border-t border-[var(--border-color)]">
+                        <td className="p-3">{e.entity}</td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded text-xs ${e.category === 'evolution' ? 'bg-purple-900/30 text-purple-300' : 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]'}`}>
+                            {e.category === 'evolution' ? 'evo' : 'non-evo'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right">{formatNumber(e.callCount)}</td>
+                        <td className="p-3 text-right">{formatNumber(e.totalTokens)}</td>
+                        <td className="p-3 text-right font-semibold">{formatCost(e.totalCost)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          )}
+
+          {activeTab === 'model' && (
+          <>
           <div className="p-4 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-color)]">
             <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">Daily Costs</h2>
             {dailyCosts.length === 0 ? (
@@ -493,6 +654,8 @@ export default function AdminCostsPage(): React.ReactElement {
               </table>
             </div>
           </div>
+          </>
+          )}
         </>
       )}
     </div>

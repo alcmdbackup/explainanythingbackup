@@ -8,7 +8,10 @@ import {
   getDailyCostsAction,
   getCostByModelAction,
   getCostByUserAction,
-  backfillCostsAction
+  backfillCostsAction,
+  getSpendByGranularityAction,
+  getCostByEntityAction,
+  getEvolutionReconciliationAction
 } from './costAnalytics';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -51,6 +54,8 @@ describe('CostAnalytics Service', () => {
     is: jest.Mock;
     order: jest.Mock;
     limit: jest.Mock;
+    like: jest.Mock;
+    rpc: jest.Mock;
   };
 
   const mockAdminId = 'admin-123';
@@ -67,7 +72,9 @@ describe('CostAnalytics Service', () => {
       lte: jest.fn().mockReturnThis(),
       is: jest.fn().mockReturnThis(),
       order: jest.fn().mockReturnThis(),
-      limit: jest.fn()
+      limit: jest.fn(),
+      like: jest.fn().mockReturnThis(),
+      rpc: jest.fn()
     };
 
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mockSupabase);
@@ -480,6 +487,77 @@ describe('CostAnalytics Service', () => {
       const result = await backfillCostsAction({});
 
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe('getSpendByGranularityAction', () => {
+    const rpcRows = [
+      { bucket: '2026-06-01T00:00:00Z', call_source: 'evolution_generation', model: 'm', is_test: false, call_count: 2, total_tokens: 100, total_cost: 0.5 },
+      { bucket: '2026-06-01T00:00:00Z', call_source: 'evaluateTags', model: 'm', is_test: false, call_count: 3, total_tokens: 200, total_cost: 0.25 },
+      { bucket: '2026-06-02T00:00:00Z', call_source: 'evaluateTags', model: 'm', is_test: true, call_count: 1, total_tokens: 50, total_cost: 0.1 },
+    ];
+
+    it('splits each bucket into evolution vs non-evolution', async () => {
+      mockSupabase.rpc.mockResolvedValueOnce({ data: rpcRows, error: null });
+
+      const result = await getSpendByGranularityAction({ granularity: 'day' });
+
+      expect(result.success).toBe(true);
+      expect(mockSupabase.rpc).toHaveBeenCalledWith('get_llm_spend_buckets', expect.objectContaining({
+        p_granularity: 'day',
+        p_include_test: true,
+      }));
+      const day1 = result.data?.find((b) => b.bucket === '2026-06-01T00:00:00Z');
+      expect(day1?.evolutionCost).toBeCloseTo(0.5, 5);
+      expect(day1?.nonEvolutionCost).toBeCloseTo(0.25, 5);
+      expect(day1?.totalCost).toBeCloseTo(0.75, 5);
+      expect(day1?.callCount).toBe(5);
+    });
+
+    it('passes includeTest=false through to the RPC', async () => {
+      mockSupabase.rpc.mockResolvedValueOnce({ data: [], error: null });
+      await getSpendByGranularityAction({ granularity: 'week', includeTest: false });
+      expect(mockSupabase.rpc).toHaveBeenCalledWith('get_llm_spend_buckets', expect.objectContaining({
+        p_granularity: 'week',
+        p_include_test: false,
+      }));
+    });
+
+    it('rejects an invalid granularity at the action boundary (before rpc)', async () => {
+      const result = await getSpendByGranularityAction({ granularity: 'minute' as unknown as 'day' });
+      expect(result.success).toBe(false);
+      expect(mockSupabase.rpc).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getCostByEntityAction', () => {
+    it('folds call_source into entities sorted by cost', async () => {
+      mockSupabase.rpc.mockResolvedValueOnce({
+        data: [
+          { bucket: 'b', call_source: 'evaluateTags', model: 'm', is_test: false, call_count: 10, total_tokens: 100, total_cost: 5 },
+          { bucket: 'b', call_source: 'evolution_generation', model: 'm', is_test: false, call_count: 1, total_tokens: 10, total_cost: 1 },
+        ],
+        error: null,
+      });
+
+      const result = await getCostByEntityAction({});
+      expect(result.success).toBe(true);
+      expect(result.data?.[0]).toMatchObject({ entity: 'Tag evaluation', category: 'non_evolution', totalCost: 5 });
+      expect(result.data?.[1]).toMatchObject({ entity: 'Evolution: generation', category: 'evolution', totalCost: 1 });
+    });
+  });
+
+  describe('getEvolutionReconciliationAction', () => {
+    it('returns tracking vs invocation cost', async () => {
+      // from('llmCallTracking') chain → lte resolves; from('evolution_agent_invocations') chain → lte resolves
+      mockSupabase.lte
+        .mockResolvedValueOnce({ data: [{ estimated_cost_usd: '0.10' }, { estimated_cost_usd: '0.05' }], error: null })
+        .mockResolvedValueOnce({ data: [{ cost_usd: '2.00' }], error: null });
+
+      const result = await getEvolutionReconciliationAction({});
+      expect(result.success).toBe(true);
+      expect(result.data?.trackingCost).toBeCloseTo(0.15, 5);
+      expect(result.data?.invocationCost).toBeCloseTo(2.0, 5);
     });
   });
 });
