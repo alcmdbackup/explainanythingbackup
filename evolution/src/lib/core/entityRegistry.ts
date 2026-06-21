@@ -16,6 +16,7 @@ import { PromptEntity } from './entities/PromptEntity';
 import { TacticEntity } from './entities/TacticEntity';
 import { CriteriaEntity } from './entities/CriteriaEntity';
 import { JudgeRubricEntity } from './entities/JudgeRubricEntity';
+import { StyleFingerprintEntity } from './entities/StyleFingerprintEntity';
 import { getAgentClasses } from './agentRegistry';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,6 +44,7 @@ function initRegistry(): void {
     tactic: new TacticEntity(),
     criteria: new CriteriaEntity(),
     judge_rubric: new JudgeRubricEntity(),
+    style_fingerprint: new StyleFingerprintEntity(),
   };
 
   validateEntityRegistry();
