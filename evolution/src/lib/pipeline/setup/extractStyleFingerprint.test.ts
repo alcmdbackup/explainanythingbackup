@@ -17,7 +17,7 @@ describe('extractStyleFingerprint', () => {
   it('parses a valid JSON reply', async () => {
     const fp = await extractStyleFingerprint(['some article text'], async () => VALID);
     expect(fp.spellingRegion).toBe('british');
-    expect(fp.signaturePhrases[0].phrase).toBe('in fact');
+    expect(fp.signaturePhrases[0]?.phrase).toBe('in fact');
   });
 
   it('strips a ```json fence', async () => {

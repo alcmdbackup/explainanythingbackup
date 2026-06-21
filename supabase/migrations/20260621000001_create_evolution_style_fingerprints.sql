@@ -101,7 +101,7 @@ CREATE TRIGGER evolution_style_fingerprints_set_is_test_content_tg
 CREATE TABLE IF NOT EXISTS evolution_style_fingerprint_articles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   fingerprint_id UUID NOT NULL REFERENCES evolution_style_fingerprints(id) ON DELETE CASCADE,
-  explanation_id UUID REFERENCES explanations(id) ON DELETE CASCADE,
+  explanation_id BIGINT REFERENCES explanations(id) ON DELETE CASCADE,
   article_text TEXT,
   position INTEGER NOT NULL DEFAULT 0,
   added_at TIMESTAMPTZ NOT NULL DEFAULT now(),

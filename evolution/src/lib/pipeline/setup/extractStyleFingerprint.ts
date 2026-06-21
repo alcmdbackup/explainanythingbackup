@@ -50,7 +50,7 @@ ${corpus}`;
 function stripJsonFence(raw: string): string {
   const t = raw.trim();
   const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  return (fence ? fence[1] : t).trim();
+  return (fence?.[1] ?? t).trim();
 }
 
 function tryParse(raw: string): StyleFingerprintTraits | null {

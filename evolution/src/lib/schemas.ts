@@ -213,7 +213,8 @@ export const evolutionStyleFingerprintFullDbSchema = z.object({
 export const evolutionStyleFingerprintArticleSchema = z.object({
   id: z.string().uuid(),
   fingerprint_id: z.string().uuid(),
-  explanation_id: z.string().uuid().nullable(),
+  // explanations.id is BIGINT (see migration 20260409000002), so this is a number, not a UUID.
+  explanation_id: z.number().int().nullable(),
   article_text: z.string().min(1).nullable(),
   position: z.number().int().nonnegative(),
   added_at: z.string(),
@@ -225,7 +226,7 @@ export const evolutionStyleFingerprintArticleSchema = z.object({
 /** Input for adding an article to a fingerprint's set (one source). */
 export const addStyleFingerprintArticleInputSchema = z.object({
   fingerprintId: z.string().uuid(),
-  explanationId: z.string().uuid().optional(),
+  explanationId: z.number().int().optional(),
   articleText: z.string().min(1).optional(),
 }).refine(
   (a) => (a.explanationId !== undefined) !== (a.articleText !== undefined),
