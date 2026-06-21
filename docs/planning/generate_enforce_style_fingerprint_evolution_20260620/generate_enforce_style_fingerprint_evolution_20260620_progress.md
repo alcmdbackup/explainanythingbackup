@@ -1,44 +1,38 @@
 # Generate Enforce Style Fingerprint Evolution Progress
 
-## Execution status (2026-06-21)
+## Execution COMPLETE (2026-06-21)
 
-Backend foundation complete and verified (typecheck + next lint + unit tests, committed in clean increments). Generation-injection mechanism in place. Run-context plumbing, paragraph parity, judge wiring, and the two UI phases remain.
+All 8 phases implemented and verified. Committed in clean per-phase increments.
 
-### ✅ Phase 1 — Data model (committed)
-- Migration `20260621000001_create_evolution_style_fingerprints.sql`: `evolution_style_fingerprints` + `evolution_style_fingerprint_articles` junction (exactly-one-non-empty-source CHECK), `evolution_runs.style_fingerprint_id` + `style_fingerprint_snapshot`, `evolution_metrics.entity_type` CHECK extended, seeded `stylistic_accuracy` criterion. **Passes `lint:migrations`.**
-- **FIX caught during build:** junction `explanation_id` is `BIGINT` (explanations.id), not UUID — corrected in migration + Zod.
-- Zod: `styleFingerprintTraitsSchema`, insert/full/article schemas, `addStyleFingerprintArticleInputSchema`; strategy config `styleFingerprintEnabled`/`styleFingerprintId`; run snapshot cols; `EvolutionConfig.targetStyleProse`.
-- Metrics: `total_extraction_cost` in `STATIC_METRIC_NAMES`; `style_fingerprint` block in `METRIC_REGISTRY` + both `ENTITY_TYPES`/`CORE_ENTITY_TYPES`.
+### Verification (final)
+- `npm run typecheck` — clean (whole repo)
+- `npm run lint` (next lint + check:stale-specs) — pass
+- `npm run build` — compiled successfully; both new routes emit (`/admin/evolution/style-fingerprints` + `[styleFingerprintId]`)
+- `npm run test:esm` — 0 fail
+- `npm test` — **7495 passed, 16 skipped, 0 failed** (441 suites) — zero regressions
+- `npm run lint:migrations` — migration idempotency-safe
+- Integration (`style-fingerprint.integration.test.ts`) — auto-skips until the migration deploys, runs in CI
+- E2E (`admin-style-fingerprints.spec.ts`, `@evolution`) — runs in CI with server
 
-### ✅ Phase 2 — Entity backbone (committed)
-- `StyleFingerprintEntity` (detailLinks, **soft-delete `executeAction('delete')` override**), registered in `entityRegistry`.
-- `styleFingerprintActions.ts`: list/get/create/update/archive/delete(soft) + add/remove/reorder/reExtract + `validateStyleFingerprintId`. **Compute-first/persist-last** recompute; cost accumulated into `total_extraction_cost`.
+### Phases (all ✅)
+1. **Data model** — migration (tables + junction + run snapshot cols + entity_type CHECK + seeded `stylistic_accuracy`), Zod schemas, metrics registry. (FIX: junction `explanation_id` is BIGINT, not UUID.)
+2. **Entity backbone** — `StyleFingerprintEntity` (soft-delete override, detailLinks), registry, `styleFingerprintActions` (CRUD + article ops, compute-first/persist-last).
+3. **Extraction + prose** — `extractStyleFingerprint` (callLLM seam, parse+repair), `renderFingerprintProse(article|paragraph)`.
+4. **Generation injection** — `buildEvolutionPrompt` styleGuide; `AgentContext.styleFingerprint` resolved+snapshotted in `buildRunContext`; article (GFPA) + paragraph (rewrite + sequential builders) wired.
+5. **Judging injection** — `buildRubricComparisonPrompt` targetStyleProse threaded through `compareWithBiasMitigation`/`runSingleComparison`; mode-shaped prose rendered at `rankSingleVariant`/`SwissRankingAgent` (no article-prose leak into paragraph judging).
+6. **Strategy opt-in UI** — checkbox + fingerprint picker; `createStrategyAction` accepts + validates the fields.
+7. **Admin UI** — sidebar entry, list page, detail page (Overview/Articles/Metrics) with add/remove/reorder/re-extract.
+8. **Tests, docs, verification** — unit tests (extraction, prose, prompt builders both levels, rubric judge both modes); factory extension + integration + E2E; `docs/feature_deep_dives/style_fingerprint.md` + doc-mapping; full check trio.
 
-### ✅ Phase 3 — Extraction + prose (committed, 10 unit tests)
-- `extractStyleFingerprint` (injected `callFn`, parse + repair, untrusted-data delimiters).
-- `renderFingerprintProse(traits, 'article'|'paragraph')` — article includes anti-overuse directive, paragraph omits.
-- **Decision:** extraction uses `callLLM` (CRUD-time, no run — the `runJudgeEval` precedent), NOT `EvolutionLLMClient.complete` (needs a run/costTracker). A correct refinement of the plan's seam; `style_extraction` AgentName not needed.
+### Key decisions made during build
+- **Extraction seam:** `callLLM` (CRUD-time, no run — the `runJudgeEval` precedent), not `EvolutionLLMClient.complete`. Cleanly resolves CRUD-time cost tracking too.
+- **Paragraph judge "override-not-inherit":** solved structurally by carrying `{prose, traits}` on the config and rendering the mode-shaped prose at the single ranking read site — no perSlotConfig override needed.
 
-### 🟡 Phase 4 — Generation injection (PARTIAL, committed)
-- ✅ `buildEvolutionPrompt` options bag + `## Target Style` block (byte-identical when absent); `AgentContext.styleFingerprint`; `generateFromPreviousArticle` reads `ctx` + threads to both branches (reflect agent transitive). 7 unit tests.
-- ⏳ **Remaining:** `buildRunContext` — resolve the referenced fingerprint at run start, write `evolution_runs.style_fingerprint_id` + snapshot, and populate `AgentContext.styleFingerprint` (multi-file plumbing through `AgentContext` construction in `claimAndExecuteRun`/`runIterationLoop`) + `EvolutionConfig.targetStyleProse`.
-- ⏳ **Paragraph generation parity:** inject paragraph-shaped prose into `buildParagraphRewritePrompt` + `buildSequentialRewritePrompt` + coordinator (keep `promptEditor` co-caller compiling).
+### Minor deferrals (non-blocking, noted for follow-up)
+- Detail-page **Runs tab** (runs referencing a fingerprint) not built — Overview/Articles/Metrics shipped.
+- Article picker uses an explanation-**ID** input (functional DB-reference path); a richer search combobox is a follow-up.
+- Coordinator prompt (`buildCoordinatorPrompt`) not made style-aware — the rewrite prompts (which actually steer generation) are styled; coordinator directive styling is optional polish.
+- `StrategyConfigDisplay` row for the bound fingerprint not added (display-only).
 
-### ⏳ Phase 5 — Judging injection (not started)
-- `rubricJudge.buildRubricComparisonPrompt` target-style block; carry `targetStyleProse` on `EvolutionConfig` read at `rankSingleVariant`/`SwissRankingAgent` call sites → `compareWithBiasMitigation`/`runSingleComparison`; **paragraph slot-judge OVERRIDE-not-inherit** on `perSlotConfig`.
-
-### ⏳ Phase 6 — Strategy opt-in UI (not started)
-- Hand-built strategy form (~2000 lines): checkbox + fingerprint dropdown + serialize + display row + `validateStyleFingerprintId`.
-
-### ⏳ Phase 7 — Admin UI (not started)
-- Sidebar nav entry, list page, detail page (Overview/Articles/Runs/Metrics), `ArticleCombobox`, create/edit dialog.
-
-### ⏳ Phase 8 — Tests, docs, verification (partial — unit tests written alongside 1–4)
-- Remaining: `evolution-test-data-factory` extension, integration tests, E2E spec, action unit tests, docs (+ new `style_fingerprint.md`), full check trio + build.
-
-### Commits
-- `feat(evolution): Phase 1 — style fingerprint data model …`
-- `feat(evolution): Phase 2 — StyleFingerprintEntity + dual-registry keying …`
-- `feat(evolution): Phase 2 — styleFingerprintActions … + bigint FK fix`
-- `feat(evolution): Phase 3 — style extraction + prose renderer + tests`
-- `feat(evolution): Phase 4a — article generation injection mechanism`
+### Commits (on `feat/...20260615` branch)
+Phases 1→8, each a separate commit; see `git log`.
