@@ -145,6 +145,16 @@ The strategy create/edit form (`src/app/admin/evolution/strategies/new/page.tsx`
 ### Phase 8: Tests, docs, verification
 - [ ] Unit + integration + E2E (see Testing). Docs (see Documentation Updates). Run full `/finalize` check trio.
 
+### Phase 9: Edit generated details (post-execution addition, 2026-06-21)
+Allow an admin to hand-edit the GENERATED fingerprint details (structured traits) after extraction — distinct from editing name/description (Phase 2) and from recomputing via add/remove/re-extract (Phase 2/3).
+
+**Design rationale (load-bearing):** at run time `buildRunContext` re-derives BOTH article- and paragraph-shaped prose from the stored `traits` (the snapshot stores `{traits}`; `fingerprint_prose` is display-only). So `traits` is the single source of truth at run time — the meaningful edit is the **structured traits**, with prose re-rendered from them. Editing the stored prose text alone would NOT affect generation/judging (it would be silently re-derived from traits), so the editor edits traits, not raw prose.
+
+- [x] `updateStyleFingerprintDetailsAction(id, fingerprint: StyleFingerprintTraits)` in `styleFingerprintActions.ts`: validate via `styleFingerprintTraitsSchema`, persist `fingerprint` + re-rendered `fingerprint_prose` (= `renderFingerprintProse(traits,'article')`) + `updated_at`. **No LLM call, no cost.** Filters `deleted_at IS NULL`.
+- [x] Detail page Overview tab: "Edit details" button → structured `EditDetailsForm` (summary; sentence-length avgWords+distribution; spellingRegion select; vocabularyLevel; tone comma-list; signaturePhrases repeatable rows of phrase+frequency with add/remove; structural/punctuation habits one-per-line). Shown only when a fingerprint has been computed (`fingerprint != null`).
+- [x] **Overwrite warning:** the editor surfaces that a later add/remove-article or Re-extract recomputes from the article set and overwrites manual edits (full re-extraction is the authoritative recompute).
+- [x] Unit test: edited traits validate + re-render article prose consistently (mirrors the action's transform).
+
 ### Rollback / kill-switch story
 - **Generation:** no global env flag; the feature is **default-off per strategy** (`styleFingerprintEnabled=false` ⇒ NULL `style_fingerprint_id` ⇒ no-op). Disabling = leave the strategy flag off / un-reference the fingerprint.
 - **Judging:** reuses the existing `EVOLUTION_RUBRIC_JUDGING_ENABLED` kill switch (off ⇒ holistic judging, style context ignored).
