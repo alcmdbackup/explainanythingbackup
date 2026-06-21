@@ -166,13 +166,23 @@ export function computeAgreementMetrics(
   const bothDecisiveOppose = bothDecisive.length - bothDecisiveAgree;
   const bothDecisiveOppositeRateCi = wilsonScoreCI(bothDecisiveOppose, bothDecisive.length);
 
-  const exactlyOneDecisive = calls.filter(
-    (c) =>
-      (c.holistic_confidence > DECISIVE_THRESHOLD) !==
-      (c.rubric_confidence > DECISIVE_THRESHOLD),
-  ).length;
-  const abstainDivergenceRate = n === 0 ? 0 : exactlyOneDecisive / n;
-  const abstainDivergenceRateCi = wilsonScoreCI(exactlyOneDecisive, n);
+  // Abstain divergence: per the docstring, "one commits, the other abstains/TIEs".
+  // "Commit" = confidence > 0.6 AND the verdict is A or B (NOT high-confidence TIE).
+  // The previous implementation used confidence-only, which over-counted: a judge that
+  // said TIE@1.0 was scored as "committed", so any pair where one judge said TIE@1.0 and
+  // the other said anything lower-confidence got flagged as divergence even though both
+  // were abstaining (just at different confidence levels). (Observed on run 6a6549b7:
+  // abstain_divergence_rate read 75.3% under the old filter; with committed semantics
+  // it's 44.0%, which is the genuine "one picked a side, the other didn't" rate.)
+  const isCommittedH = (c: AgreementCallMetricsInput): boolean =>
+    c.holistic_confidence > DECISIVE_THRESHOLD &&
+    (c.holistic_winner === 'A' || c.holistic_winner === 'B');
+  const isCommittedR = (c: AgreementCallMetricsInput): boolean =>
+    c.rubric_confidence > DECISIVE_THRESHOLD &&
+    (c.rubric_winner === 'A' || c.rubric_winner === 'B');
+  const exactlyOneCommitted = calls.filter((c) => isCommittedH(c) !== isCommittedR(c)).length;
+  const abstainDivergenceRate = n === 0 ? 0 : exactlyOneCommitted / n;
+  const abstainDivergenceRateCi = wilsonScoreCI(exactlyOneCommitted, n);
 
   const rubricAHolisticB = calls.filter(
     (c) => c.rubric_winner === 'A' && c.holistic_winner === 'B',

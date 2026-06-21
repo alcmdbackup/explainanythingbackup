@@ -725,7 +725,14 @@ export const getAgreementLeaderboardAction = adminAction(
             d.both_decisive_n += 1;
             if (c.holistic_winner === c.rubric_winner) d.both_decisive_agree_n += 1;
           }
-          if (hd !== rd) d.exactly_one_decisive_n += 1;
+          // exactly_one_decisive_n drives abstain_divergence_rate. Must use the COMMITTED
+          // semantics (confident AND winner ∈ {A,B}) not just confident, otherwise a judge
+          // that's confidently TIE'd looks "committed" and any TIE@1.0 vs lower-conf
+          // contrast inflates the divergence rate. See computeAgreementMetrics for the same
+          // fix at the reducer level. (Observed: 75.3% → 44.0% on run 6a6549b7.)
+          const hCommitted = hd && (c.holistic_winner === 'A' || c.holistic_winner === 'B');
+          const rCommitted = rd && (c.rubric_winner === 'A' || c.rubric_winner === 'B');
+          if (hCommitted !== rCommitted) d.exactly_one_decisive_n += 1;
           // Accuracy denominator: large-gap + decisive (conf > 0.6) + winner ∈ {A, B}.
           // Excluding TIE@high-conf is the fix; abstentions are NOT wrong answers.
           const isLargeGap =

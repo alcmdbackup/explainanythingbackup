@@ -312,4 +312,52 @@ describe('computeAgreementMetrics', () => {
     const m = computeAgreementMetrics(calls, []);
     expect(m.rubricAccuracy).toBeCloseTo(1.0);
   });
+
+  // ── abstain_divergence uses committed semantics, not just confidence ─────────────
+  it('abstain_divergence: TIE@high-conf is an abstention, not a commit (run 6a6549b7 pattern)', () => {
+    // Both judges are abstaining, just at different confidence levels.
+    // Under the old confidence-only filter this would have scored as divergence (1/1).
+    // Under the committed semantics neither judge committed, so divergence = 0.
+    const calls = [
+      call({
+        pair_label: 'p1',
+        holistic_winner: 'TIE',
+        holistic_confidence: 0.5,
+        rubric_winner: 'TIE',
+        rubric_confidence: 1.0,
+      }),
+    ];
+    const m = computeAgreementMetrics(calls, []);
+    expect(m.abstainDivergenceRate).toBe(0);
+  });
+
+  it('abstain_divergence: exactly one judge committed to A/B → divergence = 1', () => {
+    const calls = [
+      // Holistic committed to A, rubric was confidently TIE → divergence.
+      call({
+        pair_label: 'p1',
+        holistic_winner: 'A',
+        holistic_confidence: 1.0,
+        rubric_winner: 'TIE',
+        rubric_confidence: 1.0,
+      }),
+    ];
+    const m = computeAgreementMetrics(calls, []);
+    expect(m.abstainDivergenceRate).toBe(1);
+  });
+
+  it('abstain_divergence: both committed to A/B → no divergence (even when they disagree)', () => {
+    const calls = [
+      // Both committed, opposite winners → "both-decisive opposite", NOT abstain divergence.
+      call({
+        pair_label: 'p1',
+        holistic_winner: 'A',
+        holistic_confidence: 1.0,
+        rubric_winner: 'B',
+        rubric_confidence: 1.0,
+      }),
+    ];
+    const m = computeAgreementMetrics(calls, []);
+    expect(m.abstainDivergenceRate).toBe(0);
+  });
 });
