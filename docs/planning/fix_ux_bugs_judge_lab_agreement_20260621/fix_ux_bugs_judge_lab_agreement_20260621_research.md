@@ -3,7 +3,7 @@
 ## Problem Statement
 Fix UX issues and bugs surfaced while using the Judge Lab Agreement sweep tool (rubric ↔ holistic agreement mode at `/admin/evolution/judge-lab/agreement`). Improve in-context explanations of sweep knobs (`repeats`, judging temperature default) and metric labels (`per-rep`, `both-dec`, `abstain`), make pre-flight cost preview use the existing cost-estimation infrastructure, and build a detail/drill-down view that surfaces individual matches with per-criterion agreement vs. the holistic verdict. Add a summary view that aggregates forward vs. reverse pass agreement and per-criterion disagreement rates against the holistic assessment.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1248)
 - Explain more clearly in UI/UX what "repeats" does
 - Preview cost accurately using pre-existing infrastructure
 - What is the best judging temperature? Do we have a default to advise?
