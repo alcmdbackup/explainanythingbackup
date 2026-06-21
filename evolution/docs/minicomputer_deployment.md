@@ -286,6 +286,14 @@ Cost control operates at two levels:
 
 See [Cost Optimization](./cost_optimization.md) for detailed budgeting strategies.
 
+### Test-content gate (since 2026-06-21)
+
+Migration `20260621000001_evolution_claim_gate.sql` added a gate to `claim_evolution_run` that **skips queue claims on `evolution_strategies.is_test_content=true`** unless the run row sets `allow_test_execution=true` (opt-in for integration tests) or the caller uses targeted claim (`p_run_id`). This stops the systemd runner from accidentally executing E2E-test fixtures that pollute the queue.
+
+Operational consequence: if you queue a `[TEST]`-prefixed strategy manually and wonder why the runner isn't picking it up, that's why. Either rename to remove the test prefix, or set `allow_test_execution: true` on the run row, or trigger via `/api/evolution/run` POST with `targetRunId`.
+
+See [Cost Optimization → Test cost containment](./cost_optimization.md#test-cost-containment-reduce_e2e_testing_llm_costs_20260621) for full architecture.
+
 ### OpenRouter credit exhaustion (runbook)
 
 If runs using an OpenRouter model (`google/*`, `qwen/*`, `gpt-oss-20b`, …) start finishing with **0 variants / 0 cost** (`stopReason='arena_only'` pre-fix, or `status='failed'` `error_code='all_generations_failed'` post-fix), the runner's `OPENROUTER_API_KEY` is **out of credits** — every generation 402s (`"requires more credits, or fewer max_tokens. You requested up to 65535…"`). This fired silently on 2026-05-02 and 2026-06-11.

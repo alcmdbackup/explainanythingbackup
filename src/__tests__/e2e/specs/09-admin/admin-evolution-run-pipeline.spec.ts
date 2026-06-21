@@ -36,8 +36,8 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
       .insert({
         name: `${TEST_PREFIX} Strategy`,
         config: {
-          generationModel: 'gpt-4.1-nano',
-          judgeModel: 'gpt-4.1-nano',
+          generationModel: 'deepseek-v4-flash',
+          judgeModel: 'deepseek-v4-flash',
           iterationConfigs: [
             { agentType: 'generate', budgetPercent: 60 },
             { agentType: 'swiss', budgetPercent: 40 },

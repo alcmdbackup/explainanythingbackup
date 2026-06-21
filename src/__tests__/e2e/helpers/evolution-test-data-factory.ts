@@ -187,6 +187,21 @@ export interface CreateTestRunOptions {
   strategyId?: string;
   promptId?: string;
   status?: string;
+  /**
+   * When true, sets `evolution_runs.allow_test_execution=true` so the runner's
+   * `claim_evolution_run` RPC will pick up this test fixture from the queue even
+   * though its strategy has `is_test_content=true`. Default false (safe — the gate
+   * blocks queue-claims on test-content strategies).
+   *
+   * Set true ONLY when an integration test exercises queue-claim semantics with
+   * mocked LLM (no real provider cost). Pattern A-2 in
+   * docs/planning/reduce_e2e_testing_llm_costs_20260621/.
+   *
+   * Targeted claims (`/api/evolution/run` POST with targetRunId, or
+   * `claimAndExecuteRun({ runId })`) bypass the gate regardless — this flag only
+   * affects the queue picker (`claimAndExecuteRun({})` without targetRunId).
+   */
+  executable?: boolean;
 }
 
 export interface TestRun {
@@ -212,6 +227,7 @@ export async function createTestRun(options?: CreateTestRunOptions): Promise<Tes
       strategy_id: strategyId,
       prompt_id: promptId,
       status: options?.status ?? 'pending',
+      allow_test_execution: options?.executable ?? false,
     })
     .select('id')
     .single();

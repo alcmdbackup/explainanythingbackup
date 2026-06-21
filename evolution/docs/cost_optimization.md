@@ -64,6 +64,38 @@ For how costs fit into the pipeline lifecycle, see [Architecture](./architecture
 
 ---
 
+## Test cost containment (reduce_e2e_testing_llm_costs_20260621)
+
+The minicomputer's `processRunQueue.ts` systemd runner claims pending evolution_runs from staging every 60s. Before 2026-06-21, E2E and integration tests routinely inserted `[TEST]`-prefixed strategies + pending runs as fixtures; the runner couldn't tell them apart from real work and burned ~$15/week on staging executing them.
+
+**The gate (migration `20260621000001_evolution_claim_gate.sql`)** adds three OR branches to `claim_evolution_run`'s inner SELECT:
+
+1. `p_run_id IS NOT NULL` → targeted claim, bypass gate (caller is explicit — admin UI "Trigger Run", `/api/evolution/run` POST with `targetRunId`)
+2. `NOT s.is_test_content` → queue claim on real strategies (normal production path)
+3. `r.allow_test_execution = true` → queue claim on test strategies WHEN the run row opts in (for integration tests that need to exercise queue-claim semantics with mocked LLM)
+
+The `evolution_runs.allow_test_execution` column defaults `false`, so safe-by-default: a future test that accidentally inserts a pending row gets the gate behavior automatically.
+
+**`evolution_strategies.is_test_content`** is set by a BEFORE trigger calling `evolution_is_test_name(name)` (`20260415000001`); the trigger flags strategies whose name matches `test`, `[TEST]`, `[E2E]`, `[TEST_EVO]`, or `*-<10-13 digits>-*` timestamp pattern. No code change needed at the test-helper layer — existing `[TEST] strategy_*` and `[TEST_EVO]` naming patterns are caught automatically.
+
+**Existing helpers** (`createTestEvolutionRun` in `evolution/src/testing/`, `createTestRun` in `src/__tests__/e2e/helpers/`) accept the override via Pattern A-2 typed sugar: `CreateTestRunOptions.executable?: boolean`.
+
+### Patterns
+
+| Pattern | Test intent | Gate behavior |
+|---|---|---|
+| **A-1** | E2E spec triggers `/api/evolution/run` POST with `targetRunId` to verify pipeline execution | Targeted claim bypasses gate; no change |
+| **A-2** | Integration test inserts pending [TEST] run + calls `claimAndExecuteRun({ runnerId })` to verify queue-claim semantics with mocked LLM | Set `executable: true` on the helper or `allow_test_execution: true` on the insert |
+| **B** | Test inserts pending row as fixture data only (admin UI render, watchdog, cancel_experiment, etc.) | Gate skips queue-claim automatically — no change |
+
+### Janitor + alarms (Phase 3, separate PR)
+
+- **Janitor**: weekly CI job `evolution-test-data-cleanup.yml` deletes `evolution_strategies WHERE is_test_content=true AND last_used_at < now() - interval '14 days'` in FK-safe order (runs first → cascades to children → then strategies). `evolution_runs.strategy_id` FK is `ON DELETE RESTRICT` (per `20260324000001_entity_evolution_phase0.sql`), so the order matters.
+- **Alarm**: daily query — if `SUM(invocation cost) WHERE strategy.is_test_content=true AND created_at > now() - 24h` exceeds **$0.10**, file `[release-health]` issue (same plumbing as `evolution-run-health.yml`). Baseline expected: ~$0.04/day from Pattern A-1 spec executions.
+- **Layer-3 nightly smoke**: new `evolution-nightly-smoke.yml` exercises the runner against the `Nightly smoke fixture` strategy (seeded by migration `20260621000002_evolution_nightly_smoke_fixture.sql`). Expected cost: ~$1.83/year.
+
+---
+
 ## Three-Layer Budget Flow
 
 ```

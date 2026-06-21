@@ -51,11 +51,11 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
       .insert({
         name: `${TEST_PREFIX} Strategy`,
         config: {
-          generationModel: 'gpt-4.1-nano',
-          judgeModel: 'gpt-4.1-nano',
-          editingModel: 'gpt-4.1-nano',
-          approverModel: 'gpt-4.1-nano',
-          driftRecoveryModel: 'gpt-4.1-nano',
+          generationModel: 'deepseek-v4-flash',
+          judgeModel: 'deepseek-v4-flash',
+          editingModel: 'deepseek-v4-flash',
+          approverModel: 'deepseek-v4-flash',
+          driftRecoveryModel: 'deepseek-v4-flash',
           iterationConfigs: [
             { agentType: 'generate', budgetPercent: 50 },
             {
