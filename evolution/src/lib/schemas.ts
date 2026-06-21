@@ -161,7 +161,9 @@ export type EvolutionCriteriaFullDb = z.infer<typeof evolutionCriteriaFullDbSche
  *  extractStyleFingerprint (Phase 3) and rendered to prose by renderFingerprintProse. */
 export const styleFingerprintTraitsSchema = z.object({
   sentenceLength: z.object({
-    avgWords: z.number().refine(Number.isFinite, { message: 'avgWords must be finite' }),
+    // Bounded to a sane sentence-length range so a bad extraction OR a manual trait edit can't
+    // persist a nonsensical value (e.g. negative / 1e9) that would render absurd prose.
+    avgWords: z.number().min(1).max(200).refine(Number.isFinite, { message: 'avgWords must be finite' }),
     distribution: z.string().min(1).max(300),
   }),
   spellingRegion: z.enum(['american', 'british', 'mixed']),
