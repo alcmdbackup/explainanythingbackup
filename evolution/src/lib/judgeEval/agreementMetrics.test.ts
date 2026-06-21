@@ -273,4 +273,43 @@ describe('computeAgreementMetrics', () => {
     expect(m.holisticPositionBiasRateCi).toBeNull();
     expect(m.rubricPositionBiasRateCi).toBeNull();
   });
+
+  // ── Ground-truth accuracy: TIE@high-confidence is an abstention, NOT a wrong guess ──
+  it('rubric accuracy excludes high-confidence TIE verdicts (observed in run 6a6549b7)', () => {
+    // 3 calls on the same large-gap pair, expected_winner=A:
+    //   - rubric A @ 1.0 (correct)
+    //   - rubric B @ 1.0 (wrong)
+    //   - rubric TIE @ 1.0 (high-confidence abstention — must be EXCLUDED from accuracy)
+    // If TIE counts in the denominator, rubric_accuracy = 1/3 ≈ 33%.
+    // With the fix, rubric_accuracy = 1/2 = 50% (TIE@1.0 dropped from denom).
+    const calls = [
+      call({ pair_label: 'p1', gap_kind: 'large', expected_winner: 'A', rubric_winner: 'A', rubric_confidence: 1.0 }),
+      call({ pair_label: 'p2', gap_kind: 'large', expected_winner: 'A', rubric_winner: 'B', rubric_confidence: 1.0 }),
+      call({ pair_label: 'p3', gap_kind: 'large', expected_winner: 'A', rubric_winner: 'TIE', rubric_confidence: 1.0 }),
+    ];
+    const m = computeAgreementMetrics(calls, []);
+    expect(m.nLargeGap).toBe(3);
+    // 2 A/B-decisive rubric verdicts, 1 correct.
+    expect(m.rubricAccuracy).toBeCloseTo(0.5);
+  });
+
+  it('holistic accuracy: same fix — TIE@high-conf excluded', () => {
+    const calls = [
+      call({ pair_label: 'p1', gap_kind: 'large', expected_winner: 'B', holistic_winner: 'B', holistic_confidence: 1.0 }),
+      call({ pair_label: 'p2', gap_kind: 'large', expected_winner: 'B', holistic_winner: 'TIE', holistic_confidence: 1.0 }),
+    ];
+    const m = computeAgreementMetrics(calls, []);
+    // Only 1 A/B-decisive holistic; correct → 100% (not 50%).
+    expect(m.holisticAccuracy).toBeCloseTo(1.0);
+  });
+
+  it('TIE@LOW-conf is also excluded (was already excluded by the conf > 0.6 filter, regression-pinned)', () => {
+    const calls = [
+      call({ pair_label: 'p1', gap_kind: 'large', expected_winner: 'A', rubric_winner: 'A', rubric_confidence: 1.0 }),
+      // TIE @ 0.5 (low confidence) — was already excluded; included here as a regression guard.
+      call({ pair_label: 'p2', gap_kind: 'large', expected_winner: 'A', rubric_winner: 'TIE', rubric_confidence: 0.5 }),
+    ];
+    const m = computeAgreementMetrics(calls, []);
+    expect(m.rubricAccuracy).toBeCloseTo(1.0);
+  });
 });

@@ -182,11 +182,27 @@ export function computeAgreementMetrics(
   ).length;
 
   // Ground-truth accuracy (large-gap pairs only).
+  //
+  // The decisive-AND-large-gap subset must ALSO require the winner be A or B (never TIE). A
+  // high-confidence TIE (e.g. both passes parsed to TIE → confidence 1.0) is an ABSTENTION
+  // on a pair with a known ground truth — it's not a wrong guess. Without the explicit
+  // winner-is-decisive filter, `'TIE' === expected_winner` is false for every such row,
+  // which silently penalizes confident abstentions as if they were errors. (Observed in
+  // run 6a6549b7: 61/149 rubric "decisive" calls were TIE@1.0; including them in the
+  // denominator dropped rubric_accuracy from 96.6% → 57.0%.) Filter to A/B only.
   const largeGap = calls.filter(
     (c) => c.gap_kind === 'large' && (c.expected_winner === 'A' || c.expected_winner === 'B'),
   );
-  const hDecisive = largeGap.filter((c) => c.holistic_confidence > DECISIVE_THRESHOLD);
-  const rDecisive = largeGap.filter((c) => c.rubric_confidence > DECISIVE_THRESHOLD);
+  const hDecisive = largeGap.filter(
+    (c) =>
+      c.holistic_confidence > DECISIVE_THRESHOLD &&
+      (c.holistic_winner === 'A' || c.holistic_winner === 'B'),
+  );
+  const rDecisive = largeGap.filter(
+    (c) =>
+      c.rubric_confidence > DECISIVE_THRESHOLD &&
+      (c.rubric_winner === 'A' || c.rubric_winner === 'B'),
+  );
   const holisticAccurateCount = hDecisive.filter((c) => c.holistic_winner === c.expected_winner).length;
   const rubricAccurateCount = rDecisive.filter((c) => c.rubric_winner === c.expected_winner).length;
   const holisticAccuracy = rate(holisticAccurateCount, hDecisive.length);

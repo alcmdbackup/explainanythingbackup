@@ -678,17 +678,27 @@ export const getAgreementLeaderboardAction = adminAction(
       both_decisive_n: number;
       both_decisive_agree_n: number;
       exactly_one_decisive_n: number;
+      holistic_accuracy_n: number;
+      holistic_accuracy_correct: number;
+      rubric_accuracy_n: number;
+      rubric_accuracy_correct: number;
     };
     const denoms = new Map<DenomKey, Denoms>();
 
     if (runIds.length > 0) {
       // IN-clause batching at 50-id chunks (defensive — leaderboard already paginates at 50).
+      // We ALSO pull gap_kind + expected_winner so we can recompute holistic/rubric accuracy
+      // with the corrected denominator (exclude high-confidence TIE — see comment in the
+      // computeAgreementMetrics reducer; the SQL view's *_accuracy columns have the same
+      // TIE-as-wrong bug and we override them here).
       const CHUNK = 50;
       for (let i = 0; i < runIds.length; i += CHUNK) {
         const chunk = runIds.slice(i, i + CHUNK);
         const { data: callRows, error: cErr } = await supabase
           .from('judge_eval_agreement_calls')
-          .select('agreement_run_id, pair_kind, holistic_winner, holistic_confidence, rubric_winner, rubric_confidence')
+          .select(
+            'agreement_run_id, pair_kind, holistic_winner, holistic_confidence, rubric_winner, rubric_confidence, gap_kind, expected_winner',
+          )
           .in('agreement_run_id', chunk)
           .is('error', null);
         if (cErr) throw cErr;
@@ -702,6 +712,10 @@ export const getAgreementLeaderboardAction = adminAction(
               both_decisive_n: 0,
               both_decisive_agree_n: 0,
               exactly_one_decisive_n: 0,
+              holistic_accuracy_n: 0,
+              holistic_accuracy_correct: 0,
+              rubric_accuracy_n: 0,
+              rubric_accuracy_correct: 0,
             };
           d.n_calls += 1;
           if (c.holistic_winner === c.rubric_winner) d.strict_agree_n += 1;
@@ -712,6 +726,21 @@ export const getAgreementLeaderboardAction = adminAction(
             if (c.holistic_winner === c.rubric_winner) d.both_decisive_agree_n += 1;
           }
           if (hd !== rd) d.exactly_one_decisive_n += 1;
+          // Accuracy denominator: large-gap + decisive (conf > 0.6) + winner ∈ {A, B}.
+          // Excluding TIE@high-conf is the fix; abstentions are NOT wrong answers.
+          const isLargeGap =
+            c.gap_kind === 'large' &&
+            (c.expected_winner === 'A' || c.expected_winner === 'B');
+          if (isLargeGap) {
+            if (hd && (c.holistic_winner === 'A' || c.holistic_winner === 'B')) {
+              d.holistic_accuracy_n += 1;
+              if (c.holistic_winner === c.expected_winner) d.holistic_accuracy_correct += 1;
+            }
+            if (rd && (c.rubric_winner === 'A' || c.rubric_winner === 'B')) {
+              d.rubric_accuracy_n += 1;
+              if (c.rubric_winner === c.expected_winner) d.rubric_accuracy_correct += 1;
+            }
+          }
           denoms.set(key, d);
         }
       }
@@ -787,6 +816,20 @@ export const getAgreementLeaderboardAction = adminAction(
       }
       const worstCi = worstDecided > 0 ? wilsonScoreCI(worstDisagree, worstDecided) : null;
 
+      // OVERRIDE the SQL view's holistic_accuracy / rubric_accuracy with the in-memory
+      // computed values. The view's columns include high-confidence TIE verdicts in the
+      // denominator but never count them as correct (TIE !== A or B), so confident
+      // abstentions are penalized as wrong guesses. The in-memory denominator only
+      // counts large-gap calls where the judge committed to A or B.
+      const holisticAccuracyFixed =
+        d && d.holistic_accuracy_n > 0
+          ? d.holistic_accuracy_correct / d.holistic_accuracy_n
+          : null;
+      const rubricAccuracyFixed =
+        d && d.rubric_accuracy_n > 0
+          ? d.rubric_accuracy_correct / d.rubric_accuracy_n
+          : null;
+
       return {
         agreement_run_id: runId,
         judge_model: (r.judge_model as string | null) ?? null,
@@ -796,8 +839,8 @@ export const getAgreementLeaderboardAction = adminAction(
         strict_agree_rate: (r.strict_agree_rate as number | null) ?? null,
         both_decisive_agree_rate: (r.both_decisive_agree_rate as number | null) ?? null,
         abstain_divergence_rate: (r.abstain_divergence_rate as number | null) ?? null,
-        holistic_accuracy: (r.holistic_accuracy as number | null) ?? null,
-        rubric_accuracy: (r.rubric_accuracy as number | null) ?? null,
+        holistic_accuracy: holisticAccuracyFixed,
+        rubric_accuracy: rubricAccuracyFixed,
         total_cost_usd: (r.total_cost_usd as number | null) ?? null,
         strict_agree_ci_low: strictCI?.low ?? null,
         strict_agree_ci_high: strictCI?.high ?? null,
