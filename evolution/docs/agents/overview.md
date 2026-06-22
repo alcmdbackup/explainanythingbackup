@@ -581,3 +581,29 @@ Decomposes a parent article into paragraph-sized slots, generates M parallel rew
 **Projector-vs-actual instrumentation (G4-G7)**: `execution_detail` now carries `estimatedTotalCost`, `estimatedTotalCostUpperBound`, `estimationErrorPct` + per-phase `paragraph_rewrite.{estimatedCost,cost,estimationErrorPct}` and `paragraph_rank.{estimatedCost,cost,estimationErrorPct}`. The agent auto-joins the existing `cost_estimation_error_pct` + `estimated_cost` finalization metrics. New per-phase rollups: `paragraph_rewrite_estimation_error_pct`, `paragraph_rank_estimation_error_pct` (+ their `avg_*` propagation).
 
 See full deep dive: `evolution/docs/paragraph_recombine.md`.
+
+## ParagraphRecombineWithCoherencePassAgent (paragraph_recombine_agent_with_coherence_pass_evolution_20260620)
+
+Sibling to `ParagraphRecombineAgent`. Forces the legacy parallel rewrite path (no `priorPicks`, no `nextContext`, no coordinator, no sequential mode) and uses isolation-oriented rewrite directives (REORDER / TIGHTEN / RESTRUCTURE — explicitly forbidding new content). Adds a Phase D **coherence pass** on the assembled article via the shared `runEditingCycle()` helper extracted from `IterativeEditingAgent`.
+
+Selected per-iteration via `IterationConfig.agentType: 'paragraph_recombine_with_coherence_pass'` (Shape A top-level agent type). Reuses all per-slot infrastructure from `paragraph_recombine`: `extractParagraphsWithRanges`, `upsertSlotTopic`, `loadArenaEntries`, `rankNewVariant` (with `comparisonMode: 'paragraph'`), `persistSlotMatches`, `assembleRecombinedArticle`.
+
+- `name = 'paragraph_recombine_with_coherence_pass'`
+- `executionDetailSchema = paragraphRecombineWithCoherencePassExecutionDetailSchema`
+- `tactic = 'paragraph_recombine_with_coherence_pass'` (marker tactic; dark cyan `#0891b2`)
+- `getAttributionDimension(detail) → 'paragraph_recombine_with_coherence_pass'`
+
+**AgentName labels**: REUSES `paragraph_rewrite` + `paragraph_rank` for the per-slot pipeline (cost routes to existing `paragraph_recombine_cost`). NEW: `coherence_pass_propose` + `coherence_pass_review` for the Phase D coherence pass (cost routes to new `paragraph_recombine_coherence_cost` umbrella).
+
+**Coherence pass implementation**: calls the shared `runEditingCycle()` helper with:
+- Custom proposer prompt (`buildCoherencePassProposerPrompt.ts` — inter-paragraph-seam focus)
+- Standard approver prompt (reused from `editing/approverPrompt.ts`)
+- Tight `validateOpts`: `lengthCapRatio: 1.02`, `redundancyJaccardThreshold: 0.30`, `flowGuardrailEnabled: true`
+- `driftRecovery: 'skip'` (the recombined article is the source of truth)
+- Per-invocation budget gate at 0.85× cap
+
+**A/B isolation lever**: `coherencePassEnabled: false` skips the coherence pass entirely. The per-invocation cap default flips to $0.05 (vs $0.10 with coherence). Use to isolate the coherence pass's contribution to Elo lift.
+
+**Lineage**: single primary parent per D4 — variant emitted with `parent_variant_ids = [originalParent]`. Slot winners live in `execution_detail.slots[i].winnerSlotVariantId`. The coherence-pass cycle data lives in `execution_detail.coherencePass.cycles[0]` (matches `iterativeEditingExecutionDetailSchema.cycles[]` shape so `parseIterativeEditingTree` walks it for the SubagentsTab).
+
+See full deep dive: [`evolution/docs/paragraph_recombine_with_coherence_pass.md`](../paragraph_recombine_with_coherence_pass.md).

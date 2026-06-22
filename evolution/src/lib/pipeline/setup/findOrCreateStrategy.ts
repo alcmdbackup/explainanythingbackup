@@ -32,6 +32,15 @@ function shortenModel(model: string | null | undefined): string {
 const DEFAULT_PER_INVOCATION_CAP_USD = 0.05;
 const DEFAULT_MAX_DISPATCHES = 1;
 
+/** paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — runtime defaults
+ *  for the new agent's coherence-pass knobs. perInvocationCapUsd default is conditional
+ *  on coherencePassEnabled: $0.10 when true (need headroom for the coherence pass call),
+ *  $0.05 when explicitly false (same as plain paragraph_recombine). Other defaults are
+ *  resolved at consumption (in the new agent's execute()) — only `coherencePassEnabled`
+ *  participates in the conditional-cap fold. */
+const DEFAULT_COHERENCE_PASS_ENABLED = true;
+const DEFAULT_PER_INVOCATION_CAP_WITH_COHERENCE = 0.10;
+
 type IterCfg = StrategyConfig['iterationConfigs'][number];
 type AgentType = IterCfg['agentType'];
 
@@ -46,6 +55,14 @@ const CRITERIA_BASED = new Set<AgentType>([
  *  is a runtime-ignored value and MUST be stripped before hashing so it can't change
  *  strategy identity. Fields with no entry here (agentType, budgetPercent, and the J3
  *  budget-floor fractions) are always kept. */
+/** Shared gate for fields used by BOTH paragraph_recombine AND the new
+ *  paragraph_recombine_with_coherence_pass sibling (per-slot rewrite + ranking
+ *  infrastructure is identical between the two). */
+const PARAGRAPH_RECOMBINE_FAMILY = new Set<AgentType>([
+  'paragraph_recombine',
+  'paragraph_recombine_with_coherence_pass',
+]);
+
 const FIELD_GATES: Partial<Record<keyof IterCfg, (t: AgentType) => boolean>> = {
   sourceMode: (t) => t !== 'swiss' && t !== 'debate_and_generate',
   qualityCutoff: (t) => t !== 'swiss' && t !== 'debate_and_generate',
@@ -62,12 +79,18 @@ const FIELD_GATES: Partial<Record<keyof IterCfg, (t: AgentType) => boolean>> = {
     t === 'single_pass_evaluate_criteria_and_generate' || t === 'proposer_approver_criteria_generate',
   includesMirrorApprover: (t) => t === 'proposer_approver_criteria_generate',
   debateJudgeReasoningEffort: (t) => t === 'debate_and_generate',
-  rewritesPerParagraph: (t) => t === 'paragraph_recombine',
-  maxComparisonsPerParagraph: (t) => t === 'paragraph_recombine',
-  maxParagraphsPerInvocation: (t) => t === 'paragraph_recombine',
-  paragraphRewriteModel: (t) => t === 'paragraph_recombine',
-  perInvocationCapUsd: (t) => t === 'paragraph_recombine',
-  maxDispatches: (t) => t === 'paragraph_recombine',
+  rewritesPerParagraph: (t) => PARAGRAPH_RECOMBINE_FAMILY.has(t),
+  maxComparisonsPerParagraph: (t) => PARAGRAPH_RECOMBINE_FAMILY.has(t),
+  maxParagraphsPerInvocation: (t) => PARAGRAPH_RECOMBINE_FAMILY.has(t),
+  paragraphRewriteModel: (t) => PARAGRAPH_RECOMBINE_FAMILY.has(t),
+  perInvocationCapUsd: (t) => PARAGRAPH_RECOMBINE_FAMILY.has(t),
+  maxDispatches: (t) => PARAGRAPH_RECOMBINE_FAMILY.has(t),
+  // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — new coherence-pass-only fields.
+  coherencePassEnabled: (t) => t === 'paragraph_recombine_with_coherence_pass',
+  coherencePassProposerModel: (t) => t === 'paragraph_recombine_with_coherence_pass',
+  coherencePassApproverModel: (t) => t === 'paragraph_recombine_with_coherence_pass',
+  coherencePassRewriteTempFloor: (t) => t === 'paragraph_recombine_with_coherence_pass',
+  coherencePassRewriteTempCeiling: (t) => t === 'paragraph_recombine_with_coherence_pass',
 };
 
 /** Sort generationGuidance by tactic — it is an unordered weighted SET
@@ -93,6 +116,21 @@ function normalizeIteration(iter: IterCfg): Record<string, unknown> {
   if (out.agentType === 'paragraph_recombine') {
     if (out.maxDispatches === undefined) out.maxDispatches = DEFAULT_MAX_DISPATCHES;
     if (out.perInvocationCapUsd === undefined) out.perInvocationCapUsd = DEFAULT_PER_INVOCATION_CAP_USD;
+  }
+  // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — runtime-default
+  // folding for the new agent. coherencePassEnabled defaults to true; perInvocationCapUsd
+  // defaults conditionally on coherencePassEnabled ($0.10 with coherence, $0.05 without).
+  // This is critical for `config_hash` dedup: strategies omitting both fields should hash
+  // identically to strategies that set the defaults explicitly, AND strategies that differ
+  // only in coherencePassEnabled MUST produce distinct hashes (the project's A/B design).
+  if (out.agentType === 'paragraph_recombine_with_coherence_pass') {
+    if (out.maxDispatches === undefined) out.maxDispatches = DEFAULT_MAX_DISPATCHES;
+    if (out.coherencePassEnabled === undefined) out.coherencePassEnabled = DEFAULT_COHERENCE_PASS_ENABLED;
+    if (out.perInvocationCapUsd === undefined) {
+      out.perInvocationCapUsd = out.coherencePassEnabled
+        ? DEFAULT_PER_INVOCATION_CAP_WITH_COHERENCE
+        : DEFAULT_PER_INVOCATION_CAP_USD;
+    }
   }
 
   // D6 — strip fields the runtime ignores for this agent type.

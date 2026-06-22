@@ -2,8 +2,10 @@
 #
 # Runs the @prod-ai Playwright project against a LOCAL build (port 3010) started WITHOUT
 # E2E_TEST_MODE (so the real returnExplanation pipeline executes) but WITH
-# TEST_LLM_MODEL=google/gemini-2.5-flash (so it runs on a cheap model). This is the only place
-# the cheap-model real-AI tier can run — the deployed-prod nightly can't be model-overridden.
+# TEST_LLM_MODEL=deepseek-v4-flash (so it runs on the cheapest non-local model — 9× cheaper
+# on output than the previous google/gemini-2.5-flash per the reduce_e2e_testing_llm_costs
+# project). This is the only place the cheap-model real-AI tier can run — the deployed-prod
+# nightly can't be model-overridden.
 #
 # The job is non-blocking (continue-on-error) so an OpenRouter outage never reds the pipeline.
 # A pre-flight budget check skips the run (not red) when the daily LLM cap is already exhausted.
@@ -27,13 +29,16 @@ jobs:
 
     env:
       RUN_PROD_AI: '1'
-      TEST_LLM_MODEL: google/gemini-2.5-flash
+      TEST_LLM_MODEL: deepseek-v4-flash
       NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
       # Staging environment secrets (dev Supabase + cheap-model provider key)
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      # DeepSeek key required for TEST_LLM_MODEL=deepseek-v4-flash; src/lib/services/llms.ts
+      # hard-throws when DeepSeek is called without the key.
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       # Embeddings (vector search / findMatchesInVectorDb) always use OpenAI regardless of
       # TEST_LLM_MODEL — that override only redirects chat completions, not embeddings. Without
       # this the real generation pipeline fails at vector search ("Missing OPENAI_API_KEY").

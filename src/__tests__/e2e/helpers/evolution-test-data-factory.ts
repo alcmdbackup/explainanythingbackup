@@ -189,6 +189,21 @@ export interface CreateTestRunOptions {
   strategyId?: string;
   promptId?: string;
   status?: string;
+  /**
+   * When true, sets `evolution_runs.allow_test_execution=true` so the runner's
+   * `claim_evolution_run` RPC will pick up this test fixture from the queue even
+   * though its strategy has `is_test_content=true`. Default false (safe — the gate
+   * blocks queue-claims on test-content strategies).
+   *
+   * Set true ONLY when an integration test exercises queue-claim semantics with
+   * mocked LLM (no real provider cost). Pattern A-2 in
+   * docs/planning/reduce_e2e_testing_llm_costs_20260621/.
+   *
+   * Targeted claims (`/api/evolution/run` POST with targetRunId, or
+   * `claimAndExecuteRun({ runId })`) bypass the gate regardless — this flag only
+   * affects the queue picker (`claimAndExecuteRun({})` without targetRunId).
+   */
+  executable?: boolean;
 }
 
 export interface TestRun {
@@ -208,13 +223,21 @@ export async function createTestRun(options?: CreateTestRunOptions): Promise<Tes
   const strategyId = options?.strategyId ?? (await createTestStrategy()).id;
   const promptId = options?.promptId ?? (await createTestPrompt()).id;
 
+  // Only include allow_test_execution when caller explicitly opts in. The default
+  // path stays byte-identical to pre-gate behavior so this helper continues to work
+  // even before the 20260621000001_evolution_claim_gate.sql migration has propagated
+  // through PostgREST's schema cache (which doesn't reliably refresh from NOTIFY).
+  const insertPayload: Record<string, unknown> = {
+    strategy_id: strategyId,
+    prompt_id: promptId,
+    status: options?.status ?? 'pending',
+  };
+  if (options?.executable === true) {
+    insertPayload.allow_test_execution = true;
+  }
   const { data, error } = await supabase
     .from('evolution_runs')
-    .insert({
-      strategy_id: strategyId,
-      prompt_id: promptId,
-      status: options?.status ?? 'pending',
-    })
+    .insert(insertPayload)
     .select('id')
     .single();
 

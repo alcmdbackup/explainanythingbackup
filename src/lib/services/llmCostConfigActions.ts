@@ -128,9 +128,16 @@ const _toggleKillSwitchAction = withLogging(async (
 export const toggleKillSwitchAction = serverReadRequestId(_toggleKillSwitchAction);
 
 const _getSpendingSummaryAction = withLogging(async (): Promise<ActionResult<SpendingSummary>> => {
-  await requireAdmin();
-  const summary = await getSpendingGate().getSpendingSummary();
-  return success(summary);
+  // Wrap the body so a thrown gate/DB error becomes a failure() ActionResult instead of
+  // propagating (withServerLogging re-throws) to the dashboard's bare catch as a generic
+  // "Failed to load cost data" banner. Lets the cost page surface a specific error.
+  try {
+    await requireAdmin();
+    const summary = await getSpendingGate().getSpendingSummary();
+    return success(summary);
+  } catch (error) {
+    return failure(handleError(error, 'getSpendingSummary'));
+  }
 }, 'getSpendingSummary');
 
 export const getSpendingSummaryAction = serverReadRequestId(_getSpendingSummaryAction);

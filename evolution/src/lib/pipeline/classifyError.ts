@@ -25,6 +25,7 @@ export type RunErrorCode =
   // Orchestration failures
   | 'merge_agent_crashed'
   | 'invocation_row_write_failed'
+  | 'llm_tracking_write_failed'
   | 'dispatcher_unhandled_error'
 
   // External / infrastructure
@@ -53,6 +54,12 @@ export function classifyError(
 
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
+    // FAIL-CLOSED tracking: saveLlmCallTracking/saveTrackingAndNotify re-throw a ServiceError
+    // ("Failed to save LLM call tracking" / "saveLlmCallTracking: no client available" /
+    // "LLM call tracking validation failed") when an evolution call's spend can't be recorded.
+    if (msg.includes('call tracking') || msg.includes('savellmcalltracking')) {
+      return 'llm_tracking_write_failed';
+    }
     if (msg.includes('wall clock') || msg.includes('deadline')) {
       return 'wall_clock_deadline_exceeded';
     }

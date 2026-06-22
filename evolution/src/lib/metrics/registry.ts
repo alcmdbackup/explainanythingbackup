@@ -96,6 +96,18 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
     sourceMetric: 'paragraph_recombine_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
   { name: 'avg_paragraph_recombine_cost_per_run', label: 'Avg Paragraph Recombine Cost/Run', category: 'cost', formatter: 'cost',
     sourceMetric: 'paragraph_recombine_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — coherence-pass umbrella cost rollups.
+  { name: 'total_paragraph_recombine_coherence_cost', label: 'Total Paragraph Recombine Coherence Cost', category: 'cost', formatter: 'cost', listView: true,
+    sourceMetric: 'paragraph_recombine_coherence_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
+  { name: 'avg_paragraph_recombine_coherence_cost_per_run', label: 'Avg Paragraph Recombine Coherence Cost/Run', category: 'cost', formatter: 'cost',
+    sourceMetric: 'paragraph_recombine_coherence_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  // Slot-level provenance ratio rollups — observational only (sentence-level Levenshtein
+  // matching is NOISY for REORDER and RESTRUCTURE directives; reliable for TIGHTEN).
+  // Documented caveat lives on the compute function + in metrics.md.
+  { name: 'avg_slot_provenance_ratio_p25', label: 'Avg Slot Provenance P25', category: 'rating', formatter: 'percent',
+    sourceMetric: 'slot_provenance_ratio_p25', sourceEntity: 'run', aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
+  { name: 'avg_slot_provenance_ratio_p50', label: 'Avg Slot Provenance P50 (median)', category: 'rating', formatter: 'percent',
+    sourceMetric: 'slot_provenance_ratio_p50', sourceEntity: 'run', aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
   // Rating — from run.winner_elo
   { name: 'avg_final_elo', label: 'Avg Winner Elo', category: 'rating', formatter: 'elo', listView: true,
     sourceMetric: 'winner_elo', sourceEntity: 'run', aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
@@ -222,6 +234,16 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
       // slotScope intercept path. Per-purpose split lives in execution_detail.slots[i] for forensics.
       { name: 'paragraph_recombine_cost', label: 'Paragraph Recombine Cost', category: 'cost', formatter: 'cost',
         listView: true, compute: () => 0 },
+      // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — coherence-pass umbrella cost.
+      // The new agent's coherence_pass_propose + coherence_pass_review calls bucket here via
+      // COST_METRIC_BY_AGENT mapping. Per-purpose split in execution_detail.coherencePass.cycles[0].
+      { name: 'paragraph_recombine_coherence_cost', label: 'Paragraph Recombine Coherence Cost', category: 'cost', formatter: 'cost',
+        listView: true, compute: () => 0 },
+      // Observability counter — increments when the coherence-pass approver returns
+      // approverGroups.length > 0 but appliedGroups.length === 0 (quietly-rejecting approver
+      // that could masquerade as "article was already coherent"). Per Phase 4 design.
+      { name: 'coherence_pass_silent_rejection_count', label: 'Coherence Pass Silent Rejection Count', category: 'count', formatter: 'integer',
+        compute: () => 0 },
       // Observability: when persistSlotMatches fails (best-effort path), this increments.
       // Surfaces silent persist failures that would otherwise break D10 cross-invocation
       // accumulation for the affected slot.
@@ -299,6 +321,17 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
         compute: computeP25SentenceVerbatimRatio },
       { name: 'min_sentence_verbatim_ratio', label: 'Min Sentence Overlap', category: 'rating', formatter: 'percent',
         compute: computeMinSentenceVerbatimRatio },
+      // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — slot-level provenance
+      // ratio aggregated across all per-rewrite provenance numbers in execution_detail.slots[*].rewrites[*].provenanceRatio.
+      // Observational only — sentence-level Levenshtein matching is NOISY for REORDER and RESTRUCTURE
+      // directives (legitimate word-reorderings within a sentence don't near-match; legitimate
+      // splits/combines change sentence boundaries). Reliable for TIGHTEN. Low values do NOT
+      // necessarily indicate prompt violation. See metrics.md for the full caveat. Phase 3 will
+      // wire the real compute functions; for now placeholders return 0.
+      { name: 'slot_provenance_ratio_p25', label: 'Slot Provenance Ratio P25', category: 'rating', formatter: 'percent',
+        compute: () => 0 },
+      { name: 'slot_provenance_ratio_p50', label: 'Slot Provenance Ratio P50 (median)', category: 'rating', formatter: 'percent',
+        compute: () => 0 },
     ],
     atPropagation: [],
   },

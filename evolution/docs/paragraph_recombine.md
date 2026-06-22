@@ -4,6 +4,8 @@
 
 Implemented in [`rank_individual_paragraphs_evolution_20260525`](../../docs/planning/rank_individual_paragraphs_evolution_20260525/). The planning doc carries 20 design decisions (D1–D20); this deep-dive summarizes how the shipping agent works.
 
+> **Related**: see also the sibling [`paragraph_recombine_with_coherence_pass`](./paragraph_recombine_with_coherence_pass.md) agent — same per-slot infrastructure but with isolation-oriented rewrite directives (no priorPicks, no nextContext, no coordinator) + a Phase D coherence pass on the assembled article. Tests a different hypothesis: isolated-rewrite + post-hoc coherence-smoothing vs sequential-context-aware generation.
+
 ## When to use
 
 The agent operates on **one parent variant per invocation**. Source modes:

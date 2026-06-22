@@ -22,6 +22,7 @@ import { EvaluateCriteriaThenGenerateFromPreviousArticleAgent } from '../../core
 import { SinglePassEvaluateCriteriaAndGenerateAgent } from '../../core/agents/singlePassEvaluateCriteriaAndGenerate';
 import { ProposerApproverCriteriaGenerateAgent } from '../../core/agents/proposerApproverCriteriaGenerate';
 import { ParagraphRecombineAgent } from '../../core/agents/paragraphRecombine/ParagraphRecombineAgent';
+import { ParagraphRecombineWithCoherencePassAgent } from '../../core/agents/paragraphRecombineWithCoherencePass/ParagraphRecombineWithCoherencePassAgent';
 import { getCriteriaForEvaluation, type EvolutionCriterionRow } from '../../../services/criteriaActions';
 import { SwissRankingAgent, type SwissRankingMatchEntry } from '../../core/agents/SwissRankingAgent';
 import { MergeRatingsAgent, type MergeMatchEntry } from '../../core/agents/MergeRatingsAgent';
@@ -1641,6 +1642,293 @@ export async function evolveArticle(
           budgetSpent: iterTracker.getTotalSpent(),
           topEloValues: eloValues.slice(0, 5),
           phaseName: 'paragraph_recombine',
+        });
+      } else if (iterType === 'paragraph_recombine_with_coherence_pass') {
+        // ─── Paragraph-recombine-with-coherence-pass iteration ───────────
+        // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 Phase 5.
+        //
+        // Near-clone of the paragraph_recombine branch above. The two branches share ~95%
+        // of dispatch structure (parallel-batch sizing, seeded pre-shuffle, sequential
+        // top-up, single MergeRatingsAgent over all match buffers). The planning doc locks
+        // an extract refactor (dispatchParagraphRecombineFamily helper) as a follow-up
+        // — for now both branches coexist. See the progress doc for the extract plan.
+        //
+        // Three swaps vs the paragraph_recombine branch:
+        //   - env flag: EVOLUTION_PARAGRAPH_RECOMBINE_COHERENCE_ENABLED
+        //   - agent class: ParagraphRecombineWithCoherencePassAgent
+        //   - MergeRatingsAgent iterationType: 'paragraph_recombine_with_coherence_pass'
+        const coherenceEnabled = process.env.EVOLUTION_PARAGRAPH_RECOMBINE_COHERENCE_ENABLED !== 'false';
+        if (!coherenceEnabled) {
+          logger.info('Paragraph-recombine-with-coherence-pass iteration skipped — EVOLUTION_PARAGRAPH_RECOMBINE_COHERENCE_ENABLED=false', {
+            iteration, iterIdx, phaseName: 'paragraph_recombine_with_coherence_pass',
+          });
+          iterStopReason = 'iteration_complete';
+        } else {
+          const iterSourceMode = iterCfg.sourceMode ?? 'seed';
+          const inRunPool = pool.filter((v) => !v.fromArena);
+          const poolForParentResolve = iterSourceMode === 'pool' ? inRunPool : pool;
+          const maxDispatchesK = iterCfg.maxDispatches ?? 1;
+
+          type ResolvedParentRef = { variantId: string; text: string };
+          const resolvedParents: ResolvedParentRef[] = [];
+
+          if (maxDispatchesK > 1 && iterSourceMode === 'pool' && iterCfg.qualityCutoff) {
+            const cutoff = iterCfg.qualityCutoff;
+            const eloOf = (v: Variant): number => (ratings.get(v.id)?.elo ?? 0);
+            const sorted = [...inRunPool].sort((a, b) => eloOf(b) - eloOf(a));
+            let eligible: Variant[];
+            if (cutoff.mode === 'topN') {
+              eligible = sorted.slice(0, Math.max(1, cutoff.value));
+            } else {
+              const keepN = Math.max(1, Math.ceil(sorted.length * (cutoff.value / 100)));
+              eligible = sorted.slice(0, keepN);
+            }
+            const shuffleSeed = deriveSeed(randomSeed, `iter${iteration}`, 'paragraph_recombine_with_coherence_pass_shuffle');
+            const shuffleRng = new SeededRandom(shuffleSeed);
+            shuffleRng.shuffle(eligible);
+            for (const v of eligible) resolvedParents.push({ variantId: v.id, text: v.text });
+          } else {
+            const singleExecOrder = ++executionOrder;
+            const pickRng = createSeededRng(hashSeed(runId, iteration, singleExecOrder));
+            const resolved = resolveParent({
+              sourceMode: iterSourceMode,
+              qualityCutoff: iterCfg.qualityCutoff,
+              seedVariant: { id: options?.seedVariantId ?? '', text: originalText },
+              pool: poolForParentResolve,
+              ratings,
+              rng: pickRng,
+              warn: (msg, c) => logger.warn(msg, { ...c, phaseName: 'paragraph_recombine_with_coherence_pass', iteration, execOrder: singleExecOrder }),
+            });
+            executionOrder--;
+            resolvedParents.push({ variantId: resolved.variantId, text: resolved.text });
+          }
+
+          // For coherence-pass projector, force sequentialEnabled: false (the new agent is
+          // legacy-parallel-only by design) and adjust expected cost to account for the
+          // additional coherence-pass call (~$0.003-0.005 typical).
+          const projector = estimateParagraphRecombineCost(
+            originalText.length,
+            iterCfg.maxParagraphsPerInvocation ?? 12,
+            iterCfg.rewritesPerParagraph ?? 3,
+            iterCfg.maxComparisonsPerParagraph ?? 8,
+            iterCfg.paragraphRewriteModel ?? resolvedConfig.generationModel,
+            resolvedConfig.judgeModel,
+            { sequentialEnabled: false },
+          );
+          // Coherence pass adds ~$0.005 (proposer ~$0.0035 + approver ~$0.0015 at default models).
+          const COHERENCE_PASS_COST_ESTIMATE = 0.005;
+          const coherenceEnabledForIter = iterCfg.coherencePassEnabled !== false;
+          const expectedPerAgent = Math.max(0.001,
+            projector.expected + (coherenceEnabledForIter ? COHERENCE_PASS_COST_ESTIMATE : 0),
+          );
+          const availForParallel = iterTracker.getAvailableBudget();
+          const maxAffordable = Math.max(1, Math.floor(availForParallel / expectedPerAgent));
+          const parallelDispatchCount = Math.min(
+            DISPATCH_SAFETY_CAP,
+            maxAffordable,
+            maxDispatchesK,
+            resolvedParents.length,
+          );
+
+          const makePrCtx = (execOrder: number): AgentContext => ({
+            db, runId, iteration,
+            executionOrder: execOrder,
+            invocationId: '',
+            randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `paragraph_recombine_with_coherence_pass${execOrder}`),
+            logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+            experimentId: options?.experimentId,
+            strategyId: options?.strategyId,
+            rawProvider: llmProvider,
+            defaultModel: resolvedConfig.generationModel,
+            generationTemperature: resolvedConfig.generationTemperature,
+          });
+
+          const surfacedVariants: Variant[] = [];
+          const matchBuffersAll: MergeMatchEntry[][] = [];
+
+          try {
+            const spendBeforeParallel = iterTracker.getTotalSpent();
+            const parallelParents = resolvedParents.slice(0, parallelDispatchCount);
+            const parallelResults = await Promise.allSettled(
+              parallelParents.map((parent) => {
+                const execOrder = ++executionOrder;
+                const agent = new ParagraphRecombineWithCoherencePassAgent();
+                return agent.run({
+                  parentText: parent.text,
+                  parentVariantId: parent.variantId,
+                  rewritesPerParagraph: iterCfg.rewritesPerParagraph,
+                  maxComparisonsPerParagraph: iterCfg.maxComparisonsPerParagraph,
+                  maxParagraphsPerInvocation: iterCfg.maxParagraphsPerInvocation,
+                  perInvocationCapUsd: iterCfg.perInvocationCapUsd,
+                  coherencePassEnabled: iterCfg.coherencePassEnabled,
+                  coherencePassProposerModel: iterCfg.coherencePassProposerModel,
+                  coherencePassApproverModel: iterCfg.coherencePassApproverModel,
+                  coherencePassRewriteTempFloor: iterCfg.coherencePassRewriteTempFloor,
+                  coherencePassRewriteTempCeiling: iterCfg.coherencePassRewriteTempCeiling,
+                  initialPool: pool,
+                  initialRatings: ratings,
+                  initialMatchCounts: matchCounts,
+                  cache: comparisonCache,
+                }, makePrCtx(execOrder));
+              }),
+            );
+
+            let successCount = 0;
+            for (const settled of parallelResults) {
+              if (settled.status !== 'fulfilled') continue;
+              const prResult = settled.value;
+              if (prResult.budgetExceeded) iterStopReason = 'iteration_budget_exceeded';
+              const prOutput = prResult.result;
+              if (!prOutput) continue;
+              successCount++;
+              if (prOutput.variant && prOutput.surfaced) {
+                surfacedVariants.push(prOutput.variant);
+                iterVariantsCreated++;
+                if (prOutput.matches && prOutput.matches.length > 0) {
+                  matchBuffersAll.push(
+                    prOutput.matches.map((m) => ({ match: m, idA: m.winnerId, idB: m.loserId })),
+                  );
+                }
+              }
+            }
+
+            const spendAfterParallel = iterTracker.getTotalSpent();
+            const actualAvgCostPerAgent = successCount > 0
+              ? (spendAfterParallel - spendBeforeParallel) / successCount
+              : null;
+
+            const topUpEnabled = process.env.EVOLUTION_TOPUP_ENABLED !== 'false';
+            if (
+              topUpEnabled &&
+              iterStopReason !== 'iteration_budget_exceeded' &&
+              parallelDispatchCount < maxDispatchesK &&
+              parallelDispatchCount < resolvedParents.length
+            ) {
+              const iterFloorConfig = {
+                minBudgetAfterSequentialFraction: iterCfg.sequentialFloorFraction
+                  ?? resolvedConfig.minBudgetAfterSequentialFraction,
+                minBudgetAfterSequentialAgentMultiple: iterCfg.sequentialFloorAgentMultiple
+                  ?? resolvedConfig.minBudgetAfterSequentialAgentMultiple,
+                minBudgetAfterParallelFraction: iterCfg.parallelFloorFraction
+                  ?? resolvedConfig.minBudgetAfterParallelFraction,
+                minBudgetAfterParallelAgentMultiple: iterCfg.parallelFloorAgentMultiple
+                  ?? resolvedConfig.minBudgetAfterParallelAgentMultiple,
+              };
+              const sequentialFloor = resolveSequentialFloor(
+                iterFloorConfig,
+                iterBudgetUsd,
+                expectedPerAgent,
+                actualAvgCostPerAgent,
+              );
+              let topUpIndex = parallelDispatchCount;
+              while (
+                topUpIndex < resolvedParents.length &&
+                topUpIndex < maxDispatchesK &&
+                topUpIndex < DISPATCH_SAFETY_CAP
+              ) {
+                const avgCostForFloor = actualAvgCostPerAgent ?? expectedPerAgent;
+                if (iterTracker.getAvailableBudget() - avgCostForFloor < sequentialFloor) break;
+                const parent = resolvedParents[topUpIndex]!;
+                const execOrder = ++executionOrder;
+                const agent = new ParagraphRecombineWithCoherencePassAgent();
+                try {
+                  const prResult = await agent.run({
+                    parentText: parent.text,
+                    parentVariantId: parent.variantId,
+                    rewritesPerParagraph: iterCfg.rewritesPerParagraph,
+                    maxComparisonsPerParagraph: iterCfg.maxComparisonsPerParagraph,
+                    maxParagraphsPerInvocation: iterCfg.maxParagraphsPerInvocation,
+                    perInvocationCapUsd: iterCfg.perInvocationCapUsd,
+                    coherencePassEnabled: iterCfg.coherencePassEnabled,
+                    coherencePassProposerModel: iterCfg.coherencePassProposerModel,
+                    coherencePassApproverModel: iterCfg.coherencePassApproverModel,
+                    coherencePassRewriteTempFloor: iterCfg.coherencePassRewriteTempFloor,
+                    coherencePassRewriteTempCeiling: iterCfg.coherencePassRewriteTempCeiling,
+                    initialPool: pool,
+                    initialRatings: ratings,
+                    initialMatchCounts: matchCounts,
+                    cache: comparisonCache,
+                  }, makePrCtx(execOrder));
+                  if (prResult.budgetExceeded) {
+                    iterStopReason = 'iteration_budget_exceeded';
+                    break;
+                  }
+                  const prOutput = prResult.result;
+                  if (prOutput?.variant && prOutput.surfaced) {
+                    surfacedVariants.push(prOutput.variant);
+                    iterVariantsCreated++;
+                    if (prOutput.matches && prOutput.matches.length > 0) {
+                      matchBuffersAll.push(
+                        prOutput.matches.map((m) => ({ match: m, idA: m.winnerId, idB: m.loserId })),
+                      );
+                    }
+                  }
+                } catch (err) {
+                  if (err instanceof IterationBudgetExceededError) {
+                    iterStopReason = 'iteration_budget_exceeded';
+                    break;
+                  }
+                  logger.warn('Paragraph-recombine-with-coherence-pass top-up invocation failed', {
+                    iteration, iterIdx, phaseName: 'paragraph_recombine_with_coherence_pass',
+                    parentVariantId: parent.variantId,
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                }
+                topUpIndex++;
+              }
+            }
+
+            if (surfacedVariants.length > 0) {
+              const mergeExecOrder = ++executionOrder;
+              const mergeCtx: AgentContext = {
+                db, runId, iteration,
+                executionOrder: mergeExecOrder,
+                invocationId: '',
+                randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `merge${mergeExecOrder}`),
+                logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+                experimentId: options?.experimentId,
+                strategyId: options?.strategyId,
+              };
+              const mergeAgent = new MergeRatingsAgent();
+              const mergeResult = await mergeAgent.run({
+                iterationType: 'paragraph_recombine_with_coherence_pass',
+                matchBuffers: matchBuffersAll,
+                newVariants: surfacedVariants,
+                pool, ratings, matchCounts, matchHistory: allMatches,
+              }, mergeCtx);
+              if (mergeResult.budgetExceeded) iterStopReason = 'iteration_budget_exceeded';
+            }
+          } catch (err) {
+            if (err instanceof IterationBudgetExceededError) {
+              iterStopReason = 'iteration_budget_exceeded';
+            } else {
+              logger.warn('Paragraph-recombine-with-coherence-pass iteration failed — partial detail persisted, iteration continues', {
+                iteration, iterIdx, phaseName: 'paragraph_recombine_with_coherence_pass',
+                error: err instanceof Error ? err.message : String(err),
+              });
+              iterStopReason = 'iteration_complete';
+            }
+          }
+        }
+
+        const topKPRCP = resolvedConfig.tournamentTopK ?? 5;
+        const eloValuesCP = topKEloValues(ratings, topKPRCP);
+        eloHistory.push(eloValuesCP);
+        uncertaintyHistory.push(topKUncertainties(ratings, topKPRCP));
+
+        iterationSnapshots.push(recordSnapshot(iteration, 'paragraph_recombine_with_coherence_pass', 'end', pool, ratings, matchCounts, {
+          stopReason: iterStopReason,
+          budgetAllocated: iterBudgetUsd,
+          budgetSpent: iterTracker.getTotalSpent(),
+        }));
+
+        logger.info('Paragraph-recombine-with-coherence-pass iteration complete', {
+          iteration, iterIdx,
+          variantsCreated: iterVariantsCreated,
+          iterStopReason,
+          budgetSpent: iterTracker.getTotalSpent(),
+          topEloValues: eloValuesCP.slice(0, 5),
+          phaseName: 'paragraph_recombine_with_coherence_pass',
         });
       }
     } catch (err) {

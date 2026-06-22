@@ -365,6 +365,29 @@ describe('buildDbTargets', () => {
     expect(targets[0]!.name).toBe('prod');
   });
 
+  it('skips target whose llmCallTracking is unreachable (fail-closed tracking preflight)', async () => {
+    // evolution_runs probe OK, but the llmCallTracking write-reachability probe fails →
+    // skip the target loudly at boot rather than failing every fail-closed run mid-flight.
+    const stagingClient = getMockClient('https://staging.supabase.co');
+    stagingClient.from
+      .mockReturnValueOnce({
+        select: jest.fn().mockReturnValue({
+          limit: jest.fn().mockResolvedValue({ error: null }),
+        }),
+      })
+      .mockReturnValueOnce({
+        select: jest.fn().mockReturnValue({
+          limit: jest.fn().mockResolvedValue({ error: { message: 'relation "llmCallTracking" does not exist' } }),
+        }),
+      });
+
+    const { buildDbTargets } = await import('./processRunQueue');
+    const targets = await buildDbTargets();
+
+    expect(targets).toHaveLength(1);
+    expect(targets[0]!.name).toBe('prod');
+  });
+
   it('skips target with missing env file', async () => {
     const fsMod = await import('fs');
     // Make .env.evolution-prod not exist

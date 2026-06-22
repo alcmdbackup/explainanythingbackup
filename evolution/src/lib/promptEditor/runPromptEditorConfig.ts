@@ -88,6 +88,9 @@ export async function runPromptEditorConfig(
       false,
       {
         temperature: temperatureUsed ?? undefined,
+        // FAIL-CLOSED: prompt-editor spend is real evolution spend (server context → Next.js
+        // service client). Fail the rewrite if its spend can't be recorded.
+        requireTracking: true,
         onUsage: (u: LLMUsageMetadata) => { costUsd = u.estimatedCostUsd; },
       },
     );

@@ -98,6 +98,7 @@ Central table for pipeline executions. Each run belongs to exactly one strategy 
 | `strategy_id` | UUID | NOT NULL, FK -> `evolution_strategies(id)` | Enforced NOT NULL since 20260318 |
 | `budget_cap_usd` | NUMERIC(10,4) | default `1.00` | Per-run budget limit |
 | `status` | TEXT | NOT NULL, CHECK `('pending','claimed','running','completed','failed','cancelled')` | See [Run Status Lifecycle](#run-status-lifecycle) |
+| `allow_test_execution` | BOOLEAN | NOT NULL, default `false` | Per-run opt-in flag (since `20260621000001_evolution_claim_gate.sql`). When `true`, queue claims (`claim_evolution_run` called without `p_run_id`) WILL pick this run up even if its strategy has `is_test_content=true`. Default false → safe-by-default: future tests inserting pending fixture rows get auto-skipped by the runner. Set true ONLY when an integration test needs to exercise queue-claim semantics with mocked LLM. Targeted claims (`p_run_id != NULL`) bypass this gate regardless. Lifecycle: stays `true` after claim/complete; cleaned with the strategy by the janitor (filters on `is_test_content`, not this column). |
 | `pipeline_version` | TEXT | NOT NULL, default `'v2'` | |
 | `runner_id` | TEXT | | ID of the claiming runner |
 | `error_message` | TEXT | | Populated on failure |
@@ -491,12 +492,26 @@ All RPCs are `SECURITY DEFINER` with `search_path = public`, granted exclusively
 
 Atomically claims the oldest pending run using `FOR UPDATE SKIP LOCKED`. Returns the claimed run row. If `p_run_id` is provided, claims only that specific run. `p_max_concurrent` (added migration `20260323000002`) caps total concurrent claimed/running runs server-side — claims fail with empty result when the cap is reached.
 
+**Test-content gate** (added migration `20260621000001_evolution_claim_gate.sql`). The inner SELECT joins `evolution_strategies` and applies three OR branches:
+1. `p_run_id IS NOT NULL` — targeted claim, bypass gate
+2. `NOT s.is_test_content` — queue claim on a real strategy (normal path)
+3. `r.allow_test_execution = true` — queue claim on a test strategy WHEN the row opts in (for integration tests with mocked LLM)
+
+This prevents the minicomputer's systemd runner from accidentally executing E2E-test fixtures against real LLM providers (the reduce_e2e_testing_llm_costs_20260621 project's structural fix).
+
 ```sql
--- Core locking pattern:
-SELECT id FROM evolution_runs
-WHERE status = 'pending'
-  AND (p_run_id IS NULL OR id = p_run_id)
-ORDER BY created_at ASC
+-- Core locking pattern (with gate):
+SELECT r.id
+FROM evolution_runs r
+LEFT JOIN evolution_strategies s ON s.id = r.strategy_id
+WHERE r.status = 'pending'
+  AND (
+    p_run_id IS NOT NULL
+    OR NOT COALESCE(s.is_test_content, false)
+    OR r.allow_test_execution = true
+  )
+  AND (p_run_id IS NULL OR r.id = p_run_id)
+ORDER BY r.created_at ASC
 LIMIT 1
 FOR UPDATE SKIP LOCKED
 ```

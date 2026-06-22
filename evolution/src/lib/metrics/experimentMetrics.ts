@@ -647,6 +647,16 @@ const SUBAGENT_ALLOWLIST = new Set<string>([
   'seed_article',
   'merge',
   'pair',
+  // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 Phase 6.
+  // The coherence-pass cycle's propose/review/apply nodes are re-keyed in
+  // accumulateSubagentSums to 'coherence_pass.{propose,review,apply}' (instead of
+  // 'cycle.*') when nested under a 'coherence_pass' grandparent — this keeps the
+  // new agent's coherence-pass costs CLEANLY ISOLATED from plain iterative_editing's
+  // cycle.* sums at the strategy/experiment aggregate level (the project's central A/B).
+  'coherence_pass',
+  'coherence_pass.propose',
+  'coherence_pass.review',
+  'coherence_pass.apply',
 ]);
 
 /**
@@ -659,12 +669,18 @@ function accumulateSubagentSums(
   nodes: SubagentNode[],
   acc: Map<string, { cost: number; durationMs: number; count: number }>,
   parentName?: string,
+  grandparentName?: string,
 ): void {
   for (const node of nodes) {
-    // Drop the per-cycle index: `cycle.1.propose` → `cycle.propose`.
+    // Drop the per-cycle index: `cycle.1.propose` → `cycle.propose`. When the cycle.* node
+    // is nested under a 'coherence_pass' grandparent, re-key to 'coherence_pass.{verb}' for
+    // clean A/B isolation vs plain iterative_editing's cycle.* sums (paragraph_recombine_
+    // agent_with_coherence_pass_evolution_20260620 Phase 6).
+    const isUnderCoherencePass = grandparentName === 'coherence_pass';
     const groupKey = node.name.startsWith('comparison.') ? 'comparison'
       : node.name.startsWith('pair.') ? 'pair'
       : node.name.startsWith('cycle.') ? `cycle.${parentName ?? 'unknown'}`
+      : parentName === 'cycle' && isUnderCoherencePass ? `coherence_pass.${node.name}`
       : parentName === 'cycle' ? `cycle.${node.name}`
       : node.name;
     if (SUBAGENT_ALLOWLIST.has(groupKey)) {
@@ -679,6 +695,7 @@ function accumulateSubagentSums(
         node.children,
         acc,
         node.name.startsWith('cycle.') ? 'cycle' : node.name,
+        parentName,
       );
     }
   }

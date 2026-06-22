@@ -7,10 +7,10 @@ For how costs fit into the pipeline lifecycle, see [Architecture](./architecture
 > **⚠ Historical cost-data caveats** (debug_evolution_run_cost_20260426). Three windows of historical cost data have known reliability issues that cannot be retroactively repaired:
 >
 > 1. **Pre-2026-02-23**: cost numbers are reliable.
-> 2. **2026-02-23 → ongoing (audit-gap window — REMAINS ACTIVE)**: `llmCallTracking` rows are missing entirely for evolution runs from 2026-02-23 onward — per-call token-level audit is impossible. Run-level cost rollups in `evolution_metrics` are still trustworthy because they came from `scope.getOwnSpent()`, but you cannot drill down further. Per `investigate_paragraph_rewrite_cost_undershoot_evolution_20260529` Round 3+4 staging analysis: zero `evolution_*` `call_source` rows on staging since 2026-02-22 (1009 May 29-30 LLM-tracking rows on staging contain zero evolution call_sources, no "save failed" warn logs — the INSERT isn't even being attempted). The April-28 fix at `claimAndExecuteRun.ts:187-229` is structurally correct in main but staging may be running stale code OR a new spending-gate Next.js coupling regression. **paragraph_recombine slice was fixed** by Phase 1 G8 of the 20260529 project (wired `db`/`runId`/`invocationId` into the per-slot LLM client at `ParagraphRecombineAgent.ts:352-354`); the broader regression needs its own follow-up project.
+> 2. **2026-02-23 → 2026-06-21 (audit-gap window — historical, now FIXED forward)**: `llmCallTracking` rows are missing for most evolution runs in this window — per-call token-level audit is impossible for it (the rows don't exist; not backfillable, no join key). Run-level rollups in `evolution_metrics` remain trustworthy (`scope.getOwnSpent()`). **Root cause (debug_llm_spending_data_issues_stage_20260621):** the per-call tracking write was best-effort — `saveTrackingAndNotify` swallowed every failure unless a test-only env flag was set — so when the minicomputer ran pre-fix code (CLI fallback to the Next.js-coupled client failed), the INSERT silently dropped. **Fix:** evolution `callLLM` is now FAIL-CLOSED (`requireTracking` — a tracking-write failure throws and fails the run, with the full row dead-lettered to logs); `isTestLlmCall` no longer mislabels the evolution system userid `…001` as test; and `processRunQueue` preflights tracking-write reachability per target at boot. Forward runs reconcile per-call vs invocation cost. **Remaining ops dependency:** the minicomputer must `git pull` + restart to run the fixed code. **paragraph_recombine slice** was separately fixed earlier (Phase 1 G8 of the 20260529 project, `ParagraphRecombineAgent.ts:352-354`).
 > 3. **Pre-2026-04-20 OpenRouter-routed runs (gemini-flash-lite, qwen, gpt-oss-20b)**: cost numbers may show ~3× inflation due to Bug A — the legacy `response.length / 4` heuristic over-counted tokens for these models. Not retroactively repairable because pre-fix `llmCallTracking` rows have NULL `evolution_invocation_id` and the backfill script's preflight rejects them.
 >
-> Post-2026-04-30 data WAS supposed to be reliable per the April fix, but `investigate_paragraph_rewrite_cost_undershoot_evolution_20260529` confirmed it's NOT (staging shows zero rows since 2026-02-22). The CostEstimatesTab banner is therefore misleading — keep it for now since it accurately marks pre-April rows as unreliable, but per-call audit remains impossible for any evolution-side LLM call until a follow-up project lands.
+> The follow-up project landed (debug_llm_spending_data_issues_stage_20260621): the per-call write path is now fail-closed (`requireTracking`) so future evolution LLM calls cannot silently drop their `llmCallTracking` row — a write failure throws and fails the run. Per-call audit is reliable for runs on the fixed code (once the minicomputer pulls + restarts). The historical 2026-02-23→2026-06-21 window is NOT backfillable (the rows were never written; no join key).
 
 > **Per-purpose cost split.** Every LLM call passes a typed `AgentName` label as the
 > second argument to `llm.complete()` (defined in `evolution/src/lib/core/agentNames.ts`,
@@ -61,6 +61,38 @@ For how costs fit into the pipeline lifecycle, see [Architecture](./architecture
 > omitted reflection_cost, which made reflect+generate runs under-report by the
 > reflection portion. `reflection_cost.listView` is also `true` so the runs-list
 > exposes a Reflection Cost column alongside the others.
+
+---
+
+## Test cost containment (reduce_e2e_testing_llm_costs_20260621)
+
+The minicomputer's `processRunQueue.ts` systemd runner claims pending evolution_runs from staging every 60s. Before 2026-06-21, E2E and integration tests routinely inserted `[TEST]`-prefixed strategies + pending runs as fixtures; the runner couldn't tell them apart from real work and burned ~$15/week on staging executing them.
+
+**The gate (migration `20260621000001_evolution_claim_gate.sql`)** adds three OR branches to `claim_evolution_run`'s inner SELECT:
+
+1. `p_run_id IS NOT NULL` → targeted claim, bypass gate (caller is explicit — admin UI "Trigger Run", `/api/evolution/run` POST with `targetRunId`)
+2. `NOT s.is_test_content` → queue claim on real strategies (normal production path)
+3. `r.allow_test_execution = true` → queue claim on test strategies WHEN the run row opts in (for integration tests that need to exercise queue-claim semantics with mocked LLM)
+
+The `evolution_runs.allow_test_execution` column defaults `false`, so safe-by-default: a future test that accidentally inserts a pending row gets the gate behavior automatically.
+
+**`evolution_strategies.is_test_content`** is set by a BEFORE trigger calling `evolution_is_test_name(name)` (`20260415000001`); the trigger flags strategies whose name matches `test`, `[TEST]`, `[E2E]`, `[TEST_EVO]`, or `*-<10-13 digits>-*` timestamp pattern. No code change needed at the test-helper layer — existing `[TEST] strategy_*` and `[TEST_EVO]` naming patterns are caught automatically.
+
+**Existing helpers** (`createTestEvolutionRun` in `evolution/src/testing/`, `createTestRun` in `src/__tests__/e2e/helpers/`) accept the override via Pattern A-2 typed sugar: `CreateTestRunOptions.executable?: boolean`.
+
+### Patterns
+
+| Pattern | Test intent | Gate behavior |
+|---|---|---|
+| **A-1** | E2E spec triggers `/api/evolution/run` POST with `targetRunId` to verify pipeline execution | Targeted claim bypasses gate; no change |
+| **A-2** | Integration test inserts pending [TEST] run + calls `claimAndExecuteRun({ runnerId })` to verify queue-claim semantics with mocked LLM | Set `executable: true` on the helper or `allow_test_execution: true` on the insert |
+| **B** | Test inserts pending row as fixture data only (admin UI render, watchdog, cancel_experiment, etc.) | Gate skips queue-claim automatically — no change |
+
+### Janitor + alarms (Phase 3, separate PR)
+
+- **Janitor**: weekly CI job `evolution-test-data-cleanup.yml` deletes `evolution_strategies WHERE is_test_content=true AND last_used_at < now() - interval '14 days'` in FK-safe order (runs first → cascades to children → then strategies). `evolution_runs.strategy_id` FK is `ON DELETE RESTRICT` (per `20260324000001_entity_evolution_phase0.sql`), so the order matters.
+- **Alarm**: daily query — if `SUM(invocation cost) WHERE strategy.is_test_content=true AND created_at > now() - 24h` exceeds **$0.10**, file `[release-health]` issue (same plumbing as `evolution-run-health.yml`). Baseline expected: ~$0.04/day from Pattern A-1 spec executions.
+- **Layer-3 nightly smoke**: new `evolution-nightly-smoke.yml` exercises the runner against the `Nightly smoke fixture` strategy (seeded by migration `20260621000002_evolution_nightly_smoke_fixture.sql`). Expected cost: ~$1.83/year.
 
 ---
 
@@ -610,7 +642,7 @@ Server actions for the admin dashboard, all requiring admin authentication:
 
 - **`getSpendByGranularityAction` / `getCostByEntityAction` / `getEvolutionReconciliationAction`** (build_llm_spending_tab_in_admin_dash_20260620) -- power the tabbed `/admin/costs` dashboard. The first two read the `get_llm_spend_buckets(p_granularity, p_start, p_end, p_include_test)` RPC (`date_trunc` hour/day/week; SECURITY DEFINER, search_path-pinned, service_role-only) and fold `call_source → { entity, category }` via `attributeCallSource` (`src/lib/services/llmCostAttribution.ts`). The reconciliation action compares the `llmCallTracking`-based evolution total against `evolution_agent_invocations.cost_usd` to surface the per-call audit-gap (see the caveat at the top of this doc).
 
-> **`is_test` discriminator + mandatory attribution.** `llmCallTracking` now has an `is_test` boolean set at the single `saveLlmCallTracking` chokepoint via `isTestLlmCall` (test/system userids, `E2E_TEST_MODE`/`NODE_ENV=test`, mock fingerprints) so the dashboard separates real spend from integration-test/mock pollution (~90% of dev-DB rows). `call_source` is a branded `CallSource` (`src/lib/services/llmCallSource.ts`) producible only via the `CALL_SOURCES` registry / `evolutionSource()` / `testSource()` factories — enforced by tsc, a blocking ESLint rule, and a runtime guard. The offline `oneshotGenerator.ts` writes `llmCallTracking` directly (its own `trackLLMCall`, bypassing the chokepoint) and sets `is_test=true` itself.
+> **`is_test` discriminator + mandatory attribution.** `llmCallTracking` has an `is_test` boolean set at the single `saveLlmCallTracking` chokepoint via `isTestLlmCall`. As of debug_llm_spending_data_issues_stage_20260621 it is driven by test RUNTIME signals — `NODE_ENV=test`, `E2E_TEST_MODE`, `LLM_TRACKING_TEST_RUNTIME` (prod-ai harness), `integration_test`/`generation` sources, mock fingerprint — **NOT by userid** (system userids `…000`/`…001` are real offline-tool/evolution spend and must count). `call_source` is a branded `CallSource` (`src/lib/services/llmCallSource.ts`) producible only via the `CALL_SOURCES` registry / `evolutionSource()` / `testSource()` factories — enforced by tsc, a blocking ESLint rule, a runtime guard, AND a new `npm run check:llm-coverage` CI guard that catches direct-SDK / direct-`llmCallTracking.insert` bypasses. The offline `oneshotGenerator.ts` writes `llmCallTracking` directly (documented self-tracker, allowlisted in the coverage guard) with a bounded `call_source` and `is_test` derived (no longer hard-`true`).
 
 ---
 

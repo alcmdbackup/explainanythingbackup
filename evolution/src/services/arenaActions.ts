@@ -745,6 +745,9 @@ export const rejudgeComparisonAction = adminAction(
       }
       const opts: CallLLMOptions = {
         ...(temperature != null ? { temperature } : {}),
+        // FAIL-CLOSED: arena rejudge is real evolution spend (server-action context → Next.js
+        // service client fallback). Fail the rejudge if its spend can't be recorded.
+        requireTracking: true,
         onUsage: (u) => { costUsd += u.estimatedCostUsd; },
       };
       return callLLM(prompt, CALL_SOURCES.matchViewerRejudge, ctx.adminUserId, judgeModel, false, null, null, null, false, opts);

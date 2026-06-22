@@ -74,6 +74,15 @@ const OUTPUT_TOKEN_ESTIMATES: Partial<Record<AgentName, number>> = {
   // over-reserve ~10×, risking premature per-slot self-abort on the small
   // per-slot budget (~$0.033 at defaults).
   paragraph_rank: 100,
+  // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — coherence-pass
+  // proposer outputs the full recombined article verbatim with inline CriticMarkup edits
+  // (output dominated by article copy + ~40% markup overhead). Mirrors `criteria_proposer`
+  // shape since the I/O profile is similar (full-article output). 1200 tokens (~4800 chars)
+  // covers a typical 8-12K-char recombined article.
+  coherence_pass_propose: 1200,
+  // Coherence-pass approver returns JSONL: per-group {decision, reason} for ~5-10 groups
+  // per cycle. Mirrors `criteria_forward_approver` shape (~150 tokens).
+  coherence_pass_review: 150,
 };
 
 // ─── Public API ──────────────────────────────────────────────────
