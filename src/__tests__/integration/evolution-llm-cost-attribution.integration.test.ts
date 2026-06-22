@@ -28,16 +28,24 @@ describe('LLM cost attribution (is_test + spend buckets RPC)', () => {
 
   beforeAll(async () => {
     sb = createTestSupabaseClient();
-    // Guard: skip if the RPC / column isn't migrated yet (mirrors evolutionTablesExist pattern).
+    // Guard: skip ONLY if the RPC isn't migrated yet (function missing). A STRUCTURAL error
+    // (42804 "structure of query does not match function result type") must NOT skip — that is a
+    // real bug (e.g. a return column returned as varchar against a declared text column), and the
+    // old `available = !probe.error` silently skipped it, hiding the broken dashboard from CI.
+    // Probe with a NON-empty range so the RETURN QUERY actually materializes rows (the structural
+    // check fires per-row, so an empty range would not surface the mismatch).
     const probe = await sb.rpc('get_llm_spend_buckets', {
       p_granularity: 'day',
       p_start: RANGE_START,
-      p_end: RANGE_START,
+      p_end: RANGE_END,
       p_include_test: true,
     });
-    available = !probe.error;
-    if (!available) {
-      console.warn('Skipping: get_llm_spend_buckets RPC not available (apply migrations).');
+    const fnMissing =
+      probe.error?.code === 'PGRST202' ||
+      /could not find the function|does not exist/i.test(probe.error?.message ?? '');
+    available = !fnMissing;
+    if (fnMissing) {
+      console.warn('Skipping: get_llm_spend_buckets RPC not migrated yet (apply migrations).');
     }
   });
 
