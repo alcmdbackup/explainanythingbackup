@@ -137,7 +137,7 @@ adminTest.describe('Judge Lab · Agreement', { tag: '@evolution' }, () => {
     // ── Detail page: 6 tiles + new position-bias tiles + View-all-matches link ───────────────────
     await adminPage.goto(`/admin/evolution/judge-lab/agreement/runs/${runId}`);
     await expect(adminPage.getByTestId('agreement-metrics')).toBeVisible({ timeout: 30000 });
-    await expect(adminPage.getByText('Per-pair agreement')).toBeVisible();
+    await expect(adminPage.getByText('Per-pair (most-common) agreement')).toBeVisible();
     await expect(adminPage.getByText('Per-repeat agreement')).toBeVisible();
     await expect(adminPage.getByText('Both-decisive agreement')).toBeVisible();
     await expect(adminPage.getByText('Single-judge abstain')).toBeVisible();

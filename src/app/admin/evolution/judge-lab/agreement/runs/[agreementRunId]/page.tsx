@@ -161,9 +161,9 @@ export default function AgreementRunDetailPage(): JSX.Element {
   // call set, kind-filtered. "committed" = confidence > 0.6 AND winner ∈ {A, B}.
   const tiles: Array<{ label: string; value: string; formula: string; testId: string }> = [
     {
-      label: 'Per-pair agreement',
+      label: 'Per-pair (most-common) agreement',
       value: pctWithCI(metrics.perPairModalAgreeRate, metrics.perPairModalAgreeRateCi),
-      formula: 'pairs where modal(rubric_winner) = modal(holistic_winner) / total pairs · TIE=TIE counts as agreement',
+      formula: 'pairs where most-common(rubric_winner) = most-common(holistic_winner) / total pairs · TIE=TIE counts as agreement · collapses N repeats into one verdict per judge',
       testId: 'tile-per-pair',
     },
     {
@@ -243,6 +243,53 @@ export default function AgreementRunDetailPage(): JSX.Element {
         </Link>
       </div>
 
+      <details data-testid="agreement-methodology" className="text-xs font-ui" style={{ color: 'var(--text-muted)' }}>
+        <summary className="cursor-pointer">How this run was scored (methodology)</summary>
+        <div className="mt-3 space-y-3 pl-1">
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">The end-to-end flow</p>
+            <ol className="mt-1 space-y-1 pl-5 list-decimal">
+              <li>
+                <strong>Pick pairs.</strong> The run draws a fixed set of (variant_a, variant_b) <strong>pairs</strong> from the frozen test set (filtered to the chosen Kind: article, paragraph, or both). Same pairs across all repeats — nothing is re-sampled.
+              </li>
+              <li>
+                <strong>Judge each pair N times.</strong> Each pair is judged <code>repeats</code> times. One <strong>repeat</strong> = 4 LLM calls: 2 holistic (forward + reverse text order) + 2 rubric (forward + reverse).
+              </li>
+              <li>
+                <strong>Reconcile each repeat into one verdict per side.</strong> The 2 holistic calls are merged into a single holistic_winner (A/B/TIE) + confidence using the standard 2-pass reversal rule. The 2 rubric calls are merged the same way into a rubric_winner + confidence. Result: each (pair × repeat) call has exactly one holistic_winner and one rubric_winner.
+              </li>
+              <li>
+                <strong>Compare holistic vs rubric.</strong> All the agreement metrics on this page are functions of those paired (holistic_winner, rubric_winner) verdicts, computed at two granularities (per-repeat = each call counted separately; per-pair = collapse N repeats into one most-common winner per judge, then compare once per pair). Position-bias metrics dig deeper and look at the forward-pass and reverse-pass winners separately.
+              </li>
+              <li>
+                <strong>Compare against ground truth.</strong> On <strong>large-gap pairs</strong> only (Elo gap wide enough to declare a winner), we know which side was supposed to win. The ground-truth panel measures how often each judge&apos;s <em>committed</em> verdict (A or B, conf &gt; 0.6) matched. High-confidence TIEs are abstentions, NOT wrong guesses — they don&apos;t count against accuracy.
+              </li>
+              <li>
+                <strong>Decompose the rubric.</strong> The per-criterion table breaks down what each individual rubric criterion was saying, so you can see whether one dimension is dragging the aggregate around.
+              </li>
+            </ol>
+          </section>
+
+          <section>
+            <p className="font-semibold text-[var(--text-secondary)]">Per-pair vs per-repeat — when each is useful</p>
+            <ul className="mt-1 space-y-1 pl-4 list-disc">
+              <li>
+                <strong>Per-repeat agreement</strong> treats every (pair × repeat) call independently. Denominator = total calls. Best for measuring raw judge-vs-judge alignment including all the per-call noise.
+              </li>
+              <li>
+                <strong>Per-pair (most-common) agreement</strong> first collapses each judge&apos;s N verdicts on a pair into its most-common winner, then compares once per pair. Denominator = total pairs. Best for asking &ldquo;ignoring per-call noise, do the two judges land on the same overall winner for each pair?&rdquo;
+              </li>
+              <li>
+                When <code>repeats = 1</code>, the two metrics are identical (only one verdict to take the most-common of). The bigger <code>repeats</code> is, the more per-pair smooths over judge variance and the more the two numbers can diverge.
+              </li>
+              <li>
+                Worked example with 5 repeats on one pair where holistic_winners = [A, A, A, TIE, A] and rubric_winners = [A, A, B, A, TIE]: per-repeat scores 3/5 (the 3 rows where they match), per-pair scores 1/1 (A vs A — most-common on both sides is A).
+              </li>
+            </ul>
+          </section>
+        </div>
+      </details>
+
       <details data-testid="agreement-definitions" className="text-xs font-ui" style={{ color: 'var(--text-muted)' }}>
         <summary className="cursor-pointer">Glossary — every term on this page</summary>
         <div className="mt-3 space-y-3 pl-1">
@@ -307,7 +354,7 @@ export default function AgreementRunDetailPage(): JSX.Element {
             <p className="font-semibold text-[var(--text-secondary)]">Tile metrics (top panel)</p>
             <ul className="mt-1 space-y-1 pl-4 list-disc">
               <li>
-                <strong>Per-pair agreement</strong> — Reduce each judge to its modal (most-common) winner across repeats on each pair, compare once per pair. Mutual TIE counts as agreement.
+                <strong>Per-pair (most-common) agreement</strong> — For each pair, take the <em>most common</em> winner each judge produced across its N repeats — then compare those two single winners. One comparison per pair. Smooths over per-call noise. Mutual TIE counts as agreement. Tiebreak order when two winners tie within a pair: A &gt; B &gt; TIE.
               </li>
               <li>
                 <strong>Per-repeat agreement</strong> — Every (pair × repeat) call: was rubric_winner = holistic_winner? No decisive filter. Mutual TIE counts as agreement.
