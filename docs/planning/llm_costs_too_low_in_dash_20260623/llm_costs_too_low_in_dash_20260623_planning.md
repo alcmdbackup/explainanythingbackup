@@ -18,28 +18,34 @@ Fix `/admin/costs` to stop under-reporting AND do **foundational rework** so a c
 ## Options Considered
 - [ ] **Option A: Complete the ledger at the source (write-path fix)**: Make every evolution LLM call reliably write a `llmCallTracking` row (genuinely fail-closed on whatever dev path drops them; resolve Open-Q5 — pre-fix code vs a client that bypasses the `requireTracking` chokepoint). Then `llmCallTracking` is the single complete ledger and ALL consumers become correct automatically. Pros: truest "one ledger, no future under-report"; no read-time reconciliation. Cons: historical gap stays (unbackfillable); must find why writes drop; double-write risk vs `evolution_agent_invocations` needs dedup discipline.
 - [ ] **Option B: Canonical unified cost read (view/RPC)**: Build one canonical cost view/RPC that UNIONs non-evolution `llmCallTracking` + evolution `evolution_agent_invocations` (dedup-safe — exclude the few evolution rows that DO exist in `llmCallTracking` to avoid double counting), with `is_test`/category columns. Point every cost consumer (`get_llm_spend_buckets`, `daily_llm_costs`, summary/by-model/by-entity, reconciliation) at it. Pros: correct even across the historical gap; one read contract for all surfaces. Cons: two physical stores persist; attribution/`is_test` parity between the two sources needs care.
-- [ ] **Option C: Both (recommended starting point)**: Option B canonical read NOW (fixes the dashboard + all surfaces immediately, incl. history) + Option A write-path hardening so the underlying ledger trends toward completeness going forward. Pros: addresses both "fix now" and "don't recur". Cons: largest scope — sequence carefully.
-- [ ] **Option D: Test-spend classification (cross-cutting, needed regardless)**: Ensure the canonical source carries a reliable evolution `is_test`/`is_test_content` discriminator so test vs real spend is a first-class, visible split (not just a filtered-out bucket) — so test money is "adequately accounted for." Folds into whichever of A/B/C is chosen.
+- [x] **Option C: Both (CHOSEN, 2026-06-23)**: Option B canonical read NOW (fixes the dashboard + all surfaces immediately, incl. history) + Option A write-path hardening so the underlying ledger trends toward completeness going forward. Pros: addresses both "fix now" and "don't recur". Cons: largest scope — sequence carefully.
+- [x] **Option D: Test-spend classification (CHOSEN, 2026-06-23 — cross-cutting)**: Ensure the canonical source carries a reliable evolution `is_test`/`is_test_content` discriminator so test vs real spend is a first-class, visible split (not just a filtered-out bucket) — so test money is "adequately accounted for." Threads through B (view columns) and A (write path).
 - [ ] **Option E (rejected): Backfill `llmCallTracking` rows for the gap window** — documented non-backfillable (no per-call token data / join key). Data already exists in `evolution_agent_invocations`; reconstructing the audit table is not the fix.
 
-## Phased Execution Plan
+## Phased Execution Plan (Option C + D)
 
-### Phase 1: Diagnose on Supabase dev (read-only)
-- [ ] Run reconciliation query: last 7 days `SUM(llmCallTracking.estimated_cost_usd)` split by `is_test` and `call_source LIKE 'evolution_%'` vs `SUM(evolution_agent_invocations.cost_usd)` vs run-level `evolution_metrics.cost`.
-- [ ] Quantify the gap and attribute it to one of H1 (audit-gap), H2 (is_test over-tag), H3 (read-path) — or a combination.
-- [ ] Identify exactly which query/RPC the dashboard headline ("$3 / past week") reads, and trace it in `costAnalytics.ts` + `get_llm_spend_buckets`.
-- [ ] Determine whether the missing rows have a usable join key (backfillable) for the relevant window.
+### Phase 0: Pin down the write-path drop (gates Option A) — Open Q5
+- [ ] Determine why dev evolution invocations still lack `llmCallTracking` rows post-06-21 (479/517 in 3d): is the dev path running pre-fix code, or does a client bypass the `requireTracking` chokepoint? Trace `createEvolutionLLMClient` → `callLLM`/`saveLlmCallTracking` and where `evolution_invocation_id` is (not) bound.
+- [ ] Decide if Option A (write completeness) is achievable in this project or is a forward-only follow-up.
 
-### Phase 2: Implement the correct fix (depends on Phase 1 findings)
-- [ ] If H3/read-path: add an `evolution_agent_invocations` fallback to the dashboard's evolution total (mirror `getRunCostsWithFallback`).
-- [ ] If H2/is_test: verify deployed `isTestLlmCall`; run `scripts/backfillLlmIsTest.ts` (dry-run → apply) to correct historical rows.
-- [ ] If H1/backfillable: run the appropriate backfill script (`--dry-run` then `--apply`).
-- [ ] Document any unbackfillable window explicitly (per the existing caveat) rather than silently leaving the gap.
+### Phase 1: Canonical unified cost source (Option B + D)
+- [ ] Design a canonical cost read (DB view or RPC, e.g. `llm_spend_unified`) that UNIONs: non-evolution rows from `llmCallTracking` + evolution spend from `evolution_agent_invocations.cost_usd`, **dedup-safe** (exclude the few evolution rows already in `llmCallTracking` to avoid double-count).
+- [ ] Carry a first-class `is_test` discriminator (Option D): non-evo from `llmCallTracking.is_test`; evo from strategy `is_test_content`. Expose category (`evolution`/`non_evolution`) + entity attribution.
+- [ ] Repoint `get_llm_spend_buckets` (and the summary/by-model/by-entity/daily paths) at the canonical source so every `/admin/costs` surface reflects complete spend.
+- [ ] Migration is idempotent + passes `npm run lint:migrations`.
 
-### Phase 3: Verify + guard against regression
-- [ ] Re-run the reconciliation query on dev; confirm dashboard total now matches `evolution_agent_invocations` truth (~$40-60).
-- [ ] Confirm the audit-gap banner / reconciliation action reflects the corrected state.
-- [ ] Add/extend a test so the dashboard total can't silently undercount evolution spend again.
+### Phase 2: `/admin/costs` UI — show complete + split spend (Option D)
+- [ ] Headline "Total Cost" reflects the canonical total (evolution + non-evolution), no longer ~$0 for evolution.
+- [ ] Test vs real shown as a first-class split (stacked chart / By-Entity), not just toggled out.
+- [ ] Keep/retire the audit-gap banner depending on whether the canonical read makes it moot.
+
+### Phase 3: Write-path hardening (Option A — if Phase 0 says achievable)
+- [ ] Close the dev write-path drop so new evolution calls land a `llmCallTracking` row (or document why it's a forward-only follow-up).
+- [ ] Ensure no double-count once both stores carry evolution rows (canonical view dedup must hold).
+
+### Phase 4: Verify + guard against regression
+- [ ] Re-run reconciliation on dev; confirm `/admin/costs` total now matches `evolution_agent_invocations` truth and splits test/real correctly.
+- [ ] Add a test asserting the canonical source can't silently drop evolution spend (the foundational guarantee).
 
 ## Testing
 
