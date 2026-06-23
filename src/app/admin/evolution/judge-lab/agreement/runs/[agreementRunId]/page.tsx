@@ -181,36 +181,36 @@ export default function AgreementRunDetailPage(): JSX.Element {
     {
       label: 'Per-repeat agreement',
       value: pctWithCI(metrics.perRepeatAgreeRate, metrics.perRepeatAgreeRateCi),
-      denominator: `${metrics.n} call${metrics.n === 1 ? '' : 's'} (every pair × repeat counted separately)`,
-      formula: 'calls where rubric_winner = holistic_winner / total calls · TIE=TIE counts as agreement · no decisive filter',
+      denominator: `${metrics.n} (pair × repeat) row${metrics.n === 1 ? '' : 's'} · each row = ONE reconciled verdict per judge (forward+reverse already merged) — NOT the 4 underlying LLM API calls`,
+      formula: 'rows where rubric_winner = holistic_winner / total rows · TIE=TIE counts as agreement · no decisive filter',
       testId: 'tile-per-repeat',
     },
     {
       label: 'Both-decisive agreement',
       value: pctWithCI(metrics.bothDecisiveAgreeRate, metrics.bothDecisiveAgreeRateCi),
-      denominator: 'calls where both judges confidence > 0.6 (high-confidence TIE counts as a verdict, not an abstention)',
-      formula: 'calls where rubric_winner = holistic_winner AND both confidence > 0.6 / calls where both confidence > 0.6 · mutual TIE@>0.6 counts as agreement',
+      denominator: '(pair × repeat) rows where both judges confidence > 0.6 (high-confidence TIE counts as a verdict, not an abstention)',
+      formula: 'rows where rubric_winner = holistic_winner AND both confidence > 0.6 / rows where both confidence > 0.6 · mutual TIE@>0.6 counts as agreement',
       testId: 'tile-both-decisive',
     },
     {
       label: 'Single-judge abstain',
       value: pctWithCI(metrics.abstainDivergenceRate, metrics.abstainDivergenceRateCi),
-      denominator: `${metrics.n} call${metrics.n === 1 ? '' : 's'} (every pair × repeat counted separately) · counts calls where exactly one of the two judges committed`,
-      formula: 'calls where exactly one judge is committed to A or B / total calls · committed = confidence > 0.6 AND winner ∈ {A, B} · mutual TIE does NOT count as divergence',
+      denominator: `${metrics.n} (pair × repeat) row${metrics.n === 1 ? '' : 's'} · counts rows where exactly one of the two judges committed`,
+      formula: 'rows where exactly one judge is committed to A or B / total rows · committed = confidence > 0.6 AND winner ∈ {A, B} · mutual TIE does NOT count as divergence',
       testId: 'tile-abstain',
     },
     {
       label: 'Holistic position bias',
       value: pctWithCI(metrics.holisticPositionBiasRate, metrics.holisticPositionBiasRateCi),
-      denominator: 'calls where both holistic passes parsed (forward + reverse winners both non-null)',
-      formula: 'calls where holistic_forward_winner ≠ holistic_reverse_winner / calls where both passes parsed · derived server-side from stored raws',
+      denominator: '(pair × repeat) rows where both holistic passes parsed (forward + reverse winners both non-null) — this metric IS the within-row forward-vs-reverse mismatch',
+      formula: 'rows where holistic_forward_winner ≠ holistic_reverse_winner / rows where both passes parsed · derived server-side from stored raws',
       testId: 'tile-holistic-pos-bias',
     },
     {
       label: 'Rubric position bias',
       value: pctWithCI(metrics.rubricPositionBiasRate, metrics.rubricPositionBiasRateCi),
-      denominator: 'calls where both rubric passes parsed (forward + reverse winners both non-null)',
-      formula: 'calls where rubric_forward_winner ≠ rubric_reverse_winner / calls where both passes parsed · derived server-side from stored raws',
+      denominator: '(pair × repeat) rows where both rubric passes parsed (forward + reverse winners both non-null) — this metric IS the within-row forward-vs-reverse mismatch',
+      formula: 'rows where rubric_forward_winner ≠ rubric_reverse_winner / rows where both passes parsed · derived server-side from stored raws',
       testId: 'tile-rubric-pos-bias',
     },
   ];
@@ -273,10 +273,10 @@ export default function AgreementRunDetailPage(): JSX.Element {
                 <strong>Judge each pair N times.</strong> Each pair is judged <code>repeats</code> times. One <strong>repeat</strong> = 4 LLM calls: 2 holistic (forward + reverse text order) + 2 rubric (forward + reverse).
               </li>
               <li>
-                <strong>Reconcile each repeat into one verdict per side.</strong> The 2 holistic calls are merged into a single holistic_winner (A/B/TIE) + confidence using the standard 2-pass reversal rule. The 2 rubric calls are merged the same way into a rubric_winner + confidence. Result: each (pair × repeat) call has exactly one holistic_winner and one rubric_winner.
+                <strong>Reconcile each repeat into one verdict per side.</strong> The 2 holistic LLM calls are merged into a single holistic_winner (A/B/TIE) + confidence using the standard 2-pass reversal rule. The 2 rubric LLM calls are merged the same way into a rubric_winner + confidence. Result: each (pair × repeat) <strong>row</strong> has exactly one holistic_winner and one rubric_winner. <em>Note on terminology: from here on, &ldquo;row&rdquo; means a (pair × repeat) entry — the reconciled-verdict level. The 4 underlying LLM API calls per row are NOT counted separately by any tile&apos;s denominator. The cost preview&apos;s &ldquo;calls&rdquo; (e.g. &ldquo;10 pairs × 5 repeats × 4 calls = 200 calls&rdquo;) refers to LLM API calls, not rows.</em>
               </li>
               <li>
-                <strong>Compare holistic vs rubric.</strong> All the agreement metrics on this page are functions of those paired (holistic_winner, rubric_winner) verdicts, computed at two granularities (per-repeat = each call counted separately; per-pair = collapse N repeats into one most-common winner per judge, then compare once per pair). Position-bias metrics dig deeper and look at the forward-pass and reverse-pass winners separately.
+                <strong>Compare holistic vs rubric.</strong> All the agreement metrics on this page are functions of those paired (holistic_winner, rubric_winner) verdicts, computed at two granularities (per-repeat = each row counted separately; per-pair = collapse N repeats into one most-common winner per judge, then compare once per pair). Position-bias metrics dig deeper and look at the forward-pass and reverse-pass winners separately WITHIN each row.
               </li>
               <li>
                 <strong>Compare against ground truth.</strong> On <strong>large-gap pairs</strong> only (Elo gap wide enough to declare a winner), we know which side was supposed to win. The ground-truth panel measures how often each judge&apos;s <em>committed</em> verdict (A or B, conf &gt; 0.6) matched. High-confidence TIEs are abstentions, NOT wrong guesses — they don&apos;t count against accuracy.
@@ -515,15 +515,15 @@ export default function AgreementRunDetailPage(): JSX.Element {
               <Tile
                 label="Holistic judge"
                 value={pctWithCI(metrics.holisticAccuracy, metrics.holisticAccuracyCi)}
-                denominator="committed holistic calls on large-gap pairs (confidence > 0.6 AND winner ∈ {A, B}; confident TIE excluded as abstention)"
-                formula="committed holistic calls where holistic_winner = expected_winner / committed holistic calls on large-gap pairs"
+                denominator="committed holistic (pair × repeat) rows on large-gap pairs (confidence > 0.6 AND winner ∈ {A, B}; confident TIE excluded as abstention)"
+                formula="committed holistic rows where holistic_winner = expected_winner / committed holistic rows on large-gap pairs"
                 testId="tile-holistic-acc"
               />
               <Tile
                 label="Rubric judge"
                 value={pctWithCI(metrics.rubricAccuracy, metrics.rubricAccuracyCi)}
-                denominator="committed rubric calls on large-gap pairs (confidence > 0.6 AND winner ∈ {A, B}; confident TIE excluded as abstention)"
-                formula="committed rubric calls where rubric_winner = expected_winner / committed rubric calls on large-gap pairs"
+                denominator="committed rubric (pair × repeat) rows on large-gap pairs (confidence > 0.6 AND winner ∈ {A, B}; confident TIE excluded as abstention)"
+                formula="committed rubric rows where rubric_winner = expected_winner / committed rubric rows on large-gap pairs"
                 testId="tile-rubric-acc"
               />
               <Tile
