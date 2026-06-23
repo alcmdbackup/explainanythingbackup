@@ -966,23 +966,45 @@ export const getAgreementRunDetailAction = adminAction(
           if (b > a) return 'B';
           return 'TIE';
         };
+        // Critical: the reverse pass's prompt swaps the texts (text_b labeled "A",
+        // text_a labeled "B"). So a literal "A" from the reverse pass means variant_b
+        // won in canonical terms. We MUST flip the reverse pass's letter back to
+        // canonical before comparing — without the flip, the metric is INVERTED
+        // (raw-letter mismatch = canonical agreement = unbiased, but we were calling
+        // that "position bias"). Also, position bias is only meaningful when BOTH
+        // passes committed to a definite A or B; one-TIE-one-committed and
+        // mutual-TIE are excluded from the denominator (they reflect indecision,
+        // not position bias).
+        const flipCanonical = (w: 'A' | 'B' | 'TIE' | null): 'A' | 'B' | 'TIE' | null => {
+          if (w === 'A') return 'B';
+          if (w === 'B') return 'A';
+          return w; // TIE / null unchanged
+        };
         for (const r of rawsRes.data as unknown as RawRow[]) {
           const kindBucket = positionBias[r.pair_kind];
 
-          // Holistic: parseWinner on each raw; only count when both parse.
-          const hFwd = r.holistic_forward_raw ? parseWinner(r.holistic_forward_raw) : null;
-          const hRev = r.holistic_reverse_raw ? parseWinner(r.holistic_reverse_raw) : null;
-          if (hFwd !== null && hRev !== null) {
+          // Holistic: parseWinner on each raw, flip reverse to canonical, compare.
+          // parseWinner returns string | null — narrow to the 3-value alphabet before flipping.
+          const narrowWinner = (s: string | null): 'A' | 'B' | 'TIE' | null =>
+            s === 'A' || s === 'B' || s === 'TIE' ? s : null;
+          const hFwdRaw = narrowWinner(r.holistic_forward_raw ? parseWinner(r.holistic_forward_raw) : null);
+          const hRevRaw = narrowWinner(r.holistic_reverse_raw ? parseWinner(r.holistic_reverse_raw) : null);
+          const hRevCanonical = flipCanonical(hRevRaw);
+          // Only count when BOTH passes committed to a definite A or B.
+          if (
+            (hFwdRaw === 'A' || hFwdRaw === 'B') &&
+            (hRevCanonical === 'A' || hRevCanonical === 'B')
+          ) {
             kindBucket.holisticParsed += 1;
             positionBias.both.holisticParsed += 1;
-            if (hFwd !== hRev) {
+            if (hFwdRaw !== hRevCanonical) {
               kindBucket.holisticMismatch += 1;
               positionBias.both.holisticMismatch += 1;
             }
           }
 
-          // Rubric: parseRubricVerdict needs dimension names. For position-bias we treat
-          // null/unparsable as "no signal" and exclude from the denominator.
+          // Rubric: parseRubricVerdict needs dimension names. Per-pass winner via
+          // simple majority of per-criterion verdicts, then flip reverse to canonical.
           if (dimNames.length > 0) {
             const rFwdVerdicts = r.rubric_forward_raw
               ? parseRubricVerdict(r.rubric_forward_raw, dimNames)
@@ -990,12 +1012,16 @@ export const getAgreementRunDetailAction = adminAction(
             const rRevVerdicts = r.rubric_reverse_raw
               ? parseRubricVerdict(r.rubric_reverse_raw, dimNames)
               : null;
-            const rFwd = winnerOf(rFwdVerdicts);
-            const rRev = winnerOf(rRevVerdicts);
-            if (rFwd !== null && rRev !== null) {
+            const rFwd = narrowWinner(winnerOf(rFwdVerdicts));
+            const rRev = narrowWinner(winnerOf(rRevVerdicts));
+            const rRevCanonical = flipCanonical(rRev);
+            if (
+              (rFwd === 'A' || rFwd === 'B') &&
+              (rRevCanonical === 'A' || rRevCanonical === 'B')
+            ) {
               kindBucket.rubricParsed += 1;
               positionBias.both.rubricParsed += 1;
-              if (rFwd !== rRev) {
+              if (rFwd !== rRevCanonical) {
                 kindBucket.rubricMismatch += 1;
                 positionBias.both.rubricMismatch += 1;
               }
