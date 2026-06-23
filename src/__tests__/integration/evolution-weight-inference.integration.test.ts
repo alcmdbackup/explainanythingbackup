@@ -26,6 +26,7 @@ import {
   recordOverallVerdictAction,
   recordDimensionVerdictsAction,
   getWeightInferenceFitAction,
+  getWeightInferencePreviewAction,
   exportWeightInferenceRubricAction,
 } from '@evolution/services/weightInferenceActions';
 import { runAutoChunk, type JudgeFactory } from '@evolution/lib/weightInference/autoRun';
@@ -143,6 +144,34 @@ describe('weight-inference integration', () => {
     expect((comps ?? []).length).toBeGreaterThan(0);
     // rater_id is server-derived from the mocked requireAdmin (never a client input)
     expect((comps ?? []).every((c) => c.rater_id === 'test-admin')).toBe(true);
+  }, 60000);
+
+  it('preview: server-counts M, both binding cases, variant_kind filter, avg size (Q1)', async () => {
+    if (!ok) return;
+    // 8 article variants seeded. requiredRatings(K).pairs = max(20, 12·K).
+    // K=3 → 36; C(8,2)=28 < 36 → POOL binds.
+    const poolBound = await getWeightInferencePreviewAction({
+      criteriaCount: 3, sourceKind: 'topic', promptId, sampleSize: 8, pairKind: 'article',
+    });
+    expect(poolBound.success).toBe(true);
+    expect(poolBound.data!.poolSize).toBe(8);
+    expect(poolBound.data!.matchesToJudge).toBe(28);
+    expect(poolBound.data!.bindingLimit).toBe('pool');
+    expect(poolBound.data!.avgArticleChars).toBeGreaterThan(0);
+
+    // K=2 → 24; C(8,2)=28 ≥ 24 → RECOMMENDATION binds.
+    const recBound = await getWeightInferencePreviewAction({
+      criteriaCount: 2, sourceKind: 'topic', promptId, sampleSize: 8, pairKind: 'article',
+    });
+    expect(recBound.data!.matchesToJudge).toBe(24);
+    expect(recBound.data!.bindingLimit).toBe('recommendation');
+
+    // variant_kind filter: no paragraph variants seeded → empty pool (article variants excluded).
+    const paragraph = await getWeightInferencePreviewAction({
+      criteriaCount: 3, sourceKind: 'topic', promptId, sampleSize: 8, pairKind: 'paragraph',
+    });
+    expect(paragraph.data!.poolSize).toBe(0);
+    expect(paragraph.data!.matchesToJudge).toBe(0);
   }, 60000);
 
   it('records verdicts (canonical round-trip), fits, and exports a rubric', async () => {

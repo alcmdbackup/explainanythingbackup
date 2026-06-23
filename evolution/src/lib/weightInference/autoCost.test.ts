@@ -3,6 +3,7 @@
 import {
   assertWithinWeightInferenceAutoCap,
   autoModeEnabled,
+  estimateAutoRunCost,
   getAutoChunkPairs,
   plannedCalls,
   WeightInferenceAutoCapError,
@@ -66,6 +67,47 @@ describe('assertWithinWeightInferenceAutoCap', () => {
         ).toThrow(WeightInferenceAutoCapError);
       },
     );
+  });
+});
+
+describe('estimateAutoRunCost', () => {
+  const base = { matches: 48, repeats: 1, model: 'gpt-3.5-turbo', avgArticleChars: 4000, criteriaCount: 4 };
+
+  it('perCallUsd equals totalUsd / plannedCalls (single source of truth for the cap)', () => {
+    const est = estimateAutoRunCost(base);
+    expect(est.plannedCalls).toBe(plannedCalls(base.matches, base.repeats));
+    expect(est.perCallUsd).toBeCloseTo(est.totalUsd / est.plannedCalls, 10);
+    expect(est.totalUsd).toBeGreaterThan(0);
+  });
+
+  it('returns zero (no NaN) on a degenerate/empty pool', () => {
+    for (const bad of [0, NaN, -5]) {
+      const est = estimateAutoRunCost({ ...base, avgArticleChars: bad });
+      expect(est.totalUsd).toBe(0);
+      expect(est.perCallUsd).toBe(0);
+      expect(Number.isNaN(est.totalUsd)).toBe(false);
+    }
+    const noMatches = estimateAutoRunCost({ ...base, matches: 0 });
+    expect(noMatches.totalUsd).toBe(0);
+    expect(noMatches.perCallUsd).toBe(0);
+  });
+
+  it('scales ~linearly with matches and repeats', () => {
+    const one = estimateAutoRunCost(base).totalUsd;
+    expect(estimateAutoRunCost({ ...base, matches: base.matches * 2 }).totalUsd).toBeCloseTo(one * 2, 6);
+    expect(estimateAutoRunCost({ ...base, repeats: 3 }).totalUsd).toBeCloseTo(one * 3, 6);
+  });
+
+  it('grows with criteria count (rubric calls carry per-criterion overhead)', () => {
+    const fewer = estimateAutoRunCost({ ...base, criteriaCount: 2 }).totalUsd;
+    const more = estimateAutoRunCost({ ...base, criteriaCount: 10 }).totalUsd;
+    expect(more).toBeGreaterThan(fewer);
+  });
+
+  it('a more expensive model costs more', () => {
+    const cheap = estimateAutoRunCost({ ...base, model: 'gpt-3.5-turbo' }).totalUsd; // 0.50/1.50 per 1M
+    const dear = estimateAutoRunCost({ ...base, model: 'gpt-4' }).totalUsd; // 30/60 per 1M
+    expect(dear).toBeGreaterThan(cheap);
   });
 });
 

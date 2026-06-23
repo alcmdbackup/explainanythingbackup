@@ -212,7 +212,7 @@ export default function WeightInferenceSessionPage(): JSX.Element {
 
       {mode === 'human' && progress && (
         <p className="font-ui text-sm text-[var(--text-secondary)]" data-testid="wi-progress">
-          Overall {progress.overallDone}/{progress.pairsTotal} · ≈ {progress.remaining} pairs to go
+          Overall {progress.overallDone}/{progress.pairsTotal} · ≈ {progress.remaining} matches to go
         </p>
       )}
 
@@ -222,7 +222,7 @@ export default function WeightInferenceSessionPage(): JSX.Element {
             <h2 className="font-display text-2xl text-[var(--text-primary)]">Auto run (LLM as judge)</h2>
             {autoProgress && (
               <div className="font-ui text-sm text-[var(--text-secondary)] space-y-1" data-testid="wi-run-progress">
-                <div>Pairs judged {autoProgress.pairsJudged}/{autoProgress.pairsTotal}</div>
+                <div>Matches judged {autoProgress.pairsJudged}/{autoProgress.pairsTotal}</div>
                 <div>LLM calls {autoProgress.llmCalls} · spend ${autoProgress.spendUsd.toFixed(4)} · position-bias {(autoProgress.positionBiasRate * 100).toFixed(0)}%</div>
                 <div className="h-3 rounded-page bg-[var(--surface-elevated)] overflow-hidden">
                   <div className="h-full bg-[var(--accent-gold)]" style={{ width: `${autoProgress.pairsTotal > 0 ? Math.round((autoProgress.pairsJudged / autoProgress.pairsTotal) * 100) : 0}%` }} />
@@ -250,18 +250,27 @@ export default function WeightInferenceSessionPage(): JSX.Element {
               <p className="font-body text-[var(--text-secondary)]">Loading…</p>
             ) : !pair ? (
               <div data-testid="wi-judging-done">
-                <h2 className="font-display text-2xl text-[var(--text-primary)]">All pairs judged 🎉</h2>
+                <h2 className="font-display text-2xl text-[var(--text-primary)]">All matches judged 🎉</h2>
                 <p className="font-body text-[var(--text-secondary)] mt-1">Head to the Results tab to view + export the inferred weights.</p>
               </div>
             ) : (
               <>
                 <h2 className="font-display text-2xl text-[var(--text-primary)]">
-                  {step === 'overall' ? 'Which article is better — overall?' : 'For each criterion, which is better?'}
+                  {step === 'overall' ? 'Overall — which article wins?' : 'Per criterion — which article wins?'}
                 </h2>
+                <p className="font-body text-xs text-[var(--text-secondary)]" data-testid="wi-replica-notice">
+                  Some matches reappear later with the two articles swapped left↔right — that&apos;s an intentional
+                  consistency check, not a duplicate. Judge each one on its own.
+                  {pair.pass > 0 && (
+                    <span className="ml-1 rounded-page border border-[var(--accent-gold)] px-2 py-0.5 text-[var(--accent-gold)]">
+                      ↔ re-check (sides swapped)
+                    </span>
+                  )}
+                </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {[pair.left, pair.right].map((art, i) => (
                     <div key={art.id} className="rounded-page border border-[var(--border-default)] bg-[var(--surface-elevated)] p-4">
-                      <div className="font-ui text-xs uppercase text-[var(--text-secondary)] mb-2">{i === 0 ? 'Article A' : 'Article B'}</div>
+                      <div className="font-ui text-xs uppercase text-[var(--text-secondary)] mb-2">{i === 0 ? 'Left' : 'Right'}</div>
                       <div className="font-body text-sm text-[var(--text-primary)] whitespace-pre-wrap max-h-80 overflow-auto">{art.content}</div>
                     </div>
                   ))}
@@ -269,9 +278,9 @@ export default function WeightInferenceSessionPage(): JSX.Element {
 
                 {step === 'overall' ? (
                   <div className="flex gap-3" data-testid="wi-overall-controls">
-                    <Button variant="outline" disabled={busy} onClick={() => void submitOverall('a')}>A is better</Button>
+                    <Button variant="outline" disabled={busy} onClick={() => void submitOverall('a')}>Left wins</Button>
                     <Button variant="secondary" disabled={busy} onClick={() => void submitOverall('tie')}>Tie</Button>
-                    <Button variant="outline" disabled={busy} onClick={() => void submitOverall('b')}>B is better</Button>
+                    <Button variant="outline" disabled={busy} onClick={() => void submitOverall('b')}>Right wins</Button>
                   </div>
                 ) : (
                   <div className="space-y-2" data-testid="wi-criteria-controls">
@@ -293,7 +302,7 @@ export default function WeightInferenceSessionPage(): JSX.Element {
                                   : 'border-[var(--border-default)] text-[var(--text-secondary)]'
                               }`}
                             >
-                              {v === 'a' ? 'A' : v === 'b' ? 'B' : 'Tie'}
+                              {v === 'a' ? 'Left' : v === 'b' ? 'Right' : 'Tie'}
                             </button>
                           ))}
                         </div>
@@ -317,9 +326,14 @@ export default function WeightInferenceSessionPage(): JSX.Element {
               <>
                 <h2 className="font-display text-2xl text-[var(--text-primary)]">Inferred weights</h2>
                 <p className="font-ui text-sm text-[var(--text-secondary)]">
-                  {fit.nPairs} pairs · train {pct(fit.trainAccuracy)}
+                  {fit.nPairs} matches used · train {pct(fit.trainAccuracy)}
                   {fit.heldOutAccuracy != null ? ` · held-out ${pct(fit.heldOutAccuracy)}` : ''}
                   {fit.degenerate ? ' · ⚠ not enough data yet' : ''}
+                </p>
+                <p className="font-body text-xs text-[var(--text-secondary)]" data-testid="wi-results-legend">
+                  Weights are normalized to sum to 100% (each is a criterion&apos;s share of the decision). Brackets are a
+                  95% confidence interval — wider means less certain. <strong className="text-[var(--text-primary)]">Held-out</strong>{' '}
+                  accuracy (cross-validated, shown once ≥ 10 matches) is the realistic estimate; train accuracy is optimistic.
                 </p>
                 <div className="space-y-2" data-testid="wi-weights">
                   {fit.weights.map((w) => (

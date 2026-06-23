@@ -40,7 +40,7 @@ const navGroups: NavGroup[] = [
       { href: '/admin/evolution/judge-rubrics', label: 'Judge Rubrics', icon: '📋', testId: 'evolution-sidebar-nav-judge-rubrics', description: 'Weighted rubric bundles for rubric-based judging' },
       { href: '/admin/evolution/prompt-editor', label: 'Prompt Editor', icon: '🎛️', testId: 'evolution-sidebar-nav-prompt-editor', description: 'Test rewrite prompts live' },
       { href: '/admin/evolution/judge-lab', label: 'Judge Lab', icon: '🧮', testId: 'evolution-sidebar-nav-judge-lab', description: 'Systematic judge-settings evaluation on a test set' },
-      { href: '/admin/evolution/weight-inference', label: 'Implied Rubric Weights', icon: '🪄', testId: 'evolution-sidebar-nav-weight-inference', description: 'Infer judge-rubric weights from pairwise verdicts' },
+      { href: '/admin/evolution/weight-inference', label: 'Implied Rubric Weights', icon: '🪄', testId: 'evolution-sidebar-nav-weight-inference', description: 'Infer judge-rubric weights from pairwise winners (human or LLM-judged)' },
     ],
   },
 ];

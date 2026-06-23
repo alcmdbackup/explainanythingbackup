@@ -94,7 +94,7 @@ function maybeBucketComparisons(
     return comparisons.map((c) => ({
       label: `#${c.round}`,
       durationMs: c.resolvedDurationMs,
-      tooltip: `Comparison ${c.round}\nOpponent: ${c.opponentId?.slice(0, 8) ?? '—'}\nOutcome: ${c.outcome ?? '—'}\nDuration: ${fmtMs(c.resolvedDurationMs)}`,
+      tooltip: `Match ${c.round}\nOpponent: ${c.opponentId?.slice(0, 8) ?? '—'}\nOutcome: ${c.outcome ?? '—'}\nDuration: ${fmtMs(c.resolvedDurationMs)}`,
     }));
   }
   // Bucket into groups of COMPARISON_BUCKET_SIZE
@@ -107,7 +107,7 @@ function maybeBucketComparisons(
     buckets.push({
       label: `#${first}-${last}`,
       durationMs: sumMs,
-      tooltip: `Comparisons ${first}-${last}\nTotal duration: ${fmtMs(sumMs)}`,
+      tooltip: `Matches ${first}-${last}\nTotal duration: ${fmtMs(sumMs)}`,
     });
   }
   return buckets;
@@ -188,12 +188,12 @@ export function InvocationTimelineTab({ invocation }: InvocationTimelineTabProps
         Total invocation: {fmtMs(invocation.duration_ms)}
         {estimated && (
           <span className="ml-2 italic" data-testid="timeline-estimated-note">
-            (per-comparison timing estimated from total — instrumentation unavailable)
+            (per-match timing estimated from total — instrumentation unavailable)
           </span>
         )}
         {bucketed && (
           <span className="ml-2 italic" data-testid="timeline-bucketed-note">
-            ({comparisons.length} comparisons bucketed into {buckets.length} groups)
+            ({comparisons.length} matches bucketed into {buckets.length} groups)
           </span>
         )}
       </div>
@@ -257,7 +257,7 @@ export function InvocationTimelineTab({ invocation }: InvocationTimelineTabProps
                 totalMs={phaseTotalMs}
                 color={RANKING_COLOR}
                 label={`Rank ${fmtMs(rankingDurationMs)}`}
-                tooltip={`Ranking phase (${comparisons.length} comparisons)\nDuration: ${fmtMs(rankingDurationMs)}\nCost: ${(ranking?.cost as number | undefined)?.toFixed(4) ?? '—'}`}
+                tooltip={`Ranking phase (${comparisons.length} matches)\nDuration: ${fmtMs(rankingDurationMs)}\nCost: ${(ranking?.cost as number | undefined)?.toFixed(4) ?? '—'}`}
                 testId="timeline-ranking-bar"
               />
             )}
@@ -280,7 +280,7 @@ export function InvocationTimelineTab({ invocation }: InvocationTimelineTabProps
         return (
           <div className="space-y-1" data-testid="timeline-comparisons">
             <div className="text-xs font-ui text-[var(--text-secondary)]">
-              Comparisons ({comparisons.length}{bucketed ? `, bucketed` : ''})
+              Matches ({comparisons.length}{bucketed ? `, bucketed` : ''})
             </div>
             {buckets.map((b, i) => {
               const barStart = cursorMs;

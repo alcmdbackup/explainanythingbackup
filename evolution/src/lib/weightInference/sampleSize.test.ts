@@ -1,7 +1,41 @@
 // Unit tests for the ratings-needed estimator: monotonic in K + precision, replication
 // overhead, and non-negative remaining.
 
-import { remainingPairs, requiredRatings } from './sampleSize';
+import { matchesFromPool, pairsFromPool, remainingPairs, requiredRatings } from './sampleSize';
+
+describe('pairsFromPool', () => {
+  it('is C(M,2) = M·(M−1)/2, and 0 below 2', () => {
+    expect(pairsFromPool(0)).toBe(0);
+    expect(pairsFromPool(1)).toBe(0);
+    expect(pairsFromPool(2)).toBe(1);
+    expect(pairsFromPool(8)).toBe(28);
+    expect(pairsFromPool(30)).toBe(435);
+  });
+});
+
+describe('matchesFromPool (Q1: min(C(M,2), requiredRatings(K).pairs))', () => {
+  it('pool binds when C(M,2) < recommended', () => {
+    // 8 articles, 3 criteria → C(8,2)=28 < max(20,36)=36 → 28, pool-bound
+    const r = matchesFromPool(8, 3);
+    expect(r.cMax).toBe(28);
+    expect(r.recommended).toBe(36);
+    expect(r.matches).toBe(28);
+    expect(r.bindingLimit).toBe('pool');
+  });
+
+  it('recommendation binds when C(M,2) >= recommended', () => {
+    // 8 articles, 2 criteria → C(8,2)=28 >= max(20,24)=24 → 24, recommendation-bound
+    const r = matchesFromPool(8, 2);
+    expect(r.recommended).toBe(24);
+    expect(r.matches).toBe(24);
+    expect(r.bindingLimit).toBe('recommendation');
+  });
+
+  it('a tiny pool caps matches at C(M,2)', () => {
+    expect(matchesFromPool(5, 4).matches).toBe(10); // C(5,2)=10 < 48
+    expect(matchesFromPool(5, 4).bindingLimit).toBe('pool');
+  });
+});
 
 describe('requiredRatings', () => {
   it('is monotonic non-decreasing in K (pairs + verdicts)', () => {

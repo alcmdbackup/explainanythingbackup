@@ -123,7 +123,7 @@ export default function AgreementRunDetailPage(): JSX.Element {
   }, []);
 
   const tiles = [
-    { label: 'Per-pair agree', value: pct(metrics.perPairModalAgreeRate) },
+    { label: 'Per-match agree', value: pct(metrics.perPairModalAgreeRate) },
     { label: 'Agree (both-dec)', value: pct(metrics.bothDecisiveAgreeRate) },
     { label: 'Abstain / diverge', value: pct(metrics.abstainDivergenceRate) },
     { label: 'Per-repeat agree', value: pct(metrics.perRepeatAgreeRate) },
@@ -226,7 +226,7 @@ export default function AgreementRunDetailPage(): JSX.Element {
           {/* Ground-truth accuracy */}
           <div className="rounded-book paper-texture card-enhanced p-4">
             <div className="text-sm font-ui font-semibold mb-2">
-              Accuracy vs Elo ground truth (large-gap pairs, n={metrics.nLargeGap})
+              Accuracy vs Elo ground truth (large-gap matches, n={metrics.nLargeGap})
             </div>
             <MetricGrid
               metrics={[
@@ -246,12 +246,12 @@ export default function AgreementRunDetailPage(): JSX.Element {
           {/* Disagreement drill-down */}
           <div className="rounded-book paper-texture card-enhanced p-4 space-y-2">
             <div className="text-sm font-ui font-semibold">
-              Disagreement pairs (both decisive, opposite winner) — {disagreements.length}
+              Disagreement matches (both decisive, opposite winner) — {disagreements.length}
             </div>
             <table className="w-full text-xs font-ui" data-testid="disagree-table">
               <thead>
                 <tr style={{ color: 'var(--text-muted)' }}>
-                  <th className="text-left py-1">Pair</th>
+                  <th className="text-left py-1">Match</th>
                   <th className="text-left">Kind</th>
                   <th className="text-left">Holistic</th>
                   <th className="text-left">Rubric</th>

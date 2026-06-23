@@ -1244,7 +1244,7 @@ export default function NewStrategyPage(): JSX.Element {
                 </summary>
                 <div className="mt-3 space-y-4 pl-2 border-l-2 border-[var(--border-default)]">
                   <div>
-                    <label htmlFor="max-comparisons" className={labelClasses}>Max Comparisons per Variant</label>
+                    <label htmlFor="max-comparisons" className={labelClasses}>Max Matches per Variant</label>
                     <input
                       id="max-comparisons"
                       type="number"
@@ -1854,7 +1854,7 @@ export default function NewStrategyPage(): JSX.Element {
                           data-testid={`rewrites-per-paragraph-${idx}`}
                           title="Number of parallel rewrites per paragraph slot (1-6). Default 3."
                         />
-                        <span className="ml-2 text-[var(--text-primary)]">· Max comparisons/slot:</span>
+                        <span className="ml-2 text-[var(--text-primary)]">· Max matches/slot:</span>
                         <input
                           type="number"
                           min={1}
@@ -1866,7 +1866,7 @@ export default function NewStrategyPage(): JSX.Element {
                           }}
                           className="w-14 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
                           data-testid={`max-comparisons-per-paragraph-${idx}`}
-                          title="Maximum pairwise comparisons within a single slot's ranking phase (1-20). Default 8."
+                          title="Maximum pairwise matches within a single slot's ranking phase (1-20). Default 8."
                         />
                         <span className="ml-2 text-[var(--text-primary)]">· Max slots/invocation:</span>
                         <input
