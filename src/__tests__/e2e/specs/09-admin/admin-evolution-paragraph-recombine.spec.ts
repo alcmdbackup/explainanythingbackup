@@ -63,7 +63,12 @@ adminTest.describe('Evolution Paragraph Recombine Invocation Detail', { tag: '@e
 
   adminTest('renders the 5-tab layout (Slots/Recombined/Metrics/Timeline/Logs)', async ({ adminPage }) => {
     await adminPage.goto(`/admin/evolution/invocations/${standardFixture.invocationId}`);
-    await expect(adminPage.locator('[role="tab"]:has-text("Paragraph Slots")')).toBeVisible({ timeout: 15000 });
+    // Hydration proof: the tab BUTTONS are server-rendered and visible before the
+    // page hydrates its data, so asserting them directly races hydration (flaky
+    // toBeVisible timeouts in CI). Wait for the default Slots tab PANEL content —
+    // the same proof the sibling tests below use — before asserting the buttons.
+    await adminPage.locator('[data-testid="paragraph-slots-tab"]').waitFor({ state: 'visible', timeout: 15000 });
+    await expect(adminPage.locator('[role="tab"]:has-text("Paragraph Slots")')).toBeVisible();
     await expect(adminPage.locator('[role="tab"]:has-text("Recombined Output")')).toBeVisible();
     await expect(adminPage.locator('[role="tab"]:has-text("Metrics")')).toBeVisible();
     await expect(adminPage.locator('[role="tab"]:has-text("Timeline")')).toBeVisible();
