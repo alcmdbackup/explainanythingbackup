@@ -163,6 +163,10 @@ export const getPromptsAction = adminAction(
     let query = ctx.supabase
       .from('evolution_prompts')
       .select('id, prompt, name, status, created_at')
+      // Exclude soft-deleted prompts (deletePromptAction sets deleted_at). Mirrors
+      // getArenaTopicsAction and every other prompt-listing action; without it,
+      // soft-deleted prompts still appear in the Start Experiment wizard.
+      .is('deleted_at', null)
       .order('created_at', { ascending: false })
       .limit(LIST_HARD_CAP);
 
