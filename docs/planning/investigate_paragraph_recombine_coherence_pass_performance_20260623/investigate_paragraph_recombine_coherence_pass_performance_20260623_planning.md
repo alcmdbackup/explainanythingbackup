@@ -3,7 +3,7 @@
 ## Background
 Use debugging skill to query supabase dev and diagnose why most recent 4 paragraph recombine runs on stage have all underperformed.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1269)
 Use debugging skill to query supabase dev and diagnose why most recent 4 paragraph recombine runs on stage have all underperformed.
 
 ## Problem
