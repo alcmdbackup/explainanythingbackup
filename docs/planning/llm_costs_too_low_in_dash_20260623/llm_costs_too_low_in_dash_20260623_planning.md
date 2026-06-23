@@ -24,10 +24,13 @@ Fix `/admin/costs` to stop under-reporting AND do **foundational rework** so a c
 
 ## Phased Execution Plan (Option C + D)
 
-### Phase 0: Pin down the write-path drop (gates Option A) — Open Q5 [RESOLVED in research; confirm executor in Phase 0]
-- [x] Confirmed (research): HEAD wires evolution tracking correctly, but dev runs **today** (`success=true`, cost>0, 0 tracking rows) prove the executing path bypasses the `requireTracking` fail-closed chokepoint — the gap is live, not just history.
-- [ ] Identify the executor of dev evolution runs (stale local `processRunQueue` runner on pre-fix code vs the HEAD `/api/evolution/run` route) — distinguishes cause (a) stale runner [operational fix: pull+restart] vs (b) a code path bypassing `saveTrackingAndNotify`.
-- [ ] Scope Option A accordingly: operational (runner restart) and/or a code fix for any genuine bypass path. May be a forward-only follow-up — **does not block Option B**.
+### Phase 0: Root-cause the runner write-path bypass (gates Option A) — Open Q5
+Research established (do NOT re-litigate; pick up from here):
+- [x] Executor = the minicomputer evolution-runner (`processRunQueue.ts`, systemd 60s). It is **NOT stale** (worktree0 on post-fix `de2113413`); `claimAndExecuteRun.ts:204-223` routes calls through `callLLM` with `requireTracking:true` + `trackingDb` + `evolutionInvocationId`.
+- [x] **Wrong-target hypothesis FALSIFIED** (read-only prod query): prod `llmCallTracking` has 0 evolution rows — writes go to neither DB.
+- [x] Conclusion: the runner's evolution LLM calls **never invoke `saveTrackingAndNotify`** (success=true + no rows on either DB + no dead-letters). The ~$0.04/30d evolution rows on staging come from the `/api/evolution/run` route, not the runner.
+- [ ] **Remaining (code-level `/debug`):** trace why the runner's agents don't use the `requireTracking`-configured `rawProvider` — prime suspect is `Agent.run()`'s per-invocation `EvolutionLLMClient` rebuild (`Agent.ts:~129-141`) dropping `requireTracking`/`trackingDb`, and the `EVOLUTION_FK_THREADING_ENABLED` interaction. Confirm against a live local run.
+- [ ] Decide Option A landing here vs forward-only follow-up — **does not block Option B**.
 
 ### Phase 1: Canonical unified cost source (Option B + D)
 - [ ] Design a canonical cost read (DB view or RPC, e.g. `llm_spend_unified`) that UNIONs: non-evolution rows from `llmCallTracking` + evolution spend from `evolution_agent_invocations.cost_usd`, **dedup-safe** (exclude the few evolution rows already in `llmCallTracking` to avoid double-count).
@@ -40,28 +43,38 @@ Fix `/admin/costs` to stop under-reporting AND do **foundational rework** so a c
 - [ ] Test vs real shown as a first-class split (stacked chart / By-Entity), not just toggled out.
 - [ ] Keep/retire the audit-gap banner depending on whether the canonical read makes it moot.
 
-### Phase 3: Write-path hardening (Option A — if Phase 0 says achievable)
-- [ ] Close the dev write-path drop so new evolution calls land a `llmCallTracking` row (or document why it's a forward-only follow-up).
+### Phase 3: Write-path hardening — the "can't silently under-report" guarantee (Option A, 3 layers)
+The foundational ask: evolution writes `llmCallTracking` going forward, and *anything* that calls an LLM without recording spend is caught. Three complementary enforcement layers (no single layer is sufficient — see rationale below):
+
+- [ ] **Layer 1 — Runtime fail-closed by default.** Flip `requireTracking` from opt-in to default-on (`src/lib/services/llms.ts:286` `?? false` → fail-closed default, at minimum for all evolution call sites; evaluate system-wide). A call that *reaches* `callLLM` but can't record spend then throws instead of silently continuing. Catches the "went through the chokepoint, write failed" class.
+- [ ] **Layer 2 — Close the runner bypass + keep the static CI guard.** Fix the Phase-0 root cause so the runner's calls actually traverse the `requireTracking` chokepoint. Verify `npm run check:llm-coverage` (`scripts/check-llm-call-coverage.ts`, already wired into `npm run lint`) would catch the bypass class (direct SDK / direct `llmCallTracking.insert`); extend its patterns/allowlist if the runner path is a new shape. Catches "bypasses the chokepoint entirely" (the only layer that can — a runtime guard can't fire on a path it never reaches).
+- [ ] **Layer 3 — Reconciliation assertion (NEW — catches the silent-divergence class that slipped past Layers 1+2).** Assert that every `evolution_agent_invocations` row with `cost_usd > 0` has ≥1 joining `llmCallTracking` row. Wire as: (a) a run-finalization check that flags divergence, and/or (b) a scheduled monitor (mirror `evolution-run-health.yml`) that files a `[release-health]` issue when the per-week tracked-vs-invocation evolution totals diverge beyond a threshold. This is the durable guarantee — it would have caught the current bug, which was wired-correctly-but-silently-not-writing.
 - [ ] Ensure no double-count once both stores carry evolution rows (canonical view dedup must hold).
+
+**Rationale (why 3 layers):** Layer 1 throws only for calls that reach the chokepoint; Layer 2 (static CI) is the only thing that can see a call that bypasses the chokepoint; Layer 3 catches the residual "configured correctly yet no row appears" case that neither a runtime throw nor a static scan detects — exactly the failure mode observed in this investigation.
 
 ### Phase 4: Verify + guard against regression
 - [ ] Re-run reconciliation on dev; confirm `/admin/costs` total now matches `evolution_agent_invocations` truth and splits test/real correctly.
-- [ ] Add a test asserting the canonical source can't silently drop evolution spend (the foundational guarantee).
+- [ ] Confirm all three Phase-3 enforcement layers are live (Layer 1 default-on throw, Layer 2 coverage guard green, Layer 3 reconciliation assertion wired) — the foundational "can't silently under-report" guarantee.
 
 ## Testing
 
 ### Unit Tests
-- [ ] `src/lib/services/costAnalytics.test.ts` — dashboard total includes evolution `evolution_agent_invocations` fallback when `llmCallTracking` rows are missing (if Option B taken).
-- [ ] `src/lib/services/llmCostAttribution.test.ts` — `attributeCallSource` folds evolution sources correctly (if touched).
+- [ ] `src/lib/services/costAnalytics.test.ts` — canonical-source path returns evolution spend from `evolution_agent_invocations` when `llmCallTracking` evolution rows are absent; non-evolution still from `llmCallTracking`; no double-count for the few evolution rows present in both (Phase 1/B).
+- [ ] `src/lib/services/llmCostAttribution.test.ts` — `attributeCallSource` folds evolution sources correctly; test/real category split (Option D).
+- [ ] `src/lib/services/llms.test.ts` — **Layer 1**: with `requireTracking` now default-on, a tracking-write failure on an evolution call throws (does not silently return); explicit non-evolution opt-out still allowed if we keep one.
+- [ ] `scripts/check-llm-call-coverage.test.ts` (existing) — **Layer 2**: extend so the runner's provider-call shape is covered by a bypass pattern (or consciously allowlisted with a documented reason).
 
 ### Integration Tests
-- [ ] `src/__tests__/integration/evolution-cost-attribution.integration.test.ts` (existing) — extend to assert reconciliation `llmCallTracking` vs `evolution_agent_invocations` parity for non-test rows.
+- [ ] `src/__tests__/integration/evolution-cost-attribution.integration.test.ts` (existing) — extend to assert the canonical source equals `SUM(evolution_agent_invocations.cost_usd)` for evolution + `SUM(llmCallTracking)` for non-evolution over a window, dedup-safe.
+- [ ] **Layer 3** reconciliation assertion test — seed an evolution run with `cost_usd>0` invocations and assert the reconciliation check flags the divergence when no `llmCallTracking` row exists, and passes when rows are present.
 
 ### E2E Tests
-- [ ] (If UI changes) `src/__tests__/e2e/specs/09-admin/admin-evolution-cost-split.spec.ts` — dashboard headline reflects evolution truth.
+- [ ] (If UI changes) `src/__tests__/e2e/specs/09-admin/admin-evolution-cost-split.spec.ts` — `/admin/costs` headline reflects evolution truth (non-zero); test vs real split renders.
 
 ### Manual Verification
 - [ ] `npm run query:staging` reconciliation query before/after shows the gap closed.
+- [ ] After Phase 0/3 fix: trigger one local evolution run and confirm its `cost_usd>0` invocations now have joining `llmCallTracking` rows (Layer 1+2 effective).
 
 ## Verification
 
@@ -70,7 +83,9 @@ Fix `/admin/costs` to stop under-reporting AND do **foundational rework** so a c
 
 ### B) Automated Tests
 - [ ] `npm run test:unit -- costAnalytics`
-- [ ] `npm run test:integration -- --grep "cost-attribution"`
+- [ ] `npm run test:unit -- llms` (Layer 1 default-on requireTracking)
+- [ ] `npm run check:llm-coverage` (Layer 2 guard green)
+- [ ] `npm run test:integration -- --grep "cost-attribution"` (canonical parity + Layer 3 reconciliation)
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
