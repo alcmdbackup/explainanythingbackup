@@ -550,6 +550,28 @@ describe('arenaActions', () => {
       expect(result.error?.message).toContain('Invalid topicId');
     });
 
+    // Bug-sweep fix (2026-06-23): article-topic leaderboards must filter
+    // variant_kind='article' so paragraph rewrites that share prompt_id with
+    // article variants don't pollute the result set.
+    it('filters by variant_kind=article so paragraph rewrites do not pollute the leaderboard', async () => {
+      const eqMock = jest.fn().mockReturnThis();
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: eqMock,
+        order: jest.fn().mockReturnThis(),
+        is: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: [MOCK_ENTRY], count: 1, error: null })
+        ),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      await getArenaEntriesAction({ topicId: VALID_UUID });
+
+      const eqCalls = eqMock.mock.calls.map((c) => c.slice(0, 2));
+      expect(eqCalls).toContainEqual(['variant_kind', 'article']);
+    });
+
     it('returns error on DB failure', async () => {
       const chain = {
         select: jest.fn().mockReturnThis(),

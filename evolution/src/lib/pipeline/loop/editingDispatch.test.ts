@@ -141,6 +141,33 @@ describe('resolveEditingDispatchRuntime', () => {
     expect(result.eligibleParents).toEqual([]);
     expect(result.effectiveCap).toBe('pool_size');
   });
+
+  // Bug-sweep fix (2026-06-23): Decision §12 requires deterministic ordering
+  // for reproducibility. On Elo ties, sort must break by id lexicographically.
+  it('breaks Elo ties by lexicographic id for deterministic ordering', () => {
+    // Three variants at identical Elo; pool order varies, but result must be
+    // id-ascending so reruns with the same seed pick the same parents.
+    const ratings = new Map<string, Rating>([
+      ['z-third', rating(1200)],
+      ['a-first', rating(1200)],
+      ['m-second', rating(1200)],
+    ]);
+    const callOne = resolveEditingDispatchRuntime({
+      pool: [variant('z-third'), variant('a-first'), variant('m-second')],
+      arenaVariantIds: new Set(),
+      iterationStartRatings: ratings,
+      cutoff: { mode: 'topN', value: 2 },
+    });
+    // Different pool ordering, same ratings — must yield the same eligible set.
+    const callTwo = resolveEditingDispatchRuntime({
+      pool: [variant('m-second'), variant('z-third'), variant('a-first')],
+      arenaVariantIds: new Set(),
+      iterationStartRatings: ratings,
+      cutoff: { mode: 'topN', value: 2 },
+    });
+    expect(callOne.eligibleParents.map((v) => v.id)).toEqual(['a-first', 'm-second']);
+    expect(callTwo.eligibleParents.map((v) => v.id)).toEqual(['a-first', 'm-second']);
+  });
 });
 
 describe('runtime / planner cross-mode equivalence', () => {

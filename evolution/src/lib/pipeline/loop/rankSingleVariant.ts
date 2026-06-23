@@ -156,7 +156,14 @@ export function selectOpponent(
 
     candidates.push({ id: opp.id, rating: oppRating, pWin, entropy, score });
 
-    if (score > bestScore) {
+    // Per Decision §12: ties broken by lexicographic id for determinism. Float
+    // ties on entropy/uncertainty^k are rare but possible (mirror ratings,
+    // identical seeds); the tiebreak matches the editingDispatch / debate
+    // pattern so the picked opponent is reproducible across reruns.
+    if (
+      score > bestScore ||
+      (score === bestScore && bestId !== null && opp.id < bestId)
+    ) {
       bestScore = score;
       bestId = opp.id;
       bestPWin = pWin;

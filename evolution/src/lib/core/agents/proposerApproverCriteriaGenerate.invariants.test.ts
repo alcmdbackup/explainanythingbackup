@@ -64,4 +64,46 @@ describe('ProposerApproverCriteriaGenerateAgent invariants', () => {
     // groups — if removed, mirror cost projection becomes off by the rejection rate.
     expect(source.toLowerCase()).toMatch(/short.?circuit|forward.?reject|mirror.{0,40}null/i);
   });
+
+  // I3 invariant: every helper LLM-call catch block MUST persist partial
+  // execution_detail (via updateInvocation) BEFORE re-throwing, so the
+  // invocation row preserves forensic context. Bug-sweep fix 2026-06-23
+  // landed updateInvocation calls in the eval+suggest, proposer, and
+  // forward-approver catch paths.
+  it('I3: eval+suggest catch persists partial detail before re-throwing EvaluateAndSuggestLLMError', () => {
+    // Find the `throw new EvaluateAndSuggestLLMError(` site (skip the import).
+    const throwSite = source.search(/throw\s+new\s+EvaluateAndSuggestLLMError\s*\(/);
+    expect(throwSite).toBeGreaterThan(-1);
+    // The 800 chars BEFORE the throw should contain an updateInvocation call.
+    const window = source.slice(Math.max(0, throwSite - 800), throwSite);
+    expect(window).toMatch(/updateInvocation\s*\(/);
+  });
+
+  it('I3: proposer catch persists partial detail before re-throwing', () => {
+    // Locate the "Proposer LLM call failed" throw site, then walk back 800
+    // chars to confirm an updateInvocation call landed in the same catch.
+    const proposerThrowIdx = source.indexOf('Proposer LLM call failed');
+    expect(proposerThrowIdx).toBeGreaterThan(-1);
+    const window = source.slice(Math.max(0, proposerThrowIdx - 800), proposerThrowIdx);
+    expect(window).toMatch(/updateInvocation\s*\(/);
+  });
+
+  it('I3: forward-approver catch persists partial detail before re-throwing', () => {
+    const fwdThrowIdx = source.indexOf('Forward approver LLM call failed');
+    expect(fwdThrowIdx).toBeGreaterThan(-1);
+    const window = source.slice(Math.max(0, fwdThrowIdx - 1000), fwdThrowIdx);
+    expect(window).toMatch(/updateInvocation\s*\(/);
+  });
+
+  it('I3: mirror-approver cost is captured in a finally so partial spend is always recorded', () => {
+    // Locate the mirror catch block; its end must be followed by a `finally`
+    // block that updates approveMirrorCostUsd from the cost tracker.
+    const mirrorCatchIdx = source.indexOf('Mirror approver LLM call failed');
+    expect(mirrorCatchIdx).toBeGreaterThan(-1);
+    // The 600 chars AFTER the catch body should contain a finally that
+    // reassigns approveMirrorCostUsd from the cost tracker.
+    const window = source.slice(mirrorCatchIdx, Math.min(source.length, mirrorCatchIdx + 1200));
+    expect(window).toMatch(/finally\s*\{/);
+    expect(window).toMatch(/approveMirrorCostUsd\s*=/);
+  });
 });
