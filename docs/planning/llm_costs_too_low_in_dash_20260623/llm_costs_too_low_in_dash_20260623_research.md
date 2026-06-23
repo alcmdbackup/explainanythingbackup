@@ -9,6 +9,21 @@ Evolution dashboard / cost reporting says ~$3 spent in the past week, but real t
 - Make sure **tests are adequately accounted for** — confirm the `is_test` discriminator isn't wrongly excluding real operational spend (or wrongly including test spend in the "real" figure).
 - **Backfill if necessary** — repair historical/missing cost data where a valid join key exists.
 
+## Updated Plan Summary (key components)
+
+**Root cause (confirmed on dev):** `/admin/costs` reads everything from `llmCallTracking`, which is near-empty for evolution because the minicomputer queue runner's LLM calls never write tracking rows. The true cost lives in `evolution_agent_invocations.cost_usd` (~$38/30d), ~89% of it genuine test-strategy spend (mostly pre-06-21-gate history). So the headline shows ~$3 (real, non-test) vs the $40-60 the user expects.
+
+**Chosen approach — Option C + D, dev-only:**
+1. **B (load-bearing): canonical unified cost source.** One view/RPC that UNIONs non-evolution `llmCallTracking` + evolution `evolution_agent_invocations` (dedup-safe), carrying `is_test`/category. Repoint every `/admin/costs` read path (summary, by-model, by-entity, daily, `get_llm_spend_buckets`) at it so no consumer can under-report. Must NOT depend on `llmCallTracking` completeness.
+2. **D (cross-cutting): first-class test/real split.** Evolution classified via `run → strategy.is_test_content`; non-evo via `llmCallTracking.is_test`. Test spend becomes a visible line, not a filtered-out bucket.
+3. **A (follow-up, non-blocking): write-path fix.** The runner path bypasses `saveTrackingAndNotify`; close it via a focused `/debug` trace of how `processRunQueue → claimAndExecuteRun` builds `rawProvider` vs the (correctly-wired) `/api/evolution/run` route.
+
+**Explicitly out / rejected:** backfilling `llmCallTracking` for the gap window (non-backfillable; data already exists in invocations).
+
+**Carry-forward caveat:** prod `llmCallTracking` lacks the `is_test` column (migration not promoted) — any prod rollout of the dashboard/`is_test` logic must promote the schema first.
+
+---
+
 ## High Level Summary (UPDATED — confirmed with dev DB queries 2026-06-23)
 
 **Verdict: the discrepancy is real and has TWO independent causes, both confirmed with data on the Dev DB (`npm run query:staging`).**
