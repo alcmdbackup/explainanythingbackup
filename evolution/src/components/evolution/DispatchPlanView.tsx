@@ -38,6 +38,7 @@ function badgeForCap(cap: IterationPlanEntryClient['effectiveCap']): { label: st
     case 'safety_cap': return { label: 'safety cap', tone: 'error' };
     case 'swiss': return { label: 'swiss', tone: 'neutral' };
     case 'eligibility': return { label: 'cutoff', tone: 'warning' };
+    case 'config_limit': return { label: 'maxDispatches', tone: 'warning' };
   }
 }
 
@@ -53,6 +54,7 @@ const CAP_TOOLTIPS: Record<IterationPlanEntryClient['effectiveCap'], string> = {
   safety_cap: 'DISPATCH_SAFETY_CAP=100 binding — budget math would otherwise allow more.',
   swiss: 'Swiss iteration — no parallel generate batch.',
   eligibility: 'Editing eligibility cutoff is binding — budget math would allow more invocations than there are eligible top-Elo parents.',
+  config_limit: 'Strategy config maxDispatches is binding — budget math would otherwise allow more.',
 };
 
 // K3 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):

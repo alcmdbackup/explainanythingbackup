@@ -168,7 +168,7 @@ export class GenerateFromPreviousArticleAgent extends Agent<
     const localRatings = deepCloneRatings(initialRatings);
     const localMatchCounts = new Map(initialMatchCounts);
     const completedPairs = new Set<string>();
-    const costBeforeGen = ctx.costTracker.getOwnSpent?.() ?? ctx.costTracker.getTotalSpent();
+    const costBeforeGen = (ctx.costTracker.getOwnSpent?.() ?? 0);
     const generationStartTime = Date.now();
 
     const makeEarlyExitDetail = (
@@ -225,7 +225,7 @@ export class GenerateFromPreviousArticleAgent extends Agent<
         invocationId: ctx.invocationId,
       });
     } catch (err) {
-      const generationCost = (ctx.costTracker.getOwnSpent?.() ?? ctx.costTracker.getTotalSpent()) - costBeforeGen;
+      const generationCost = ((ctx.costTracker.getOwnSpent?.() ?? 0)) - costBeforeGen;
       const isBudget = err instanceof BudgetExceededError;
       const status = isBudget ? 'budget' : 'generation_failed';
       const errMsg = (err instanceof Error ? err.message : String(err)).slice(0, 500);
@@ -244,7 +244,7 @@ export class GenerateFromPreviousArticleAgent extends Agent<
     }
 
     const fmt = validateFormat(generated);
-    const generationCost = (ctx.costTracker.getOwnSpent?.() ?? ctx.costTracker.getTotalSpent()) - costBeforeGen;
+    const generationCost = ((ctx.costTracker.getOwnSpent?.() ?? 0)) - costBeforeGen;
     const generationDurationMs = Date.now() - generationStartTime;
 
     if (!fmt.valid) {

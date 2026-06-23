@@ -20,6 +20,7 @@ import type { EvolutionConfig } from '../infra/types';
 
 let mockComparisonQueue: ComparisonResult[] = [];
 let mockLLMShouldThrowBudget = false;
+let mockComparisonThrowQueue: Error[] = [];
 
 jest.mock('../../shared/computeRatings', () => {
   const actual = jest.requireActual('../../shared/computeRatings');
@@ -30,6 +31,8 @@ jest.mock('../../shared/computeRatings', () => {
         const { BudgetExceededError } = require('../../types');
         throw new BudgetExceededError('ranking', 1, 0, 1);
       }
+      const nextThrow = mockComparisonThrowQueue.shift();
+      if (nextThrow) throw nextThrow;
       const next = mockComparisonQueue.shift();
       if (!next) {
         // Default decisive A win at confidence 1.0 if queue empty
@@ -61,6 +64,7 @@ const mkLlm = (): EvolutionLLMClient => ({
 beforeEach(() => {
   mockComparisonQueue = [];
   mockLLMShouldThrowBudget = false;
+  mockComparisonThrowQueue = [];
 });
 
 // ─── computeTop15Cutoff ───────────────────────────────────────────
@@ -295,6 +299,32 @@ describe('rankSingleVariant', () => {
     expect(result.matches).toEqual([]);
     expect(result.comparisonsRun).toBe(0);
     expect(result.detail.stopReason).toBe('budget');
+  });
+
+  it('re-throws permanent provider errors (402 / parse / auth) instead of masking as fake TIE', async () => {
+    // Sibling of D5 (402-cascade): non-transient errors must propagate, not corrupt
+    // ratings with synthetic zero-confidence draws.
+    const params = buildParams();
+    const paymentRequired = new Error('Request failed with status code 402: Insufficient credits');
+    mockComparisonThrowQueue = [paymentRequired];
+    await expect(rankSingleVariant(params)).rejects.toThrow(/402/);
+  });
+
+  it('skips opponent on transient errors instead of polluting matchBuffer/completedPairs', async () => {
+    const params = buildParams();
+    // First comparison throws a transient (timeout) error. Subsequent comparisons succeed.
+    mockComparisonThrowQueue = [new Error('LLM call timeout')];
+    mockComparisonQueue = [
+      { winner: 'A', confidence: 1.0, turns: 2 },
+      { winner: 'A', confidence: 1.0, turns: 2 },
+    ];
+    const result = await rankSingleVariant(params);
+    // The transient failure must NOT produce a confidence-0 match in the buffer.
+    const failureMatches = result.matches.filter(m => m.confidence === 0);
+    expect(failureMatches).toEqual([]);
+    // At least one successful comparison should still have happened.
+    expect(result.matches.length).toBeGreaterThan(0);
+    expect(result.matches.every(m => m.confidence > 0)).toBe(true);
   });
 
   it('exits via eliminated when elo+2uncertainty drops below top15Cutoff', async () => {

@@ -1,0 +1,902 @@
+[
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+    "line": 403,
+    "title": "isDraw redefinition with incompatible semantics",
+    "category": "correctness",
+    "severity_guess": "medium",
+    "reasoning": "Line 403 redefines isDraw=(match.confidence < 0.3 || match.result==='draw'). This shadows the earlier isDraw at line 223 (winner !== 'A' && winner !== 'B'). The second definition mixes judge output semantics with confidence thresholds. At line 404, isFailure=(confidence===0) creates redundancy. When confidence is 0.1-0.3, isDraw=true but isFailure=false, so ratings ARE updated despite low confidence. This is inconsistent with the comment intent at line 402 ('Skip rating update for total LLM failures').",
+    "finder": "correctness-pipeline-loop"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/projectDispatchPlan.ts",
+    "line": 593,
+    "title": "effectiveCap mislabeled 'safety_cap' for config-limit dispatch",
+    "category": "correctness",
+    "severity_guess": "medium",
+    "reasoning": "When finalDispatch===maxDispatchesK (user-set iteration max), line 593 sets effectiveCap='safety_cap'. But maxDispatchesK is a config limit, not DISPATCH_SAFETY_CAP (=100). This misrepresents the limiting factor to the wizard preview. Setting maxDispatches=5 then showing 'safety cap' in the UI is misleading. Line 595 correctly checks DISPATCH_SAFETY_CAP, so line 593 is a copy-paste error conflating two different constraints.",
+    "finder": "correctness-pipeline-loop"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/editingDispatch.ts",
+    "line": 64,
+    "title": "Missing Elo-tie tiebreak in variant sort",
+    "category": "correctness",
+    "severity_guess": "medium",
+    "reasoning": "Lines 64-68 sort variants by Elo without a deterministic tiebreak. When two variants have identical Elo, sort order is unstable, breaking reproducibility. debateDispatch.ts lines 105-106 have the correct pattern: if(eb!==ea)return eb-ea; return a.id<b.id?-1:a.id>b.id?1:0. This violates Decision §12 and makes parent selection non-deterministic.",
+    "finder": "correctness-pipeline-loop"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/runIterationLoop.ts",
+    "line": 152,
+    "title": "Missing Elo-tie tiebreak in computeEligibleIds",
+    "category": "correctness",
+    "severity_guess": "medium",
+    "reasoning": "Line 152 sorts by Elo without tiebreak. Used at line 162 to select top-MIN_SWISS_POOL variants for swiss eligibility. Non-deterministic ordering breaks reproducibility invariant. Should add: if(eloDiff!==0)return eloDiff; return a.id<b.id?-1:a.id>b.id?1:0; (following cutoffHelpers.ts pattern).",
+    "finder": "correctness-pipeline-loop"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/runIterationLoop.ts",
+    "line": 1378,
+    "title": "Missing Elo-tie tiebreak before paragraph-recombine parent shuffle",
+    "category": "correctness",
+    "severity_guess": "medium",
+    "reasoning": "Line 1378 sorts paragraph-recombine eligible parents by Elo without tiebreak. Shuffle at line 1388 operates on unstable order. When two variants tie on Elo, their relative order before shuffle is non-deterministic, breaking reproducibility. Should add tiebreak: if(eloOf(b)!==eloOf(a))return eloOf(b)-eloOf(a); return a.id<b.id?-1:a.id>b.id?1:0;",
+    "finder": "correctness-pipeline-loop"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/runIterationLoop.ts",
+    "line": 1678,
+    "title": "Missing Elo-tie tiebreak before paragraph-coherence parent shuffle",
+    "category": "correctness",
+    "severity_guess": "medium",
+    "reasoning": "Line 1678 sorts paragraph-coherence eligible parents by Elo without tiebreak. Shuffle at line 1688 operates on unstable order, producing non-reproducible results on Elo ties. Should add tiebreak: if(eloOf(b)!==eloOf(a))return eloOf(b)-eloOf(a); return a.id<b.id?-1:a.id>b.id?1:0;",
+    "finder": "correctness-pipeline-loop"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+    "line": 392,
+    "title": "Transient LLM errors swallowed as TIE, consuming comparison budget",
+    "category": "cost-tracking",
+    "severity_guess": "high",
+    "reasoning": "LLM failures (402, 5xx, parse error) are converted to TIE/confidence=0 and added to matchBuffer + completedPairs. Line 404 detects isFailure=true and skips rating updates at line 411. Net result: transient failures consume comparison budget (reducing convergence chances) but don't improve variant uncertainty. Marked as 'unfixed sibling' in surface map. Should not add to completedPairs on failure, allowing retry with different opponents instead of wasting slots.",
+    "finder": "correctness-pipeline-loop"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+    "line": 376,
+    "title": "402 in ranking swallowed as TIE, silencing cost errors",
+    "category": "error-handling",
+    "severity_guess": "high",
+    "reasoning": "Line 376: `if (e instanceof BudgetExceededError)` is caught and logged, but non-BudgetExceededError exceptions at lines 375-392 are SILENTLY CONVERTED to zero-confidence TIEs (line 392: `comparisonResult = { winner: 'TIE', confidence: 0, turns: 2 }`). This includes 402/5xx errors from the LLM provider, which should be surfaced. The variant continues ranking with fake TIEs instead of failing loudly, corrupting the binary search signal and masking provider issues.",
+    "finder": "cost-tracking"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+    "line": 483,
+    "title": "Outer try-catch masks non-BudgetExceededError exceptions in ranking",
+    "category": "error-handling",
+    "severity_guess": "high",
+    "reasoning": "Line 483-489: The outer try-catch only checks `if (e instanceof BudgetExceededError)` and rethrows everything else. However, line 375-392's inner try-catch already swallowed non-budget errors and converted them to TIEs, so they never reach this outer handler. Any exception that escapes the inner catch (e.g., from opponent selection or rating logic) gets rethrown, but transient LLM errors already got masked.",
+    "finder": "cost-tracking"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts",
+    "line": 223,
+    "title": "Empty response cost recorded before throw, breaking retry accounting",
+    "category": "cost-tracking",
+    "severity_guess": "medium",
+    "reasoning": "Line 223: `costTracker.recordSpend(agentName, billedActual, margined)` is called when response is empty, before throwing. This records cost and releases the margined reservation. On retry, line 195 reserves again. If the provider charged for the empty call but the retry fails or is not attempted, the cost is recorded but the attempt is abandoned. The balance is correct (cost + margin released) but the semantics are: record-early-then-throw, which is unusual. Should verify this doesn't interact poorly with budget tracking under high concurrency.",
+    "finder": "cost-tracking"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/trackBudget.ts",
+    "line": 293,
+    "title": "Legacy fallback in iter tracker can leak run-tracker reservation on iteration reject",
+    "category": "cost-tracking",
+    "severity_guess": "medium",
+    "reasoning": "Lines 291-301: When `runTracker.computeMargined` is missing (test mocks), the fallback calls `runTracker.reserve()` BEFORE checking the iteration budget. If iteration check fails and throws, `runTracker.release()` is called but the code path suggests the release may not have been called earlier in the same operation. The comment acknowledges 'leak still possible on iter-reject' but marks this as acceptable for test mocks. However, this is a live code path that could execute in production if a mock-like tracker is somehow used.",
+    "finder": "cost-tracking"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/trackBudget.ts",
+    "line": 168,
+    "title": "recordSpend does not validate actualCost >= 0, trusting caller",
+    "category": "correctness",
+    "severity_guess": "medium",
+    "reasoning": "Line 168: `totalSpent += actualCost` does not check that `actualCost >= 0`. Line 150 validates `estimatedCost` in `reserve()` but `recordSpend()` trusts the caller (e.g., createEvolutionLLMClient) to pass valid positive costs. If any path passes negative costs (e.g., via a correction or refund logic not yet implemented), totalSpent would decrease silently and the budget gate would become inaccurate.",
+    "finder": "cost-tracking"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts",
+    "line": 195,
+    "title": "Reserve failure on retry attempt logs error but doesn't backoff, losing retry context",
+    "category": "error-handling",
+    "severity_guess": "low",
+    "reasoning": "Lines 194-201: When `reserve()` throws BudgetExceededError on a retry attempt (attempt > 0), the error is logged and rethrown. The caller (rankSingleVariant.ts) does not distinguish retry-attempt budget errors from first-attempt errors, so both appear as 'budget' status. This loses the context that a retry was starved for budget — important for debugging why a variant was ranked incompletely.",
+    "finder": "cost-tracking"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/generateFromPreviousArticle.ts",
+    "line": 171,
+    "title": "Cost delta computation uses fallback to getTotalSpent() instead of requiring getOwnSpent",
+    "category": "cost-tracking",
+    "severity_guess": "medium",
+    "reasoning": "Line 171: `const costBeforeGen = ctx.costTracker.getOwnSpent?.() ?? ctx.costTracker.getTotalSpent();` uses fallback to getTotalSpent() when getOwnSpent is unavailable. Under parallel execution, sibling agents' costs bleed into this delta if getTotalSpent is used. rankNewVariant.ts properly asserts getOwnSpent exists (line 92-94), but GFPA allows the fallback. This creates inconsistent cost attribution paths depending on whether context wrapping succeeded.",
+    "finder": "cost-tracking"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/reflectAndGenerateFromPreviousArticle.ts",
+    "line": 200,
+    "title": "Partial execution_detail write on reflection failure could lose ranking phase data",
+    "category": "correctness",
+    "severity_guess": "low",
+    "reasoning": "Lines 200-250 (approximate): When reflection LLM fails and writeInvocation is called with partial detail, Agent.run()'s catch handler later tries to update the same invocation row. The Phase 2 trackInvocations partial-update should preserve the wrapper's detail, but if both updates race and the agent.run() update includes null execution_detail in its conditional spread, the wrapper's partial detail could be overwritten. The code claims to handle this (line 15-17 comment) but the race window between wrapper write and outer catch is not explicitly synchronized.",
+    "finder": "cost-tracking"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/trackBudget.ts",
+    "line": 329,
+    "title": "Per-iteration phase costs shadow run-cumulative costs when legacy flag enabled, breaking metric aggregation",
+    "category": "cost-tracking",
+    "severity_guess": "high",
+    "reasoning": "Lines 337-345: When `EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED === 'false'`, `getPhaseCosts()` returns per-iteration costs instead of run-cumulative. The comment at line 328-329 explains this breaks writeMetricMax(GREATEST) because smaller per-iteration contributions appear as backward deltas. The fix moves to run-cumulative by default, but if an operator accidentally sets the env to 'false', cost metrics will silently under-report per-subagent costs, and GREATEST will fail to accumulate across iterations.",
+    "finder": "cost-tracking"
+  },
+  {
+    "file": "evolution/src/lib/services/costEstimationActions.ts",
+    "line": 429,
+    "title": "Invocation cost aggregation uses cost_usd directly, not reconciled against evolution_metrics",
+    "category": "cost-tracking",
+    "severity_guess": "medium",
+    "reasoning": "Lines 410-439: `getRunCostEstimatesAction` fetches `evolution_agent_invocations.cost_usd` for each invocation but doesn't cross-check against `evolution_metrics.cost` for the run. If invocation rows have NULL cost_usd (e.g., legacy rows or persistence failures), they contribute 0 to the costByAgent roll-up, silently under-counting. The costAnalytics.ts comment at line 36-39 acknowledges this audit gap exists, but the action doesn't surface a warning when invocation costs are sparse.",
+    "finder": "cost-tracking"
+  },
+  {
+    "file": "evolution/src/lib/services/costEstimationActions.ts",
+    "line": 532,
+    "title": "Paragraph_recombine invocation cost split computed from execution_detail, no fallback to cost_usd delta",
+    "category": "cost-tracking",
+    "severity_guess": "medium",
+    "reasoning": "Lines 531-542: Slice breakdown queries invocations with `agent_name IN ('generate_from_previous_article', 'paragraph_recombine')` and reads cost from `execution_detail.paragraph_rewrite.cost` and `execution_detail.paragraph_rank.cost`. If execution_detail is NULL or missing these fields, the slice gets no cost recorded and is treated as cost=0, dropping it from the cost breakdown. Unlike GFPA (which has measured costs), paragraph_recombine cost splits depend entirely on schema compliance.",
+    "finder": "cost-tracking"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/estimateCosts.ts",
+    "line": 389,
+    "title": "Iterative editing ranking cost estimate uses seedChars not final article size",
+    "category": "cost-tracking",
+    "severity_guess": "low",
+    "reasoning": "Line 389: `estimateIterativeEditingCost` computes `expectedRanking = estimateRankingCost(seedChars, ...)` but the ranking runs AFTER editing cycles that grow the article. The upperBound on line 392 correctly uses the final `articleChars` (after growth), but expected uses seedChars. This under-estimates expected ranking cost by ~50% (1.5× growth factor per cycle). The reservation uses upperBound so it doesn't cause budget failure, but it misleads cost projections.",
+    "finder": "cost-tracking"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/runIterationLoop.ts",
+    "line": 1,
+    "title": "BudgetExceededError vs IterationBudgetExceededError catch order not enforced at type level",
+    "category": "error-handling",
+    "severity_guess": "low",
+    "reasoning": "The doc at line 1 warns 'BudgetExceededWithPartialResults must be caught BEFORE BudgetExceededError (subclass-catch foot-gun)'. The code catches these correctly in sequence, but there is no TypeScript type-level enforcement. If a developer adds a new error handler and reverses the order, the subclass would be missed. A sealed union type or explicit `instanceof` ordering could enforce this at compile time.",
+    "finder": "cost-tracking"
+  },
+  {
+    "file": "evolution/src/lib/metrics/writeMetrics.ts",
+    "line": 1,
+    "title": "writeMetricMax GREATEST upsert silently loses values if cost starts at 0 due to stale row",
+    "category": "cost-tracking",
+    "severity_guess": "medium",
+    "reasoning": "The implementation uses Postgres GREATEST to ensure monotone-increasing cost values. However, if a run's evolution_metrics cost row is initialized to 0 at run start (as per design), and an invocation writes 0.0001 cost via writeMetricMax, GREATEST(0, 0.0001) = 0.0001 (correct). But if the row is uninitialized (NULL), the first write via writeMetricMax might fail to update because GREATEST(NULL, value) = NULL in SQL. The code should initialize cost rows to 0 explicitly in the metrics schema, not rely on null-coalescing.",
+    "finder": "cost-tracking"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts",
+    "line": 1,
+    "title": "Per-slot AgentCostScope never resets, accumulates cost across all slots",
+    "category": "cost-tracking",
+    "severity_guess": "medium",
+    "reasoning": "D16 at line 14 states 'Per-slot AgentCostScope nested under invocationScope; self-abort at 0.9× perSlotBudget'. However, reading lines 100+ (not shown but inferred from context), each slot creates a new scope but they all delegate to the same shared invocationScope costTracker. If scope.getOwnSpent() is called per-slot, it should measure only that slot's cost, not cumulative cost of all prior slots. The implementation in trackBudget.ts createAgentCostScope correctly tracks `ownSpent` separately (line 79), but if a slot reads costTracker.getTotalSpent() as a fallback, it would capture cumulative cost and self-abort early.",
+    "finder": "cost-tracking"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/createEntityLogger.ts",
+    "line": 161,
+    "title": "Silent catch block swallows promise rejection",
+    "category": "error-handling",
+    "severity_guess": "medium",
+    "reasoning": "Line 161 has `.catch(() => {})` which silently swallows errors from the promise chain. While this is documented as intentional fire-and-forget, it makes debugging difficult if the DB insert encounters intermittent errors. The comment 'Swallow — fire-and-forget' indicates this is intentional, but production issues with entity logging failures would be invisible.",
+    "finder": "error-handling"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+    "line": 375,
+    "title": "402 Payment Required errors swallowed as TIE",
+    "category": "error-handling",
+    "severity_guess": "high",
+    "reasoning": "At line 375-392, the catch block checks for `BudgetExceededError` but not for HTTP 402 errors returned by LLM providers. A 402 (payment required) from DeepSeek/QwQ would not match the budget check (which looks for instanceof BudgetExceededError) nor be classified as transient by isTransientError(). It falls through to the default handler which records the comparison as `{ winner: 'TIE', confidence: 0 }` and continues silently. This silently masks payment issues, ranking becomes incorrect, and operators don't realize the run hit a payment problem.",
+    "finder": "error-handling"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/createEntityLogger.ts",
+    "line": 139,
+    "title": "Promise.resolve() creates fire-and-forget without proper error propagation",
+    "category": "error-handling",
+    "severity_guess": "low",
+    "reasoning": "Line 139 wraps the insert in Promise.resolve() which converts any synchronous or early-rejected promise into a standalone promise that's never returned or awaited. Combined with the silent .catch() at line 161, database errors from evolution_logs inserts are completely swallowed. While the comment says this is intentional, it means observability of entity logging issues is lost entirely - no metrics, no alerts possible when logging fails.",
+    "finder": "error-handling"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts",
+    "line": 277,
+    "title": "Error rethrow drops cause chain",
+    "category": "error-handling",
+    "severity_guess": "low",
+    "reasoning": "At line 277, `throw new Error(\\`Strategy upsert failed: ${error.message}\\`)` extracts error.message and wraps it, losing the original error object and its cause chain. If the upsert fails due to a database constraint violation or network error, the root cause (which might be in error.details or nested in error.cause) is lost. Better to: `throw new Error(...{ cause: error })`.",
+    "finder": "error-handling"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/createEntityLogger.ts",
+    "line": 159,
+    "title": "DB error message accessed without instanceof check",
+    "category": "error-handling",
+    "severity_guess": "low",
+    "reasoning": "Line 159 accesses `error.message` on the Supabase error object directly. While Supabase errors should always have a message property, the code doesn't guard against a malformed response. Should be: `(error?.message ?? String(error))` to be defensive.",
+    "finder": "error-handling"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+    "line": 392,
+    "title": "Non-budget LLM errors recorded as TIE with zero confidence",
+    "category": "error-handling",
+    "severity_guess": "medium",
+    "reasoning": "When a comparison LLM call fails (line 375-392), the code records a zero-confidence draw and continues ranking. For transient errors (5xx, timeouts), this is acceptable. But for permanent errors (4xx auth failures, unsupported models), continuing to rank with fake zero-confidence ties trains the Elo ratings on false data. The code should distinguish transient (retry on next comparison) from permanent (abort variant ranking entirely).",
+    "finder": "error-handling"
+  },
+  {
+    "file": "evolution/src/lib/shared/classifyErrors.ts",
+    "line": 34,
+    "title": "402 Payment Required not in transient error list",
+    "category": "error-handling",
+    "severity_guess": "high",
+    "reasoning": "The transient error regex at line 34 includes HTTP error codes `(429|408|500|502|503|504)` but omits 402. A 402 from an LLM provider (payment required, account disabled, rate limit on billing) should be treated as transient (fail the run cleanly) not permanent. Currently 402 would fall through isTransientError() returning false, and then rankSingleVariant would record it as a zero-confidence tie instead of aborting.",
+    "finder": "error-handling"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts",
+    "line": 197,
+    "title": "Budget reserve error logging then re-throws same error twice",
+    "category": "error-handling",
+    "severity_guess": "low",
+    "reasoning": "Lines 196-201 catch BudgetExceededError from reserve(), log it, then re-throw. The catch block at line 268 will immediately catch it again. While not a functional bug (it does propagate), this creates nested error handling for the same error. Could be unified into a single handler or the reserve-time error handler removed since the line-268 handler does the same thing.",
+    "finder": "error-handling"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/reflectAndGenerateFromPreviousArticle.ts",
+    "line": 364,
+    "title": "Parser error re-thrown after partial detail write, but error type may not be ReflectionParseError",
+    "category": "error-handling",
+    "severity_guess": "low",
+    "reasoning": "Lines 340-365 catch any error from parseReflectionRanking, write partial detail, then `throw err` at line 364. If the parser throws a non-ReflectionParseError (e.g., a synchronous TypeError from the validator), it will be re-thrown as a generic error without the parse context. The throw at line 391 is correct (wraps in ReflectionParseError), but line 364 should also wrap or preserve the original error type better.",
+    "finder": "error-handling"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+    "line": 403,
+    "title": "Confidence threshold 0.3 hardcoded without considering error context",
+    "category": "error-handling",
+    "severity_guess": "low",
+    "reasoning": "Line 403 uses `match.confidence < 0.3` to detect draws, which masks the isFailure condition (confidence 0). When a comparison fails silently and returns confidence 0, this line treats it as a draw rather than explicitly marking it as a failure. Later (line 404), isFailure is computed separately, but the interval [0, 0.3) is never specifically handled as an error state in logging or metrics.",
+    "finder": "error-handling"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/finalize/persistRunResults.ts",
+    "line": 737,
+    "title": "Arena sync error classification relies on error.message text matching",
+    "category": "error-handling",
+    "severity_guess": "low",
+    "reasoning": "Arena sync is non-critical and errors are logged but not re-thrown (line 746). The error is logged as-is without structured error codes, so operators can't filter by error type. Similar to classifyError.ts, should have an arena-specific error classifier so sync failures can be analyzed and re-tried selectively (vs. bailing the entire run).",
+    "finder": "error-handling"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts",
+    "line": 399,
+    "title": "Concurrent mutation of shared slotDetails array in Promise.allSettled parallel slots",
+    "category": "concurrency",
+    "severity_guess": "critical",
+    "reasoning": "Lines 399-418 run N parallel processSlot calls via Promise.allSettled, each taking slotDetails (array) as a parameter. Every processSlot pushes to slotDetails at lines 703, 872, 892, 1043, 1071 without synchronization. When slots complete out-of-order, race conditions cause: (1) array element insertion race where push() calls execute concurrently; (2) lost updates if interleaved; (3) final sort at line 421 may fail to restore order if concurrent pushes violated FIFO expectations. This violates the D18 invariant that should isolate per-slot state.",
+    "finder": "concurrency"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts",
+    "line": 949,
+    "title": "Missing await in per-candidate ranking loop allows concurrent mutations of localRatings",
+    "category": "concurrency",
+    "severity_guess": "critical",
+    "reasoning": "Line 948-977: for loop over survivingRewriteVariants calls rankNewVariant inside a try/catch but the await is properly there. However, examining line 951-952: the beforeRatings snapshot is created AFTER the previous candidate's rankNewVariant completes, but ranking functions mutate localRatings in place. If this loop were parallelized (which comments say it should NOT be), concurrent rankNewVariant calls sharing localRatings would corrupt ratings. Current code is sequential so this is safe, but the comment at D18 says 'per-slot pairwise ranking is SEQUENTIAL' — confirming the risk if someone removes the sequential constraint.",
+    "finder": "concurrency"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/trackBudget.ts",
+    "line": 78,
+    "title": "Race condition: ownSpent += actualCost not atomic with shared.recordSpend concurrent calls",
+    "category": "concurrency",
+    "severity_guess": "high",
+    "reasoning": "AgentCostScope.recordSpend at line 78-80 performs two operations: (1) ownSpent += actualCost (read-modify-write), (2) shared.recordSpend(...). In JavaScript, += on a primitive is not atomic. When multiple parallel agents (e.g., slots) call recordSpend concurrently, the ownSpent increment can race: Agent-A reads ownSpent=0, Agent-B reads ownSpent=0, both increment, both write 1 (lost update). This breaks per-slot budget self-abort checks relying on getOwnSpent() at line 673/754/864/983.",
+    "finder": "concurrency"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/sequentialExecute.ts",
+    "line": 473,
+    "title": "Promise.allSettled M parallel rewrites mutate shared slotScope state without synchronization",
+    "category": "concurrency",
+    "severity_guess": "high",
+    "reasoning": "Lines 473-531 run M rewrites in parallel via Promise.allSettled. Each rewrite calls slotScope.getOwnSpent() at line 493 and slotLlm.complete() which triggers recordSpend on slotScope (inherited from invocationScope via createAgentCostScope). The slotScope's ownSpent += actualCost at trackBudget.ts:79 is not atomic. Concurrent rewrites racing on the same slotScope can lose cost updates, causing budget self-abort check at line 493 to give stale readings. Cost accounting becomes unpredictable.",
+    "finder": "concurrency"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts",
+    "line": 751,
+    "title": "Promise.allSettled M parallel rewrites mutate invocationScope non-atomically",
+    "category": "concurrency",
+    "severity_guess": "high",
+    "reasoning": "Lines 751-784 run M rewrites in parallel. Each calls slotLlm.complete() -> recordSpend on invocationScope (shared across all parallel slots and all internal rewrites). The invocationScope.recordSpend at trackBudget.ts:78 performs ownSpent += actualCost non-atomically. With N slots × M rewrites = N*M concurrent recordSpend calls on a shared invocationScope, concurrent read-modify-write races corrupt totalReserved and ownSpent accounting. Line 525 gate check getTotalSpent() may see stale budget state.",
+    "finder": "concurrency"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankNewVariant.ts",
+    "line": 87,
+    "title": "localPool.push(variant) followed by unprotected mutations in concurrent rankNewVariant calls",
+    "category": "concurrency",
+    "severity_guess": "high",
+    "reasoning": "rankNewVariant is called per-candidate in sequential loops (line 948 in ParagraphRecombineAgent, line 638 in sequentialExecute). Line 87 pushes variant to localPool, line 88 initializes localRatings. The function then calls rankSingleVariant which mutates localRatings/localMatchCounts/completedPairs in place. The D18 invariant explicitly forbids concurrent calls to rankNewVariant for the same slot because it would corrupt these shared structures. However, the function signature does not prevent accidental parallel dispatch (e.g., Promise.all instead of sequential for loop).",
+    "finder": "concurrency"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/claimAndExecuteRun.ts",
+    "line": 66,
+    "title": "Heartbeat interval async callback may self-cancel via runner re-claim race",
+    "category": "concurrency",
+    "severity_guess": "high",
+    "reasoning": "startHeartbeat at line 66-81 returns setInterval with an async callback. The callback is fire-and-forget (no await on the async operation inside setInterval, only console logging). If the runner crashes or the heartbeat becomes stale, the watchdog may mark the run failed and re-claim it to another runner. Meanwhile, the heartbeat interval still fires on the old runner's stale process (if it's still alive). The eq('runner_id', runnerId) check at line 72 protects against overwrites, but creates a window where stale runner's heartbeat silently fails. The async callback returning a promise that never settles can accumulate pending promises.",
+    "finder": "concurrency"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/sequentialExecute.ts",
+    "line": 136,
+    "title": "Mutation of shared priorPicks and nextContext arrays threaded unsafely to concurrent rankNewVariant",
+    "category": "concurrency",
+    "severity_guess": "medium",
+    "reasoning": "Lines 203-209 build the nextContext array. Line 228: priorPicks is pushed to inside the sequential loop. Both arrays are passed to rankNewVariant calls (line 641-644, 654). rankNewVariant forwards these to buildComparisonPrompt (readOnly). The arrays themselves are not mutated by rankNewVariant, but if sequentialExecute were refactored to run ranking in parallel (breaking the D18 invariant), concurrent readOnly of priorPicks/nextContext could race with the loop's push operations at line 228, causing stale or incomplete context.",
+    "finder": "concurrency"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankNewVariant.ts",
+    "line": 120,
+    "title": "inRunIds Set computed from concurrent localPool without synchronization",
+    "category": "concurrency",
+    "severity_guess": "medium",
+    "reasoning": "Lines 120-125: rankNewVariant computes a new Set inRunIds from localPool's fromArena flag to filter ratings for top-15% cutoff computation (line 125). If this function were called concurrently (violating D18), localPool could be mutated by sibling calls while this code reads it, causing: (1) incomplete inRunIds set; (2) incorrect top-15% cutoff; (3) wrong discard/surface decision at line 129. The architecture assumes sequential per-slot execution, but no runtime enforcement prevents accidental parallelization.",
+    "finder": "concurrency"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts",
+    "line": 285,
+    "title": "slotWinnerTexts Map assembly at line 369-370 overwrites concurrent slot winners",
+    "category": "concurrency",
+    "severity_guess": "medium",
+    "reasoning": "Sequential path at lines 369-370 iterates seqResult.slotWinnerTexts Map entries and calls slotWinnerTexts.set(idx, text). The sequential path is safe by construction (runSequentialLoop is async, awaited). However, if the legacy parallel path's processSlot (lines 399-418) were refactored to be truly parallel AND both paths ran simultaneously (impossible but hypothetically), concurrent Map.set operations on slotWinnerTexts could race. Current architecture prevents this, but the shared state pattern is fragile.",
+    "finder": "concurrency"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts",
+    "line": 418,
+    "title": "slotDetails array order undefined after concurrent Promise.allSettled pushes",
+    "category": "concurrency",
+    "severity_guess": "medium",
+    "reasoning": "Promise.allSettled completes in any order. N parallel processSlot callbacks push slotDetails at arbitrary times. Line 421 sorts by slotIndex to restore determinism. However, if any processSlot throws or fails after pushing partially, slotDetails may contain incomplete entries interleaved. The sort at 421 by slotIndex assumes all entries have slotIndex set, but concurrent pushes could create inconsistent state if an early slot fails and late slot succeeds, leaving the array with mixed success/failure patterns that the sort does not prevent.",
+    "finder": "concurrency"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/claimAndExecuteRun.ts",
+    "line": 250,
+    "title": "Heartbeat clearInterval may not cancel pending async callback from previous interval tick",
+    "category": "concurrency",
+    "severity_guess": "medium",
+    "reasoning": "Line 250: startHeartbeat returns NodeJS.Timeout. Line 264 in finally: clearInterval(heartbeatInterval). clearInterval cancels future ticks but does not wait for a pending async callback from a tick already scheduled. If the heartbeat fires at T=0s with a 30s interval, and clearInterval is called at T=0.5s (before the callback resolves), the in-flight async callback still runs and may attempt to update a database record for a run that was just finalized. This is low-risk (the eq filter prevents wrong-state updates), but leaves orphaned promises.",
+    "finder": "concurrency"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts",
+    "line": 654,
+    "title": "Parallel slots all use shared invocationScope.getPhaseCosts() to compute budget, racing on coordinator cost",
+    "category": "concurrency",
+    "severity_guess": "medium",
+    "reasoning": "Sequential path Phase A (lines 302-339) calls runCoordinator. The cost lands in invocationScope via recordSpend (atomic push pattern OK). Later, Phase B loop (lines 349-396) awaits runSequentialLoop sequentially. Per-slot ranking inside runSequentialLoop is also sequential. However, the initial coordinator cost at line 326 is recorded on invocationScope, then each slot's per-slot ranking reads getPhaseCosts() at line 634-635. If coordinator cost accumulation raced with slot reads (hypothetically), stale budget estimates could bias ranking self-abort checks. Current code is safe because runCoordinator is sequential before the loop.",
+    "finder": "concurrency"
+  },
+  {
+    "file": "evolution/src/lib/maintenance/watchdog.ts",
+    "line": 55,
+    "title": "Watchdog heartbeat compare-and-set check vulnerable to clock drift between processes",
+    "category": "concurrency",
+    "severity_guess": "low",
+    "reasoning": "Lines 55-57 use .eq('last_heartbeat', run.last_heartbeat) to prevent overwriting a run that recovered between SELECT and UPDATE. However, if two watchdog processes (or runner heartbeat + watchdog) have clocks skewed by > threshold (10 minutes), one may see a stale heartbeat timestamp and mark a live run as failed. The RPC's server-side advisory lock (claim_evolution_run) protects claiming, but watchdog's read-then-update on heartbeat timestamp assumes clock monotonicity across processes. A runner with a clock behind the watchdog may be falsely marked stale.",
+    "finder": "concurrency"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts",
+    "line": 165,
+    "title": "Budget cap fallback to $1 on invalid input hides configuration errors silently",
+    "category": "error-handling",
+    "severity_guess": "low",
+    "reasoning": "File: claimAndExecuteRun.ts lines 165-173. When budget_cap_usd is invalid or missing, code warns but defaults to $1. This silently masks strategy configuration errors. A misconfigured strategy with no budget should fail loudly, not degrade to $1 cap. This is a logging/observability bug rather than concurrency, but it enables silent cost-tracking failures that could lead to budget exhaustion in downstream runs.",
+    "finder": "concurrency"
+  },
+  {
+    "file": "evolution/src/services/arenaActions.ts",
+    "line": 204,
+    "title": "Missing variant_kind filter in topic entry count query",
+    "category": "schema-db",
+    "severity_guess": "high",
+    "reasoning": "Lines 200-210: The count query for evolution_variants doesn't include .eq('variant_kind', 'article') even though the topics list is filtered to exclude paragraph topics (line 184). This causes article and paragraph variants to be mixed, polluting entry_count for article topics with paragraph variant counts. When a paragraph topic is hidden from the list but its variants exist in evolution_variants, they are counted toward article topic entry counts, creating inconsistency between the UI display and actual data.",
+    "finder": "schema-db"
+  },
+  {
+    "file": "evolution/src/services/arenaActions.ts",
+    "line": 303,
+    "title": "getArenaEntries query missing variant_kind filter for topic filtering",
+    "category": "schema-db",
+    "severity_guess": "high",
+    "reasoning": "Lines 302-313: The getArenaEntries query fetches all variants for a prompt_id without filtering by variant_kind. This means article topics and paragraph topics can return mixed results. Since prompts have a prompt_kind column, but the query doesn't enforce that evolution_variants.variant_kind matches the prompt_kind, article topic leaderboards can display paragraph rewrites and vice versa.",
+    "finder": "schema-db"
+  },
+  {
+    "file": "evolution/src/services/arenaActions.ts",
+    "line": 255,
+    "title": "Seed variants query missing variant_kind filter",
+    "category": "schema-db",
+    "severity_guess": "medium",
+    "reasoning": "Lines 254-262: The getArenaTopicDetailAction fetches seed variants without .eq('variant_kind', ...). This allows mixing paragraph and article seed variants for the same topic. While less critical than leaderboard display, it can cause seedVariants array to contain variants of the wrong kind for a given topic.",
+    "finder": "schema-db"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/finalize/persistRunResults.ts",
+    "line": 600,
+    "title": "propagateMetrics query missing LIMIT on evolution_runs join",
+    "category": "correctness",
+    "severity_guess": "medium",
+    "reasoning": "Lines 600-604: The propagateMetrics function queries evolution_runs to fetch all child run IDs for a strategy or experiment without LIMIT. For experiments with many completed runs (potentially thousands), this could fetch unbounded results and cause memory/performance issues. Should add .limit(10000) or similar cap to prevent OOM.",
+    "finder": "schema-db"
+  },
+  {
+    "file": "evolution/src/lib/metrics/readMetrics.ts",
+    "line": 27,
+    "title": "getEntityMetrics query returns potentially unbounded metric rows",
+    "category": "correctness",
+    "severity_guess": "medium",
+    "reasoning": "Lines 27-31: getEntityMetrics selects all metric rows for an entity without LIMIT. While evolution_metrics has a UNIQUE(entity_type, entity_id, metric_name) constraint, a single entity could theoretically have hundreds of different metrics. The query should add .limit(1000) or document the expected maximum row count per entity to prevent unbounded result sets.",
+    "finder": "schema-db"
+  },
+  {
+    "file": "evolution/src/lib/metrics/readMetrics.ts",
+    "line": 47,
+    "title": "getMetric query missing index usage validation",
+    "category": "correctness",
+    "severity_guess": "low",
+    "reasoning": "Lines 45-51: The getMetric query uses .eq('entity_type'), .eq('entity_id'), .eq('metric_name') and .maybeSingle(). While the UNIQUE constraint prevents duplicates, the query relies on index (entity_type, entity_id) being used first before metric_name. PostgREST may not select the most efficient index path. Schema has idx_metrics_entity (entity_type, entity_id) which is good, but idx_metrics_type_name (entity_type, metric_name) might be used instead.",
+    "finder": "schema-db"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/finalize/persistRunResults.ts",
+    "line": 489,
+    "title": "Variant enrichment query missing cost_usd check in loop",
+    "category": "correctness",
+    "severity_guess": "low",
+    "reasoning": "Lines 488-505: The variantRows enrichment query fetches evolution_variants for run_id without limiting to the variants that were just upserted in this function. While unlikely to cause bugs (upsert is idempotent), fetching ALL variants for a run to enrich cost_usd could be expensive for runs with many discarded variants. Should filter to the variantRows.map(v => v.id) instead.",
+    "finder": "schema-db"
+  },
+  {
+    "file": "evolution/src/services/arenaActions.ts",
+    "line": 502,
+    "title": "Preview content batch fetch missing variant_kind filter",
+    "category": "schema-db",
+    "severity_guess": "low",
+    "reasoning": "Lines 498-507: The getRecentMatchesAction fetches variant content for previews using .in('id', variantIds) but doesn't verify variant_kind. If a comparison involves a paragraph variant displayed in the match list, the preview will fetch whatever kind of variant has that ID. This is primarily a data consistency issue rather than a functional bug.",
+    "finder": "schema-db"
+  },
+  {
+    "file": "supabase/migrations/20260527000003_extend_sync_to_arena_for_paragraph_kind.sql",
+    "line": 71,
+    "title": "ON CONFLICT clause preserves old variant_kind on re-sync",
+    "category": "schema-db",
+    "severity_guess": "medium",
+    "reasoning": "Lines 71-79: The ON CONFLICT DO UPDATE intentionally does NOT update agent_name and variant_kind on conflict. This design choice means if a variant is re-synced with different variant_kind or agent_name, the old values are preserved. While this is intentional per the comment, it creates a footgun if sync logic changes and attempts to correct mis-labeled variants — they will silently keep their original kind/agent labels instead of being updated.",
+    "finder": "schema-db"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/finalize/persistRunResults.ts",
+    "line": 368,
+    "title": "Variant upsert using onConflict='id' without variant uniqueness check",
+    "category": "correctness",
+    "severity_guess": "low",
+    "reasoning": "Lines 367-377: The variant upsert uses { onConflict: 'id' } which assumes evolution_variants.id is globally unique. Since variant IDs are UUIDs generated by the agent, this is safe. However, if variant rows from multiple runs somehow share IDs (buggy agent code), the upsert will silently update the existing row instead of erroring, potentially losing data from the first run.",
+    "finder": "schema-db"
+  },
+  {
+    "file": "evolution/src/services/invocationActions.ts",
+    "line": 99,
+    "title": "IN-list chunking uses incorrect NOT operator syntax",
+    "category": "correctness",
+    "severity_guess": "high",
+    "reasoning": "Line 99: The code uses .not('run_id', 'in', `(${chunk.join(',')})`) with raw string syntax. PostgREST's .not() operator expects the first argument to be a column and the second to be a filter operation ('eq', 'gt', etc.), but 'in' with string interpolation may not parse correctly. Should use multiple .not().in() chained calls or refactor to use negative logic (e.g., collect all test run IDs to exclude and use a single .not('run_id', 'in', testRunIds)).",
+    "finder": "schema-db"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/editing/runEditingCycle.ts",
+    "line": 472,
+    "title": "Unsanitized proposer rationale injected into approver prompt",
+    "category": "prompt-correctness",
+    "severity_guess": "high",
+    "reasoning": "At line 472, modeBRationale (untrusted LLM-generated proposer output from line 244) is passed directly to buildApproverUserPrompt without sanitization or wrapping in <UNTRUSTED_*> tags. This rationale is interpolated into the approver prompt at line 53 of approverPrompt.ts without any delimiter protection. An attacker-controlled proposer could inject prompt directives into the rationale to manipulate the approver's behavior. Snippet: const approverUser = buildApproverUserPrompt(workingMarkup, validation.approverGroups, isRewriteMode ? modeBRationale : undefined);",
+    "finder": "prompt-correctness"
+  },
+  {
+    "file": "evolution/src/lib/shared/rubricJudge.ts",
+    "line": 331,
+    "title": "Untagged targetStyleProse in rubric judge prompt",
+    "category": "prompt-correctness",
+    "severity_guess": "medium",
+    "reasoning": "At line 331, targetStyleProse (LLM-generated prose from renderFingerprintProse) is directly interpolated into the rubric judge prompt without wrapping in <UNTRUSTED_*> tags: const targetStyleBlock = targetStyleProse ? `\\n## Target Style (the author voice both ${unit}s should match)\\n${targetStyleProse}\\n` : ''; This differs from the treatment of priorPicks and nextContext which are wrapped in <UNTRUSTED_PRIOR>/<UNTRUSTED_NEXT> tags. While targetStyleProse is not directly user-uploaded, it is LLM-generated and should follow the same delimiter-based defense pattern for consistency and safety.",
+    "finder": "prompt-correctness"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/editing/approverPrompt.ts",
+    "line": 38,
+    "title": "Missing documentation on rationale sanitization requirement",
+    "category": "prompt-correctness",
+    "severity_guess": "medium",
+    "reasoning": "The rationale parameter documentation (lines 35-37) states 'Surfaced here as priming context. The red-team caveat below tells the approver to verify each edit on its merits' but does NOT document that callers MUST sanitize the rationale before passing it. The function itself performs no sanitization. This creates a prompt-injection vulnerability when Mode B proposer rationale is passed at runEditingCycle.ts:472. The comment should state 'Must be pre-sanitized by caller or wrapped in data-not-instructions tags.'  Snippet: /** Mode B (rewrite mode) only: the proposer's stated rationale. Surfaced here as priming context. The red-team caveat below tells the approver to verify each edit on its merits, not to defer to the rationale. */",
+    "finder": "prompt-correctness"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/debate/promptBuilders.ts",
+    "line": 90,
+    "title": "Debate verdict parser requires non-empty arrays but constraint not enforced in schema",
+    "category": "prompt-correctness",
+    "severity_guess": "low",
+    "reasoning": "The prompt at line 90 states 'Each pros/cons/strengths/improvements array MUST contain at least one entry.' The parser (parser.ts lines 97-103) enforces this correctly with trimming and validation. However, there's a subtle issue: if the LLM returns an array with only whitespace strings (e.g., [\"\", \"  \", \"\"]), the prompt constraint is technically satisfied (array exists) but the parser will reject it after trimming. The prompt should be clearer: 'Each array must contain at least one non-empty, non-whitespace entry.' The current gap is minimal but could cause confusion on parse failures.",
+    "finder": "prompt-correctness"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/editing/proposerPrompt.ts",
+    "line": 81,
+    "title": "Unclear [#N] group number validation in prompt documentation",
+    "category": "prompt-correctness",
+    "severity_guess": "low",
+    "reasoning": "The prompt documents [#N] tagging (lines 79-81) but does not explicitly state that N must be a positive integer (N >= 1). The parser (parseProposedEdits.ts line 59) silently drops explicit group numbers with N < 1: if (!Number.isFinite(n) || n < 1) return { ok: false }; Without this documented, proposers may tag groups with [#0] expecting them to work, only to have them silently dropped. The documentation should state: 'Tag with [#N] where N is a positive integer (1, 2, 3, ...). Invalid tags like [#0] or [#-1] will be silently dropped.'",
+    "finder": "prompt-correctness"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/index.ts",
+    "line": 28,
+    "title": "Missing agent imports in attribution extractor barrel",
+    "category": "observability",
+    "severity_guess": "high",
+    "reasoning": "Index.ts barrel must eagerly import all agents to populate ATTRIBUTION_EXTRACTORS registry. Missing: ProposerApproverCriteriaGenerateAgent, SinglePassEvaluateCriteriaAndGenerateAgent, DebateAgent. These agents' registerAttributionExtractor calls won't fire, causing silent fallback to legacy execution_detail.strategy path instead of custom dimension extraction. Blocks attribution metrics for these agents.",
+    "finder": "logging-observability"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts",
+    "line": 246,
+    "title": "Missing type cast for 'cost' metric key",
+    "category": "type-safety",
+    "severity_guess": "medium",
+    "reasoning": "Line 246 passes 'cost' string directly to writeMetricMax without 'as MetricName' cast. Line 437 in persistRunResults.ts has the cast. Without it, TypeScript won't validate metric key against MetricName discriminated union, leaving typos undetected. Type safety regression vs existing code.",
+    "finder": "logging-observability"
+  },
+  {
+    "file": "evolution/src/lib/metrics/experimentMetrics.ts",
+    "line": 461,
+    "title": "No logging when article-only filter excludes variants",
+    "category": "observability",
+    "severity_guess": "low",
+    "reasoning": "computeEloAttributionMetrics filters .eq('variant_kind','article') to exclude paragraph variants (correct design per line 452-456). However, no observability when this filter drops variants—a typo in variant_kind emission would silently cause attribution metrics to vanish without error logging.",
+    "finder": "logging-observability"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts",
+    "line": 252,
+    "title": "Cost write failure missing context in error log",
+    "category": "logging",
+    "severity_guess": "medium",
+    "reasoning": "Line 252 logs cost-write failures as warn only with generic error, no runId/metricName/amount context. Operator can't debug whether writeMetricMax failed for 'cost' vs phase-cost metric. Inconsistent vs line 118-119 in writeMetric which includes full context.",
+    "finder": "logging-observability"
+  },
+  {
+    "file": "evolution/src/lib/metrics/recomputeMetrics.ts",
+    "line": 34,
+    "title": "Stale-metric lock RPC failures not retried",
+    "category": "error-handling",
+    "severity_guess": "low",
+    "reasoning": "Line 34 logs lock_stale_metrics RPC error and returns silently, treating transient + permanent failures identically. Per B009-S4, intent is to surface errors, but returning silently on network blips leaves stale=true metrics stuck forever. No differentiation between retry-worthy vs non-retry errors.",
+    "finder": "logging-observability"
+  },
+  {
+    "file": "evolution/src/lib/metrics/writeMetrics.ts",
+    "line": 172,
+    "title": "writeMetricMax error lacks entity context",
+    "category": "logging",
+    "severity_guess": "low",
+    "reasoning": "Line 172 throws RPC error without including runId/entityType/metricName in message. Compare to writeMetric line 104 which includes full context. Reduces debuggability of metric write failures in production logs.",
+    "finder": "logging-observability"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/promptSafety.ts",
+    "line": 41,
+    "title": "Inefficient regex escaping in sanitizeForPriorContext loop",
+    "category": "correctness",
+    "severity_guess": "low",
+    "reasoning": "The function calls escapeForRegex() twice on the same input inside the loop (lines 45 and 47) creating a new RegExp object each time. While the 'gi' flag handling is correct and this isn't a security bug, it's inefficient — escapeForRegex should be called once and reused. The pattern is created, tested with .test() which maintains state with global flag, then discarded and recreated. This could be optimized to escape once per tag and create the regex once.",
+    "finder": "security"
+  },
+  {
+    "file": "evolution/src/services/tacticPromptActions.ts",
+    "line": 43,
+    "title": "Unchecked tacticName input passed directly to database query",
+    "category": "correctness",
+    "severity_guess": "low",
+    "reasoning": "The input.tacticName parameter (line 42-43) is passed directly to .eq('agent_name', input.tacticName) without any validation, while input.promptId is not validated either. Although PostgREST is parameterized, the tacticName should be validated or at least documented as coming from trusted sources. The promptId should be validated as a UUID (like line 51 in experimentActions does with validateUuid()).",
+    "finder": "security"
+  },
+  {
+    "file": "evolution/src/services/costAnalytics.ts",
+    "line": 113,
+    "title": "Comment claims defense-in-depth SQL sanitization but none visible",
+    "category": "security",
+    "severity_guess": "medium",
+    "reasoning": "Line 113 comment states '(defense in depth — the SQL also whitelists it)' referring to the bucket parameter passed to get_llm_spend_buckets RPC. However, no actual whitelist validation is visible in the action code itself. The assumption that the RPC handles it needs to be verified or validation should be added at the action layer.",
+    "finder": "security"
+  },
+  {
+    "file": "evolution/src/services/adminAction.ts",
+    "line": 46,
+    "title": "RequireAdmin called but no explicit verification message on failure details",
+    "category": "security",
+    "severity_guess": "low",
+    "reasoning": "The requireAdmin() call at line 46 is correct, but if it throws, the error is caught at line 58 and passed through handleError(). While error handling is present, the specific reason for admin failure (not authenticated vs not admin vs wrong host) is logged but the client only gets a generic error response without distinguishing between these cases.",
+    "finder": "security"
+  },
+  {
+    "file": "evolution/src/services/experimentActions.ts",
+    "line": 122,
+    "title": "SQL LIKE pattern escape applied but no length limit on name parameter",
+    "category": "error-handling",
+    "severity_guess": "low",
+    "reasoning": "The name parameter is escaped for SQL LIKE pattern injection (line 122) but there's no length limit on the input before passing to ilike. A very long search string could theoretically cause performance issues. The schema for name field should have max length validation in the input schema.",
+    "finder": "security"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/sequentialExecute.ts",
+    "line": 515,
+    "title": "Delimiter mirror check correctly prevents injection but unsanitized text retained in execution detail",
+    "category": "prompt-correctness",
+    "severity_guess": "low",
+    "reasoning": "When containsDelimiterMirror() returns true (line 515), the unsanitized text containing the delimiter tags is still returned in the result (line 519) with validation.valid=false. The text doesn't enter survivingRewriteVariants because of the guard at line 575 (if (valid && variantId)), so the injection is prevented. However, keeping unsanitized text in execution_detail logs could be confusing — the detail should either omit the text or store the already-detected issue.",
+    "finder": "security"
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/pipeline/setup/generateSeedArticle.ts",
+    "line": 56,
+    "title": "Unnecessary toString() called on already-cast string",
+    "category": "type-safety",
+    "severity_guess": "low",
+    "reasoning": "Line 56: `((parsed.title1 ?? parsed.title ?? '') as string).toString()` casts the fallback chain to string, but then calls `.toString()` on it redundantly. The cast should make toString() unnecessary. More critically, if parsed.title1 or parsed.title are non-string objects, the cast hides that type mismatch and toString() may not produce the expected format.",
+    "finder": "type-safety"
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+    "line": 224,
+    "title": "buildMatch doesn't handle 'TIE' winner case for loserId assignment",
+    "category": "correctness",
+    "severity_guess": "high",
+    "reasoning": "Line 224: `const winnerId = result.winner === 'B' ? idB : idA;` defaults to idA when winner is 'TIE', but then loserId is assigned assuming a win/loss outcome. When result.winner is 'TIE', both winnerId and loserId point to variant IDs, but V2Match.result is set to 'draw' at line 229. The winnerId/loserId semantic becomes ambiguous for ties. Ratings may be applied asymmetrically due to this confusion.",
+    "finder": "type-safety"
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/weightInference/autoJudge.ts",
+    "line": 113,
+    "title": "Record<AutoVerdict, number> modified but enum member types may not be exhaustive",
+    "category": "type-safety",
+    "severity_guess": "low",
+    "reasoning": "Line 113: `for (const v of values) counts[v]++;` assumes v is always a valid key of Record<AutoVerdict, number> (the enum type), but values array is AutoVerdict[]. If values contains a string that isn't 'a', 'b', or 'tie', it will create an unexpected property on counts rather than throwing. No validation guards the input array membership.",
+    "finder": "type-safety"
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/weightInference/audit.ts",
+    "line": 59,
+    "title": "Map iterator assigned to Record without type guard",
+    "category": "type-safety",
+    "severity_guess": "medium",
+    "reasoning": "Line 59: `for (const [id, c] of perCrit) perCriterion[id] = metric(c.flips, c.agrees, c.n);` iterates a Map<string, ...> and assigns to a Record object. TypeScript allows this, but if perCrit contains a key type that Record doesn't support cleanly (e.g., Symbol or non-string primitive passed to Map), the assignment silently coerces or creates unexpected properties. The for...of iterator uses Map semantics but the assignment uses Record semantics without bridging the type systems.",
+    "finder": "type-safety"
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/core/Agent.ts",
+    "line": 199,
+    "title": "Unsafe cast of detail to Record when validation failed",
+    "category": "type-safety",
+    "severity_guess": "medium",
+    "reasoning": "Line 199: `execution_detail: parseResult.success ? (detail as unknown as Record<string, unknown>) : undefined;` casts detail via unknown when schema validation succeeds, but the cast bypasses the validation result. If parseResult.success is false, detail is undefined anyway, but the cast to unknown then Record is dangerous — the actual detail shape could be anything, and downstream code reading execution_detail assumes schema compliance.",
+    "finder": "type-safety"
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/pipeline/setup/buildRunContext.ts",
+    "line": 175,
+    "title": "Optional field applied default without null check",
+    "category": "type-safety",
+    "severity_guess": "low",
+    "reasoning": "Line 175: `arenaMatchCount: entry.arena_match_count ?? 0` defaults to 0 when the field is null/undefined, which is correct, but the code doesn't validate that entry.arena_match_count (if present) is a number. A malformed DB row with a non-numeric string would pass through and be coerced by the ?? operator.",
+    "finder": "type-safety"
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/metrics/computations/criteriaMetrics.ts",
+    "line": 93,
+    "title": "Unsafe double-cast of nullable DB fields to number without validation",
+    "category": "type-safety",
+    "severity_guess": "medium",
+    "reasoning": "Line 93-94: `dbToRating((p.mu ?? 25) as number, (p.sigma ?? 8.333) as number)` casts potentially string-typed Postgres NUMERIC fields to number without Number() coercion first. If p.mu is the string '25.0' from the DB, the cast hides the type mismatch and dbToRating receives the string, which may fail or produce wrong results depending on how dbToRating handles it.",
+    "finder": "type-safety"
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/pipeline/setup/generateSeedArticle.ts",
+    "line": 54,
+    "title": "JSON.parse without schema validation before field access",
+    "category": "type-safety",
+    "severity_guess": "high",
+    "reasoning": "Line 54-56: `JSON.parse(raw)` may return any JSON value (array, primitive, null), then line 55 checks `typeof parsed === 'object'` but doesn't validate it's actually an object with title/title1 fields. If parsed is an array or object with unexpected shape, accessing parsed.title1 and parsed.title silently returns undefined, falling back to the fallback chain without error.",
+    "finder": "type-safety"
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/shared/computeRatings.ts",
+    "line": 596,
+    "title": "Array.includes() with string union check may be fragile",
+    "category": "type-safety",
+    "severity_guess": "low",
+    "reasoning": "Line 596: `if (['A', 'B', 'TIE'].includes(upper)) return upper;` uses an array literal to check enum membership. If upper is a number or non-string, includes() silently returns false instead of throwing. TypeScript infers upper as string, but runtime guards aren't enforced, and maintenance is error-prone (manual array duplication of enum literals).",
+    "finder": "type-safety"
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/pipeline/setup/buildRunContext.ts",
+    "line": 171,
+    "title": "Nullable field with template string default fallback",
+    "category": "type-safety",
+    "severity_guess": "low",
+    "reasoning": "Line 171: `tactic: `arena_${entry.generation_method ?? 'unknown'}`` defaults generation_method to 'unknown' string, but entry.generation_method could be any DB value. If it's null/undefined, the fallback works; if it's a non-string, template string coercion may produce unexpected strings like '[object Object]'.",
+    "finder": "type-safety"
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/metrics/computations/criteriaMetrics.ts",
+    "line": 104,
+    "title": "Double-cast of mu/sigma nullable fields without Number coercion",
+    "category": "type-safety",
+    "severity_guess": "high",
+    "reasoning": "Line 104: `dbToRating((v.mu ?? 25) as number, (v.sigma ?? 8.333) as number)` same issue as line 93: Postgres NUMERIC values may be strings ('25.0'), and the cast hides the mismatch. Postgres returns strings for NUMERIC columns in some driver versions, but the code assumes number type without calling Number() first to coerce.",
+    "finder": "type-safety"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+    "line": 291,
+    "title": "Missing partial detail persistence on eval+suggest LLM error (I3 violation)",
+    "category": "error-handling",
+    "severity_guess": "high",
+    "reasoning": "At line 291-294, when the evaluate+suggest LLM call fails, the agent re-throws EvaluateAndSuggestLLMError WITHOUT first writing partial execution_detail to the invocation row. This violates invariant I3 which requires all helper failures to persist partial detail before re-throwing. The evaluateCriteriaThenGenerate, reflectAndGenerate, and singlePassEvaluate agents all correctly persist partial detail in their eval+suggest error paths (e.g., evaluateCriteriaThenGenerateFromPreviousArticle.ts:442-448). Without this, Agent.run()'s catch handler will overwrite the partial detail with null, losing forensic context about what succeeded/failed.",
+    "finder": "correctness-agents"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+    "line": 337,
+    "title": "Missing partial detail persistence on proposer LLM error (I3 violation)",
+    "category": "error-handling",
+    "severity_guess": "high",
+    "reasoning": "At line 336-338, when the proposer LLM call fails, the agent re-throws Error without first persisting partial execution_detail. This is an I3 invariant violation similar to the eval+suggest error path. The partial detail should capture what was successfully completed (eval+suggest scores, parsed suggestions) before re-throwing, so the invocation row preserves forensic context.",
+    "finder": "correctness-agents"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+    "line": 369,
+    "title": "Missing partial detail persistence on forward approver LLM error (I3 violation)",
+    "category": "error-handling",
+    "severity_guess": "high",
+    "reasoning": "At line 368-370, when the forward approver LLM call fails, the agent re-throws Error without persisting partial execution_detail. This is another I3 invariant violation. The partial detail should capture everything up to the forward approver failure (eval+suggest, proposer output, proposed groups, parse/validation results) before re-throwing.",
+    "finder": "correctness-agents"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+    "line": 407,
+    "title": "A' format gate drops ALL forward-accepted groups instead of subset (logic error)",
+    "category": "correctness",
+    "severity_guess": "high",
+    "reasoning": "When the A' (post-apply state) format validation fails at line 407, the code at lines 417-419 marks ALL forward-accepted groups with `decision: null` and `reason: 'a_prime_format_invalid'`. This causes the aggregator to drop 100% of forward-accepted groups. However, the comment at line 397-401 indicates A' format is 'relative' — only NEW issues introduced by the edits should abort. The design intent is to drop only problematic forward-accepted groups, not ALL of them. The current implementation conflates 'A' introduced new format issues' with 'abort all forward-accepted edits', which is overly aggressive.",
+    "finder": "correctness-agents"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+    "line": 290,
+    "title": "No cost snapshot before eval+suggest call; cost from catch block uses getOwnSpent at error time (I2 anomaly)",
+    "category": "cost-tracking",
+    "severity_guess": "medium",
+    "reasoning": "At line 283, costBeforeEval is captured before the eval+suggest call. However, in the catch block at line 427, the cost is computed as (ctx.costTracker.getOwnSpent() - costBeforeCombined), but costBeforeCombined is from line 416 (before the REFLECTION call in reflectAndGenerate), not the eval call. In this agent (proposerApprover), costBeforeEval is captured correctly at line 283, but if the eval call throws (line 291-294), the catch block at 291 re-throws without computing cost. This means the partial detail write attempt never happens (due to I3 violation above), so cost tracking is lost entirely.",
+    "finder": "correctness-agents"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+    "line": 472,
+    "title": "Aggregator applies on (forward=ACCEPT, mirror=REJECT) but does not handle double-accept case with confidence thresholding",
+    "category": "correctness",
+    "severity_guess": "medium",
+    "reasoning": "At line 472, the aggregator applies edits ONLY when (fwd?.decision === 'accept' && mir?.decision === 'reject'). At line 477, when both approvers accept (mir?.decision === 'accept'), the reason is 'aggregate_drop_both_accept'. However, the binary gate does not account for confidence-based fallback logic mentioned in the invariant description ('strict-binary, no confidence-graded fallback'). The code currently enforces strict binary (apply ONLY if fwd=ACCEPT && mir=REJECT), but the comment 'no confidence-graded fallback' suggests this was a deliberate choice to avoid soft-threshold logic. This is correct per-spec, but worth noting as the gate is strictly boolean with no confidence/threshold logic.",
+    "finder": "correctness-agents"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/reflectAndGenerateFromPreviousArticle.ts",
+    "line": 339,
+    "title": "parseReflectionRanking throws without fallback (design-correct but fragile)",
+    "category": "error-handling",
+    "severity_guess": "medium",
+    "reasoning": "At line 340, parseReflectionRanking is called and if it throws ReflectionParseError (line 195-199 in the function), the agent catches at line 341 and persists partial detail then re-throws (lines 341-365). The spec note says 'NO deterministic fallback — parser failures surface as invocation failures rather than silently picking a default tactic'. This is correctly implemented (no fallback logic present), but the comment in the function at lines 151-153 makes it clear zero valid entries will throw. If the LLM response is completely malformed (e.g., returns empty string or prose instead of structured list), this will throw and be treated as a hard failure. This is correct per spec, but worth documenting as intentional brittleness.",
+    "finder": "correctness-agents"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+    "line": 453,
+    "title": "Forward-rejected groups short-circuit uses null decision which is correct, but telemetry records it with reason 'short_circuited_forward_rejected'",
+    "category": "observability",
+    "severity_guess": "low",
+    "reasoning": "At lines 454-464, forward-rejected groups are added to mirrorDecisions with `decision: null` and `reason: 'short_circuited_forward_rejected'`. This is semantically correct — the null decision means 'not run' and the reason explains why. However, at line 478 in the aggregator, the check `mir?.reason === 'short_circuited_forward_rejected'` relies on the exact reason string, making the code fragile to reason-string changes. The pattern is correct but could be clearer with a dedicated decision value or by checking !=== rather than ===.",
+    "finder": "correctness-agents"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/debate/DebateAgent.ts",
+    "line": 222,
+    "title": "ELO ordering invariant check does not handle NaN or undefined elo values in edge cases",
+    "category": "error-handling",
+    "severity_guess": "medium",
+    "reasoning": "At line 222-229, the invariant check compares eloA and eloB, but eloA and eloB are set at lines 222-223 using Number.NEGATIVE_INFINITY as fallback when the variant is not found in initialRatings. If both variants are missing from initialRatings (unlikely but possible under race conditions), eloA and eloB both become NEGATIVE_INFINITY, and the check at line 224 (eloA < eloB) will be false (NEGATIVE_INFINITY is not < NEGATIVE_INFINITY), so the invariant violation won't be caught. The check should verify that both variants exist in initialRatings before comparing, to catch cases where rating data is stale/missing.",
+    "finder": "correctness-agents"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+    "line": 331,
+    "title": "Cost snapshots not persisted on mirror approver LLM failures (partial I3 violation)",
+    "category": "error-handling",
+    "severity_guess": "medium",
+    "reasoning": "At lines 426-450, the mirror approver LLM call and parse handling does not persist partial detail before potential exceptions. If mirrorOutput parse fails or mirrorOutput is malformed, parseReviewDecisions (line 432) may throw, but there's only a try-catch that logs a warn at line 442. The exception is caught and the code continues (no re-throw), marking all forward-accepted as null mirror (lines 447-449). However, the cost tracking for the mirror approver call (line 431) only updates approveMirrorCostUsd inside the try block after the complete() call succeeds. If complete() itself throws a BudgetExceededError, approveMirrorCostUsd is never set, and the catch block doesn't compute the partial cost. This can lead to incomplete cost attribution.",
+    "finder": "correctness-agents"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/SwissRankingAgent.ts",
+    "line": 217,
+    "title": "Status determination does not distinguish between 'all pairs failed' and 'no pairs generated' (minor)",
+    "category": "correctness",
+    "severity_guess": "low",
+    "reasoning": "At line 217-219, status is set to 'failure' only when matchBuffer.length === 0 && otherFailureCount > 0. This correctly identifies 'all pairs failed'. However, if pairs.length === 0 (no pairs to dispatch), the code returns early at line 103-122 with status='no_pairs'. The distinction is correct, but the comment at line 215-216 uses 'distinct' language for success/budget/failure that could be clearer. The status 'failure' is defined as 'every pair threw a non-budget error', which is correct per the comment and code logic.",
+    "finder": "correctness-agents"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/MergeRatingsAgent.ts",
+    "line": 292,
+    "title": "Truncation of matchesAppliedSnapshot at 50 items loses telemetry for large batches",
+    "category": "observability",
+    "severity_guess": "low",
+    "reasoning": "At line 292-300, when allMatches.length > 50, the matchesAppliedSnapshot is truncated to the first 50 items. The detail persists matchesAppliedTruncated: allMatches.length > 50 (line 411) so the UI can indicate truncation, but the first 50 items are always sampled. This is correct for memory reasons, but if issues occur in matches 51+, the telemetry won't show them. This is a design choice (sample size cap) rather than a bug, but worth noting for large merges.",
+    "finder": "correctness-agents"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/singlePassEvaluateCriteriaAndGenerate.ts",
+    "line": 294,
+    "title": "parentElo lookup does not validate parentVariantId is in initialRatings before access",
+    "category": "correctness",
+    "severity_guess": "low",
+    "reasoning": "At line 294-296, parentElo is looked up via `input.initialRatings.get(input.parentVariantId)?.elo`. If input.parentVariantId is a valid UUID but not present in initialRatings (e.g., stale data or race condition), parentElo becomes undefined, and highEloParent is correctly set to false at line 297. However, this silently degrades to low-Elo behavior when the parent's Elo is unknown. The code is safe but could warn when parentVariantId exists but its rating is missing.",
+    "finder": "correctness-agents"
+  }
+]

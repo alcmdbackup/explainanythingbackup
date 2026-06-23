@@ -274,7 +274,8 @@ export async function upsertStrategy(
     .single();
 
   if (error) {
-    throw new Error(`Strategy upsert failed: ${error.message}`);
+    // Preserve the original Supabase error (code, details, hint) via Error.cause.
+    throw new Error(`Strategy upsert failed: ${error.message}`, { cause: error });
   }
   if (!data?.id) {
     throw new Error('Strategy upsert returned no ID');

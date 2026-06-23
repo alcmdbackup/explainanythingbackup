@@ -1,0 +1,422 @@
+[
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+    "line": 403,
+    "title": "isDraw redefinition with incompatible semantics",
+    "why": "The finder conflates two separate variable definitions in different scopes as a redefinition bug. Line 223's `isDraw` is in the `buildMatch()` function and determines the V2Match.result field ('draw' vs 'win'). Line 403's `isDraw` is a separate variable in the ranking loop's scope that checks whether to apply draw semantics to rating updates. These are not redefinitions of the same variable. The logic is intentional: `isFailure = confidence === 0` skips rating updates only for total failures, while `isDraw = confidence < 0.3 || match.result === 'draw'` applies draw semantics to low-confidence or explicitly-drawn matches. This is a valid design choice to dampen low-confidence comparisons without completely discarding them. The behavior described in the claim (ratings ARE updated for 0.1-0.3 confidence) is the intended design, not a bug."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+    "line": 483,
+    "title": "Outer try-catch masks non-BudgetExceededError exceptions in ranking",
+    "why": "The finder correctly identifies the code structure: the inner try-catch (lines 361-393) handles non-budget LLM errors by converting them to TIEs without re-throwing, while the outer try-catch (lines 483-489) only checks for BudgetExceededError and rethrows everything else. However, this is NOT a bug because: (1) Non-budget LLM errors are completely handled in the inner catch block at line 375-392, where they're logged and converted to TIEs with a continue statement, so they never bubble to the outer catch; (2) BudgetExceededErrors that hit the inner catch also execute `break` at line 381, exiting the while loop before reaching the outer catch; (3) Any exception reaching the outer catch must come from code outside the inner try-block (selectOpponent, pool.find, buildMatch, computeTop15Cutoff at lines 315, 338, 396, 441), which are programming errors that should be rethrown. The outer catch is defensive but redundant; it does not mask genuine issues. Transient LLM failures are properly handled in the inner catch, and unexpected errors are correctly propagated."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts",
+    "line": 223,
+    "title": "Empty response cost recorded before throw, breaking retry accounting",
+    "why": "The code correctly records an empty-response cost before throwing. This is intentional per lines 216-218 comments: \"provider was BILLED for this call even though the response is empty — record the actual cost (so the tracker matches reality) before throwing.\" The budget accounting is sound: (1) reserve() adds to totalReserved before the call; (2) on empty response, recordSpend() both releases the reservation (subtracts from totalReserved) and records the actual spend (adds to totalSpent); (3) on retry, a fresh reserve() is called. The semantics are correct: the provider was charged, so the cost must be recorded, and the reservation must be released so retries can reserve again. The code even explicitly handles empty-response differently in the error handler (line 280-283) to avoid double-releasing. No concurrency race exists because Node.js is single-threaded and interleaving only occurs at await points, which have already completed by the time of recordSpend. This is solid cost-tracking design, not a bug."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/trackBudget.ts",
+    "line": 293,
+    "title": "Legacy fallback in iter tracker can leak run-tracker reservation on iteration reject",
+    "why": "The code at lines 293-301 does NOT have a resource leak. When the iteration budget check fails (line 294), the code explicitly calls runTracker.release(phase, margined) on line 295 BEFORE throwing the IterationBudgetExceededError on line 296. The sequence is: (1) reserve at line 293, (2) check budget at line 294, (3) if check fails, release at line 295, then throw at line 296. The release call happens synchronously before the exception propagates, so the run-tracker reservation is properly cleaned up. The comment on line 291-292 (\"leak still possible on iter-reject\") appears to be a legacy comment, but the actual implementation has the correct cleanup logic. The finder misread the code flow or misunderstood the control flow of exceptions in JavaScript."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts",
+    "line": 195,
+    "title": "Reserve failure on retry attempt logs error but doesn't backoff, losing retry context",
+    "why": "Lines 194-202 show BudgetExceededError from reserve() is caught, logged with attempt context (\"Budget exceeded on retry attempt\" at line 198 with attempt metadata), and rethrown. The lack of backoff is INTENTIONAL per the comment at lines 182-188: \"per-attempt reserve so the budget gate genuinely rejects on retry-overspend\" - budget errors represent hard limits and should fail fast. The caller (rankSingleVariant.ts) sets status='budget' without distinguishing attempts, but this is appropriate separation of concerns. Attempt context IS logged at line 198 at the client level. The finder misidentified correct error handling as a bug."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/reflectAndGenerateFromPreviousArticle.ts",
+    "line": 200,
+    "title": "Partial execution_detail write on reflection failure could lose ranking phase data",
+    "why": "The candidate claims a race condition could cause the wrapper's partial execution_detail to be lost. Analysis shows:\n\n1. No actual race: JavaScript is single-threaded. Both updateInvocation calls (wrapper's, then Agent.run()'s catch handler at line 218) are awaited and sequential.\n\n2. Intentional design with conditional spread: updateInvocation uses conditional spread (trackInvocations.ts:81): `...(updates.execution_detail !== undefined && { execution_detail })`. When execution_detail is not provided (Agent.run()'s catch handler intentionally omits it), the field is not updated, preserving the wrapper's value.\n\n3. Agent.run() catch handler deliberately does NOT pass execution_detail (line 218). It only passes cost_usd, success, error_message, duration_ms. This is correct.\n\n4. The pattern is documented in both files (reflectAndGenerateFromPreviousArticle.ts:14-17, trackInvocations.ts:72-75).\n\nThe code works as designed. The candidate misunderstood conditional-spread semantics."
+  },
+  {
+    "file": "evolution/src/lib/services/costEstimationActions.ts",
+    "line": 532,
+    "title": "Paragraph_recombine invocation cost split computed from execution_detail, no fallback to cost_usd delta",
+    "why": "The candidate claim fundamentally mischaracterizes how the code works. The finder claims the code \"reads cost from `execution_detail.paragraph_rewrite.cost` and `execution_detail.paragraph_rank.cost`\" but the actual code at line 548 reads from `inv.cost_usd` (a database column). The comment at lines 535-536 explicitly documents this: \"cost_usd already sums paragraph_rewrite + paragraph_rank phases\". The code correctly uses the pre-summed database column value. When cost_usd is null, invocations are simply skipped from the actuals array (not added to the sum), which is reasonable behavior for missing cost data. This is not a bug in the code logic—if cost_usd is unexpectedly null for paragraph_recombine invocations, that would be a data-insertion issue upstream, not a bug in costEstimationActions.ts."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/runIterationLoop.ts",
+    "line": 1,
+    "title": "BudgetExceededError vs IterationBudgetExceededError catch order not enforced at type level",
+    "why": "The candidate's claim is not supported by the actual code. The finder claims: (1) there's a doc at line 1 warning about BudgetExceededWithPartialResults needing to be caught BEFORE BudgetExceededError, but the actual line 1-2 only describes the iteration orchestrator loop with no such warning; (2) the code works with BudgetExceededError and IterationBudgetExceededError (not BudgetExceededWithPartialResults), and it correctly handles the subclass relationship - at line 656 it checks IterationBudgetExceededError first, and at line 1936 it uses instanceof with explicit exclusion of the subclass; (3) BudgetExceededWithPartialResults is not even imported or used in this file. The file correctly handles the error hierarchy and the candidate has confused error classes and imagined a non-existent documentation warning."
+  },
+  {
+    "file": "evolution/src/lib/metrics/writeMetrics.ts",
+    "line": 1,
+    "title": "writeMetricMax GREATEST upsert silently loses values if cost starts at 0 due to stale row",
+    "why": "The candidate correctly identifies a real issue that existed in the original upsert_metric_max RPC implementation (migration 20260408000001, line 20): `SET value = GREATEST(evolution_metrics.value, EXCLUDED.value)` would return NULL if evolution_metrics.value was NULL, because GREATEST(NULL, x) = NULL in SQL. However, this bug has been fixed in migration 20260423073526 (hardening patch), which explicitly replaces this with: `SET value = GREATEST(COALESCE(evolution_metrics.value, '-Infinity'::float8), EXCLUDED.value)`. The COALESCE now treats NULL as -Infinity, so GREATEST(-Infinity, 0.0001) = 0.0001, correctly updating the row. The application code in writeMetrics.ts (line 145-174) is just a thin wrapper calling the fixed RPC and is itself correct. Since the bug exists only in the removed/superseded code and the current active code (20260423073526) already contains the fix, this is not a bug in the current codebase state."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts",
+    "line": 1,
+    "title": "Per-slot AgentCostScope never resets, accumulates cost across all slots",
+    "why": "The finder's claim misinterprets how JavaScript closures work. Line 657 of ParagraphRecombineAgent.ts creates a new `slotScope` for each parallel slot invocation via `createAgentCostScope(invocationScope)`. The trackBudget.ts function (lines 73-98) creates a fresh closure with its own `let ownSpent = 0` variable on each call. Each slot's self-abort check at lines 754, 864, and 983 correctly calls `slotScope.getOwnSpent()`, which reads that isolated closure variable, not a shared accumulator. The code delegates budget _gating_ (reserve/release) to the shared `invocationScope`, which is intentional and correct. Per-slot abort checks never see sibling cost. The implementation is correct."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/createEntityLogger.ts",
+    "line": 161,
+    "title": "Silent catch block swallows promise rejection",
+    "why": "The code at line 161 does have a `.catch(() => {})` block that silently swallows promise rejections, but this is NOT a bug—it is intentional fire-and-forget logging as explicitly documented. The file comment (lines 105-107) states: \"All writes are fire-and-forget (errors swallowed).\" The finder's claim that \"production issues would be invisible\" is factually incorrect: the `.then()` handler on line 158-160 explicitly catches and logs Supabase errors with `console.warn('[EntityLogger] DB error: ...')`. The `.catch()` block only handles promise rejections that escape normal response handling (rare network/system errors), which are appropriately swallowed for a non-critical logging utility. The code intentionally employs three layers of error handling: (1) response errors logged to console, (2) promise rejections swallowed, (3) synchronous throws swallowed. This is proper design for fire-and-forget instrumentation."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/createEntityLogger.ts",
+    "line": 139,
+    "title": "Promise.resolve() creates fire-and-forget without proper error propagation",
+    "why": "The code is NOT a bug. The finder mischaracterized the error handling. Line 139's Promise.resolve() is used to normalize the Supabase call, and errors ARE being logged (not silently swallowed) at line 158-159 via console.warn(). The comment at line 106 explicitly documents this as intentional fire-and-forget design with error logging. The .catch() at line 161 is defensive error handling for promise rejections, not silent suppression. The design provides observability through console output, which is the stated intent. While one might argue for better observability patterns (metrics/alerts), the current implementation matches its documentation and intentionally logs errors—it does not silently lose them."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/createEntityLogger.ts",
+    "line": 159,
+    "title": "DB error message accessed without instanceof check",
+    "why": "The candidate claims line 159 accesses error.message without checking if it exists. However, this is NOT a bug:\n\n1. Line 158-159 shows: `.then(({ error }) => { if (error) console.warn(...error.message...); })` - the `if (error)` check properly guards against null/falsy values.\n\n2. Supabase types confirm error is either `null` (success) or a `PostgrestError` instance (failure). When truthy, it's guaranteed to have a message property.\n\n3. PostgrestError extends Error with message, details, hint, code defined in constructor - always present.\n\n4. The integration test (evolution-entity-logger.integration.test.ts:121-142) tests error scenarios with invalid data and passes, which would fail if error.message threw.\n\n5. The code pattern matches pgMsg() in judgeRubricActions.ts which handles empty message cases, but never missing message.\n\nThe code is correct; the suggested fix is unnecessary."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+    "line": 392,
+    "title": "Non-budget LLM errors recorded as TIE with zero confidence",
+    "why": "The finder claims that zero-confidence error matches \"train the Elo ratings on false data,\" but this is factually incorrect based on reading the actual code. Lines 404 and 411 in rankSingleVariant.ts show: `const isFailure = match.confidence === 0;` followed by `if (!isFailure)` which means Elo rating updates are ONLY applied when confidence is NOT zero. When confidence is zero (error case), the entire rating update block (lines 412-437) is skipped. Lines 313-344 in MergeRatingsAgent.ts confirm the same pattern. The code explicitly documents this at line 402: \"Skip rating update for total LLM failures (confidence 0) to avoid noise.\" The zero-confidence matches ARE persisted to the database for observability, and the loop DOES continue (which could be inefficient for permanent errors), but Elo ratings are definitively NOT updated with false data from errors. The finder mislabeled a potential inefficiency (not distinguishing permanent vs transient errors) as data corruption, which is not what the code does."
+  },
+  {
+    "file": "evolution/src/lib/shared/classifyErrors.ts",
+    "line": 34,
+    "title": "402 Payment Required not in transient error list",
+    "why": "The finder claims 402 should be added to the transient error regex at line 34. However, the codebase explicitly treats 402 as a permanent error, not transient. Evidence: (1) generateFromPreviousArticle.test.ts line 206 tests \"a non-budget LLM error (e.g. 402)\" and expects status='generation_failed' + success=false, confirming 402 is a hard fail. (2) generateFromPreviousArticle.ts line 240 comment: \"D1: a generation LLM error (e.g. 402) is a hard fail.\" (3) runIterationLoop.ts line 87 comment distinguishes \"402/5xx runaway\" - treating 402 separately from legitimate 5xx transients. (4) The semantic correctness: 402 (payment required / account disabled / quota exceeded) requires manual intervention, not automatic retry; 5xx (server temporarily down) may recover on retry. The current implementation is correct by design - it fails 402 immediately without retry, which is the right behavior for permanent account/billing issues."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts",
+    "line": 197,
+    "title": "Budget reserve error logging then re-throws same error twice",
+    "why": "The finder misread the code structure. The first try-catch block (lines 194-202) is nested OUTSIDE the second try-catch block (lines 203-295). When BudgetExceededError is thrown from costTracker.reserve() at line 195 and caught at line 196, it is immediately re-thrown at line 199, which exits both blocks entirely. It does NOT propagate into the second catch block at line 268 - that block only handles errors from the Promise.race() call and subsequent operations within its own try block. The error handling is not nested; they are sequential layers where the first completely exits before the second even begins. While there is minor redundancy in lines 197-201 (both branches throw), this is stylistic, not a functional bug."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/reflectAndGenerateFromPreviousArticle.ts",
+    "line": 364,
+    "title": "Parser error re-thrown after partial detail write, but error type may not be ReflectionParseError",
+    "why": "The candidate claims that line 364 re-throws a potentially non-ReflectionParseError from parseReflectionRanking. However, code inspection shows: (1) parseReflectionRanking (lines 155-202) is synchronous and only throws ReflectionParseError explicitly at lines 195-199; (2) it calls isValidTactic as validateName, which just returns a boolean via Object.hasOwn() and cannot throw; (3) all string operations in parseReflectionRanking (.split, .match, .trim, .replace) are safe and won't throw; (4) the catch block correctly records the error in partial detail before re-throwing. The error thrown at line 364 is always a ReflectionParseError. The code's error handling here is correct—it documents the parse error in the execution detail before propagating it."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+    "line": 403,
+    "title": "Confidence threshold 0.3 hardcoded without considering error context",
+    "why": "The candidate claims that confidence 0 (actual failure) is \"masked\" by the isDraw check on line 403. However, reading the actual code shows:\n\nLine 392: Failures set confidence to 0\nLine 403: isDraw = match.confidence < 0.3 || match.result === 'draw'\nLine 404: isFailure = match.confidence === 0\nLine 411-438: Rating updates only happen inside if (!isFailure) block\n\nThe code correctly identifies both isDraw and isFailure independently. When confidence === 0, both conditions are true, but isFailure is checked FIRST (line 411) and prevents the entire rating update block from executing. This is the correct, intended behavior - failures skip ELO updates entirely.\n\nThe [0, 0.3) interval is not an \"error state\" - confidence 0 is the error, and it is explicitly detected by isFailure and explicitly skipped. Uncertain but non-failed comparisons (0 < confidence < 0.3) are appropriately treated as draws. The error is logged at line 386 with full context.\n\nThe finder misread the control flow - there is no masking, no hidden bug, and no observability gap. The code is correct."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/finalize/persistRunResults.ts",
+    "line": 737,
+    "title": "Arena sync error classification relies on error.message text matching",
+    "why": "The finder claims that \"Arena sync error classification relies on error.message text matching,\" but reading the actual code (lines 720-754) shows no error classification or text matching occurring. The syncToArena function simply captures the error from supabase.rpc (line 737: `lastError = error;`) and logs it as-is (lines 749 and 751: `error: lastError.message`). There is no subsequent .includes(), .match(), .test(), or similar pattern matching on the message. The code comment (line 746) explicitly states \"Arena sync is non-critical — log but don't re-throw,\" indicating that intentional behavior is to skip error classification entirely for this secondary operation. The finder appears to be suggesting a design improvement (adding a structured error classifier like classifyError.ts) rather than identifying an actual bug in the existing code."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts",
+    "line": 399,
+    "title": "Concurrent mutation of shared slotDetails array in Promise.allSettled parallel slots",
+    "why": "Node.js is single-threaded; async functions only interleave at await points. Array.push() is synchronous and atomic—cannot be interrupted mid-execution. While parallel processSlot calls (lines 399-417) may push to shared slotDetails in any order, line 421 explicitly sorts by slotIndex after Promise.allSettled completes: `slotDetails.sort((a, b) => a.slotIndex - b.slotIndex)`. This deterministically fixes any temporary out-of-order state. Each push succeeds atomically (no data loss) and sort works correctly (each slotIndex is set once at object construction, never modified). This is a correct concurrent pattern: parallel processing to synchronous array + post-sort. The finder conflates JavaScript's event-loop concurrency with true multi-threaded races that need synchronization primitives."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts",
+    "line": 949,
+    "title": "Missing await in per-candidate ranking loop allows concurrent mutations of localRatings",
+    "why": "The candidate claims a concurrency bug where \"the await is properly there\" but suggests a risk of concurrent mutations if parallelized. Reading the actual code confirms: (1) Line 954 contains `await rankNewVariant({...})` which correctly awaits the completion before the next iteration; (2) Lines 951-952 snapshot `localRatings` before each iteration; (3) The loop is strictly sequential—each iteration awaits completion before the next begins; (4) The invariant at D18 (line 16) explicitly states \"per-slot pairwise ranking is SEQUENTIAL (rankNewVariant mutates local pool/ratings/matchCounts in place — concurrent calls would corrupt them)\"; (5) The design captures before/after ratings correctly via the snapshot pattern. The finder's concern is entirely hypothetical (\"If this loop were parallelized...\") and does not describe a bug in the actual code as written. The current implementation correctly implements the documented sequential constraint."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/trackBudget.ts",
+    "line": 78,
+    "title": "Race condition: ownSpent += actualCost not atomic with shared.recordSpend concurrent calls",
+    "why": "The finder misunderstands JavaScript's event loop. The `recordSpend()` method (lines 78-81) is purely synchronous with NO `await` statements. In Node.js, async functions can only context-switch at `await` points. Thus, `ownSpent += actualCost` executes atomically even when called from concurrent async tasks like parallel rewrites in Promise.allSettled.\n\nSynchronous code between `await` points cannot interleave. Multiple async tasks execute their `recordSpend()` calls sequentially, one after another. The developers confirm this understanding in comments (line 766-767): \"single-threaded JS event loop guarantees the recordSpend handler settles before the next microtask.\" The code design (line 145-146) emphasizes reserve() must be synchronous for \"parallel safety under Node.js single-threaded event loop.\"\n\nIntegration tests pass and confirm correct behavior with parallel scopes. The actual concurrency workaround in ParagraphRecombineAgent (lines 769-779) uses phase cost snapshots before/after awaits because the SHARED tracker has cumulative state ordering races, not because recordSpend() itself is racy—they acknowledge recordSpend is atomic."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/sequentialExecute.ts",
+    "line": 473,
+    "title": "Promise.allSettled M parallel rewrites mutate shared slotScope state without synchronization",
+    "why": "The finder claims Promise.allSettled parallel rewrites at lines 473-531 race on `ownSpent += actualCost` at trackBudget.ts:79. This is incorrect.\n\nJavaScript is single-threaded. Async functions interleave only at `await` points. The execution flow:\n1. Multiple rewrite functions call `await slotLlm.complete()` (line 502)\n2. When one complete() resolves, `slotScope.recordSpend()` runs synchronously inside createEvolutionLLMClient\n3. This executes `ownSpent += actualCost` (trackBudget.ts:79) atomically - no interruption possible in single-threaded environment\n4. Control returns before another recordSpend executes\n\nThere is no lost-update race because `+=` on a primitive cannot be interrupted mid-execution. The interleaving at await boundaries doesn't affect recordSpend atomicity. The budget check at line 493 may see stale values, but this is expected parallel behavior, not a bug. Cost delta calculation at lines 498-511 correctly reads shared tracker phase costs before/after await."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts",
+    "line": 751,
+    "title": "Promise.allSettled M parallel rewrites mutate invocationScope non-atomically",
+    "why": "The claim alleges concurrent `recordSpend` calls racing on `totalSpent += actualCost`. This is false because JavaScript is single-threaded and the event loop ensures sequential execution of synchronous operations after await points.\n\nAnalysis: Line 751 has `await Promise.allSettled(rewrites)` which waits for all M rewrites. Lines 399-417 have `await Promise.allSettled(slots)` which waits for all N slots. Each rewrite's `recordSpend` (line 231 of createEvolutionLLMClient.ts) executes synchronously after the `await` of the provider call. In Node.js, synchronous code after await cannot interleave - the entire `recordSpend` (lines 166-198 of trackBudget.ts) runs to completion before the next microtask. The code documents this at lines 764-767. By line 525 (budget check), all awaits have completed, so `ownSpent` is fully up-to-date. No race exists."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankNewVariant.ts",
+    "line": 87,
+    "title": "localPool.push(variant) followed by unprotected mutations in concurrent rankNewVariant calls",
+    "why": "The code as written is correct. rankNewVariant() is consistently called in sequential for...await loops in all call sites (ParagraphRecombineAgent.ts:948-966 and sequentialExecute.ts:637-676). The mutations at lines 87-88 (localPool.push, localRatings.set) and further mutations inside rankSingleVariant are protected by sequential execution with explicit await between iterations. The D18 invariant (line 15-17 of ParagraphRecombineAgent.ts) explicitly documents this requirement: \"per-slot pairwise ranking is SEQUENTIAL (rankNewVariant mutates local pool/ratings/matchCounts in place — concurrent calls would corrupt them).\" While the function signature could theoretically be called in parallel via Promise.all(), no such pattern exists in the codebase. The finder's concern is a \"what if someone refactors this to parallel\" hypothetical, not an actual bug in the current implementation. The code is deterministic, produces correct results, and has explicit documentation preventing concurrent calls."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/claimAndExecuteRun.ts",
+    "line": 66,
+    "title": "Heartbeat interval async callback may self-cancel via runner re-claim race",
+    "why": "The async callback in setInterval at line 66 is intentionally fire-and-forget (not awaited), which is correct - setInterval doesn't wait for async callbacks anyway. The re-claim race scenario described is handled by design: (1) SQL migration 20260622000004 lines 38-47 explicitly auto-expire stale runs and re-assign them; (2) the eq('runner_id', runnerId) condition at line 72 prevents overwrites when re-claimed; (3) lines 74-76 log a warning when heartbeat fails due to runner_id mismatch, making it observable. The finally block at line 264 properly clears the interval. The finder conflates \"async callback that doesn't wait for settlement\" (which is intentional) with a bug. The code correctly prevents the old runner's stale heartbeat from corrupting the re-claimed run's state. There is no data loss, silent corruption, or crash - the behavior matches the documented race handling."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/sequentialExecute.ts",
+    "line": 136,
+    "title": "Mutation of shared priorPicks and nextContext arrays threaded unsafely to concurrent rankNewVariant",
+    "why": "The candidate claims a data-race bug on priorPicks and nextContext arrays passed to rankNewVariant. Reading the actual code confirms:\n\n1. SEQUENTIAL execution: Line 212 calls `await processSequentialRound({...})` which blocks until completion. Inside processSequentialRound, line 637 has `for (const candidate of survivingRewriteVariants)` with `await rankNewVariant(...)` at line 641 — this is an await-based sequential loop, NOT concurrent.\n\n2. Type-safe readonly parameters: Both arrays are declared `readonly string[]` in ProcessSequentialRoundParams (lines 360, 362), preventing mutations within the function.\n\n3. Mutation timing: priorPicks.push() at line 228 only executes AFTER the await at line 212 completes. No concurrent access exists.\n\n4. Finder's actual claim: \"if sequentialExecute were refactored to run ranking in parallel (breaking the D18 invariant), concurrent readOnly could race...\" — this is explicitly hypothetical (\"if refactored to be parallel\").\n\nPer the severity rubric, \"this could go wrong IF someone refactors it to be parallel\" is categorized as NONE or LOW hardening, not a real bug. The code AS WRITTEN is sequential and safe."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankNewVariant.ts",
+    "line": 120,
+    "title": "inRunIds Set computed from concurrent localPool without synchronization",
+    "why": "rankNewVariant is called only in a sequential for-loop with await (ParagraphRecombineAgent.ts line 948-987), not concurrently. The D18 invariant explicitly requires \"per-slot pairwise ranking is SEQUENTIAL\" to prevent localPool corruption. Each parallel slot gets its own isolated localPool, and within each slot, rankNewVariant calls are serialized. While the code does read localPool at line 120 after mutating it at line 87, this occurs within a single sequential function call, not across concurrent calls. The vulnerability described would only occur if the sequential for-loop were refactored to Promise.all/Promise.allSettled - violating the D18 constraint - but the current code is correct."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts",
+    "line": 285,
+    "title": "slotWinnerTexts Map assembly at line 369-370 overwrites concurrent slot winners",
+    "why": "The finder claims concurrent Map.set overwrites could race. However, the code is safe for two reasons: \n\n1. MUTUAL EXCLUSION: Lines 300-396 (sequential path with lines 369-370) and lines 397-418 (parallel path) are in an if...else block. Only ONE executes per invocation. They cannot run simultaneously.\n\n2. EVENT LOOP SAFETY: Within the parallel path, processSlot() calls execute via Promise.allSettled(). The Map.set() at line 1016 is synchronous and executes after the last await (line 954), with no awaits before line 1022. Node.js's single-threaded model ensures synchronous code between awaits is atomic — no interleaving occurs. Therefore concurrent Map.set() calls do not race.\n\nThe finder acknowledges the architecture prevents this but calls the pattern \"fragile.\" It is not fragile; it is safe by design."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts",
+    "line": 418,
+    "title": "slotDetails array order undefined after concurrent Promise.allSettled pushes",
+    "why": "The claim alleges concurrent Promise.allSettled callbacks may push incomplete entries to slotDetails if processSlot throws. However, this is NOT a bug:\n\n1. **processSlot never throws**: The entire function (lines 629-1095) has no throw statements. All errors are caught with try/catch and result in early returns.\n\n2. **All push operations are complete**: All five push locations (lines 703, 872, 892, 1043, 1071) explicitly set slotIndex as part of the object being pushed.\n\n3. **array.push() is atomic and synchronous**: Concurrent callbacks cannot interleave during push.\n\n4. **Promise.allSettled handles all cases**: It captures both success and failure, and only complete entries are pushed before any failure point.\n\n5. **Sort at line 421 works correctly**: Since all entries have slotIndex set by design, sorting always succeeds.\n\nThe finder assumed processSlot could throw mid-execution with a partial push, but comprehensive error handling and the no-throw design prevent this."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts",
+    "line": 654,
+    "title": "Parallel slots all use shared invocationScope.getPhaseCosts() to compute budget, racing on coordinator cost",
+    "why": "The finder describes a hypothetical race where parallel slots read shared invocationScope.getPhaseCosts(). However, the actual code has two paths: (1) Sequential path (lines 300-396): Phase A (coordinator) runs sequentially, then Phase B processes slots sequentially—no parallel race. (2) Legacy parallel path (lines 397-417): All slots run in parallel via Promise.allSettled(), but NO coordinator exists in this path. Inside processSlot, each slot creates its own slotScope (line 657) and reads getPhaseCosts() from that slotScope, not the shared invocationScope. The finder acknowledges \"Current code is safe because runCoordinator is sequential before the loop.\" The described race is hypothetical and acknowledged as safe by the finder themselves."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts",
+    "line": 165,
+    "title": "Budget cap fallback to $1 on invalid input hides configuration errors silently",
+    "why": "The candidate reports a bug at \"evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts:165\" but this file path is incorrect. The actual code is at evolution/src/lib/pipeline/claimAndExecuteRun.ts:165-180. The code in question shows proper error handling: it detects invalid budget_cap_usd, logs a warning with context (logger.warn at line 170: \"budget_cap_usd missing or invalid, defaulting to $1\"), and then falls back to 1.0. This was identified as B018-S1 in the project's bug research phase (\"silent fallback to 1.0 when budget_cap_usd non-finite; no logger.warn\"), and the planned fix explicitly required adding a logger.warn call on the fallback branch. The current code implements this plan correctly: it warns loudly (with runId and raw value) before falling back. The fix was merged in the structured-judging-bugs project and is working as designed. The candidate's claim that it \"hides configuration errors silently\" is refuted by the presence of the logger.warn call that explicitly surfacesthe misconfiguration to observability systems."
+  },
+  {
+    "file": "evolution/src/services/arenaActions.ts",
+    "line": 204,
+    "title": "Missing variant_kind filter in topic entry count query",
+    "why": "Analysis confirms the missing variant_kind filter is not a real bug. The code correctly maintains an invariant: variant_kind='paragraph' only appears on prompt_kind='paragraph' topics, and variant_kind='article' only on article topics. ParagraphRecombineAgent explicitly creates paragraph topics via upsertSlotTopic(kind='paragraph') before syncing variants with variant_kind='paragraph' to them. Article workflows use the default variant_kind='article'. The count query filters by prompt_id=topic.id for article topics only, so it will only count article variants because paragraph variants are on different topic IDs. No code path creates paragraph variants with prompt_ids pointing to article topics. The missing filter is defensive programming, not a bug fix."
+  },
+  {
+    "file": "evolution/src/services/arenaActions.ts",
+    "line": 255,
+    "title": "Seed variants query missing variant_kind filter",
+    "why": "The finder claims getArenaTopicDetailAction (lines 254-262) is missing a .eq('variant_kind', ...) filter, allowing mixed variants. This is NOT a bug because the application architecture prevents this scenario. Paragraph variants are ONLY inserted under paragraph topic prompt_ids via upsertSlotTopic. Article variants are ONLY inserted under article topic prompt_ids. These are separate invocations with different prompt_ids, so mixing cannot occur. The query filters by prompt_id, which naturally segregates variant kinds. While a variant_kind filter would be defensive programming (as suggested in the planning doc), it is unnecessary here because the application design makes the claimed failure impossible."
+  },
+  {
+    "file": "evolution/src/lib/metrics/readMetrics.ts",
+    "line": 27,
+    "title": "getEntityMetrics query returns potentially unbounded metric rows",
+    "why": "The finder claims getEntityMetrics should add .limit(1000) to prevent unbounded result sets. However, examining the actual code (lines 27-31), the function is explicitly designed to return MetricRow[] (all metrics for an entity). The API contract—function name \"getEntityMetrics\" (plural) and return type Promise<MetricRow[]>—clearly indicates the caller expects all metrics. A LIMIT would silently hide metrics from callers and break the API contract. While an entity could have many metrics (different metric_name values due to the UNIQUE constraint on (entity_type, entity_id, metric_name)), this is expected behavior, not a bug. The comparison function getMetricsForEntities also does not limit metrics per entity. If unbounded results were a concern, it should be addressed at the caller level or through explicit pagination, not via silent truncation."
+  },
+  {
+    "file": "evolution/src/lib/metrics/readMetrics.ts",
+    "line": 47,
+    "title": "getMetric query missing index usage validation",
+    "why": "Not a correctness bug. The getMetric query (lines 45-51) filters on (entity_type, entity_id, metric_name) with .eq() calls and .maybeSingle(). These three columns have a UNIQUE constraint (line 21 of migration), so the query correctly returns at most one matching row. The finder's concern about PostgreSQL choosing idx_metrics_type_name over idx_metrics_entity is a query planner index selection observation, not a correctness issue. Both indexes yield the same correct result. PostgREST doesn't expose application-level index hints anyway. This is a database optimization concern, not a code bug."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/finalize/persistRunResults.ts",
+    "line": 489,
+    "title": "Variant enrichment query missing cost_usd check in loop",
+    "why": "The query at lines 488-491 fetches all variants for the run_id, not just the ones upserted in this function. However, this is not a correctness bug. The code correctly processes only the variants it needs: at line 507-516, it iterates through `summaryPool` (non-arena variants from `result.pool`) and looks up costs from `invByVariant` map populated from the query results. Extra rows in the query simply remain unused in the map - they don't affect correctness. The upsert at line 369 uses `onConflict: 'id'` which is safe. Additionally, finalizeRun is called only once per run, so the query won't fetch stale data from previous finalizations. While the query could be optimized by filtering to just the upserted variant IDs, the performance impact is negligible for realistic run sizes (typically dozens to low hundreds of variants per run), making this a minor efficiency concern rather than a bug."
+  },
+  {
+    "file": "evolution/src/services/arenaActions.ts",
+    "line": 502,
+    "title": "Preview content batch fetch missing variant_kind filter",
+    "why": "The candidate claims that getRecentMatchesAction (lines 501-504) fetches variants without verifying variant_kind. After code analysis: (1) variant IDs are unique and directly identify variants, so the fetch by ID is sufficient. (2) variant_kind is guaranteed by insert-time logic: article variants via sync_to_arena (defaults to 'article'), paragraph variants via persistSlotMatches (explicitly set to 'paragraph'). (3) No code path creates mismatches - article prompts only have article variants, paragraph prompts only have paragraph variants. (4) The query returns the correct content regardless because variant_content is deterministic and stored independently. (5) Even if a mismatch existed (impossible), the preview would display correctly. This is defensive programming, not a functional bug. Data integrity is maintained at insertion, not query layer."
+  },
+  {
+    "file": "supabase/migrations/20260527000003_extend_sync_to_arena_for_paragraph_kind.sql",
+    "line": 71,
+    "title": "ON CONFLICT clause preserves old variant_kind on re-sync",
+    "why": "The code accurately implements an intentional design choice documented in both the migration header (lines 13-14) and inline comments (lines 78-79). The ON CONFLICT clause does NOT update agent_name and variant_kind on re-sync by design—to preserve the kind/agent label set on initial insert. This is not a bug but rather a deliberate architectural decision that is clearly communicated. The finder's characterization that this \"creates a footgun if sync logic changes\" is speculative about hypothetical future requirements rather than identifying an actual defect in the current implementation. There is no data loss, silent wrong output, or deterministic failure—the behavior matches the documented intent."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/finalize/persistRunResults.ts",
+    "line": 368,
+    "title": "Variant upsert using onConflict='id' without variant uniqueness check",
+    "why": "The code uses `onConflict: 'id'` for variant upserts. While this theoretically allows silent overwrites if variant IDs collide across runs, this is NOT a bug in practice because: (1) Variant IDs are generated with `uuidv4()` (cryptographically random), making collisions astronomically unlikely. (2) All variantRows in a single upsert are scoped to one run via `run_id: runId`. (3) Duplicate IDs within a single upsert ARE caught (error '23505'). (4) Cross-run ID collisions would require a serious bug elsewhere in UUID generation or agent code. The finder correctly describes the *mechanism* but the practical risk is essentially zero with proper UUID generation. This is theoretical/hardening, not a correctness bug."
+  },
+  {
+    "file": "evolution/src/services/invocationActions.ts",
+    "line": 99,
+    "title": "IN-list chunking uses incorrect NOT operator syntax",
+    "why": "The code at line 99 is NOT a bug. The Supabase `.not()` method in postgrest-js (line 551-554) is specifically designed to accept raw PostgREST syntax strings. The FilterOperator type includes 'in' as a valid operator. The syntax `.not('run_id', 'in', '(id1,id2,...)')` correctly constructs `not.in.(id1,id2,...)` which is valid PostgREST syntax.\n\nThe finder incorrectly claims `.not()` doesn't support 'in' and suggests `.not().in()` chaining, but that's not how Supabase's API works. The code properly chunks 200-UUID batches to avoid PostgREST URL limits (documented as ~36KB ceiling). Each parameter is ~7400 chars, well under the limit. UUIDs don't contain reserved characters that would break parsing."
+  },
+  {
+    "file": "evolution/src/lib/shared/rubricJudge.ts",
+    "line": 331,
+    "title": "Untagged targetStyleProse in rubric judge prompt",
+    "why": "The claim is technically correct about the code structure - targetStyleProse is indeed interpolated at line 331 without UNTRUSTED_* tags, while priorPicks, nextContext, and originalParagraph use them (lines 318, 321, 327). However, this is NOT a bug because targetStyleProse is fundamentally different in nature from the other context variables. It is not user-pasted text or parent article text; it is LLM-extracted style metadata that has been rendered through a deterministic, constrained function (renderFingerprintProse). The source traits have been validated through Zod schema with strict limits. The three other context sources contain raw user-generated or parent-provided article text that requires explicit \"data not instructions\" guards, whereas targetStyleProse is already controlled through the extraction and rendering pipeline. The code comment at lines 280-282 confirms this design: \"Callers are the sanitization source of truth — this function does NOT re-sanitize,\" indicating that the function correctly relies on inputs being pre-sanitized by their respective sources."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/debate/promptBuilders.ts",
+    "line": 90,
+    "title": "Debate verdict parser requires non-empty arrays but constraint not enforced in schema",
+    "why": "The code operates correctly and as intended. The prompt at line 90 states \"Each pros/cons/strengths/improvements array MUST contain at least one entry.\" The parser (lines 93-103) correctly validates by trimming whitespace and rejecting arrays that become empty after removing whitespace-only strings. While there is a semantic gap between what the prompt says (\"at least one entry\") and what the parser enforces (\"at least one non-empty, non-whitespace entry\"), this is not a bug—it's the correct behavior. The parser rejects malformed input (arrays with only whitespace) deterministically with a clear error message. The issue is purely about prompt clarity, not code correctness. Per the rubric, \"comment should be clearer / missing documentation\" is NONE."
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts",
+    "line": 246,
+    "title": "Missing type cast for 'cost' metric key",
+    "why": "The finder claims line 246 in createEvolutionLLMClient.ts is missing a type cast for 'cost' metric key. Reading the actual code shows:\n\nLine 246: `await writeMetricMax(db, 'run', runId, 'cost', totalSpent, 'during_execution');`\n\nThe writeMetricMax function signature requires parameter `metricName: MetricName`. The MetricName type is defined as `StaticMetricName | DynamicMetricName`, where StaticMetricName includes the literal 'cost' from the STATIC_METRIC_NAMES const array.\n\nIn TypeScript, string literals that are members of a const array (defined with `as const`) are automatically assignable to discriminated union types. The literal 'cost' is directly part of the STATIC_METRIC_NAMES tuple, making it assignable to the MetricName union without an explicit cast.\n\nWhile line 437 in persistRunResults.ts includes the redundant cast `'cost' as MetricName`, this is defensive programming but not required. No TypeScript compilation errors occur on line 246. The code is correct as written—TypeScript DOES validate the metric key at compile time without the cast."
+  },
+  {
+    "file": "evolution/src/lib/metrics/experimentMetrics.ts",
+    "line": 461,
+    "title": "No logging when article-only filter excludes variants",
+    "why": "The code is functioning as designed. The `.eq('variant_kind', 'article')` filter at line 461 is intentional (per lines 452-456 comment) to exclude paragraph_recombine variants. The early return at line 464 when `variants.length === 0` is a standard pattern throughout the codebase (seen in writeMetrics.ts, tacticMetrics.ts, etc.). \n\nThe finder raises an observability concern: if variant_kind emission has a typo (e.g., 'Article' instead of 'article'), the function would silently return with no logging, and attribution metrics would vanish. However, this is not a bug in the code itself—the code is correct. It's a theoretical hardening issue (defensive logging would help catch data pipeline bugs), but:\n\n1) The code produces correct output in normal operation\n2) This is a consistent design pattern throughout the metrics module\n3) Variant emission tests would catch such typos\n4) The comments explicitly document the intentional filtering\n\nWithout actual wrong output, data loss, or a systematic failure on production paths, this falls outside the bug rubric. This is design-as-intended, not a defect."
+  },
+  {
+    "file": "evolution/src/lib/metrics/recomputeMetrics.ts",
+    "line": 34,
+    "title": "Stale-metric lock RPC failures not retried",
+    "why": null
+  },
+  {
+    "file": "evolution/src/lib/metrics/writeMetrics.ts",
+    "line": 172,
+    "title": "writeMetricMax error lacks entity context",
+    "why": "The finder's claim is based on a false comparison. The candidate asserts that line 172 in writeMetricMax lacks entity context compared to line 104 in writeMetrics, which supposedly \"includes full context.\" However, reading the actual code shows:\n\nLine 172 (writeMetricMax): `throw new Error(\\`Failed to write max metric '${metricName}': ${error.message}\\`);` - includes metricName.\n\nLine 104 (writeMetrics): `throw new Error(\\`Failed to write metrics: ${error.message}\\`);` - includes NO entity context (no metricName, entityType, or entityId).\n\nLine 104 is actually LESS informative than line 172, not more. The finder's premise that line 104 has \"full context\" is factually incorrect. Both functions lack detailed error context (neither includes entityType or entityId in the RPC error handler), but line 172 includes at least metricName while line 104 includes nothing. There is no inconsistency to fix, and the comparison is backwards."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/promptSafety.ts",
+    "line": 41,
+    "title": "Inefficient regex escaping in sanitizeForPriorContext loop",
+    "why": "The candidate claim is technically accurate about the double call to escapeForRegex() on lines 45 and 47, but this is a stylistic inefficiency, not a correctness bug. The code produces correct output: it sanitizes all delimiter tags by testing for their existence, then replacing them if found. The inefficiency is minimal (6 tags total, each calling escapeForRegex twice) and causes no observable impact on correctness, performance in typical use (string sanitization), or security. This is optimization territory, not a bug. Per the rubric, this does not meet any of the severity criteria (no data loss, crash, wrong output, edge case errors, or concurrency issues) — it's merely a code quality observation about redundant escaping computations."
+  },
+  {
+    "file": "evolution/src/services/tacticPromptActions.ts",
+    "line": 43,
+    "title": "Unchecked tacticName input passed directly to database query",
+    "why": "This is not a bug. The code uses Supabase-js's `.eq()` method, which sends parameterized HTTP requests to PostgREST — not SQL string concatenation. This is inherently safe from SQL injection. Both parameters are optional and checked before use. If an invalid UUID is passed for `promptId`, Supabase simply returns 0 matching rows, which is correct filter behavior. For `tacticName`, any string safely passes to `.eq()` and returns matches or empty results. While explicit UUID validation for `promptId` (as in experimentActions.ts line 51) would match code style, it's not required for correctness — the parameterized query handles invalid input correctly by returning empty results."
+  },
+  {
+    "file": "evolution/src/services/costAnalytics.ts",
+    "line": 113,
+    "title": "Comment claims defense-in-depth SQL sanitization but none visible",
+    "why": "The finder claims that \"no actual whitelist validation is visible in the action code itself\" for the granularity parameter. However, reading the actual code shows explicit whitelist validation is present: (1) Line 99 defines VALID_GRANULARITIES as ['hour', 'day', 'week']; (2) Lines 119-120 contain the validation check: \"if (!VALID_GRANULARITIES.includes(granularity)) { throw new Error(...) }\". The comment on line 113 accurately describes what the code does. The finder appears to have misread the code or missed the validation logic that is clearly visible in lines 119-120. This is not a security bug."
+  },
+  {
+    "file": "evolution/src/services/adminAction.ts",
+    "line": 46,
+    "title": "RequireAdmin called but no explicit verification message on failure details",
+    "why": "The finder claims the client receives \"a generic error response without distinguishing between these cases.\" This is incorrect. Reading the actual code shows: (1) requireAdmin() throws specific, detailed Error messages like \"Unauthorized: Not authenticated\", \"Unauthorized: Not an admin\", or \"Unauthorized: Admin actions are not available from this hostname\" (adminAuth.ts lines 106, 113, 128, 132); (2) handleError() in adminAction.ts line 62 captures this error; (3) categorizeError() in errorHandling.ts line 120 returns the full error.message unchanged (the message field is: error.message); (4) The client receives { success: false, error: { code: \"UNKNOWN_ERROR\", message: \"Unauthorized: Not authenticated\" } } - the message field clearly distinguishes between auth failures, missing admin role, wrong hostname, and database errors. The system correctly conveys specific, actionable information to the client through the message field. While the code code is \"UNKNOWN_ERROR\" rather than a more specific auth code, the message field provides full distinction. This is not a security gap or observability issue - it's correct behavior."
+  },
+  {
+    "file": "evolution/src/services/experimentActions.ts",
+    "line": 122,
+    "title": "SQL LIKE pattern escape applied but no length limit on name parameter",
+    "why": "The code at line 122-123 correctly escapes the name parameter for SQL LIKE injection prevention using `replace(/[%_\\\\]/g, '\\\\$&')`. The finder's concern about \"no length limit\" causing \"theoretical performance issues\" is not a functional bug. A long string passed to a LIKE query will execute less efficiently, but this is a performance characteristic by design, not a software defect. The query will not crash, lose data, or produce wrong results. PostgreSQL handles long LIKE patterns correctly. The design choice to allow wildcard substring search without maxlength validation is a performance consideration, not a bug. If performance becomes an issue, that would be addressed through caching, query optimization, or UI-level length limits — but the current code is functionally correct."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/paragraphRecombine/sequentialExecute.ts",
+    "line": 515,
+    "title": "Delimiter mirror check correctly prevents injection but unsanitized text retained in execution detail",
+    "why": "The candidate claims unsanitized delimiter-mirroring text is \"retained in execution_detail logs\" as a problem. The code does store it (line 566), but this is NOT a bug:\n\n1. SECURITY: Text never reaches the injection risk point. Line 575 guard (if valid && variantId) prevents adding to survivingRewriteVariants, which feed into next-round prompt context.\n\n2. CORRECTNESS: Variant is properly rejected with formatValid=false, status='dropped'. Filtering logic works correctly.\n\n3. DESIGN: Storing rejected variants in execution_detail is intentional for debugging. The minor issue is the delimiter mirror reason uses generic 'no_h1' dropReason, not that the text is stored. The delimiterMirrored field at line 524 is dead code (never referenced), suggesting incomplete implementation—a code quality issue, not a correctness bug."
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+    "line": 224,
+    "title": "buildMatch doesn't handle 'TIE' winner case for loserId assignment",
+    "why": "The candidate claims that when result.winner === 'TIE', the winnerId/loserId assignment creates semantic confusion and may cause asymmetric rating application. However, the actual code flow proves this is not a bug:\n\n1. Line 223 correctly identifies draws: `const isDraw = result.winner !== 'A' && result.winner !== 'B'` — when result.winner is 'TIE', isDraw = true.\n\n2. Line 229 correctly sets `result: isDraw ? 'draw' : 'win'` — so result='draw' when there's a TIE.\n\n3. Critically, at line 412, the code has an explicit guard: `if (isDraw)` that branches into two paths. When isDraw is true (which includes all TIE cases), the code calls `updateDraw(variantRating, opponentRatingBefore)` and completely ignores winnerId/loserId.\n\n4. Only in the `else` branch (line 420) are winnerId and loserId actually used, and this branch is unreachable when result='draw'.\n\nThe winnerId/loserId fields are indeed assigned even when there's a draw, but they are provably never used for draw outcomes due to the explicit guard. Ratings are applied via symmetric updateDraw() function for draws, not through the winnerId/loserId pathway. The code is correct; the finder misread the control flow."
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/weightInference/autoJudge.ts",
+    "line": 113,
+    "title": "Record<AutoVerdict, number> modified but enum member types may not be exhaustive",
+    "why": "The code at line 113 (`for (const v of values) counts[v]++;`) is type-safe in practice. The `majority()` function signature requires `values: AutoVerdict[]`, and all callsites (line 136 and line 142-143) ensure that only valid AutoVerdict values ('a', 'b', or 'tie') are passed: line 136 passes `r.overall` which is typed as AutoVerdict from SinglePairResult, and lines 140-142 include an explicit type guard `filter((v): v is AutoVerdict => v !== undefined)` that narrows the type. All upstream data creation (lines 97, 101) routes through `lcReq()` which exhaustively converts to valid AutoVerdict values. While it's theoretically possible to break this with type casting or untrusted external data, the actual code paths in this file maintain type safety throughout. This is not a bug but rather a matter of defensive programming philosophy — TypeScript's type system makes the implementation correct for the actual use cases."
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/weightInference/audit.ts",
+    "line": 59,
+    "title": "Map iterator assigned to Record without type guard",
+    "why": "The finder misunderstands TypeScript's type safety model. Line 59 correctly iterates over a Map<string, ...> and assigns to Record<string, AuditMetric>. The Map is explicitly typed as Map<string, { flips: number; agrees: number; n: number }> (line 38), so the for...of iterator yields string keys (id is typed as string). Assigning string keys to Record<string, T> is type-safe by design — TypeScript's type system prevents Symbol or non-string primitives from being added to a Map<string, X> at compile time. There is no \"silently coerces\" behavior and no need for a \"type guard\" because the types are already statically aligned. The code is correct."
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/core/Agent.ts",
+    "line": 199,
+    "title": "Unsafe cast of detail to Record when validation failed",
+    "why": "The code at line 199 is NOT unsafe. The finder misread the control flow. The ternary operator checks `parseResult.success` BEFORE applying the cast. When the condition is true, it means Zod's `safeParse()` (called at line 168) has validated the detail against `this.executionDetailSchema`. Only after successful validation does the cast occur. The cast itself is a TypeScript type system detail to convert from generic `TDetail` to `Record<string, unknown>` for the database update function. The validation is the prerequisite, not bypassed. Comments B051 and D1 (lines 176-186) explicitly document this: \"execution_detail stays gated on schema validity ONLY\" and \"Downstream detail-view pages assume validated detail shape.\" When validation fails, `execution_detail` is set to `undefined` and an error_message is recorded instead (lines 200-204). This is correct runtime behavior."
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/pipeline/setup/buildRunContext.ts",
+    "line": 175,
+    "title": "Optional field applied default without null check",
+    "why": "The finder claims that arena_match_count could be a non-numeric string and pass through without validation. However, reading the actual code shows: (1) The database schema defines arena_match_count as INT NOT NULL DEFAULT 0 (from migration 20260322000007), (2) The TypeScript type ArenaRow declares arena_match_count as number | null (line 86), reflecting Supabase's behavior for INT columns, (3) Supabase's JavaScript client returns INT columns as JavaScript numbers, not strings—only NUMERIC/DECIMAL types return as strings (which is why lines 164-165 explicitly call Number() for mu and sigma), (4) The code at line 175 correctly uses the nullish coalescing operator to default to 0 when the value is null/undefined. The finder appears to have misunderstood that the special Number() handling shown in the comment (lines 161-163) applies only to NUMERIC columns like mu and sigma, not to INT columns like arena_match_count. The code is correct as written."
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/metrics/computations/criteriaMetrics.ts",
+    "line": 93,
+    "title": "Unsafe double-cast of nullable DB fields to number without validation",
+    "why": "Line 93 uses `(p.mu ?? 25) as number` cast without explicit coercion. However, this is NOT a functional bug because: (1) Supabase's JavaScript client returns Postgres NUMERIC as JavaScript numbers by default, not strings; (2) The values (25, 8.333) are well within normal ranges; (3) Even if p.mu were a string, JavaScript's implicit coercion in the arithmetic operations within dbToRating would still produce correct results. The `as number` is loose type-safety but does not cause wrong output, crashes, or silent failures on realistic inputs. The finder confused a TypeScript type-safety gap with a functional bug."
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/pipeline/setup/generateSeedArticle.ts",
+    "line": 54,
+    "title": "JSON.parse without schema validation before field access",
+    "why": "The code at lines 54-56 does exactly what the finder describes: it parses JSON without validating the returned object's shape, then accesses potentially nonexistent fields (title1, title). However, this is not a bug—it's intentional defensive programming. When accessed fields are undefined, the nullish coalescing chain `(parsed.title1 ?? parsed.title ?? '')` correctly degrades to an empty string, which then triggers the `||` fallback to `raw.replace(/[\"\\n]/g, '').trim().slice(0, 200)`. The function is explicitly designed to handle malformed LLM responses by gracefully falling back from JSON extraction to raw text processing. Lines 58-59 show the same pattern: if parsed is not an object, it checks if it's a string, and if not, falls back to raw processing. No data loss, no crashes, no wrong output—only intentional error handling."
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/shared/computeRatings.ts",
+    "line": 596,
+    "title": "Array.includes() with string union check may be fragile",
+    "why": "The finder's claim is NOT a real bug. Line 596 uses `['A', 'B', 'TIE'].includes(upper)` where `upper` is defined at line 594 as `const upper = response.trim().toUpperCase()`. Since `response` parameter is explicitly typed as `string` (line 593), TypeScript's static type system guarantees that `upper` is a `string` at runtime. The scenarios the finder worries about (upper being a number or non-string) are not possible given TypeScript's compile-time type checking. The code correctly checks if the string value matches one of the expected outcomes. The only legitimate criticism would be stylistic (prefer an enum or const set over a literal array), but that's not a correctness issue. The claim incorrectly assumes TypeScript's type safety isn't enforced at runtime for this path, which contradicts how TypeScript works with string parameters."
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/pipeline/setup/buildRunContext.ts",
+    "line": 171,
+    "title": "Nullable field with template string default fallback",
+    "why": "The finder claims that `entry.generation_method` could be a \"non-string\" value that would produce unexpected template string coercion like '[object Object]'. However, examining the code reveals that `ArenaRow` (lines 81-88) explicitly types `generation_method: string | null`. This type constraint means the value can only be a string or null, never an object or other type. The nullish coalescing operator `?? 'unknown'` correctly handles the null case, and the template string interpolation (line 171) will always produce a string result. The code is type-safe and the finder misidentified a non-existent vulnerability."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+    "line": 407,
+    "title": "A' format gate drops ALL forward-accepted groups instead of subset (logic error)",
+    "why": "The finder claims lines 417-419 incorrectly drop ALL forward-accepted groups when A' introduces format issues, instead of dropping only \"problematic\" ones. However, this is the intended design, not a bug.\n\nKey facts: (1) mirrorArticleA is a COMPOSITE state created by applying ALL forward-accepted groups' edits together (renderMirrorMarkup, line 153). (2) Format validation returns issues for the entire article, with no per-group attribution. (3) There's no mechanism to isolate which specific groups caused which issues. (4) Commit 3335b7236 introduced this relative gate explicitly to compare A' against parent issues and \"only abort when A' introduces NEW issues\" — but \"only\" refers to the gate trigger, not selective group dropping. (5) The conservative approach (drop all when new issues appear) is correct because there's no way to selectively drop problematic groups without prohibitive re-validation overhead.\n\nThe finder misread the comment. \"Only abort when A' introduces NEW issues\" doesn't mean \"only drop problematic groups\" — it means \"only check format when there are new issues.\" When the gate triggers, dropping all forward-accepted groups is the correct, deterministic design."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+    "line": 472,
+    "title": "Aggregator applies on (forward=ACCEPT, mirror=REJECT) but does not handle double-accept case with confidence thresholding",
+    "why": "The finder claims the code doesn't handle \"confidence-based fallback logic\" when both approvers accept. However, the file explicitly documents at lines 4-5: \"APPLY iff (forward=ACCEPT, mirror=REJECT) — strict binary, no confidence-graded fallback.\" This comment describes the INTENDED design, not a missing feature. The code at line 472 correctly implements this: it only applies when fwd=ACCEPT && mir=REJECT. When both accept, line 477 properly drops it with reason 'aggregate_drop_both_accept'. The finder misinterpreted \"no confidence-graded fallback\" as a bug symptom when it actually describes the deliberate design choice. The code is correct."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/reflectAndGenerateFromPreviousArticle.ts",
+    "line": 339,
+    "title": "parseReflectionRanking throws without fallback (design-correct but fragile)",
+    "why": "The code at lines 339-365 correctly implements the intentional design spec stated in the comments (lines 151-153): \"no fallback — parser failures surface as invocation failures rather than silently picking a default tactic\". The function parseReflectionRanking throws ReflectionParseError when zero valid entries are extracted (lines 195-199), the try-catch at line 339-341 catches it, persists partial detail via updateInvocation with success=false (lines 357-362), and re-throws at line 364. This behavior is specified as correct in the load-bearing invariants (lines 14-17 of the file header). The brittleness (failure on malformed LLM output) is not a bug but an intentional design choice that surfaces parser failures rather than silently selecting a fallback tactic. No fallback logic exists, as designed."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+    "line": 453,
+    "title": "Forward-rejected groups short-circuit uses null decision which is correct, but telemetry records it with reason 'short_circuited_forward_rejected'",
+    "why": "The code is semantically and functionally correct. At lines 454-464, forward-rejected groups are correctly added to mirrorDecisions with decision: null and reason: 'short_circuited_forward_rejected'. At line 478, the aggregator correctly distinguishes this case from other null-decision scenarios (parse failures) by checking the exact reason string. While the finder correctly identifies that the code relies on string matching, this is NOT a bug because: (1) the string is consistently used in both places (set at 461, checked at 478), (2) the distinction between short-circuit and parse-fail is semantically necessary for accurate telemetry, (3) any change to the string at line 461 would be immediately visible in telemetry as the wrong reason being recorded, and (4) the design pattern of recording a reason alongside a null decision is reasonable for observability. The \"fragility\" concern is stylistic/theoretical, not a functional defect. The code works correctly."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/debate/DebateAgent.ts",
+    "line": 222,
+    "title": "ELO ordering invariant check does not handle NaN or undefined elo values in edge cases",
+    "why": "The candidate correctly identifies that when both variants are missing from initialRatings (both become NEGATIVE_INFINITY), the check \"eloA < eloB\" returns false and doesn't throw. However, this is not a bug because: (1) The code explicitly documents (lines 220-221) that \"the only legitimate path constructs DebateInput via resolveDebateDispatchRuntime\", meaning both variants should always be present in initialRatings. (2) The fallback to NEGATIVE_INFINITY is a defensive measure, not a primary validation mechanism. (3) If both ratings are genuinely missing, that indicates a dispatcher bug, which this agent correctly delegates upward. (4) The invariant check properly catches the main violation cases (lines 224 and 231-236) when ratings exist but are misordered. This is a hardening suggestion, not a correctness bug - the code works as designed within its stated assumptions."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/SwissRankingAgent.ts",
+    "line": 217,
+    "title": "Status determination does not distinguish between 'all pairs failed' and 'no pairs generated' (minor)",
+    "why": "The code correctly distinguishes between \"no pairs generated\" and \"all pairs failed.\" Lines 103-122 return early with status='no_pairs' when pairs.length===0 (no pairs generated). Lines 217-219 set status='failure' only when matchBuffer.length===0 && otherFailureCount > 0 (all generated pairs failed with non-budget errors). These are distinct control paths with distinct outcomes. The finder acknowledges the logic is correct per the comment and code. The finder's concern about \"unclear comments\" is a documentation/clarity issue, not a functional correctness bug. The status field correctly distinguishes the two cases via different return paths."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/MergeRatingsAgent.ts",
+    "line": 292,
+    "title": "Truncation of matchesAppliedSnapshot at 50 items loses telemetry for large batches",
+    "why": "The code at lines 292-300 intentionally caps matchesAppliedSnapshot to 50 items as a memory optimization. This is not a bug but a deliberate design choice. The detail object includes: (1) matchesApplied with first 50 items for detailed inspection, (2) matchesAppliedTotal: allMatches.length showing total applied (line 410), and (3) matchesAppliedTruncated boolean flag indicating truncation (line 411). All matches are applied to rating calculations—only the detailed snapshot is capped. The telemetry correctly reports that truncation occurred and how many total matches were applied. This is observability sampling (standard practice), not a bug that loses data or hides that matches were applied."
+  },
+  {
+    "file": "evolution/src/lib/core/agents/singlePassEvaluateCriteriaAndGenerate.ts",
+    "line": 294,
+    "title": "parentElo lookup does not validate parentVariantId is in initialRatings before access",
+    "why": "The code at lines 294-297 is correct and safe. The finder claims the code \"silently degrades to low-Elo behavior\" when parentVariantId is not in initialRatings, but this is intentional design, not a bug. The code uses optional chaining (`?.elo`) to safely handle the missing-rating case: when parentVariantId is present but not in initialRatings, parentElo becomes undefined, and line 297's condition `parentElo != null && parentElo > SINGLE_PASS_HIGH_ELO_THRESHOLD` correctly evaluates to false, setting highEloParent=false. This causes the prompt builder to omit the \"surgical edits only\" guidance block (line 91), which is safe and reasonable fallback behavior. The finder is describing a defensive-programming / observability suggestion (add logging when rating is missing), not a correctness bug. There is no data loss, runtime crash, wrong output, or security issue."
+  }
+]

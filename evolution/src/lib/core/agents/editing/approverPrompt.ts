@@ -34,7 +34,12 @@ export function buildApproverUserPrompt(
   approverGroups: EditingGroup[],
   /** Mode B (rewrite mode) only: the proposer's stated rationale. Surfaced here
    *  as priming context. The red-team caveat below tells the approver to
-   *  verify each edit on its merits, not to defer to the rationale. */
+   *  verify each edit on its merits, not to defer to the rationale.
+   *
+   *  SECURITY: callers MUST pre-sanitize this string (e.g. via
+   *  `sanitizeForPriorContext`) — it is LLM-generated proposer output and may
+   *  contain delimiter-tag literals that would otherwise break out of the
+   *  data-not-instructions boundary. runEditingCycle.ts already does this. */
   rationale?: string,
 ): string {
   const summary = approverGroups.map((g) => {

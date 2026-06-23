@@ -139,7 +139,7 @@ export interface EstPerAgent {
   upperBound: EstPerAgentValue;
 }
 
-export type EffectiveCap = 'budget' | 'safety_cap' | 'floor' | 'swiss' | 'eligibility';
+export type EffectiveCap = 'budget' | 'safety_cap' | 'floor' | 'swiss' | 'eligibility' | 'config_limit';
 
 export type TacticMixSource = 'iter-guidance' | 'strategy-guidance' | 'strategy-tactics' | 'defaults';
 
@@ -556,7 +556,7 @@ export function projectDispatchPlan(
       let dispatchCount: number;
       let expectedTotalDispatch: number;
       let expectedTopUpDispatch: number;
-      let effectiveCap: 'budget' | 'safety_cap' | 'floor' | 'eligibility' | 'swiss';
+      let effectiveCap: EffectiveCap;
       let parallelFloorUsd = 0;
       if (!willDispatch) {
         dispatchCount = 0;
@@ -590,9 +590,12 @@ export function projectDispatchPlan(
         dispatchCount = parallelN;
         expectedTotalDispatch = finalDispatch;
         expectedTopUpDispatch = Math.max(0, finalDispatch - parallelN);
-        if (finalDispatch === maxDispatchesK) effectiveCap = 'safety_cap';
+        // 'config_limit' (per-iter maxDispatches) is distinct from 'safety_cap'
+        // (the runtime constant DISPATCH_SAFETY_CAP=100). Conflating them in the
+        // wizard preview misleads users about which constraint actually binds.
+        if (finalDispatch === DISPATCH_SAFETY_CAP) effectiveCap = 'safety_cap';
+        else if (finalDispatch === maxDispatchesK) effectiveCap = 'config_limit';
         else if (finalDispatch === eligibleCount) effectiveCap = 'eligibility';
-        else if (finalDispatch === DISPATCH_SAFETY_CAP) effectiveCap = 'safety_cap';
         else effectiveCap = 'budget';
       }
 

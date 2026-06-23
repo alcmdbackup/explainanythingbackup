@@ -1,0 +1,242 @@
+[
+  {
+    "file": "evolution/src/lib/pipeline/loop/projectDispatchPlan.ts",
+    "line": 593,
+    "category": "correctness",
+    "severity": "medium",
+    "confidence": "high",
+    "title": "effectiveCap mislabeled 'safety_cap' for config-limit dispatch"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/editingDispatch.ts",
+    "line": 64,
+    "category": "correctness",
+    "severity": "high",
+    "confidence": "high",
+    "title": "Missing Elo-tie tiebreak in variant sort"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/runIterationLoop.ts",
+    "line": 152,
+    "category": "correctness",
+    "severity": "high",
+    "confidence": "high",
+    "title": "Missing Elo-tie tiebreak in computeEligibleIds"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/runIterationLoop.ts",
+    "line": 1378,
+    "category": "correctness",
+    "severity": "high",
+    "confidence": "high",
+    "title": "Missing Elo-tie tiebreak before paragraph-recombine parent shuffle"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/runIterationLoop.ts",
+    "line": 1678,
+    "category": "correctness",
+    "severity": "medium",
+    "confidence": "high",
+    "title": "Missing Elo-tie tiebreak before paragraph-coherence parent shuffle"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+    "line": 392,
+    "category": "cost-tracking",
+    "severity": "high",
+    "confidence": "high",
+    "title": "Transient LLM errors swallowed as TIE, consuming comparison budget"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+    "line": 376,
+    "category": "error-handling",
+    "severity": "high",
+    "confidence": "high",
+    "title": "402 in ranking swallowed as TIE, silencing cost errors"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/trackBudget.ts",
+    "line": 168,
+    "category": "correctness",
+    "severity": "medium",
+    "confidence": "high",
+    "title": "recordSpend does not validate actualCost >= 0, trusting caller"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/generateFromPreviousArticle.ts",
+    "line": 171,
+    "category": "cost-tracking",
+    "severity": "medium",
+    "confidence": "high",
+    "title": "Cost delta computation uses fallback to getTotalSpent() instead of requiring getOwnSpent"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/trackBudget.ts",
+    "line": 329,
+    "category": "cost-tracking",
+    "severity": "high",
+    "confidence": "high",
+    "title": "Per-iteration phase costs shadow run-cumulative costs when legacy flag enabled, breaking metric aggregation"
+  },
+  {
+    "file": "evolution/src/lib/services/costEstimationActions.ts",
+    "line": 429,
+    "category": "cost-tracking",
+    "severity": "medium",
+    "confidence": "high",
+    "title": "Invocation cost aggregation uses cost_usd directly, not reconciled against evolution_metrics"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/estimateCosts.ts",
+    "line": 389,
+    "category": "cost-tracking",
+    "severity": "high",
+    "confidence": "high",
+    "title": "Iterative editing ranking cost estimate uses seedChars not final article size"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+    "line": 375,
+    "category": "error-handling",
+    "severity": "high",
+    "confidence": "high",
+    "title": "402 Payment Required errors swallowed as TIE"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts",
+    "line": 277,
+    "category": "error-handling",
+    "severity": "medium",
+    "confidence": "high",
+    "title": "Error rethrow drops cause chain"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/claimAndExecuteRun.ts",
+    "line": 250,
+    "category": "concurrency",
+    "severity": "low",
+    "confidence": "high",
+    "title": "Heartbeat clearInterval may not cancel pending async callback from previous interval tick"
+  },
+  {
+    "file": "evolution/src/lib/maintenance/watchdog.ts",
+    "line": 55,
+    "category": "concurrency",
+    "severity": "low",
+    "confidence": "high",
+    "title": "Watchdog heartbeat compare-and-set check vulnerable to clock drift between processes"
+  },
+  {
+    "file": "evolution/src/services/arenaActions.ts",
+    "line": 303,
+    "category": "schema-db",
+    "severity": "high",
+    "confidence": "high",
+    "title": "getArenaEntries query missing variant_kind filter for topic filtering"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/finalize/persistRunResults.ts",
+    "line": 600,
+    "category": "correctness",
+    "severity": "high",
+    "confidence": "high",
+    "title": "propagateMetrics query missing LIMIT on evolution_runs join"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/editing/runEditingCycle.ts",
+    "line": 472,
+    "category": "prompt-correctness",
+    "severity": "medium",
+    "confidence": "high",
+    "title": "Unsanitized proposer rationale injected into approver prompt"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/editing/approverPrompt.ts",
+    "line": 38,
+    "category": "prompt-correctness",
+    "severity": "medium",
+    "confidence": "high",
+    "title": "Missing documentation on rationale sanitization requirement"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/editing/proposerPrompt.ts",
+    "line": 81,
+    "category": "prompt-correctness",
+    "severity": "medium",
+    "confidence": "high",
+    "title": "Unclear [#N] group number validation in prompt documentation"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/index.ts",
+    "line": 28,
+    "category": "observability",
+    "severity": "low",
+    "confidence": "high",
+    "title": "Missing agent imports in attribution extractor barrel"
+  },
+  {
+    "file": "evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts",
+    "line": 252,
+    "category": "logging",
+    "severity": "medium",
+    "confidence": "high",
+    "title": "Cost write failure missing context in error log"
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/pipeline/setup/generateSeedArticle.ts",
+    "line": 56,
+    "category": "type-safety",
+    "severity": "low",
+    "confidence": "high",
+    "title": "Unnecessary toString() called on already-cast string"
+  },
+  {
+    "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/metrics/computations/criteriaMetrics.ts",
+    "line": 104,
+    "category": "type-safety",
+    "severity": "medium",
+    "confidence": "high",
+    "title": "Double-cast of mu/sigma nullable fields without Number coercion"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+    "line": 291,
+    "category": "error-handling",
+    "severity": "high",
+    "confidence": "high",
+    "title": "Missing partial detail persistence on eval+suggest LLM error (I3 violation)"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+    "line": 337,
+    "category": "error-handling",
+    "severity": "medium",
+    "confidence": "high",
+    "title": "Missing partial detail persistence on proposer LLM error (I3 violation)"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+    "line": 369,
+    "category": "error-handling",
+    "severity": "high",
+    "confidence": "high",
+    "title": "Missing partial detail persistence on forward approver LLM error (I3 violation)"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+    "line": 290,
+    "category": "cost-tracking",
+    "severity": "medium",
+    "confidence": "high",
+    "title": "No cost snapshot before eval+suggest call; cost from catch block uses getOwnSpent at error time (I2 anomaly)"
+  },
+  {
+    "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+    "line": 331,
+    "category": "error-handling",
+    "severity": "medium",
+    "confidence": "high",
+    "title": "Cost snapshots not persisted on mirror approver LLM failures (partial I3 violation)"
+  }
+]

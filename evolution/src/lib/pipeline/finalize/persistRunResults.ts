@@ -597,11 +597,17 @@ export async function propagateMetrics(
   entityId: string,
 ): Promise<void> {
   const columnName = entityType === 'strategy' ? 'strategy_id' : 'experiment_id';
+  // Cap on a generous ceiling: long-lived experiments can accumulate thousands
+  // of completed runs and propagating them all in one round-trip is wasteful.
+  // The aggregator only needs the most recent N for the current health window.
+  const PROPAGATE_RUN_LIMIT = 10_000;
   const { data: runs } = await db
     .from('evolution_runs')
     .select('id')
     .eq(columnName, entityId)
-    .eq('status', 'completed');
+    .eq('status', 'completed')
+    .order('completed_at', { ascending: false })
+    .limit(PROPAGATE_RUN_LIMIT);
 
   const childRunIds = (runs ?? []).map((r: { id: string }) => r.id);
   if (childRunIds.length === 0) return;

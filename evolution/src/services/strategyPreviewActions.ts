@@ -252,7 +252,7 @@ export interface IterationPlanEntryClient {
   /** Top-up agents projected beyond the parallel batch.
    *  expectedTotalDispatch - dispatchCount. */
   expectedTopUpDispatch: number;
-  effectiveCap: 'budget' | 'safety_cap' | 'floor' | 'swiss' | 'eligibility';
+  effectiveCap: 'budget' | 'safety_cap' | 'floor' | 'swiss' | 'eligibility' | 'config_limit';
   poolSizeAtStart: number;
   parallelFloorUsd: number;
   /** Number of criteria evaluated. Only set when agentType === 'criteria_and_generate'. */

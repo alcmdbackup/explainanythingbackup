@@ -1,0 +1,539 @@
+[
+  {
+    "candidate": {
+      "file": "evolution/src/lib/pipeline/loop/projectDispatchPlan.ts",
+      "line": 593,
+      "title": "effectiveCap mislabeled 'safety_cap' for config-limit dispatch",
+      "category": "correctness",
+      "severity_guess": "medium",
+      "reasoning": "When finalDispatch===maxDispatchesK (user-set iteration max), line 593 sets effectiveCap='safety_cap'. But maxDispatchesK is a config limit, not DISPATCH_SAFETY_CAP (=100). This misrepresents the limiting factor to the wizard preview. Setting maxDispatches=5 then showing 'safety cap' in the UI is misleading. Line 595 correctly checks DISPATCH_SAFETY_CAP, so line 593 is a copy-paste error conflating two different constraints.",
+      "finder": "correctness-pipeline-loop"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "medium",
+      "confidence": "high",
+      "verdict_reasoning": "The code at line 593 is a genuine bug. When finalDispatch === maxDispatchesK (line 589), the limiting factor is the user-set config iteration maximum, not DISPATCH_SAFETY_CAP. However, line 593 mislabels this as 'safety_cap': \"if (finalDispatch === maxDispatchesK) effectiveCap = 'safety_cap'\". This is incorrect — the safety cap check happens correctly at line 595 \"else if (finalDispatch === DISPATCH_SAFETY_CAP) effectiveCap = 'safety_cap'\". The finder correctly identified this as a copy-paste error. The bug creates an observability gap: when a user sets maxDispatches=5 and that limit is hit, the wizard preview will wrongly report 'safety_cap' as the binding constraint instead of the config limit. This misleads users about what controls their dispatch count. Severity is medium because it causes wrong observability output in the normal flow (wizard preview) without affecting correctness of computation or causing crashes.",
+      "fix_sketch": "Change line 593 from \"if (finalDispatch === maxDispatchesK) effectiveCap = 'safety_cap';\" to set effectiveCap to a label representing the config limit (e.g., 'config_limit' or 'max_dispatches'), not 'safety_cap'. The DISPATCH_SAFETY_CAP constraint is already correctly handled at line 595. The fix ensures the wizard preview accurately reports which constraint is binding the dispatch count."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/pipeline/loop/editingDispatch.ts",
+      "line": 64,
+      "title": "Missing Elo-tie tiebreak in variant sort",
+      "category": "correctness",
+      "severity_guess": "medium",
+      "reasoning": "Lines 64-68 sort variants by Elo without a deterministic tiebreak. When two variants have identical Elo, sort order is unstable, breaking reproducibility. debateDispatch.ts lines 105-106 have the correct pattern: if(eb!==ea)return eb-ea; return a.id<b.id?-1:a.id>b.id?1:0. This violates Decision §12 and makes parent selection non-deterministic.",
+      "finder": "correctness-pipeline-loop"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "high",
+      "confidence": "high",
+      "verdict_reasoning": "The candidate correctly identifies a missing deterministic tiebreak in the variant sort at editingDispatch.ts lines 64-68. The code only compares Elo values (`return eb - ea;`) without any tiebreak for equal Elo cases. Evidence: (1) debateDispatch.ts lines 105-106 implement the correct pattern with explicit tiebreak logic; (2) editingDispatch.test.ts line 5 documents that Elo sort should be \"deterministic\" but contains no test case verifying tiebreak behavior; (3) Decision §12 is explicitly referenced throughout the codebase as requiring deterministic id-based tiebreaking; (4) the file's own default cutoff comment (line 21) references Decision §12. When two variants have identical Elo ratings, the current sort order becomes non-deterministic, violating the design contract and breaking reproducibility of parent selection on normal execution paths (any two variants could have identical Elo). Severity is HIGH (wrong results in normal flow with systematic silent failure), not CRITICAL because it only manifests on Elo ties, not all selections.",
+      "fix_sketch": "Add tiebreak logic to the sort comparator in editingDispatch.ts line 67. After `return eb - ea;`, add a check: `if (eb !== ea) return eb - ea; return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;` This mirrors the pattern from debateDispatch.ts lines 105-106 and ensures deterministic ordering per Decision §12."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/pipeline/loop/runIterationLoop.ts",
+      "line": 152,
+      "title": "Missing Elo-tie tiebreak in computeEligibleIds",
+      "category": "correctness",
+      "severity_guess": "medium",
+      "reasoning": "Line 152 sorts by Elo without tiebreak. Used at line 162 to select top-MIN_SWISS_POOL variants for swiss eligibility. Non-deterministic ordering breaks reproducibility invariant. Should add: if(eloDiff!==0)return eloDiff; return a.id<b.id?-1:a.id>b.id?1:0; (following cutoffHelpers.ts pattern).",
+      "finder": "correctness-pipeline-loop"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "high",
+      "confidence": "high",
+      "verdict_reasoning": "The candidate correctly identifies a missing Elo-tie tiebreaker at line 152 of runIterationLoop.ts. The code sorts by Elo without a tiebreaker, then slices the top MIN_SWISS_POOL (3) items. This is used as the fallback when fewer than MIN_SWISS_POOL variants meet the eligibility threshold (line 161-162). The missing tiebreaker causes non-deterministic ordering when Elo values are equal, which can lead to different variants being selected at the boundary. This breaks reproducibility - runs with the same seed could select different eligible IDs. The codebase demonstrates awareness of this requirement: cutoffHelpers.ts (lines 16-19) explicitly adds lexicographic ID tiebreakers for determinism, with a comment stating \"Ties broken by lexicographic ID for determinism.\" The same pattern appears in swissPairing.ts (lines 77-85) with a B118 bug tracking comment about deterministic tiebreakers. The impact is HIGH (not CRITICAL) because reproducibility violations constitute wrong results in normal flow, but only when Elo ties occur at the boundary, which is edge-case-adjacent rather than guaranteed on all paths.",
+      "fix_sketch": "Add a lexicographic ID tiebreaker to the sort at line 152, following the pattern from cutoffHelpers.ts: Replace `.sort((a, b) => b.elo - a.elo)` with `.sort((a, b) => { const diff = b.elo - a.elo; return diff !== 0 ? diff : a.id < b.id ? -1 : a.id > b.id ? 1 : 0; })`"
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/pipeline/loop/runIterationLoop.ts",
+      "line": 1378,
+      "title": "Missing Elo-tie tiebreak before paragraph-recombine parent shuffle",
+      "category": "correctness",
+      "severity_guess": "medium",
+      "reasoning": "Line 1378 sorts paragraph-recombine eligible parents by Elo without tiebreak. Shuffle at line 1388 operates on unstable order. When two variants tie on Elo, their relative order before shuffle is non-deterministic, breaking reproducibility. Should add tiebreak: if(eloOf(b)!==eloOf(a))return eloOf(b)-eloOf(a); return a.id<b.id?-1:a.id>b.id?1:0;",
+      "finder": "correctness-pipeline-loop"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "high",
+      "confidence": "high",
+      "verdict_reasoning": "The code at line 1378 sorts variants by Elo without a tiebreak, then shuffles the result at line 1388. The shuffle is supposed to be deterministic (per comment \"seeded pre-shuffle\" at line 1375), but relies on the input array order. When two variants have equal Elo, JavaScript's sort (ES2017 target) is not guaranteed to maintain order, making the input to shuffle non-deterministic. This violates the documented reproducibility invariant evident throughout the codebase (B011 comment, explicit seeding strategy). The same pattern elsewhere (debateDispatch.ts) explicitly uses a tiebreak: `if (eb !== ea) return eb - ea; return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;`. When Elo ties occur (realistic with discrete Elo calculations), the paragraph_recombine parent selection becomes non-deterministic, potentially creating different variants across runs with the same seed. This is a correctness violation in normal flow affecting core evolutionary operations, classified as HIGH per the rubric: \"wrong results in normal flow, OR systematic silent failure that masks real issues\".",
+      "fix_sketch": "Add deterministic id-tiebreak to sort at line 1378: change `const sorted = [...inRunPool].sort((a, b) => eloOf(b) - eloOf(a));` to `const sorted = [...inRunPool].sort((a, b) => { const ea = eloOf(a), eb = eloOf(b); if (eb !== ea) return eb - ea; return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });` This matches the pattern used in debateDispatch.ts and ensures deterministic parent selection regardless of Elo value distribution."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/pipeline/loop/runIterationLoop.ts",
+      "line": 1678,
+      "title": "Missing Elo-tie tiebreak before paragraph-coherence parent shuffle",
+      "category": "correctness",
+      "severity_guess": "medium",
+      "reasoning": "Line 1678 sorts paragraph-coherence eligible parents by Elo without tiebreak. Shuffle at line 1688 operates on unstable order, producing non-reproducible results on Elo ties. Should add tiebreak: if(eloOf(b)!==eloOf(a))return eloOf(b)-eloOf(a); return a.id<b.id?-1:a.id>b.id?1:0;",
+      "finder": "correctness-pipeline-loop"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "medium",
+      "confidence": "high",
+      "verdict_reasoning": "Line 1678 sorts by Elo without tiebreak: `sort((a, b) => eloOf(b) - eloOf(a))`. When Elo values are equal, JS Array.sort() returns 0 with no deterministic ordering guarantee (engine-dependent). This unstable order then feeds a seeded shuffle at line 1688. The shuffle is deterministic, but its output depends on input order. Same seed + input can produce different shuffled results across JS engines when Elo ties exist. This violates the design pattern at line 1100: \"deterministic id-tiebreak\" - the codebase explicitly uses seeded RNG for reproducibility. Same bug at line 1378. Severity MEDIUM: edge case (Elo ties), no crashes/data loss, but breaks reproducibility in a system designed for it.",
+      "fix_sketch": "Add ID tiebreak: `sort((a, b) => eloOf(b) !== eloOf(a) ? eloOf(b) - eloOf(a) : a.id < b.id ? -1 : a.id > b.id ? 1 : 0)` at lines 1678 and 1378. Ensures deterministic ordering on Elo ties."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+      "line": 392,
+      "title": "Transient LLM errors swallowed as TIE, consuming comparison budget",
+      "category": "cost-tracking",
+      "severity_guess": "high",
+      "reasoning": "LLM failures (402, 5xx, parse error) are converted to TIE/confidence=0 and added to matchBuffer + completedPairs. Line 404 detects isFailure=true and skips rating updates at line 411. Net result: transient failures consume comparison budget (reducing convergence chances) but don't improve variant uncertainty. Marked as 'unfixed sibling' in surface map. Should not add to completedPairs on failure, allowing retry with different opponents instead of wasting slots.",
+      "finder": "correctness-pipeline-loop"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "high",
+      "confidence": "high",
+      "verdict_reasoning": "Confirmed by code review. When LLM error occurs (line 392: `comparisonResult = { winner: 'TIE', confidence: 0 }`), the code: (1) adds pair to completedPairs (line 398), (2) skips rating updates (line 411: `if (!isFailure)` blocks updates), (3) but round++ happened (line 313), so budget consumed. Result: transient LLM failures permanently exclude opponents without improving uncertainty, wasting comparison budget. Systematic silent failure in normal production (LLM transients common). Fits \"high = systematic silent failure that masks real issues\" from rubric."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+      "line": 376,
+      "title": "402 in ranking swallowed as TIE, silencing cost errors",
+      "category": "error-handling",
+      "severity_guess": "high",
+      "reasoning": "Line 376: `if (e instanceof BudgetExceededError)` is caught and logged, but non-BudgetExceededError exceptions at lines 375-392 are SILENTLY CONVERTED to zero-confidence TIEs (line 392: `comparisonResult = { winner: 'TIE', confidence: 0, turns: 2 }`). This includes 402/5xx errors from the LLM provider, which should be surfaced. The variant continues ranking with fake TIEs instead of failing loudly, corrupting the binary search signal and masking provider issues.",
+      "finder": "cost-tracking"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "high",
+      "confidence": "high",
+      "verdict_reasoning": "The code at lines 375-392 catches ALL non-BudgetExceededError exceptions from the LLM comparison call and converts them to zero-confidence TIEs without re-throwing. This includes LLM provider errors (502, 5xx, rate limits, etc.). While the error is logged at lines 386-391, it is then silently converted to a match result at line 392: `comparisonResult = { winner: 'TIE', confidence: 0, turns: 2 }`. This corrupts the binary search ranking algorithm because: (1) Provider failures become indistinguishable from genuine ties in the match buffer and ratings, (2) the zero-confidence result triggers skip-rating-update at lines 411-438, but the loop continues, (3) convergence logic at line 444 operates on corrupted uncertainty estimates, and (4) the algorithm may terminate prematurely or continue with false confidence in variant rankings. The comment at line 384 claims \"log the error so transient outages aren't indistinguishable from genuine ties\" but the code does the opposite: it logs AND converts to ties anyway. This is a systematic silent failure that masks real provider issues and produces wrong ranking results in normal flow.",
+      "fix_sketch": "Re-throw non-BudgetExceededError exceptions at line 393 instead of continuing the loop with a fake TIE. Alternatively, distinguish provider errors from genuine ties in the match buffer (e.g., add an \"error\" field to the result) so downstream processing can handle them explicitly rather than treating them as evidence of equivalence. The outer catch block (lines 483-489) already exists to handle rethrowing, but the inner catch swallows it first."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/pipeline/infra/trackBudget.ts",
+      "line": 168,
+      "title": "recordSpend does not validate actualCost >= 0, trusting caller",
+      "category": "correctness",
+      "severity_guess": "medium",
+      "reasoning": "Line 168: `totalSpent += actualCost` does not check that `actualCost >= 0`. Line 150 validates `estimatedCost` in `reserve()` but `recordSpend()` trusts the caller (e.g., createEvolutionLLMClient) to pass valid positive costs. If any path passes negative costs (e.g., via a correction or refund logic not yet implemented), totalSpent would decrease silently and the budget gate would become inaccurate.",
+      "finder": "cost-tracking"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "medium",
+      "confidence": "high",
+      "verdict_reasoning": "The candidate correctly identifies that `recordSpend()` at line 168 lacks validation of `actualCost >= 0`. The code validates `estimatedCost` in `reserve()` (lines 150-154) but trusts `recordSpend()` callers unconditionally. If a negative `actualCost` is passed (e.g., via future refund logic), line 168 would silently decrease `totalSpent`, corrupting budget tracking and making the budget appear less consumed than reality. This creates an observability gap: the budget invariant check at lines 183-187 could theoretically catch severe violations, but a moderate negative cost would pass silently. Severity is medium (not high) because: (1) no refund/correction logic currently exists in the codebase, making this an edge case, not a systematic failure of the normal path; (2) the method is semantically \"recordSpend\" suggesting positive-only costs; (3) the contract is implicitly documented in reserve() but not enforced at the entry point. However, this is a real correctness gap that mirrors the validation asymmetry: reserve() validates input, recordSpend() should too.",
+      "fix_sketch": "Add input validation to recordSpend() matching reserve(): `if (!Number.isFinite(actualCost) || actualCost < 0) { throw new Error(...) }` before line 168. This enforces the caller contract and prevents silent budget corruption if refund logic is added later. Alternatively, document the caller contract explicitly in JSDoc and in the AgentCostScope wrapper (line 78-80) which also accumulates actualCost without validation."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/core/agents/generateFromPreviousArticle.ts",
+      "line": 171,
+      "title": "Cost delta computation uses fallback to getTotalSpent() instead of requiring getOwnSpent",
+      "category": "cost-tracking",
+      "severity_guess": "medium",
+      "reasoning": "Line 171: `const costBeforeGen = ctx.costTracker.getOwnSpent?.() ?? ctx.costTracker.getTotalSpent();` uses fallback to getTotalSpent() when getOwnSpent is unavailable. Under parallel execution, sibling agents' costs bleed into this delta if getTotalSpent is used. rankNewVariant.ts properly asserts getOwnSpent exists (line 92-94), but GFPA allows the fallback. This creates inconsistent cost attribution paths depending on whether context wrapping succeeded.",
+      "finder": "cost-tracking"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "medium",
+      "confidence": "high",
+      "verdict_reasoning": "CONFIRMED: Inconsistent cost-tracking design between GFPA and rankNewVariant.\n\nLine 171 code: `const costBeforeGen = ctx.costTracker.getOwnSpent?.() ?? ctx.costTracker.getTotalSpent();` (fallback to getTotalSpent)\n\nrankNewVariant.ts lines 92-94 ASSERT getOwnSpent exists; throws if missing. But GFPA line 171 ALLOWS fallback to getTotalSpent().\n\nPROBLEM: GFPA computes generation costs (line 171, 228, 247) using fallback BEFORE calling rankNewVariant (line 298). If getOwnSpent missing, GFPA reports costs via wrong getTotalSpent() value before rankNewVariant's assertion throws. Asymmetric error handling: rankNewVariant enforces strict requirement, GFPA silently permits fallback.\n\nREAL-WORLD IMPACT: Production always wraps with AgentCostScope (Agent.ts line 71, 115), so both code paths get getOwnSpent. However, the inconsistency is a design flaw that violates DRY and could mask issues if rankNewVariant's safety net is removed."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/pipeline/infra/trackBudget.ts",
+      "line": 329,
+      "title": "Per-iteration phase costs shadow run-cumulative costs when legacy flag enabled, breaking metric aggregation",
+      "category": "cost-tracking",
+      "severity_guess": "high",
+      "reasoning": "Lines 337-345: When `EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED === 'false'`, `getPhaseCosts()` returns per-iteration costs instead of run-cumulative. The comment at line 328-329 explains this breaks writeMetricMax(GREATEST) because smaller per-iteration contributions appear as backward deltas. The fix moves to run-cumulative by default, but if an operator accidentally sets the env to 'false', cost metrics will silently under-report per-subagent costs, and GREATEST will fail to accumulate across iterations.",
+      "finder": "cost-tracking"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "high",
+      "confidence": "high",
+      "verdict_reasoning": "When EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED='false', getPhaseCosts() returns per-iteration costs (line 337) instead of run-cumulative. Each LLM call (line 245 in createEvolutionLLMClient.ts) invokes writeMetricMax with this value using GREATEST semantics. In multi-iteration scenarios with same agent names, per-iteration costs are not monotonic: if generation spends 0.05 in iter1 and 0.03 in iter2, metrics should reach 0.08 cumulative but stay at 0.05 (max of per-iter values). Documented in code comments (lines 324-329) and confirmed by test showing iter2.getPhaseCosts() returns 0.03 instead of 0.08 when flag='false'. This is HIGH severity because it causes wrong results in normal flow (multi-iter is standard), is systematic silent failure, and masks cost accumulation. Only manifests if operator explicitly sets kill switch to legacy mode."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/services/costEstimationActions.ts",
+      "line": 429,
+      "title": "Invocation cost aggregation uses cost_usd directly, not reconciled against evolution_metrics",
+      "category": "cost-tracking",
+      "severity_guess": "medium",
+      "reasoning": "Lines 410-439: `getRunCostEstimatesAction` fetches `evolution_agent_invocations.cost_usd` for each invocation but doesn't cross-check against `evolution_metrics.cost` for the run. If invocation rows have NULL cost_usd (e.g., legacy rows or persistence failures), they contribute 0 to the costByAgent roll-up, silently under-counting. The costAnalytics.ts comment at line 36-39 acknowledges this audit gap exists, but the action doesn't surface a warning when invocation costs are sparse.",
+      "finder": "cost-tracking"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "medium",
+      "confidence": "high",
+      "verdict_reasoning": "The code fetches invocations with cost_usd and builds costByAgent breakdown (line 422), but doesn't validate or warn when invocation cost_usd is NULL. The buildCostByAgent function skips NULL values (lines 222-224), so actualUsd may silently under-count. Meanwhile, summary.totalCost comes from evolution_metrics (line 415), the canonical source. The costByAgent can be incomplete without warning. The 'coverage' field only indicates estimate availability, not incomplete cost data. The costAnalytics.ts comment acknowledges the 2026-02-23 audit gap confirming incomplete invocation cost tracking is a known issue. This is an observability gap masking real issues (incomplete data), not a wrong-output bug. Medium severity because it's an edge case that hides real audit problems.",
+      "fix_sketch": "Add validation: after building costByAgent, sum actualUsd and compare against summary.totalCost. If they differ significantly (>5%), log a warning or return a 'sparse_data' flag. Alternatively, enhance the coverage field to indicate 'incomplete_cost' when invocations have NULL cost_usd."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/pipeline/infra/estimateCosts.ts",
+      "line": 389,
+      "title": "Iterative editing ranking cost estimate uses seedChars not final article size",
+      "category": "cost-tracking",
+      "severity_guess": "low",
+      "reasoning": "Line 389: `estimateIterativeEditingCost` computes `expectedRanking = estimateRankingCost(seedChars, ...)` but the ranking runs AFTER editing cycles that grow the article. The upperBound on line 392 correctly uses the final `articleChars` (after growth), but expected uses seedChars. This under-estimates expected ranking cost by ~50% (1.5× growth factor per cycle). The reservation uses upperBound so it doesn't cause budget failure, but it misleads cost projections.",
+      "finder": "cost-tracking"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "high",
+      "confidence": "high",
+      "verdict_reasoning": "The code at line 389 uses `seedChars` for `expectedRanking` despite explicit comments (lines 384-386) stating the ranking should use \"the post-last-cycle articleChars (after worst-case growth)\". The loop (lines 361-376) grows `articleChars` by 1.5× per cycle via line 375: `articleChars *= EDITING_SIZE_GROWTH_PER_CYCLE;`. After the loop, `articleChars` reflects the final grown size. Line 392 correctly uses this final `articleChars` for `upperBoundRanking`, but line 389 uses the initial `seedChars` for `expectedRanking`. This is inconsistent and wrong — expectedRanking underestimates by ~1.5^maxCycles. While upperBound prevents budget exhaustion, expectedRanking produces systematically wrong cost projections in the normal flow.",
+      "fix_sketch": "Change line 389 from `estimateRankingCost(seedChars, judgeModel, poolSize, maxComparisonsPerVariant)` to `estimateRankingCost(articleChars, judgeModel, poolSize, maxComparisonsPerVariant)` to use the final article size after growth cycles, matching the documented intent and the upperBoundRanking calculation."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/pipeline/loop/rankSingleVariant.ts",
+      "line": 375,
+      "title": "402 Payment Required errors swallowed as TIE",
+      "category": "error-handling",
+      "severity_guess": "high",
+      "reasoning": "At line 375-392, the catch block checks for `BudgetExceededError` but not for HTTP 402 errors returned by LLM providers. A 402 (payment required) from DeepSeek/QwQ would not match the budget check (which looks for instanceof BudgetExceededError) nor be classified as transient by isTransientError(). It falls through to the default handler which records the comparison as `{ winner: 'TIE', confidence: 0 }` and continues silently. This silently masks payment issues, ranking becomes incorrect, and operators don't realize the run hit a payment problem.",
+      "finder": "error-handling"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "high",
+      "confidence": "high",
+      "verdict_reasoning": "CONFIRMED. The catch block at lines 375-392 in rankSingleVariant.ts checks `if (e instanceof BudgetExceededError)` but HTTP 402 errors from LLM providers are thrown as plain Error objects, not BudgetExceededError instances. The isTransientError() function (classifyErrors.ts:34) does NOT check for 402 status codes. Therefore: (1) A 402 error will not match the BudgetExceededError check; (2) It falls through to the default handler at line 392, recording `{ winner: 'TIE', confidence: 0 }`; (3) The error is logged (line 386) but the comparison is silently treated as a zero-confidence draw and ranking continues. This causes wrong results (tie recorded when payment failed) and masks real financial issues from operators. Severity: HIGH (wrong results in normal flow, systematic silent failure masking real issues).",
+      "fix_sketch": "Check for 402/payment errors explicitly in the catch block before the TIE default. Add a check for 402 in the error message or convert 402 errors to BudgetExceededError in the LLM client layer. Alternatively, add 402 to the error code pattern in isTransientError() and handle payment failures specially in rankSingleVariant to distinguish them from other transient errors."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts",
+      "line": 277,
+      "title": "Error rethrow drops cause chain",
+      "category": "error-handling",
+      "severity_guess": "low",
+      "reasoning": "At line 277, `throw new Error(\\`Strategy upsert failed: ${error.message}\\`)` extracts error.message and wraps it, losing the original error object and its cause chain. If the upsert fails due to a database constraint violation or network error, the root cause (which might be in error.details or nested in error.cause) is lost. Better to: `throw new Error(...{ cause: error })`.",
+      "finder": "error-handling"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "medium",
+      "confidence": "high",
+      "verdict_reasoning": "The code at line 277 reads `throw new Error(\\`Strategy upsert failed: ${error.message}\\`)` but the Supabase PostgrestError object contains multiple diagnostic properties: `message`, `code`, `details`, and `hint`. When the upsert fails due to database constraint violations or other errors, only the message is included, losing critical diagnostic information (e.g., PostgreSQL error codes like \"23505\" for unique constraint violations). This is confirmed by: (1) PostgrestError type definition in node_modules showing code/details/hint properties; (2) other files in the codebase like evolution-test-helpers.ts using fallback patterns `error.message ?? error.code ?? JSON.stringify(error)` and judgeRubricActions.ts using a pgMsg() helper that checks all properties. This creates an observability gap that impairs production debugging when strategy upsert operations fail.",
+      "fix_sketch": "Use fallback error property chaining like other parts of the codebase: `throw new Error(\\`Strategy upsert failed: ${error.message ?? error.code ?? error.details ?? error.hint ?? JSON.stringify(error)}\\`)` or wrap the error with cause: `throw new Error(\\`Strategy upsert failed: ${error.message}\\`, { cause: error })`"
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/pipeline/claimAndExecuteRun.ts",
+      "line": 250,
+      "title": "Heartbeat clearInterval may not cancel pending async callback from previous interval tick",
+      "category": "concurrency",
+      "severity_guess": "medium",
+      "reasoning": "Line 250: startHeartbeat returns NodeJS.Timeout. Line 264 in finally: clearInterval(heartbeatInterval). clearInterval cancels future ticks but does not wait for a pending async callback from a tick already scheduled. If the heartbeat fires at T=0s with a 30s interval, and clearInterval is called at T=0.5s (before the callback resolves), the in-flight async callback still runs and may attempt to update a database record for a run that was just finalized. This is low-risk (the eq filter prevents wrong-state updates), but leaves orphaned promises.",
+      "finder": "concurrency"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "low",
+      "confidence": "high",
+      "verdict_reasoning": "The finder is technically correct: clearInterval at line 264 does not await pending async callbacks from already-scheduled ticks. Line 66 returns `setInterval(async () => {...}, 30_000)`, and JavaScript's setInterval does not wait for async callbacks to complete before allowing clearInterval to exit. So if the heartbeat fires and its async DB update is in-flight when clearInterval is called, that update will still execute after the interval is cleared, leaving an orphaned promise. However, this is mitigated by design: line 71-72 includes `.eq('runner_id', runnerId)` which prevents the update from matching any rows once the run is finalized (runner_id is set to null at line 102). The orphaned async operation is thus harmless—a query that fails its WHERE clause. The comment at lines 74-76 and the defensive filtering suggest this is intentional hardening against concurrent claim races, not a defect. Under the rubric, this qualifies as LOW severity because (1) no wrong results occur due to the eq filter, (2) it's a theoretical concurrency edge case, and (3) the orphaned promise causes no state corruption or data loss.",
+      "fix_sketch": "If treating this as worth hardening: add an AbortController to the heartbeat callback to track in-flight updates, or wrap the setInterval tick callback with Promise.all tracking to await pending operations before final cleanup. Alternatively, store the promise returned by the async callback and explicitly await/cancel it in the finally block."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/maintenance/watchdog.ts",
+      "line": 55,
+      "title": "Watchdog heartbeat compare-and-set check vulnerable to clock drift between processes",
+      "category": "concurrency",
+      "severity_guess": "low",
+      "reasoning": "Lines 55-57 use .eq('last_heartbeat', run.last_heartbeat) to prevent overwriting a run that recovered between SELECT and UPDATE. However, if two watchdog processes (or runner heartbeat + watchdog) have clocks skewed by > threshold (10 minutes), one may see a stale heartbeat timestamp and mark a live run as failed. The RPC's server-side advisory lock (claim_evolution_run) protects claiming, but watchdog's read-then-update on heartbeat timestamp assumes clock monotonicity across processes. A runner with a clock behind the watchdog may be falsely marked stale.",
+      "finder": "concurrency"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "low",
+      "confidence": "high",
+      "verdict_reasoning": "The candidate correctly identifies a real vulnerability. If the watchdog process's clock is ahead of the runner's by > threshold (10 min), a healthy run can be falsely marked stale. The watchdog computes cutoff using its own clock (line 24: `new Date(Date.now() - threshold * 60 * 1000)`), then filters `last_heartbeat.lt.${cutoff}` against runner-written timestamps. The compare-and-set on lines 55-57 protects against concurrent heartbeat updates, not clock skew. However, severity is LOW: (1) Requires unrealistic > 10 min clock drift with NTP in production; (2) Causes false-positive termination, not data loss; (3) Edge case, not systematic failure. The code's B060 comment addresses the read-then-update race but not clock skew.",
+      "fix_sketch": "Use server-side timestamps (CURRENT_TIMESTAMP) for heartbeats instead of client clocks, or add a grace period buffer (mark stale only if last_heartbeat < cutoff - buffer), or document the clock skew assumption and recommend NTP configuration."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/services/arenaActions.ts",
+      "line": 303,
+      "title": "getArenaEntries query missing variant_kind filter for topic filtering",
+      "category": "schema-db",
+      "severity_guess": "high",
+      "reasoning": "Lines 302-313: The getArenaEntries query fetches all variants for a prompt_id without filtering by variant_kind. This means article topics and paragraph topics can return mixed results. Since prompts have a prompt_kind column, but the query doesn't enforce that evolution_variants.variant_kind matches the prompt_kind, article topic leaderboards can display paragraph rewrites and vice versa.",
+      "finder": "schema-db"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "high",
+      "confidence": "high",
+      "verdict_reasoning": "Real bug confirmed by code inspection. Lines 302-313 of arenaActions.ts show getArenaEntriesAction fetches variants for a prompt without filtering by variant_kind: `.eq('prompt_id', input.topicId).eq('synced_to_arena', true)` has NO variant_kind filter. Per design doc D13-D15 of rank_individual_paragraphs_evolution_20260525, variant_kind must match prompt_kind to partition article vs paragraph variants. The migrations added these columns but no FK constraint. While code paths normally keep them aligned, data corruption or bugs could mix kinds, causing leaderboards to display wrong-kind variants. This violates the required kind-based partitioning and is \"wrong results in normal flow\" (displaying leaderboards).",
+      "fix_sketch": "Add variant_kind filter to getArenaEntriesAction. Either: (1) Load topic first to get prompt_kind, filter variants by matching variant_kind, OR (2) Join evolution_prompts inline to filter variants by (prompt_id, variant_kind matching prompt_kind). Simplest: add optional kind param to input, default to 'article', and filter `.eq('variant_kind', kind)` to the query."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/pipeline/finalize/persistRunResults.ts",
+      "line": 600,
+      "title": "propagateMetrics query missing LIMIT on evolution_runs join",
+      "category": "correctness",
+      "severity_guess": "medium",
+      "reasoning": "Lines 600-604: The propagateMetrics function queries evolution_runs to fetch all child run IDs for a strategy or experiment without LIMIT. For experiments with many completed runs (potentially thousands), this could fetch unbounded results and cause memory/performance issues. Should add .limit(10000) or similar cap to prevent OOM.",
+      "finder": "schema-db"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "high",
+      "confidence": "high",
+      "verdict_reasoning": "Confirmed by code and codebase documentation. Lines 600-604 query evolution_runs without LIMIT. The same codebase documents at cleanup-specific-junk.ts:192 that \"Supabase silently caps at 1000 rows\" on unpaginated queries. When a strategy/experiment has >1000 completed runs, only the first 1000 are fetched, causing getMetricsForEntities to aggregate metrics from incomplete run list. Result: parent entity metrics are wrong/biased, silently. This is \"high\" not \"medium\" — it produces deterministic wrong output on normal paths (experiments with many runs are realistic).",
+      "fix_sketch": "Implement pagination via .range() to fetch all runs in PAGE_SIZE=1000 chunks (documented pattern at cleanup-specific-junk.ts:195-210). Collect all results in a loop until a chunk returns fewer than PAGE_SIZE rows, then pass complete childRunIds list to getMetricsForEntities."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/core/agents/editing/runEditingCycle.ts",
+      "line": 472,
+      "title": "Unsanitized proposer rationale injected into approver prompt",
+      "category": "prompt-correctness",
+      "severity_guess": "high",
+      "reasoning": "At line 472, modeBRationale (untrusted LLM-generated proposer output from line 244) is passed directly to buildApproverUserPrompt without sanitization or wrapping in <UNTRUSTED_*> tags. This rationale is interpolated into the approver prompt at line 53 of approverPrompt.ts without any delimiter protection. An attacker-controlled proposer could inject prompt directives into the rationale to manipulate the approver's behavior. Snippet: const approverUser = buildApproverUserPrompt(workingMarkup, validation.approverGroups, isRewriteMode ? modeBRationale : undefined);",
+      "finder": "prompt-correctness"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "medium",
+      "confidence": "high",
+      "verdict_reasoning": "The candidate correctly identifies an unsanitized string interpolation vulnerability. At line 472 of runEditingCycle.ts, `modeBRationale` (extracted from proposer LLM output at line 244) is passed to `buildApproverUserPrompt`. In approverPrompt.ts line 53, this rationale is directly concatenated into the prompt string without escaping or structural delimiters. This creates a prompt injection attack surface where a malicious or compromised proposer could inject directives into the approver's context. The approver prompt includes a caveat telling it to \"verify each edit independently,\" but this is insufficient protection against prompt injection techniques. However, the severity is medium (not high) because: (1) Both proposer and approver are internal components, not truly adversarial; (2) The wrong-output scenario requires the proposer to successfully execute prompt injection attacks; (3) This is not data loss or deterministic wrong-output, but rather a conditional vulnerability depending on proposer compromise. The bug is real and the vulnerability exists as described, but the practical impact in normal operation is limited by the internal nature of the components.",
+      "fix_sketch": "Wrap the untrusted rationale in clear structural delimiters before interpolation. Options: (1) Use XML tags like `<rationale_from_proposer>${rationale}</rationale_from_proposer>` with explicit instructions to the approver that content within these tags is unvetted data, not instructions. (2) Escape special prompt characters/patterns in the rationale before interpolation. (3) Add a clear token boundary marker (e.g., `[END UNTRUSTED CONTENT]`) after the rationale block. The fix should be applied in approverPrompt.ts around line 49-58 to wrap the rationale output with protective delimiters."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/core/agents/editing/approverPrompt.ts",
+      "line": 38,
+      "title": "Missing documentation on rationale sanitization requirement",
+      "category": "prompt-correctness",
+      "severity_guess": "medium",
+      "reasoning": "The rationale parameter documentation (lines 35-37) states 'Surfaced here as priming context. The red-team caveat below tells the approver to verify each edit on its merits' but does NOT document that callers MUST sanitize the rationale before passing it. The function itself performs no sanitization. This creates a prompt-injection vulnerability when Mode B proposer rationale is passed at runEditingCycle.ts:472. The comment should state 'Must be pre-sanitized by caller or wrapped in data-not-instructions tags.'  Snippet: /** Mode B (rewrite mode) only: the proposer's stated rationale. Surfaced here as priming context. The red-team caveat below tells the approver to verify each edit on its merits, not to defer to the rationale. */",
+      "finder": "prompt-correctness"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "medium",
+      "confidence": "high",
+      "verdict_reasoning": "This is a real prompt injection vulnerability. The `buildApproverUserPrompt` function receives a `rationale` parameter derived from Mode B proposer LLM output (via `splitRationaleAndRewrite`) and embeds it directly into the Approver LLM's prompt string without sanitization or escaping (line 53: `rationale,` in the template). The rationale is user-controllable untrusted data that could contain arbitrary text or instructions. While the system prompt includes a \"red-team caveat\" instruction (`CLAIM, not ground truth — verify each edit independently`), this is NOT a technical defense—it's merely an instruction to the LLM and does not prevent prompt injection attacks. The JSDoc comment (lines 35-37) makes NO mention of sanitization requirements or data integrity, leaving callers unaware of the security requirement. The fix would be either: (1) sanitize/escape the rationale before embedding it, or (2) wrap it in data-not-instructions markers, or (3) document the requirement clearly. This manifests in a normal production code path (runEditingCycle.ts:472 passes `modeBRationale` directly from proposer output) on every Mode B editing cycle.",
+      "fix_sketch": "Two potential fixes: (1) Update the JSDoc to explicitly state 'SECURITY: rationale parameter must be pre-sanitized by caller or wrapped in data-not-instructions tags to prevent prompt injection' and document what \"sanitized\" means. (2) Better: move sanitization into the function itself—either wrap the rationale in XML tags like `<data>${rationale}</data>` or escape special characters that could break the prompt structure. Option 2 is preferable because it moves the security responsibility into the function where it belongs, rather than relying on every caller to remember."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/core/agents/editing/proposerPrompt.ts",
+      "line": 81,
+      "title": "Unclear [#N] group number validation in prompt documentation",
+      "category": "prompt-correctness",
+      "severity_guess": "low",
+      "reasoning": "The prompt documents [#N] tagging (lines 79-81) but does not explicitly state that N must be a positive integer (N >= 1). The parser (parseProposedEdits.ts line 59) silently drops explicit group numbers with N < 1: if (!Number.isFinite(n) || n < 1) return { ok: false }; Without this documented, proposers may tag groups with [#0] expecting them to work, only to have them silently dropped. The documentation should state: 'Tag with [#N] where N is a positive integer (1, 2, 3, ...). Invalid tags like [#0] or [#-1] will be silently dropped.'",
+      "finder": "prompt-correctness"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "medium",
+      "confidence": "high",
+      "verdict_reasoning": "The claim is confirmed by reading the actual code. Line 81 of proposerPrompt.ts documents \"[#N]\" tagging without specifying that N must be >= 1. Meanwhile, parseProposedEdits.ts line 59 explicitly validates \"n < 1\" as invalid and silently drops such spans (lines 119-122, 153-156). The code comments at lines 1-6 of parseProposedEdits.ts confirm this is intentional (\"silently dropped...the agent's robustness contract\"), but the documentation gap creates an observability problem: a proposer attempting [#0] would have their markup silently discarded without feedback, preventing them from understanding why grouping failed. This violates the observability principle needed for iterative LLM feedback. Severity is MEDIUM (observability gap hiding real issues) rather than the finder's LOW assessment, because silent failure of explicit group number syntax prevents proposers from correcting their output.",
+      "fix_sketch": "Update line 81 in proposerPrompt.ts to explicitly document valid values: \"Tag with [#N] where N is a positive integer (1, 2, 3, ...)—for example {++ [#1] ... ++}. Invalid tags like [#0], [#-1], or non-numeric values will be silently dropped as malformed markup.\""
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/core/agents/index.ts",
+      "line": 28,
+      "title": "Missing agent imports in attribution extractor barrel",
+      "category": "observability",
+      "severity_guess": "high",
+      "reasoning": "Index.ts barrel must eagerly import all agents to populate ATTRIBUTION_EXTRACTORS registry. Missing: ProposerApproverCriteriaGenerateAgent, SinglePassEvaluateCriteriaAndGenerateAgent, DebateAgent. These agents' registerAttributionExtractor calls won't fire, causing silent fallback to legacy execution_detail.strategy path instead of custom dimension extraction. Blocks attribution metrics for these agents.",
+      "finder": "logging-observability"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "low",
+      "confidence": "high",
+      "verdict_reasoning": "The index.ts barrel is incomplete — it claims to import \"all agent classes\" and \"every concrete agent file\", but missing three agents: ProposerApproverCriteriaGenerateAgent, SinglePassEvaluateCriteriaAndGenerateAgent, and DebateThenGenerateFromPreviousArticleAgent. All three are imported by agentRegistry.ts (lines 13-15) and have registerAttributionExtractor calls.\n\nHowever, severity is LOW: (1) The barrel is not currently imported anywhere; (2) Registration works correctly through agentRegistry.ts transitive imports; (3) No current code path fails; (4) The barrel is a \"future entry point\" safeguard whose stated purpose is theoretical. The bug is a maintenance issue — the barrel's documentation makes false absolute claims that could mislead future developers.",
+      "fix_sketch": "Add three exports to index.ts after line 27: export { ProposerApproverCriteriaGenerateAgent } from './proposerApproverCriteriaGenerate'; export { SinglePassEvaluateCriteriaAndGenerateAgent } from './singlePassEvaluateCriteriaAndGenerate'; export { DebateThenGenerateFromPreviousArticleAgent } from './debate/DebateAgent';"
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts",
+      "line": 252,
+      "title": "Cost write failure missing context in error log",
+      "category": "logging",
+      "severity_guess": "medium",
+      "reasoning": "Line 252 logs cost-write failures as warn only with generic error, no runId/metricName/amount context. Operator can't debug whether writeMetricMax failed for 'cost' vs phase-cost metric. Inconsistent vs line 118-119 in writeMetric which includes full context.",
+      "finder": "logging-observability"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "medium",
+      "confidence": "high",
+      "verdict_reasoning": "The finder's claim is accurate. Line 252 logs cost-write failures with only phaseName and generic error message: `logger?.warn('Cost write failed (non-fatal)', { phaseName: agentName, error: err instanceof Error ? err.message : String(err) });`. \n\nAt this point in execution, the following context is available but NOT logged:\n- runId (in scope from line 242 condition)\n- totalSpent (calculated line 244)\n- phaseCost (calculated line 245)  \n- costMetricName (calculated line 247, determines which metric failed)\n\nWhen writeMetricMax fails on lines 246 or 249, an operator cannot determine: (1) which run was affected, (2) whether 'cost' or the phase-specific metric failed, (3) what values should have been written.\n\nThis is a real observability gap. The error is correctly marked \"(non-fatal)\" since recordSpend() already succeeded (line 231), so the cost tracker is correct—only the database metric-write failed. This prevents wrong output or data loss, but creates meaningful debugging friction for production issues. Severity is medium per rubric: 'observability gap that hides real issues' without causing wrong results.",
+      "fix_sketch": "Add runId, totalSpent, phaseCost, and costMetricName to the error log context on line 252. Example: `logger?.warn('Cost write failed (non-fatal)', { phaseName: agentName, runId, totalSpent, phaseCost, costMetricName, error: ... });` to give operators full context for debugging which metric write failed and for which run."
+    }
+  },
+  {
+    "candidate": {
+      "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/pipeline/setup/generateSeedArticle.ts",
+      "line": 56,
+      "title": "Unnecessary toString() called on already-cast string",
+      "category": "type-safety",
+      "severity_guess": "low",
+      "reasoning": "Line 56: `((parsed.title1 ?? parsed.title ?? '') as string).toString()` casts the fallback chain to string, but then calls `.toString()` on it redundantly. The cast should make toString() unnecessary. More critically, if parsed.title1 or parsed.title are non-string objects, the cast hides that type mismatch and toString() may not produce the expected format.",
+      "finder": "type-safety"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "low",
+      "confidence": "high",
+      "verdict_reasoning": "The code at line 56 does contain the redundant `.toString()` call as claimed. The expression `((parsed.title1 ?? parsed.title ?? '') as string).toString()` casts to string and then calls `.toString()` on the result. For strings, this is genuinely redundant — `''.toString()` is `''`, `'hello'.toString()` is `'hello'`. However, this is a **low-severity, stylistic issue** rather than a functional bug. The code works correctly for valid JSON responses where title fields are strings (the intended case). The `.toString()` call provides ineffective defensive programming against non-string objects in JSON, but doesn't cause crashes or data loss in normal execution. The real underlying issue is the unsafe `as string` type assertion, which is a broader type-safety concern rather than a runtime bug. Severity: LOW (stylistic/hardening, works correctly in practice for valid inputs).",
+      "fix_sketch": "Remove the redundant `.toString()` call: change `((parsed.title1 ?? parsed.title ?? '') as string).toString()` to `((parsed.title1 ?? parsed.title ?? '') as string)`. Better: add proper type narrowing to validate that title fields are strings before the `||` check, or use a helper function to safely extract string values from the parsed object."
+    }
+  },
+  {
+    "candidate": {
+      "file": "/home/ac/Documents/ac/worktree_37_4/evolution/src/lib/metrics/computations/criteriaMetrics.ts",
+      "line": 104,
+      "title": "Double-cast of mu/sigma nullable fields without Number coercion",
+      "category": "type-safety",
+      "severity_guess": "high",
+      "reasoning": "Line 104: `dbToRating((v.mu ?? 25) as number, (v.sigma ?? 8.333) as number)` same issue as line 93: Postgres NUMERIC values may be strings ('25.0'), and the cast hides the mismatch. Postgres returns strings for NUMERIC columns in some driver versions, but the code assumes number type without calling Number() first to coerce.",
+      "finder": "type-safety"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "medium",
+      "confidence": "high",
+      "verdict_reasoning": "The code at line 104 of criteriaMetrics.ts uses `(v.mu ?? 25) as number` and `(v.sigma ?? 8.333) as number` without calling Number() to coerce potential string values from the database. This is confirmed as a real bug by the prior bug-scan document which identified the identical pattern in buildRunContext.ts:71-74 as B017-S1 [CONFIRMED]. The comment at buildRunContext.ts:161-163 explicitly documents the issue: \"Postgres NUMERIC values returned as strings ('25.0') are recognized as finite. Without this [Number() coercion], all string-typed mu/sigma rows silently fall back to _INTERNAL_DEFAULT_MU/SIGMA.\" The same vulnerability exists in criteriaMetrics.ts lines 93 and 104, where the type assertion `as number` provides no runtime conversion. If mu/sigma arrive as strings, they bypass proper numeric conversion. Severity is MEDIUM (not HIGH) because JavaScript's implicit type coercion in arithmetic operations (e.g., '25.0' - 25 = 0) may mask the issue in many cases, but it represents a genuine type-safety violation and data integrity risk inconsistent with the team's documented fix in buildRunContext.ts.",
+      "fix_sketch": "Replace lines 93 and 104 with proper Number() coercion: `const r = dbToRating((p.mu == null ? 25 : Number(p.mu)), (p.sigma == null ? 8.333 : Number(p.sigma)));` following the pattern established at buildRunContext.ts:164-165. This ensures Postgres NUMERIC strings are converted to actual numbers at runtime before being passed to dbToRating()."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+      "line": 291,
+      "title": "Missing partial detail persistence on eval+suggest LLM error (I3 violation)",
+      "category": "error-handling",
+      "severity_guess": "high",
+      "reasoning": "At line 291-294, when the evaluate+suggest LLM call fails, the agent re-throws EvaluateAndSuggestLLMError WITHOUT first writing partial execution_detail to the invocation row. This violates invariant I3 which requires all helper failures to persist partial detail before re-throwing. The evaluateCriteriaThenGenerate, reflectAndGenerate, and singlePassEvaluate agents all correctly persist partial detail in their eval+suggest error paths (e.g., evaluateCriteriaThenGenerateFromPreviousArticle.ts:442-448). Without this, Agent.run()'s catch handler will overwrite the partial detail with null, losing forensic context about what succeeded/failed.",
+      "finder": "correctness-agents"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "high",
+      "confidence": "high",
+      "verdict_reasoning": "The proposerApproverCriteriaGenerate.ts agent at lines 291-294 directly throws EvaluateAndSuggestLLMError without first persisting partial execution_detail to the database, violating the explicitly stated invariant I3 (line 11) which requires \"Write partial execution_detail BEFORE re-throwing on any helper failure.\" This is confirmed by comparing to evaluateCriteriaThenGenerateFromPreviousArticle.ts (lines 442-448) and singlePassEvaluateCriteriaAndGenerate.ts which both correctly call updateInvocation() before throwing. When the exception propagates to Agent.run()'s catch handler (lines 214-218), that handler calls updateInvocation() without an execution_detail parameter, causing the invocation row to have null execution_detail instead of the partial detail that should have been persisted. This is a data loss bug affecting a realistic, common-path error condition (LLM failures occur in production), preventing observability and forensic debugging of eval+suggest phase failures.",
+      "fix_sketch": "Create a partial execution_detail object at the eval+suggest catch block with the cost and duration captured so far (following the pattern at evaluateCriteriaThenGenerateFromPreviousArticle.ts lines 427-441), call updateInvocation() to persist it before re-throwing the error. The partial detail should minimally include: detailType, tactic, empty weakestCriteriaIds/Names arrays, evaluateAndSuggest with empty criteriaScored/suggestions and the cost/duration computed, totalCost, and surfaced=false."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+      "line": 337,
+      "title": "Missing partial detail persistence on proposer LLM error (I3 violation)",
+      "category": "error-handling",
+      "severity_guess": "high",
+      "reasoning": "At line 336-338, when the proposer LLM call fails, the agent re-throws Error without first persisting partial execution_detail. This is an I3 invariant violation similar to the eval+suggest error path. The partial detail should capture what was successfully completed (eval+suggest scores, parsed suggestions) before re-throwing, so the invocation row preserves forensic context.",
+      "finder": "correctness-agents"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "medium",
+      "confidence": "high",
+      "verdict_reasoning": "The candidate is a REAL BUG. The code at lines 336-338 in proposerApproverCriteriaGenerate.ts violates the explicit I3 invariant (line 11: \"Write partial execution_detail BEFORE re-throwing on any helper failure\"). When the proposer LLM call fails, the catch block directly throws without first persisting partial execution_detail via updateInvocation(). At that point, successful computation includes evalCost, evalDurationMs, scoresParsed, parsed.suggestions, weakestCriteriaIds, and weakestCriteriaNames, all of which should be persisted as forensic context. The codebase already establishes this pattern correctly in evaluateCriteriaThenGenerateFromPreviousArticle.ts (lines 426-451), where the evaluate+suggest LLM error persists partial detail before re-throwing. The violation creates an observability gap: when the proposer LLM fails, the invocation row loses the context of what was successfully completed in the eval+suggest phase, hampering forensic debugging. This is not a data-loss or wrong-output bug, but a systematic observability failure that masks investigation of failures.",
+      "fix_sketch": "Before re-throwing at line 337, compute proposeCostUsd and build a partial execution_detail object containing the eval and suggest results, then call updateInvocation() with it (similar to the pattern at lines 248-264 and the evaluateCriteriaThenGenerateFromPreviousArticle.ts pattern at lines 426-451). The partial detail should include weakestCriteriaIds, weakestCriteriaNames, evaluateAndSuggest results (scores and suggestions), and cost breakdown available at that point."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+      "line": 369,
+      "title": "Missing partial detail persistence on forward approver LLM error (I3 violation)",
+      "category": "error-handling",
+      "severity_guess": "high",
+      "reasoning": "At line 368-370, when the forward approver LLM call fails, the agent re-throws Error without persisting partial execution_detail. This is another I3 invariant violation. The partial detail should capture everything up to the forward approver failure (eval+suggest, proposer output, proposed groups, parse/validation results) before re-throwing.",
+      "finder": "correctness-agents"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "high",
+      "confidence": "high",
+      "verdict_reasoning": "The code at line 369 violates the \"LOAD-BEARING INVARIANT\" (I3) stated at line 11: \"Write partial execution_detail BEFORE re-throwing on any helper failure.\" When forward approver LLM fails, it re-throws without persisting partial execution_detail, causing systematic loss of structured observability data. By line 369, work has been completed across multiple phases: eval+suggest, proposer call, parse/validate. When this fails, all structured detail is lost because Agent.run() (line 214-218 of Agent.ts) does not persist execution_detail for thrown exceptions. This is systematic silent failure - downstream debugging cannot reconstruct what work was completed. IterativeEditingAgent (referenced as mirrored pattern) handles this by returning partial details. The issue affects error paths which are critical for observability and debugging.",
+      "fix_sketch": "Modify the forward approver error handler (lines 368-370) to construct a partial execution_detail containing completed work through step (d), then either: call updateInvocation to persist before re-throwing (matching lines 257-264), or construct/return AgentOutput with partial detail and failure flag (following IterativeEditingAgent pattern)."
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+      "line": 290,
+      "title": "No cost snapshot before eval+suggest call; cost from catch block uses getOwnSpent at error time (I2 anomaly)",
+      "category": "cost-tracking",
+      "severity_guess": "medium",
+      "reasoning": "At line 283, costBeforeEval is captured before the eval+suggest call. However, in the catch block at line 427, the cost is computed as (ctx.costTracker.getOwnSpent() - costBeforeCombined), but costBeforeCombined is from line 416 (before the REFLECTION call in reflectAndGenerate), not the eval call. In this agent (proposerApprover), costBeforeEval is captured correctly at line 283, but if the eval call throws (line 291-294), the catch block at 291 re-throws without computing cost. This means the partial detail write attempt never happens (due to I3 violation above), so cost tracking is lost entirely.",
+      "finder": "correctness-agents"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "medium",
+      "confidence": "high",
+      "verdict_reasoning": "Real bug confirmed: The code violates the documented invariant at line 11 (\"Write partial execution_detail BEFORE re-throwing on any helper failure\"). \n\nThe eval+suggest call at lines 286-294 has a try-catch that immediately re-throws without computing evalCost (line 296) or writing partial execution_detail. Same pattern for proposer (lines 331-337) and forward approver (lines 363-369) calls. If these throw, costBeforeEval snapshots are lost and no partial detail is written. This is an observability/cost-tracking gap.\n\nHOWEVER, the finder's specific claims are inaccurate: (1) there is NO variable called \"costBeforeCombined\" anywhere in the file; (2) line 427 is the try block for MIRROR approver (which correctly handles cost at line 431 and has error recovery); (3) line 416 is unrelated (format gate diagnostic data, not cost tracking); (4) the catch block at 291 is for eval, not mirror. The finder appears to have confused multiple LLM call patterns or referenced a different agent's code. Despite these errors, the underlying issue (missing cost snapshots and partial detail on early throw) is real.",
+      "fix_sketch": "Wrap each helper LLM call in try-catch that computes cost and writes partial execution_detail before re-throwing. For example: try { evalResponse = await llm.complete(...) } catch(err) { evalCost = (ctx.costTracker.getOwnSpent?.() ?? 0) - costBeforeEval; [write partial detail with this cost]; throw err; }"
+    }
+  },
+  {
+    "candidate": {
+      "file": "evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts",
+      "line": 331,
+      "title": "Cost snapshots not persisted on mirror approver LLM failures (partial I3 violation)",
+      "category": "error-handling",
+      "severity_guess": "medium",
+      "reasoning": "At lines 426-450, the mirror approver LLM call and parse handling does not persist partial detail before potential exceptions. If mirrorOutput parse fails or mirrorOutput is malformed, parseReviewDecisions (line 432) may throw, but there's only a try-catch that logs a warn at line 442. The exception is caught and the code continues (no re-throw), marking all forward-accepted as null mirror (lines 447-449). However, the cost tracking for the mirror approver call (line 431) only updates approveMirrorCostUsd inside the try block after the complete() call succeeds. If complete() itself throws a BudgetExceededError, approveMirrorCostUsd is never set, and the catch block doesn't compute the partial cost. This can lead to incomplete cost attribution.",
+      "finder": "correctness-agents"
+    },
+    "verdict": {
+      "is_real_bug": true,
+      "final_severity": "medium",
+      "confidence": "high",
+      "verdict_reasoning": "The finder correctly identified an observability gap in cost tracking. When the mirror approver LLM call at line 427 throws an exception, the code catches it at line 441 but never updates approveMirrorCostUsd with the cost calculation. The cost is computed at line 431 (approveMirrorCostUsd = (ctx.costTracker.getOwnSpent?.() ?? 0) - costBeforeMirror), which only executes if complete() succeeds. If complete() throws, control jumps to the catch block, leaving approveMirrorCostUsd at 0. This causes the partial cost incurred by the failed LLM call to be silently omitted from totalCost (line 568) and execution_detail telemetry (line 608). The mirror approver failure path is realistic (network failures, service errors, rate limiting), and the code intentionally continues by dropping mirror decisions rather than failing entirely. This is a real bug because cost tracking becomes inaccurate and masks true resource consumption in the execution_detail, violating the stated cost tracking requirements (see comment at line 10). It matches the medium severity criterion: observability gap that hides real issues, does not cause wrong output but affects cost attribution accuracy.",
+      "fix_sketch": "Capture the cost after catching the exception by moving the cost calculation outside the try block or computing it in the catch handler: const approveMirrorCostUsd = (ctx.costTracker.getOwnSpent?.() ?? 0) - costBeforeMirror should execute regardless of whether complete() succeeded, capturing any partial cost incurred before the exception."
+    }
+  }
+]

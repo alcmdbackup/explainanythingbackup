@@ -299,11 +299,18 @@ export const getArenaEntriesAction = adminAction(
   ): Promise<{ items: ArenaEntry[]; total: number }> => {
     if (!validateUuid(input.topicId)) throw new Error('Invalid topicId');
 
+    // Default-filter variant_kind='article'. Paragraph topics are excluded
+    // from the topic list by default (D13 + D20), so callers reaching this
+    // entry point overwhelmingly want article leaderboards. Without this
+    // filter, an article topic that shares prompt_id with paragraph rewrites
+    // (data-invariant violation seen in 2026-05 staging runs) surfaced
+    // paragraph variants on the leaderboard.
     let query = ctx.supabase
       .from('evolution_variants')
       .select('*', { count: 'exact' })
       .eq('prompt_id', input.topicId)
       .eq('synced_to_arena', true)
+      .eq('variant_kind', 'article')
       .order('elo_score', { ascending: false });
 
     if (!input.includeArchived) query = query.is('archived_at', null);
