@@ -25,6 +25,7 @@ import {
   type BeforeAfterRatingsMap,
 } from '../../../../services/slotTopicActions';
 import { buildSequentialRewritePrompt } from './buildSequentialRewritePrompt';
+import { renderFingerprintProse } from '../../../pipeline/setup/renderFingerprintProse';
 import { sanitizeForPriorContext, containsDelimiterMirror } from './promptSafety';
 import { estimateParagraphRecombineCost } from '../../../pipeline/infra/estimateCosts';
 import { runCoordinator, CoordinatorLLMError, CoordinatorParseError } from './coordinator';
@@ -385,6 +386,10 @@ async function processSequentialRound(
   // isolation for cost accounting + self-abort.
   const slotScope = createAgentCostScope(invocationScope);
   const perSlotBudgetUsd = paragraphCount > 0 ? perInvocationCapUsd / paragraphCount : 0;
+  // generate_enforce_style_fingerprint_evolution_20260620: PARAGRAPH-shaped target style (no-op when absent).
+  const paragraphStyleGuide = ctx.styleFingerprint
+    ? renderFingerprintProse(ctx.styleFingerprint.traits, 'paragraph')
+    : undefined;
   const localPool: Variant[] = [];
   const localRatings = new Map<string, Rating>();
   const localMatchCounts = new Map<string, number>();
@@ -482,6 +487,7 @@ async function processSequentialRound(
         // being added to the array).
         nextContext,
         coordinatorDirective: directive,
+        styleGuide: paragraphStyleGuide,
       });
 
       if (slotScope.getOwnSpent!() >= SLOT_SELF_ABORT_FRACTION_LOCAL * perSlotBudgetUsd) {

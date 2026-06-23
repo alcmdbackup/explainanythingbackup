@@ -25,6 +25,7 @@ import { TACTICS_BY_CATEGORY, TACTIC_PALETTE } from '@evolution/lib/core/tactics
 import { DispatchPlanView } from '@evolution/components/evolution/DispatchPlanView';
 import { listCriteriaAction, type CriteriaListItem } from '@evolution/services/criteriaActions';
 import { listJudgeRubricsAction, type JudgeRubricListItem } from '@evolution/services/judgeRubricActions';
+import { listStyleFingerprintsAction, type StyleFingerprintListItem } from '@evolution/services/styleFingerprintActions';
 import { CriteriaMultiSelect } from './CriteriaMultiSelect';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -100,6 +101,13 @@ interface IterationRow {
    *  so the approver sees every diff atomic as its own singleton group.
    *  Default false (production behavior unchanged). */
   disableApproverFiltering?: boolean;
+  /** paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — coherence-pass
+   *  knobs. Only valid when agentType === 'paragraph_recombine_with_coherence_pass'. */
+  coherencePassEnabled?: boolean;
+  coherencePassProposerModel?: string;
+  coherencePassApproverModel?: string;
+  coherencePassRewriteTempFloor?: number;
+  coherencePassRewriteTempCeiling?: number;
 }
 
 // Paragraph_recombine wizard defaults — match agent constants.
@@ -113,6 +121,19 @@ const PARAGRAPH_RECOMBINE_DEFAULTS = {
   // Phase 8 (L): default safety cap matches DEFAULT_PER_INVOCATION_CAP_USD in
   // ParagraphRecombineAgent.ts (Option F: 0.40 → 0.05).
   perInvocationCapUsd: 0.05,
+} as const;
+
+// paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — wizard defaults
+// for the new agent's coherence-pass knobs. Mirrors the agent's runtime defaults.
+const COHERENCE_PASS_DEFAULTS = {
+  coherencePassEnabled: true,
+  coherencePassRewriteTempFloor: 0.6,
+  coherencePassRewriteTempCeiling: 1.0,
+  // perInvocationCapUsd default is CONDITIONAL on coherencePassEnabled:
+  // $0.10 when true (need headroom for the coherence-pass LLM calls),
+  // $0.05 when false (same as plain paragraph_recombine).
+  perInvocationCapUsdWithCoherence: 0.10,
+  perInvocationCapUsdWithoutCoherence: 0.05,
 } as const;
 
 // Default cutoff applied when user switches a generate iteration to sourceMode='pool'.
@@ -138,6 +159,10 @@ interface StrategyFormState {
   approverModel: string;
   /** Optional escalation-chain id (chainRegistry). Empty → single-judge ranking. */
   ensembleConfigId: string;
+  /** generate_enforce_style_fingerprint_evolution_20260620: per-strategy style enforcement opt-in. */
+  styleFingerprintEnabled: boolean;
+  /** Style fingerprint id to enforce. Empty → no style enforcement (even if enabled). */
+  styleFingerprintId: string;
   /** Phase 4d: paragraph_recombine coordinator model. Empty → falls back to
    *  generationModel at runtime. A stronger long-context model at-the-source
    *  improves per-slot directives at the cost of higher coordinator-phase spend. */
@@ -204,13 +229,14 @@ interface IterationConfigPayload {
  *  surfaced this — added 2026-05-09. */
 function isVariantProducing(
   agentType: IterationRow['agentType'],
-): agentType is 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'paragraph_recombine' {
+): agentType is 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'paragraph_recombine' | 'paragraph_recombine_with_coherence_pass' {
   return agentType === 'generate'
     || agentType === 'reflect_and_generate'
     || agentType === 'criteria_and_generate'
     || agentType === 'single_pass_evaluate_criteria_and_generate'
     || agentType === 'proposer_approver_criteria_generate'
-    || agentType === 'paragraph_recombine';
+    || agentType === 'paragraph_recombine'
+    || agentType === 'paragraph_recombine_with_coherence_pass';
 }
 
 /** Agent types eligible to be the FIRST iteration (must produce variants on an
@@ -222,7 +248,8 @@ function canBeFirstIteration(agentType: IterationRow['agentType']): boolean {
     || agentType === 'reflect_and_generate'
     || agentType === 'criteria_and_generate'
     || agentType === 'single_pass_evaluate_criteria_and_generate'
-    || agentType === 'paragraph_recombine';
+    || agentType === 'paragraph_recombine'
+    || agentType === 'paragraph_recombine_with_coherence_pass';
 }
 
 /** True for any of the 3 criteria-based agent types. Used to gate
@@ -298,27 +325,47 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
       ? { debateJudgeReasoningEffort: it.debateJudgeReasoningEffort }
       : {}),
     // rank_individual_paragraphs_evolution_20260525 — paragraph_recombine knobs.
-    ...(it.agentType === 'paragraph_recombine' && it.rewritesPerParagraph != null
+    // WIDENED by paragraph_recombine_agent_with_coherence_pass_evolution_20260620 to
+    // also accept the new sibling agent type (which reuses the per-slot infrastructure).
+    ...((it.agentType === 'paragraph_recombine' || it.agentType === 'paragraph_recombine_with_coherence_pass') && it.rewritesPerParagraph != null
       ? { rewritesPerParagraph: it.rewritesPerParagraph }
       : {}),
-    ...(it.agentType === 'paragraph_recombine' && it.maxComparisonsPerParagraph != null
+    ...((it.agentType === 'paragraph_recombine' || it.agentType === 'paragraph_recombine_with_coherence_pass') && it.maxComparisonsPerParagraph != null
       ? { maxComparisonsPerParagraph: it.maxComparisonsPerParagraph }
       : {}),
-    ...(it.agentType === 'paragraph_recombine' && it.maxParagraphsPerInvocation != null
+    ...((it.agentType === 'paragraph_recombine' || it.agentType === 'paragraph_recombine_with_coherence_pass') && it.maxParagraphsPerInvocation != null
       ? { maxParagraphsPerInvocation: it.maxParagraphsPerInvocation }
       : {}),
-    ...(it.agentType === 'paragraph_recombine' && it.paragraphRewriteModel
+    ...((it.agentType === 'paragraph_recombine' || it.agentType === 'paragraph_recombine_with_coherence_pass') && it.paragraphRewriteModel
       ? { paragraphRewriteModel: it.paragraphRewriteModel }
       : {}),
     // investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 Phase 8 (L):
     // maxDispatches + perInvocationCapUsd opt-in fields. Emit only when explicitly
     // set so default-1 strategies hash identically to pre-Phase-8 wizard output
     // (canonicalizeIterationConfig also gates on `!== undefined` per J1.5).
-    ...(it.agentType === 'paragraph_recombine' && it.maxDispatches != null && it.maxDispatches !== PARAGRAPH_RECOMBINE_DEFAULTS.maxDispatches
+    ...((it.agentType === 'paragraph_recombine' || it.agentType === 'paragraph_recombine_with_coherence_pass') && it.maxDispatches != null && it.maxDispatches !== PARAGRAPH_RECOMBINE_DEFAULTS.maxDispatches
       ? { maxDispatches: it.maxDispatches }
       : {}),
-    ...(it.agentType === 'paragraph_recombine' && it.perInvocationCapUsd != null && it.perInvocationCapUsd !== PARAGRAPH_RECOMBINE_DEFAULTS.perInvocationCapUsd
+    ...((it.agentType === 'paragraph_recombine' || it.agentType === 'paragraph_recombine_with_coherence_pass') && it.perInvocationCapUsd != null && it.perInvocationCapUsd !== PARAGRAPH_RECOMBINE_DEFAULTS.perInvocationCapUsd
       ? { perInvocationCapUsd: it.perInvocationCapUsd }
+      : {}),
+    // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — coherence-pass-only knobs.
+    // Emit only when explicitly set (and differs from default) so identical-to-default strategies
+    // hash identically (matches the canonicalizeIterationConfig FIELD_GATES + normalizeIteration fold).
+    ...(it.agentType === 'paragraph_recombine_with_coherence_pass' && it.coherencePassEnabled === false
+      ? { coherencePassEnabled: false }
+      : {}),
+    ...(it.agentType === 'paragraph_recombine_with_coherence_pass' && it.coherencePassProposerModel
+      ? { coherencePassProposerModel: it.coherencePassProposerModel }
+      : {}),
+    ...(it.agentType === 'paragraph_recombine_with_coherence_pass' && it.coherencePassApproverModel
+      ? { coherencePassApproverModel: it.coherencePassApproverModel }
+      : {}),
+    ...(it.agentType === 'paragraph_recombine_with_coherence_pass' && it.coherencePassRewriteTempFloor != null && it.coherencePassRewriteTempFloor !== COHERENCE_PASS_DEFAULTS.coherencePassRewriteTempFloor
+      ? { coherencePassRewriteTempFloor: it.coherencePassRewriteTempFloor }
+      : {}),
+    ...(it.agentType === 'paragraph_recombine_with_coherence_pass' && it.coherencePassRewriteTempCeiling != null && it.coherencePassRewriteTempCeiling !== COHERENCE_PASS_DEFAULTS.coherencePassRewriteTempCeiling
+      ? { coherencePassRewriteTempCeiling: it.coherencePassRewriteTempCeiling }
       : {}),
     // meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6:
     // Mode B (iterative_editing_rewrite) only. Both fields are stripped pre-hash
@@ -482,6 +529,8 @@ export default function NewStrategyPage(): JSX.Element {
     editingModel: '',
     approverModel: '',
     ensembleConfigId: '',
+    styleFingerprintEnabled: false,
+    styleFingerprintId: '',
     coordinatorModel: '',
     seedSelection: '',
     generationTemperature: '',
@@ -498,6 +547,7 @@ export default function NewStrategyPage(): JSX.Element {
   const [availableCriteria, setAvailableCriteria] = useState<CriteriaListItem[]>([]);
   const [availableRubrics, setAvailableRubrics] = useState<JudgeRubricListItem[]>([]);
   const [availableEnsembleConfigs, setAvailableEnsembleConfigs] = useState<string[]>([]);
+  const [availableStyleFingerprints, setAvailableStyleFingerprints] = useState<StyleFingerprintListItem[]>([]);
 
   // Fetch active criteria + judge rubrics + escalation chain ids once on mount.
   useEffect(() => {
@@ -508,6 +558,8 @@ export default function NewStrategyPage(): JSX.Element {
       if (rubrics.success && rubrics.data) setAvailableRubrics(rubrics.data.items);
       const ensembles = await listEnsembleConfigsAction();
       if (ensembles.success && ensembles.data) setAvailableEnsembleConfigs(ensembles.data.ids);
+      const fingerprints = await listStyleFingerprintsAction({ status: 'active', filterTestContent: true, limit: 200 });
+      if (fingerprints.success && fingerprints.data) setAvailableStyleFingerprints(fingerprints.data.items);
     })();
   }, []);
 
@@ -769,7 +821,10 @@ export default function NewStrategyPage(): JSX.Element {
         updated.weakestK ??= 1;
         delete updated.editingProposerSoftCap;
         delete updated.disableApproverFiltering;
-      } else if (updated.agentType === 'paragraph_recombine') {
+      } else if (
+        updated.agentType === 'paragraph_recombine'
+        || updated.agentType === 'paragraph_recombine_with_coherence_pass'
+      ) {
         // Clear unrelated criteria/editing/reflection/debate fields.
         delete updated.tacticGuidance;
         delete updated.reflectionTopN;
@@ -866,6 +921,8 @@ export default function NewStrategyPage(): JSX.Element {
         editingModel: form.editingModel || undefined,
         approverModel: form.approverModel || undefined,
         ensembleConfigId: form.ensembleConfigId || undefined,
+        styleFingerprintEnabled: form.styleFingerprintEnabled || undefined,
+        styleFingerprintId: (form.styleFingerprintEnabled && form.styleFingerprintId) ? form.styleFingerprintId : undefined,
         coordinatorModel: form.coordinatorModel || undefined,
         seedSelection: form.seedSelection || undefined,
         budgetUsd: parseFloat(form.budgetUsd),
@@ -1111,6 +1168,36 @@ export default function NewStrategyPage(): JSX.Element {
               </div>
 
               <div>
+                <label className={labelClasses}>Style Enforcement (optional)</label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    data-testid="style-fingerprint-enabled"
+                    checked={form.styleFingerprintEnabled}
+                    onChange={e => updateForm({ styleFingerprintEnabled: e.target.checked })}
+                  />
+                  Enable style fingerprint
+                </label>
+                <select
+                  id="style-fingerprint"
+                  data-testid="style-fingerprint-select"
+                  value={form.styleFingerprintId}
+                  onChange={e => updateForm({ styleFingerprintId: e.target.value })}
+                  disabled={!form.styleFingerprintEnabled}
+                  className={inputCls(false)}
+                >
+                  <option value="">Select a fingerprint…</option>
+                  {availableStyleFingerprints.map(fp => (
+                    <option key={fp.id} value={fp.id}>{fp.name}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-[var(--text-muted)]">
+                  When enabled, each run snapshots the selected fingerprint and injects it into generation
+                  and the <code>stylistic_accuracy</code> judge dimension.
+                </p>
+              </div>
+
+              <div>
                 <label htmlFor="coordinator-model" className={labelClasses}>
                   Coordinator Model (optional)
                 </label>
@@ -1202,7 +1289,7 @@ export default function NewStrategyPage(): JSX.Element {
                 </summary>
                 <div className="mt-3 space-y-4 pl-2 border-l-2 border-[var(--border-default)]">
                   <div>
-                    <label htmlFor="max-comparisons" className={labelClasses}>Max Comparisons per Variant</label>
+                    <label htmlFor="max-comparisons" className={labelClasses}>Max Matches per Variant</label>
                     <input
                       id="max-comparisons"
                       type="number"
@@ -1417,6 +1504,7 @@ export default function NewStrategyPage(): JSX.Element {
                         <option value="iterative_editing" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Iterative Editing (Markup)</option>
                         <option value="iterative_editing_rewrite" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : 'Mode B: proposer rewrites; markup computed mechanically'}>Iterative Editing (Rewrite)</option>
                         <option value="paragraph_recombine" title="Decompose article into paragraphs, generate M rewrites per slot, rank pairwise, recombine winners">Paragraph Recombine</option>
+                        <option value="paragraph_recombine_with_coherence_pass" title="Paragraph recombine with NO new content allowed, isolated paragraph judging, + a final coherence pass to smooth inter-paragraph seams">Paragraph Recombine with Coherence Pass</option>
                         <option value="swiss" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Swiss</option>
                       </select>
 
@@ -1792,7 +1880,7 @@ export default function NewStrategyPage(): JSX.Element {
                         </div>
                       );
                     })()}
-                    {it.agentType === 'paragraph_recombine' && (
+                    {(it.agentType === 'paragraph_recombine' || it.agentType === 'paragraph_recombine_with_coherence_pass') && (
                       <div
                         className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
                         data-testid={`iteration-paragraph-controls-${idx}`}
@@ -1811,7 +1899,7 @@ export default function NewStrategyPage(): JSX.Element {
                           data-testid={`rewrites-per-paragraph-${idx}`}
                           title="Number of parallel rewrites per paragraph slot (1-6). Default 3."
                         />
-                        <span className="ml-2 text-[var(--text-primary)]">· Max comparisons/slot:</span>
+                        <span className="ml-2 text-[var(--text-primary)]">· Max matches/slot:</span>
                         <input
                           type="number"
                           min={1}
@@ -1823,7 +1911,7 @@ export default function NewStrategyPage(): JSX.Element {
                           }}
                           className="w-14 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
                           data-testid={`max-comparisons-per-paragraph-${idx}`}
-                          title="Maximum pairwise comparisons within a single slot's ranking phase (1-20). Default 8."
+                          title="Maximum pairwise matches within a single slot's ranking phase (1-20). Default 8."
                         />
                         <span className="ml-2 text-[var(--text-primary)]">· Max slots/invocation:</span>
                         <input
@@ -1881,6 +1969,76 @@ export default function NewStrategyPage(): JSX.Element {
                           className="w-20 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
                           data-testid={`per-invocation-cap-usd-${idx}`}
                           title="Per-invocation safety cap (USD). Default $0.05 (Option F). Caps a runaway invocation; not a spend target."
+                        />
+                      </div>
+                    )}
+                    {it.agentType === 'paragraph_recombine_with_coherence_pass' && (
+                      <div
+                        className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
+                        data-testid={`iteration-coherence-pass-controls-${idx}`}
+                      >
+                        <label className="flex items-center gap-1 text-[var(--text-primary)]" title="When off, the assembled paragraphs are returned without inter-paragraph smoothing. Per-invocation cap default flips to $0.05 (matches plain paragraph_recombine). Use false to A/B test the coherence pass's contribution.">
+                          <input
+                            type="checkbox"
+                            checked={it.coherencePassEnabled !== false}
+                            onChange={e => updateIteration(idx, { coherencePassEnabled: e.target.checked ? undefined : false })}
+                            data-testid={`coherence-pass-enabled-${idx}`}
+                          />
+                          Coherence pass enabled
+                        </label>
+                        <span className={`ml-2 ${it.coherencePassEnabled === false ? 'opacity-50' : ''} text-[var(--text-primary)]`}>· Proposer model:</span>
+                        <input
+                          type="text"
+                          value={it.coherencePassProposerModel ?? ''}
+                          placeholder="(inherit generation model)"
+                          disabled={it.coherencePassEnabled === false}
+                          onChange={e => updateIteration(idx, { coherencePassProposerModel: e.target.value || undefined })}
+                          className="w-44 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none disabled:opacity-50"
+                          data-testid={`coherence-pass-proposer-model-${idx}`}
+                          title="Override proposer model. Default: strategy generation model. The proposer drafts the inter-paragraph smoothing edits — needs writing skill."
+                        />
+                        <span className={`ml-2 ${it.coherencePassEnabled === false ? 'opacity-50' : ''} text-[var(--text-primary)]`}>· Approver model:</span>
+                        <input
+                          type="text"
+                          value={it.coherencePassApproverModel ?? ''}
+                          placeholder="(inherit judge model)"
+                          disabled={it.coherencePassEnabled === false}
+                          onChange={e => updateIteration(idx, { coherencePassApproverModel: e.target.value || undefined })}
+                          className="w-44 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none disabled:opacity-50"
+                          data-testid={`coherence-pass-approver-model-${idx}`}
+                          title="Override approver model. Default: strategy judge model. The approver gates each edit via JSONL accept/reject — needs judgment, not writing."
+                        />
+                        <span className={`ml-2 ${it.coherencePassEnabled === false ? 'opacity-50' : ''} text-[var(--text-primary)]`}>· Rewrite temp floor:</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min={0}
+                          max={2}
+                          value={it.coherencePassRewriteTempFloor ?? COHERENCE_PASS_DEFAULTS.coherencePassRewriteTempFloor}
+                          disabled={it.coherencePassEnabled === false}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Math.max(0, Math.min(2, Number(e.target.value)));
+                            updateIteration(idx, { coherencePassRewriteTempFloor: v });
+                          }}
+                          className="w-16 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none disabled:opacity-50"
+                          data-testid={`coherence-pass-rewrite-temp-floor-${idx}`}
+                          title="Lower bound of the per-rewrite temperature ladder (REORDER directive). Default 0.6. Raise toward 0.9 if per-slot TIE rate is high in staging."
+                        />
+                        <span className={`ml-2 ${it.coherencePassEnabled === false ? 'opacity-50' : ''} text-[var(--text-primary)]`}>· Ceiling:</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min={0}
+                          max={2}
+                          value={it.coherencePassRewriteTempCeiling ?? COHERENCE_PASS_DEFAULTS.coherencePassRewriteTempCeiling}
+                          disabled={it.coherencePassEnabled === false}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Math.max(0, Math.min(2, Number(e.target.value)));
+                            updateIteration(idx, { coherencePassRewriteTempCeiling: v });
+                          }}
+                          className="w-16 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none disabled:opacity-50"
+                          data-testid={`coherence-pass-rewrite-temp-ceiling-${idx}`}
+                          title="Upper bound of the per-rewrite temperature ladder (RESTRUCTURE directive). Default 1.0. Must be >= floor."
                         />
                       </div>
                     )}

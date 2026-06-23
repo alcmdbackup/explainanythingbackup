@@ -125,6 +125,28 @@ describe('ExperimentForm', () => {
       expect(screen.getByTestId('prompt-option-p2')).toBeInTheDocument();
     });
 
+    it('hides paragraph prompts by default and re-fetches with them when toggled', async () => {
+      render(<ExperimentForm />);
+      await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
+
+      // Initial load excludes paragraph_recombine [para] topics.
+      expect(mockGetPromptsAction).toHaveBeenCalledWith(
+        expect.objectContaining({ includeParagraphTopics: false }),
+      );
+
+      const checkbox = screen.getByTestId('show-paragraph-prompts');
+      expect(checkbox).not.toBeChecked();
+
+      fireEvent.click(checkbox);
+
+      await waitFor(() =>
+        expect(mockGetPromptsAction).toHaveBeenCalledWith(
+          expect.objectContaining({ includeParagraphTopics: true }),
+        ),
+      );
+      expect(checkbox).toBeChecked();
+    });
+
     it('shows errors when Next clicked with empty name', async () => {
       render(<ExperimentForm />);
       await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());

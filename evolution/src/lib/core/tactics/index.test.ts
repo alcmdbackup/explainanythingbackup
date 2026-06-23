@@ -16,8 +16,8 @@ describe('TACTIC_PALETTE', () => {
 });
 
 describe('MARKER_TACTICS', () => {
-  it('contains the 5 marker tactic entries (3 criteria-driven + debate_synthesis + paragraph_recombine)', () => {
-    expect(MARKER_TACTICS).toHaveLength(5);
+  it('contains the 6 marker tactic entries (3 criteria-driven + debate_synthesis + 2 paragraph_recombine variants)', () => {
+    expect(MARKER_TACTICS).toHaveLength(6);
     const names = MARKER_TACTICS.map((t) => t.name).sort();
     expect(names).toEqual([
       'criteria_driven',
@@ -25,6 +25,7 @@ describe('MARKER_TACTICS', () => {
       'criteria_driven_single_pass',
       'debate_synthesis',
       'paragraph_recombine',
+      'paragraph_recombine_with_coherence_pass',
     ]);
   });
 

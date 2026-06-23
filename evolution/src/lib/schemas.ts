@@ -151,6 +151,96 @@ export type EvaluationGuidance = z.infer<typeof evaluationGuidanceSchema>;
 export type EvolutionCriteriaInsert = z.infer<typeof evolutionCriteriaInsertSchema>;
 export type EvolutionCriteriaFullDb = z.infer<typeof evolutionCriteriaFullDbSchema>;
 
+// ─── 2b-2. evolution_style_fingerprints ──────────────────────────
+// A style fingerprint is a DB-first user-authored entity (mirrors evolution_criteria):
+// a structured + prose description of a writer's style, computed over a SET of articles,
+// injected into generation prompts and the judging rubric. See migration
+// 20260621000001_create_evolution_style_fingerprints.sql.
+
+/** Structured style traits extracted from the article set. Produced by
+ *  extractStyleFingerprint (Phase 3) and rendered to prose by renderFingerprintProse. */
+export const styleFingerprintTraitsSchema = z.object({
+  sentenceLength: z.object({
+    // Bounded to a sane sentence-length range so a bad extraction OR a manual trait edit can't
+    // persist a nonsensical value (e.g. negative / 1e9) that would render absurd prose.
+    avgWords: z.number().min(1).max(200).refine(Number.isFinite, { message: 'avgWords must be finite' }),
+    distribution: z.string().min(1).max(300),
+  }),
+  spellingRegion: z.enum(['american', 'british', 'mixed']),
+  vocabularyLevel: z.string().min(1).max(300),
+  tone: z.array(z.string().min(1).max(120)).max(12),
+  signaturePhrases: z.array(z.object({
+    phrase: z.string().min(1).max(200),
+    frequency: z.enum(['rare', 'occasional', 'frequent']),
+  })).max(40),
+  structuralHabits: z.array(z.string().min(1).max(300)).max(20),
+  punctuationHabits: z.array(z.string().min(1).max(300)).max(20),
+  summary: z.string().min(1).max(2000),
+});
+
+export const styleFingerprintStatusEnum = criteriaStatusEnum;
+
+export const evolutionStyleFingerprintInsertSchema = z.object({
+  name: z.string().min(1).max(128).regex(
+    /^[A-Za-z][a-zA-Z0-9_-]*$/,
+    'name must match /^[A-Za-z][a-zA-Z0-9_-]*$/ (parser-safe)',
+  ),
+  description: z.string().nullable().optional(),
+  fingerprint: styleFingerprintTraitsSchema.nullable().optional(),
+  fingerprint_prose: z.string().nullable().optional(),
+  article_count: z.number().int().nonnegative().optional(),
+  status: styleFingerprintStatusEnum.optional().default('active'),
+  is_test_content: z.boolean().optional(),
+  archived_at: z.string().nullable().optional(),
+  deleted_at: z.string().nullable().optional(),
+});
+
+export const evolutionStyleFingerprintFullDbSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(128).regex(/^[A-Za-z][a-zA-Z0-9_-]*$/),
+  description: z.string().nullable(),
+  fingerprint: styleFingerprintTraitsSchema.nullable(),
+  fingerprint_prose: z.string().nullable(),
+  article_count: z.number().int().nonnegative(),
+  status: styleFingerprintStatusEnum,
+  is_test_content: z.boolean(),
+  archived_at: z.string().nullable(),
+  deleted_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+/** A single member of a fingerprint's article set: EITHER an explanation
+ *  reference OR pasted text (exactly one, non-empty). */
+export const evolutionStyleFingerprintArticleSchema = z.object({
+  id: z.string().uuid(),
+  fingerprint_id: z.string().uuid(),
+  // explanations.id is BIGINT (see migration 20260409000002), so this is a number, not a UUID.
+  explanation_id: z.number().int().nullable(),
+  article_text: z.string().min(1).nullable(),
+  position: z.number().int().nonnegative(),
+  added_at: z.string(),
+}).refine(
+  (a) => (a.explanation_id !== null) !== (a.article_text !== null),
+  { message: 'exactly one of explanation_id / article_text must be set', path: ['article_text'] },
+);
+
+/** Input for adding an article to a fingerprint's set (one source). */
+export const addStyleFingerprintArticleInputSchema = z.object({
+  fingerprintId: z.string().uuid(),
+  explanationId: z.number().int().optional(),
+  articleText: z.string().min(1).optional(),
+}).refine(
+  (a) => (a.explanationId !== undefined) !== (a.articleText !== undefined),
+  { message: 'provide exactly one of explanationId / articleText', path: ['articleText'] },
+);
+
+export type StyleFingerprintTraits = z.infer<typeof styleFingerprintTraitsSchema>;
+export type EvolutionStyleFingerprintInsert = z.infer<typeof evolutionStyleFingerprintInsertSchema>;
+export type EvolutionStyleFingerprintFullDb = z.infer<typeof evolutionStyleFingerprintFullDbSchema>;
+export type EvolutionStyleFingerprintArticle = z.infer<typeof evolutionStyleFingerprintArticleSchema>;
+export type AddStyleFingerprintArticleInput = z.infer<typeof addStyleFingerprintArticleInputSchema>;
+
 // ─── 2c. evolution_judge_rubrics ─────────────────────────────────
 // Reusable named bundle of judging DIMENSIONS for rubric-based pairwise judging.
 // Thin entity (identity + metadata); the dimensions live in the
@@ -233,6 +323,12 @@ export const evolutionRunInsertSchema = z.object({
   archived: z.boolean().optional().default(false),
   run_summary: z.record(z.string(), z.unknown()).nullable().optional(),
   runner_id: z.string().max(200).nullable().optional(),
+  // generate_enforce_style_fingerprint_evolution_20260620: optional reference to the
+  // style fingerprint this run opted into (no FK — run survives fingerprint hard-delete).
+  style_fingerprint_id: z.string().uuid().nullable().optional(),
+  // Immutable snapshot of the fingerprint (traits + rendered prose) captured at run start,
+  // so later fingerprint edits never retroactively change what this run was judged against.
+  style_fingerprint_snapshot: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 
 export const evolutionRunFullDbSchema = evolutionRunInsertSchema.extend({
@@ -586,6 +682,12 @@ export const iterationAgentTypeEnum = z.enum([
   'iterative_editing',
   'iterative_editing_rewrite',
   'paragraph_recombine',
+  // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — sibling to
+  // paragraph_recombine that forces the legacy parallel rewrite path (no priorPicks,
+  // no coordinator, no sequential mode), uses isolation-oriented rewrite directives,
+  // and runs a Phase D coherence pass on the assembled article via the shared
+  // runEditingCycle() helper extracted from IterativeEditingAgent.
+  'paragraph_recombine_with_coherence_pass',
   'swiss',
 ]);
 
@@ -613,7 +715,8 @@ export function canBeFirstIteration(t: z.infer<typeof iterationAgentTypeEnum>): 
     || t === 'criteria_and_generate'
     || t === 'single_pass_evaluate_criteria_and_generate'
     || t === 'proposer_approver_criteria_generate'
-    || t === 'paragraph_recombine';
+    || t === 'paragraph_recombine'
+    || t === 'paragraph_recombine_with_coherence_pass';
 }
 
 /** Helper: agent types that produce new variants via parallel-batch dispatch + sourceMode/qualityCutoff.
@@ -642,7 +745,8 @@ export function producesNewVariants(t: IterationAgentType): boolean {
     || t === 'iterative_editing'
     || t === 'iterative_editing_rewrite'
     || t === 'debate_and_generate'
-    || t === 'paragraph_recombine';
+    || t === 'paragraph_recombine'
+    || t === 'paragraph_recombine_with_coherence_pass';
 }
 
 /** Helper: agent types that share the iterative-editing config bag (max cycles,
@@ -771,6 +875,26 @@ export const iterationConfigSchema = z.object({
   parallelFloorAgentMultiple: z.number().min(0).optional(),
   sequentialFloorFraction: z.number().min(0).max(1).optional(),
   sequentialFloorAgentMultiple: z.number().min(0).optional(),
+  /** paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — coherence-pass
+   *  knobs. All five fields below are ONLY valid when agentType === 'paragraph_recombine_with_coherence_pass'
+   *  (gated via Zod refinements below; FIELD_GATES in findOrCreateStrategy.ts gates them
+   *  out of `config_hash` for other agent types). */
+  /** Whether to run the Phase D coherence pass on the assembled article. Default true at
+   *  consumption (FIELD_GATES normalizes undefined → true so strategies that omit the
+   *  field dedupe to ones that explicitly enable). When false, the per-invocation cap
+   *  default flips from $0.10 → $0.05. Used for A/B isolation: run two strategies that
+   *  differ only in this field to measure the coherence pass's contribution to Elo lift. */
+  coherencePassEnabled: z.boolean().optional(),
+  /** Override the proposer model for the coherence pass. Default: strategy.generationModel. */
+  coherencePassProposerModel: z.string().optional(),
+  /** Override the approver model for the coherence pass. Default: strategy.judgeModel. */
+  coherencePassApproverModel: z.string().optional(),
+  /** Lower bound of the per-rewrite temperature ladder used by the per-slot pipeline.
+   *  Default 0.6. Combined with `coherencePassRewriteTempCeiling`, ops can re-tune at
+   *  staging without a redeploy if per-slot TIE rate exceeds 70%. */
+  coherencePassRewriteTempFloor: z.number().min(0).max(2).optional(),
+  /** Upper bound of the per-rewrite temperature ladder. Default 1.0. Refine: ceiling >= floor. */
+  coherencePassRewriteTempCeiling: z.number().min(0).max(2).optional(),
 }).refine(
   // sourceMode is for parent-article selection in variant-producing iterations.
   // Debate selects parents internally (top-2 from pool snapshot per Decision §16) so
@@ -858,25 +982,60 @@ export const iterationConfigSchema = z.object({
   (c) => c.agentType === 'proposer_approver_criteria_generate' || c.includesMirrorApprover === undefined,
   { message: 'includesMirrorApprover only valid when agentType is proposer_approver_criteria_generate' },
 ).refine(
-  // rank_individual_paragraphs_evolution_20260525 — paragraph knobs are only valid
-  // when agentType === 'paragraph_recombine'.
-  (c) => c.agentType === 'paragraph_recombine' || c.rewritesPerParagraph === undefined,
-  { message: 'rewritesPerParagraph only valid when agentType is paragraph_recombine' },
+  // rank_individual_paragraphs_evolution_20260525 — paragraph knobs. WIDENED by
+  // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 to also accept
+  // the new sibling agent type (which reuses the per-slot rewrite + ranking infrastructure).
+  (c) => c.agentType === 'paragraph_recombine'
+    || c.agentType === 'paragraph_recombine_with_coherence_pass'
+    || c.rewritesPerParagraph === undefined,
+  { message: 'rewritesPerParagraph only valid for paragraph_recombine or paragraph_recombine_with_coherence_pass' },
 ).refine(
-  (c) => c.agentType === 'paragraph_recombine' || c.maxComparisonsPerParagraph === undefined,
-  { message: 'maxComparisonsPerParagraph only valid when agentType is paragraph_recombine' },
+  (c) => c.agentType === 'paragraph_recombine'
+    || c.agentType === 'paragraph_recombine_with_coherence_pass'
+    || c.maxComparisonsPerParagraph === undefined,
+  { message: 'maxComparisonsPerParagraph only valid for paragraph_recombine or paragraph_recombine_with_coherence_pass' },
 ).refine(
-  (c) => c.agentType === 'paragraph_recombine' || c.maxParagraphsPerInvocation === undefined,
-  { message: 'maxParagraphsPerInvocation only valid when agentType is paragraph_recombine' },
+  (c) => c.agentType === 'paragraph_recombine'
+    || c.agentType === 'paragraph_recombine_with_coherence_pass'
+    || c.maxParagraphsPerInvocation === undefined,
+  { message: 'maxParagraphsPerInvocation only valid for paragraph_recombine or paragraph_recombine_with_coherence_pass' },
 ).refine(
-  (c) => c.agentType === 'paragraph_recombine' || c.paragraphRewriteModel === undefined,
-  { message: 'paragraphRewriteModel only valid when agentType is paragraph_recombine' },
+  (c) => c.agentType === 'paragraph_recombine'
+    || c.agentType === 'paragraph_recombine_with_coherence_pass'
+    || c.paragraphRewriteModel === undefined,
+  { message: 'paragraphRewriteModel only valid for paragraph_recombine or paragraph_recombine_with_coherence_pass' },
 ).refine(
-  (c) => c.agentType === 'paragraph_recombine' || c.perInvocationCapUsd === undefined,
-  { message: 'perInvocationCapUsd only valid when agentType is paragraph_recombine' },
+  (c) => c.agentType === 'paragraph_recombine'
+    || c.agentType === 'paragraph_recombine_with_coherence_pass'
+    || c.perInvocationCapUsd === undefined,
+  { message: 'perInvocationCapUsd only valid for paragraph_recombine or paragraph_recombine_with_coherence_pass' },
 ).refine(
-  (c) => c.agentType === 'paragraph_recombine' || c.maxDispatches === undefined,
-  { message: 'maxDispatches only valid when agentType is paragraph_recombine' },
+  (c) => c.agentType === 'paragraph_recombine'
+    || c.agentType === 'paragraph_recombine_with_coherence_pass'
+    || c.maxDispatches === undefined,
+  { message: 'maxDispatches only valid for paragraph_recombine or paragraph_recombine_with_coherence_pass' },
+).refine(
+  // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — coherence-pass-only refinements.
+  (c) => c.agentType === 'paragraph_recombine_with_coherence_pass' || c.coherencePassEnabled === undefined,
+  { message: 'coherencePassEnabled only valid when agentType is paragraph_recombine_with_coherence_pass' },
+).refine(
+  (c) => c.agentType === 'paragraph_recombine_with_coherence_pass' || c.coherencePassProposerModel === undefined,
+  { message: 'coherencePassProposerModel only valid when agentType is paragraph_recombine_with_coherence_pass' },
+).refine(
+  (c) => c.agentType === 'paragraph_recombine_with_coherence_pass' || c.coherencePassApproverModel === undefined,
+  { message: 'coherencePassApproverModel only valid when agentType is paragraph_recombine_with_coherence_pass' },
+).refine(
+  (c) => c.agentType === 'paragraph_recombine_with_coherence_pass' || c.coherencePassRewriteTempFloor === undefined,
+  { message: 'coherencePassRewriteTempFloor only valid when agentType is paragraph_recombine_with_coherence_pass' },
+).refine(
+  (c) => c.agentType === 'paragraph_recombine_with_coherence_pass' || c.coherencePassRewriteTempCeiling === undefined,
+  { message: 'coherencePassRewriteTempCeiling only valid when agentType is paragraph_recombine_with_coherence_pass' },
+).refine(
+  // Cross-field: ceiling must be >= floor when both are set.
+  (c) => c.coherencePassRewriteTempCeiling === undefined
+    || c.coherencePassRewriteTempFloor === undefined
+    || c.coherencePassRewriteTempCeiling >= c.coherencePassRewriteTempFloor,
+  { message: 'coherencePassRewriteTempCeiling must be >= coherencePassRewriteTempFloor', path: ['coherencePassRewriteTempCeiling'] },
 );
 
 export type IterationConfig = z.infer<typeof iterationConfigSchema>;
@@ -907,6 +1066,12 @@ const strategyConfigBaseSchema = z.object({
    *  buildRunContext to an EnsembleRunner ONLY when EVOLUTION_JUDGE_ESCALATION_ENABLED !== 'false'.
    *  Omit (the default) for single-judge ranking — byte-identical to today. */
   ensembleConfigId: z.string().optional(),
+  /** generate_enforce_style_fingerprint_evolution_20260620: per-strategy opt-in for style
+   *  enforcement. When true AND styleFingerprintId is set, each run snapshots the referenced
+   *  fingerprint at run start and injects it into generation + the stylistic_accuracy judge
+   *  dimension. Default off (no fingerprint ⇒ clean no-op). Validated by validateStyleFingerprintId. */
+  styleFingerprintEnabled: z.boolean().optional(),
+  styleFingerprintId: z.string().uuid().optional(),
   /** Total budget for the run in USD. Per-iteration amounts computed from iterationConfigs[].budgetPercent. */
   budgetUsd: z.number().min(0).optional(),
   generationGuidance: generationGuidanceSchema.optional(),
@@ -1103,6 +1268,16 @@ const evolutionConfigBaseSchema = z.object({
   /** Phase 1d: resolved per-paragraph rubric. Present only when paragraphJudgeRubricId
    *  resolved AND EVOLUTION_RUBRIC_JUDGING_ENABLED is on; undefined → hardcoded paragraph rubric. */
   paragraphJudgeRubric: z.custom<ResolvedJudgeRubric>().optional(),
+  /** generate_enforce_style_fingerprint_evolution_20260620: resolved per-run style fingerprint
+   *  (article-shaped prose + structured traits). Carried on the run config (parallel to judgeRubric),
+   *  sourced from the run's style_fingerprint_snapshot in buildRunContext; undefined when the strategy
+   *  did not opt in. Generation reads it via AgentContext.styleFingerprint. Article ranking reads
+   *  `prose` and threads it into buildRubricComparisonPrompt; paragraph slot judging renders the
+   *  PARAGRAPH-shaped prose from `traits` and OVERRIDES it on perSlotConfig. */
+  styleFingerprint: z.object({
+    prose: z.string(),
+    traits: styleFingerprintTraitsSchema,
+  }).optional(),
   /** Named ensemble chain id (from StrategyConfig). Resolved to `ensemble` in buildRunContext. */
   ensembleConfigId: z.string().optional(),
   /** Resolved ensemble chain + aggregation rule. Present ONLY when ensembleConfigId resolved AND the
@@ -2192,7 +2367,7 @@ const afterVariantRenameKeys = renameKeys({
 
 export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('merge_ratings'),
-  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'debate_and_generate', 'iterative_editing', 'iterative_editing_rewrite', 'paragraph_recombine', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'debate_and_generate', 'iterative_editing', 'iterative_editing_rewrite', 'paragraph_recombine', 'paragraph_recombine_with_coherence_pass', 'swiss']),
   before: z.object({
     poolSize: z.number().int().min(0),
     variants: z.array(z.preprocess(
@@ -2250,7 +2425,7 @@ const snapshotDiscardReasonRename = renameKeys({ mu: 'elo' });
 // only contain 'generate' or 'swiss' so backward-compat reads remain valid.
 export const iterationSnapshotSchema = z.object({
   iteration: z.number().int().min(1),
-  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'debate_and_generate', 'iterative_editing', 'iterative_editing_rewrite', 'paragraph_recombine', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'debate_and_generate', 'iterative_editing', 'iterative_editing_rewrite', 'paragraph_recombine', 'paragraph_recombine_with_coherence_pass', 'swiss']),
   phase: z.enum(['start', 'end']),
   capturedAt: z.string(),
   poolVariantIds: z.array(z.string()),
@@ -2493,6 +2668,127 @@ export const slotRecombineExecutionDetailSchema = executionDetailBaseSchema.exte
 
 export type SlotRecombineExecutionDetail = z.infer<typeof slotRecombineExecutionDetailSchema>;
 
+// ─── paragraphRecombineWithCoherencePassExecutionDetailSchema ────────────
+//
+// paragraph_recombine_agent_with_coherence_pass_evolution_20260620.
+// Mirrors slotRecombineExecutionDetailSchema's slot-side fields (same per-slot
+// arena, same recombine output) and adds:
+//  - `coherencePass`: optional cycle data from the Phase D propose/review/apply step.
+//    cycles[] reuses iterativeEditingExecutionDetailSchema's cycle shape so the
+//    existing parseIterativeEditingTree subagent parser can walk it directly.
+//    `skipped` is set when the coherence pass didn't run (env kill switch,
+//    coherencePassEnabled=false, or pre-pass budget gate).
+//  - `recombinedBeforeCoherencePass`: forensic snapshot of the assembled article
+//    BEFORE the coherence pass smoothing edits. Truncated to 8KB to mirror Mode B's
+//    truncation of `rewriteText`. The final post-pass text stays in `recombined.text`.
+export const paragraphRecombineWithCoherencePassExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('paragraph_recombine_with_coherence_pass'),
+  parentVariantId: z.string().uuid(),
+  /** Same slot shape as slotRecombineExecutionDetailSchema. The new agent's per-slot
+   *  pipeline reuses the same primitives (extractParagraphsWithRanges, upsertSlotTopic,
+   *  loadArenaEntries, rankNewVariant with comparisonMode='paragraph', persistSlotMatches). */
+  slots: z.array(z.object({
+    slotIndex: z.number().int().min(0),
+    originalText: z.string(),
+    originalSlotVariantId: z.string().uuid(),
+    slotTopicId: z.string().uuid(),
+    perSlotBudgetUsd: z.number().min(0),
+    spentUsd: z.number().min(0),
+    rewrites: z.array(z.object({
+      index: z.number().int().min(0),
+      text: z.string(),
+      slotVariantId: z.string().uuid().optional(),
+      costUsd: z.number().min(0),
+      durationMs: z.number().int().min(0).optional(),
+      sentenceVerbatimRatio: z.number().min(0).max(1).optional(),
+      /** Q8 observational metric — slot-level provenance (fraction of CHILD sentences
+       *  appearing in PARENT, asymmetric to sentenceVerbatimRatio which is parent→child).
+       *  NOISY for REORDER + RESTRUCTURE directives; reliable for TIGHTEN. */
+      provenanceRatio: z.number().min(0).max(1).optional(),
+      formatValid: z.boolean(),
+      dropReason: z.enum([
+        'no_bullets', 'no_lists', 'no_tables', 'no_h1',
+        'length_under', 'length_over', 'zero_sentences',
+      ]).optional(),
+      temperature: z.number().min(0).max(2).optional(),
+      status: z.enum(['succeeded', 'dropped', 'skipped_slot_abort', 'llm_error']).optional(),
+      /** REORDER (idx 0) / TIGHTEN (idx 1) / RESTRUCTURE (idx 2) directive name. */
+      directive: z.enum(['REORDER', 'TIGHTEN', 'RESTRUCTURE']).optional(),
+    })),
+    ranking: z.object({
+      matchCount: z.number().int().min(0),
+      cost: z.number().min(0).optional(),
+      comparisonCount: z.number().int().min(0).optional(),
+      status: z.enum(['completed', 'self_aborted', 'skipped_insufficient_pool']).optional(),
+      ratings: z.array(z.object({
+        variantId: z.string().uuid(),
+        elo: z.number(),
+        uncertainty: z.number().min(0),
+      })),
+      winnerSlotVariantId: z.string().uuid(),
+      winnerIsOriginal: z.boolean(),
+      winnerSource: z.enum(['this_invocation', 'prior_invocation', 'original']),
+    }).optional(),
+    discardReason: z.object({
+      failurePoint: z.enum(['slot_budget', 'sync_failed', 'no_valid_rewrites']),
+      message: z.string().optional(),
+    }).optional(),
+  })),
+  /** Q6: forensic snapshot of the assembled article BEFORE coherence pass smoothing.
+   *  Truncated to 8KB. Final post-pass text lives in `recombined.text`. */
+  recombinedBeforeCoherencePass: z.string().optional(),
+  recombined: z.object({
+    text: z.string(),
+    formatValid: z.boolean(),
+    formatIssues: z.array(z.string()).optional(),
+  }),
+  /** Q5: coherence-pass cycle data. cycles[0] uses editingCycleSchema shape so
+   *  parseIterativeEditingTree can walk it (Phase 6 subagent tree). */
+  coherencePass: z.union([
+    z.object({
+      cycles: z.array(editingCycleSchema),
+      /** Coherence-pass-specific config snapshot for the invocation detail UI. */
+      config: z.object({
+        proposerModel: z.string(),
+        approverModel: z.string(),
+        lengthCapRatio: z.number(),
+        redundancyJaccardThreshold: z.number(),
+        flowGuardrailEnabled: z.boolean(),
+      }),
+      /** Silent-rejection observability: approver returned > 0 groups but apply count == 0. */
+      silentRejection: z.boolean().optional(),
+    }),
+    z.object({
+      skipped: z.enum(['budget', 'disabled', 'kill_switch', 'format_invalid_recombine']),
+      spentAtSkip: z.number().min(0).optional(),
+      capUsd: z.number().min(0).optional(),
+    }),
+  ]).optional(),
+  /** Projector outputs for the new agent (matches slotRecombine shape; coherence-pass
+   *  cost is rolled in via the umbrella). All optional for back-compat. */
+  estimatedTotalCost: z.number().min(0).optional(),
+  estimatedTotalCostUpperBound: z.number().min(0).optional(),
+  estimationErrorPct: z.number().optional(),
+  paragraph_rewrite: z.object({
+    estimatedCost: z.number().min(0),
+    cost: z.number().min(0),
+    estimationErrorPct: z.number().optional(),
+  }).optional(),
+  paragraph_rank: z.object({
+    estimatedCost: z.number().min(0),
+    cost: z.number().min(0),
+    estimationErrorPct: z.number().optional(),
+  }).optional(),
+  coherence_pass: z.object({
+    estimatedCost: z.number().min(0),
+    cost: z.number().min(0),
+    estimationErrorPct: z.number().optional(),
+  }).optional(),
+});
+
+export type ParagraphRecombineWithCoherencePassExecutionDetail =
+  z.infer<typeof paragraphRecombineWithCoherencePassExecutionDetailSchema>;
+
 export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
   generationExecutionDetailSchema,
   iterativeEditingExecutionDetailSchema,
@@ -2514,6 +2810,7 @@ export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
   swissRankingExecutionDetailSchema,
   mergeRatingsExecutionDetailSchema,
   slotRecombineExecutionDetailSchema,
+  paragraphRecombineWithCoherencePassExecutionDetailSchema,
 ]);
 
 export type AgentExecutionDetailSchema = z.infer<typeof agentExecutionDetailSchema>;

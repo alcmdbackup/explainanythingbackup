@@ -7,8 +7,10 @@
 //   npx tsx scripts/backfillLlmIsTest.ts --apply     # write is_test=true for matched rows
 //
 // Env: .env.local — NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
-// Note: only flips false→true. Deterministic insert-time signals (test userids / env) are the
-// source of truth; the content fingerprint is best-effort (see isTestLlmCall).
+// Note: only flips false→true. As of debug_llm_spending_data_issues_stage_20260621, is_test is
+// driven by test RUNTIME / mock signals (NODE_ENV/E2E_TEST_MODE/LLM_TRACKING_TEST_RUNTIME +
+// integration_test/generation sources + content fingerprint) — NOT by userid. System userids
+// (…000/…001) are REAL spend and must NOT be re-flagged as test (see isTestLlmCall).
 
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';

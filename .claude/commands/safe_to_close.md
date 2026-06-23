@@ -149,6 +149,53 @@ STATUS_FILE=$(echo "$STATUS_FILES" | sort -V | tail -1)
 
 **Pre-check**: if `REFS_OK=0` (Phase 1.5b YELLOW), skip entire Phase 4 with status `skipped`; verdict row prints `⊘ Phase 4 skipped — refs missing`. Do NOT re-fetch.
 
+**Minicomputer evolution-runner sync** (always runs; non-fatal):
+
+The minicomputer's `evolution-runner` systemd timer does NOT auto-pull, so a worktree at `/home/ac/Documents/ac/explainanything-worktree0` may sit on a stale commit after every main merge — which silently runs the evolution pipeline against outdated code. `/safe_to_close` performs the fast-forward pull on the operator's behalf so close-out is reliable.
+
+Use `git -C <path>` (NOT `cd`) so the current project's working directory is preserved.
+
+```bash
+MINI_WORKTREE=/home/ac/Documents/ac/explainanything-worktree0
+if [ -d "$MINI_WORKTREE/.git" ] || [ -f "$MINI_WORKTREE/.git" ]; then
+  # Status snapshot BEFORE the pull (so we can report what advanced)
+  BEFORE_SHA=$(git -C "$MINI_WORKTREE" rev-parse --short HEAD 2>/dev/null || echo "?")
+
+  # Fetch + ff-only pull. Captures stdout AND stderr; never exits non-zero into the outer script.
+  PULL_OUTPUT=$(git -C "$MINI_WORKTREE" pull --ff-only origin main 2>&1) || PULL_EXIT=$?
+  PULL_EXIT=${PULL_EXIT:-0}
+
+  AFTER_SHA=$(git -C "$MINI_WORKTREE" rev-parse --short HEAD 2>/dev/null || echo "?")
+
+  if [ $PULL_EXIT -ne 0 ]; then
+    MINI_STATUS=warn
+    MINI_DETAIL="git pull --ff-only failed at $MINI_WORKTREE (exit $PULL_EXIT). $(echo "$PULL_OUTPUT" | head -1)"
+  elif [ "$BEFORE_SHA" = "$AFTER_SHA" ]; then
+    MINI_STATUS=ok
+    MINI_DETAIL="Already current at $AFTER_SHA"
+  else
+    MINI_STATUS=ok
+    MINI_DETAIL="Advanced $BEFORE_SHA → $AFTER_SHA"
+  fi
+else
+  # Worktree absent (e.g. running on a machine without the minicomputer mount). Skip silently.
+  MINI_STATUS=skipped
+  MINI_DETAIL="No worktree at $MINI_WORKTREE — skipped"
+fi
+```
+
+Verdict row:
+- `MINI_STATUS=ok` AND already current → `✓ Minicomputer worktree: $MINI_DETAIL` (GREEN)
+- `MINI_STATUS=ok` AND advanced → `✓ Minicomputer worktree: $MINI_DETAIL` (GREEN, surfaced so operator sees a sync happened)
+- `MINI_STATUS=warn` → `⚠ Minicomputer worktree: $MINI_DETAIL` (YELLOW, **never RED** — a failed pull is recoverable)
+- `MINI_STATUS=skipped` → `⊘ Minicomputer worktree: $MINI_DETAIL` (excluded from aggregation)
+
+Common failure modes that produce YELLOW (operator can still close, but should investigate):
+- Uncommitted local changes on the minicomputer worktree (`fatal: Not possible to fast-forward, aborting`)
+- Diverged from `origin/main` (`fatal: Not possible to fast-forward`)
+- Network outage to GitHub
+- Missing `origin` remote on that worktree
+
 **Un-promoted migrations**:
 ```bash
 UNPROMOTED=$(git diff --name-only origin/production..origin/main -- 'supabase/migrations/*.sql')
@@ -219,6 +266,7 @@ Current plan checkboxes:  ✓ / ✗ / ⊘  (N unchecked)
 Un-promoted migrations:   ✓ / ✗ / ⊘  (N files, oldest $DAYS days)
 Un-released commits:      ✓ / ⚠ / ✗ / ⊘  (N commits, oldest $DAYS days)
 Active PRs in flight:     ✓ / ⚠ / ✗ / ⊘  (release: N | main: N open, N stalled, N abandoned-worktree)
+Minicomputer worktree:    ✓ / ⚠ / ⊘  (pull status, before→after SHA or skipped reason)
 Nightly E2E:              ✓ / ⚠ / ✗ / ⊘
 Release-health issues:    ✓ / ⚠ / ✗ / ⊘
 ──────────────────────────────────────
@@ -236,6 +284,7 @@ For every ✗ and ⚠, print a **Next action** hint:
 | Abandoned-worktree PR | `Run: gh pr view <PR#>` then either `git worktree add` or `gh pr close <PR#>` |
 | Push-gate stale | `Run: /finalize` (or accept typo-only diff and re-finalize) |
 | Plan checkboxes unchecked | line numbers + `Run: /plan-update` |
+| Minicomputer pull failed | `Run: git -C /home/ac/Documents/ac/explainanything-worktree0 status` to inspect; resolve uncommitted/diverged state, then `git -C ... pull --ff-only origin main` |
 
 **State file** (RED or YELLOW only): write `.claude/safe-to-close-verdict.json`:
 ```json
@@ -303,6 +352,7 @@ All edits via Edit tool, preserving existing structure. If `--dry-run`, print th
 - Transcript-based discussion capture impossible (harness limitation) — Phase 7 uses git log + plan section + one user prompt
 - Not re-entrant — concurrent invocations may clobber `.claude/safe-to-close-verdict.json` (audit-only)
 - No reverse `production ^main` check — hotfixes go through main first
+- Minicomputer worktree path is hardcoded (`/home/ac/Documents/ac/explainanything-worktree0`) — Phase 4 silently skips on machines where that path doesn't exist; if the minicomputer mount point changes, update the path in `MINI_WORKTREE`. Operator's responsibility to keep the worktree healthy (no diverged state, clean tree) — the pull is fast-forward-only and never merges or rebases.
 
 ## Related
 

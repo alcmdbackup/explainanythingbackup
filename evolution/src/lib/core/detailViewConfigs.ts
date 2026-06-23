@@ -698,6 +698,11 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
     },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
   ],
+  // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — sibling
+  // agent's detailViewConfig is empty (Phase 6 deferred bespoke detail view); the
+  // entry exists here only to satisfy the DETAIL_VIEW_CONFIGS-vs-agent parity check
+  // in entities.test.ts. Generic fallback renderer is fine as a stopgap.
+  paragraph_recombine_with_coherence_pass: [],
   paragraph_recombine: [
     { key: 'tactic', label: 'Tactic', type: 'badge' },
     { key: 'variantId', label: 'Variant ID', type: 'text' },

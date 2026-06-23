@@ -5,7 +5,7 @@
 // (no double-spend); the route re-invokes until `done`.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { assertWithinWeightInferenceAutoCap, getAutoChunkPairs } from './autoCost';
+import { assertWithinWeightInferenceAutoCap, estimateAutoRunCost, getAutoChunkPairs } from './autoCost';
 import { foldRepeats, judgePairOnce, type JudgeText } from './autoJudge';
 import type { ResolvedJudgeRubric } from '@evolution/lib/shared/rubricJudge';
 
@@ -128,10 +128,7 @@ export async function runAutoChunk(
 
   const chunk = incomplete.slice(0, getAutoChunkPairs());
 
-  // 4. pre-flight cost cap (this invocation's planned work)
-  assertWithinWeightInferenceAutoCap({ remainingPairs: chunk.length, repeats });
-
-  // 5. judge
+  // 4. load this chunk's article content (needed for BOTH the cost estimate and judging)
   const articleIds = [...new Set(chunk.flatMap((c) => [c.article_a_id, c.article_b_id]))];
   const { data: arts, error: aErr } = await db
     .from('evolution_weight_inference_articles')
@@ -139,6 +136,24 @@ export async function runAutoChunk(
     .in('id', articleIds);
   if (aErr) throw new Error(`auto-run: load articles (${aErr.message})`);
   const contentById = new Map((arts ?? []).map((a) => [a.id as string, a.content as string]));
+
+  // 5. pre-flight cost cap (this invocation's planned work). Passing estCostPerCall ACTIVATES
+  // the USD ceiling (WEIGHT_INFERENCE_AUTO_MAX_USD) — previously dormant; the call-count ceiling
+  // still applies. perCallUsd comes from the SAME estimator the form displays (single source).
+  const avgArticleChars =
+    arts && arts.length > 0
+      ? Math.round(arts.reduce((s, a) => s + ((a.content as string | null)?.length ?? 0), 0) / arts.length)
+      : 0;
+  const { perCallUsd } = estimateAutoRunCost({
+    matches: chunk.length,
+    repeats,
+    model: judgeModel,
+    avgArticleChars,
+    criteriaCount: K,
+  });
+  assertWithinWeightInferenceAutoCap({ remainingPairs: chunk.length, repeats, estCostPerCall: perCallUsd });
+
+  // 6. judge
 
   async function judgeOne(c: CompRow): Promise<void> {
     const textA = contentById.get(c.article_a_id) ?? '';

@@ -19,6 +19,7 @@ const navGroups: NavGroup[] = [
       { href: '/admin/evolution/strategies', label: 'Strategies', icon: '⚙️', testId: 'evolution-sidebar-nav-strategies', description: 'Evolution strategy configs' },
       { href: '/admin/evolution/tactics', label: 'Tactics', icon: '⚔️', testId: 'evolution-sidebar-nav-tactics', description: 'Generation tactics registry' },
       { href: '/admin/evolution/criteria', label: 'Criteria', icon: '🎯', testId: 'evolution-sidebar-nav-criteria', description: 'Quality evaluation criteria' },
+      { href: '/admin/evolution/style-fingerprints', label: 'Style Fingerprints', icon: '🎨', testId: 'evolution-sidebar-nav-style-fingerprints', description: 'Author & manage style fingerprints' },
       { href: '/admin/evolution/runs', label: 'Runs', icon: '🔄', testId: 'evolution-sidebar-nav-runs', description: 'Pipeline run history' },
       { href: '/admin/evolution/invocations', label: 'Invocations', icon: '🤖', testId: 'evolution-sidebar-nav-invocations', description: 'Agent invocation history' },
       { href: '/admin/evolution/variants', label: 'Variants', icon: '📄', testId: 'evolution-sidebar-nav-variants', description: 'Generated variant history' },
@@ -40,7 +41,7 @@ const navGroups: NavGroup[] = [
       { href: '/admin/evolution/judge-rubrics', label: 'Judge Rubrics', icon: '📋', testId: 'evolution-sidebar-nav-judge-rubrics', description: 'Weighted rubric bundles for rubric-based judging' },
       { href: '/admin/evolution/prompt-editor', label: 'Prompt Editor', icon: '🎛️', testId: 'evolution-sidebar-nav-prompt-editor', description: 'Test rewrite prompts live' },
       { href: '/admin/evolution/judge-lab', label: 'Judge Lab', icon: '🧮', testId: 'evolution-sidebar-nav-judge-lab', description: 'Systematic judge-settings evaluation on a test set' },
-      { href: '/admin/evolution/weight-inference', label: 'Implied Rubric Weights', icon: '🪄', testId: 'evolution-sidebar-nav-weight-inference', description: 'Infer judge-rubric weights from pairwise verdicts' },
+      { href: '/admin/evolution/weight-inference', label: 'Implied Rubric Weights', icon: '🪄', testId: 'evolution-sidebar-nav-weight-inference', description: 'Infer judge-rubric weights from pairwise winners (human or LLM-judged)' },
     ],
   },
 ];

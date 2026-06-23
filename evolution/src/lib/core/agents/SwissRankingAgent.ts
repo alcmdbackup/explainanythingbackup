@@ -165,6 +165,12 @@ export class SwissRankingAgent extends Agent<
         'article',
         ctx.config.judgeRubric,
         ensembleRunner,
+        // priorPicks / nextContext / originalParagraph are article-level no-ops here.
+        undefined,
+        undefined,
+        undefined,
+        // generate_enforce_style_fingerprint_evolution_20260620: article-shaped target style.
+        ctx.config.styleFingerprint?.prose,
       );
       const isDraw = result.winner !== 'A' && result.winner !== 'B';
       const winnerId = result.winner === 'B' ? idB : idA;

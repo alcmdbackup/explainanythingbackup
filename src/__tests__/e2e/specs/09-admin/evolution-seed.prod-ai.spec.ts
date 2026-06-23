@@ -15,7 +15,7 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 
 const TEST_PREFIX = '[TEST_EVO] ProdAI Seed';
-const CHEAP_MODEL = 'google/gemini-2.5-flash';
+const CHEAP_MODEL = 'deepseek-v4-flash';
 
 function getServiceClient() {
   return createClient<Database>(

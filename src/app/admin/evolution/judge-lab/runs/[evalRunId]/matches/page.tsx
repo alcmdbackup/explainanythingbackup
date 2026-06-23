@@ -168,7 +168,7 @@ export default function MatchHistoryPage(): JSX.Element {
         <table className="w-full text-xs" data-testid="matches-table">
           <thead>
             <tr className="text-left text-[var(--text-muted)]">
-              <th className="py-1">Pair</th><th>Kind</th><th>Rep</th><th>Winner</th>
+              <th className="py-1">Match</th><th>Kind</th><th>Rep</th><th>Winner</th>
               <th>Conf</th><th>Decisive</th><th>Gap</th><th>Baseline</th><th></th>
             </tr>
           </thead>

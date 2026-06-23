@@ -30,19 +30,13 @@ describe('RunEntity', () => {
     expect(entity.children.every(c => c.cascade === 'delete')).toBe(true);
   });
 
-  it('has 23 execution + 23 finalization + 0 propagation metrics', () => {
-    // 17 prior + 6 sequential context-aware generation metrics from
-    // debug_performance_paragraph_recombine_20260612 (coordinator_retry_rate,
-    // coordinator_failure_rate, excessive_parent_fallback_abort_rate,
-    // parent_fallback_rate, prior_picks_sanitization_count,
-    // prior_picks_truncation_count) = 23.
-    expect(entity.metrics.duringExecution).toHaveLength(23);
-    // 18 prior + 3 sentence-overlap percentile metrics (median, p25, min)
-    // (updated_criteria_agent_20260505) + 2 paragraph_recombine per-phase
-    // estimation-error rollups (paragraph_rewrite_estimation_error_pct +
-    // paragraph_rank_estimation_error_pct, G7 of
-    // investigate_paragraph_rewrite_cost_undershoot_evolution_20260529) = 23.
-    expect(entity.metrics.atFinalization).toHaveLength(23);
+  it('has 25 execution + 25 finalization + 0 propagation metrics', () => {
+    // 23 prior + 2 from paragraph_recombine_agent_with_coherence_pass_evolution_20260620
+    // (paragraph_recombine_coherence_cost + coherence_pass_silent_rejection_count) = 25.
+    expect(entity.metrics.duringExecution).toHaveLength(25);
+    // 23 prior + 2 from paragraph_recombine_agent_with_coherence_pass_evolution_20260620
+    // (slot_provenance_ratio_p25 + slot_provenance_ratio_p50) = 25.
+    expect(entity.metrics.atFinalization).toHaveLength(25);
     expect(entity.metrics.atPropagation).toHaveLength(0);
   });
 
@@ -80,13 +74,11 @@ describe('StrategyEntity', () => {
     expect(entity.children[0]!.cascade).toBe('delete');
   });
 
-  it('has 52 propagation metrics', () => {
-    // 46 prior + 6 sequential context-aware generation propagation metrics
-    // (avg_coordinator_retry_rate, avg_coordinator_failure_rate,
-    // avg_excessive_parent_fallback_abort_rate, avg_parent_fallback_rate,
-    // total_prior_picks_sanitization_count, total_prior_picks_truncation_count)
-    // from debug_performance_paragraph_recombine_20260612 = 52.
-    expect(entity.metrics.atPropagation).toHaveLength(52);
+  it('has 56 propagation metrics', () => {
+    // 52 prior + 4 from paragraph_recombine_agent_with_coherence_pass_evolution_20260620
+    // (total_paragraph_recombine_coherence_cost + avg_paragraph_recombine_coherence_cost_per_run
+    // + avg_slot_provenance_ratio_p25 + avg_slot_provenance_ratio_p50) = 56.
+    expect(entity.metrics.atPropagation).toHaveLength(56);
     const names = entity.metrics.atPropagation.map(d => d.name);
     expect(names).toContain('run_count');
     expect(names).toContain('total_cost');

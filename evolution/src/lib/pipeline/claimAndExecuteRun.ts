@@ -218,6 +218,9 @@ export async function claimAndExecuteRun(
             // to createSupabaseServiceClient (Next.js-coupled, broken from CLI runner — see
             // docs/planning/debug_evolution_run_cost_20260426).
             trackingDb: supabase,
+            // FAIL-CLOSED: if this call's spend can't be recorded, throw (fail the run) rather
+            // than silently continue — closes the 2026-02-23 evolution per-call audit gap.
+            requireTracking: true,
             // D5: cap output tokens for ALL evolution calls (single chokepoint — every
             // generation/ranking/seed/judge call routes through this complete()). Set
             // unconditionally here, NOT via `opts`, because the opts shape above is fixed and
@@ -354,6 +357,7 @@ async function executePipeline(
       // them as denormalized FKs on evolution_logs rows for cross-aggregation.
       experimentId: claimedRun.experiment_id ?? undefined,
       strategyId: claimedRun.strategy_id,
+      styleFingerprint: config.styleFingerprint,
     };
     const seedAgent = new CreateSeedArticleAgent();
     const seedResult = await seedAgent.run({

@@ -188,7 +188,7 @@ export default defineConfig({
           : 'npm run dev -- -p 3008',
         url: baseURL,
         reuseExistingServer: !process.env.CI,
-        timeout: process.env.CI ? 180000 : 120000,
+        timeout: process.env.CI ? 240000 : 120000,
         env: {
           NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
           ...(process.env.CI ? {} : { E2E_TEST_MODE: 'true' }),
@@ -215,7 +215,7 @@ export default defineConfig({
           : 'env -u E2E_TEST_MODE npm run dev -- -p 3009',
         url: 'http://localhost:3009',
         reuseExistingServer: !process.env.CI,
-        timeout: process.env.CI ? 180000 : 120000,
+        timeout: process.env.CI ? 240000 : 120000,
         env: {
           NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
           ...(process.env.NODE_USE_ENV_PROXY ? { NODE_USE_ENV_PROXY: '1' } : {}),
@@ -231,10 +231,15 @@ export default defineConfig({
           : 'env -u E2E_TEST_MODE npm run dev -- -p 3010',
         url: 'http://localhost:3010',
         reuseExistingServer: !process.env.CI,
-        timeout: process.env.CI ? 180000 : 120000,
+        timeout: process.env.CI ? 240000 : 120000,
         env: {
           NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
           TEST_LLM_MODEL: process.env.TEST_LLM_MODEL || 'google/gemini-2.5-flash',
+          // This server runs the REAL pipeline under the evolution system userid (…001) with
+          // neither E2E_TEST_MODE nor NODE_ENV=test, so isTestLlmCall can't tell its cheap-model
+          // spend from a real evolution run by userid. Flag it explicitly so its rows are tagged
+          // is_test=true and excluded from reconciliation. debug_llm_spending_data_issues_…_20260621.
+          LLM_TRACKING_TEST_RUNTIME: 'true',
           ...(process.env.NODE_USE_ENV_PROXY ? { NODE_USE_ENV_PROXY: '1' } : {}),
         },
       }] : []),

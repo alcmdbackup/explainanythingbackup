@@ -20,6 +20,7 @@ import fs from 'fs';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { saveLlmCallTracking } from '../../src/lib/services/llms';
+import type { Database } from '../../src/lib/database.types';
 
 const APPLY = process.argv.includes('--apply');
 const TEST_USERID = '00000000-0000-4000-8000-000000000001';
@@ -56,7 +57,7 @@ async function main() {
   log('info', 'Loaded staging credentials');
 
   // 2. Build a Next-free client (mirrors processRunQueue.ts:69).
-  const stagingClient = createClient(url, key, {
+  const stagingClient = createClient<Database>(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
   log('info', 'Created Next-free Supabase client (mirrors batch runner)');
@@ -97,28 +98,26 @@ async function main() {
   // Without injecting the client, the call goes through createSupabaseServiceClient,
   // which is broken in CLI context. We delete SUPABASE_SERVICE_ROLE_KEY from process.env
   // so the failure surfaces cleanly (not a coincidence of fallback success).
-  // EVOLUTION_TRACKING_STRICT=true makes the failure throw so we can assert on it.
+  // saveLlmCallTracking now ALWAYS throws on no-client (fail-closed), so no env flag is needed.
   log('info', '--- Step 1: confirm pre-fix path fails noisily without injection ---');
   const savedKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-  process.env.EVOLUTION_TRACKING_STRICT = 'true';
 
   let preFixThrew = false;
   try {
     await saveLlmCallTracking(testRow);
   } catch (err) {
     preFixThrew = true;
-    log('info', '[PASS] strict-mode pre-fix call threw as expected', {
+    log('info', '[PASS] no-client pre-fix call threw as expected', {
       error: err instanceof Error ? err.message.slice(0, 200) : String(err),
     });
   }
   if (!preFixThrew) {
-    throw new Error('[FAIL] strict-mode pre-fix call did NOT throw — noisy-failure regression');
+    throw new Error('[FAIL] no-client pre-fix call did NOT throw — noisy-failure regression');
   }
 
   // Restore env for the post-fix path.
   if (savedKey) process.env.SUPABASE_SERVICE_ROLE_KEY = savedKey;
-  delete process.env.EVOLUTION_TRACKING_STRICT;
 
   // 6. POST-FIX PATH — inject the staging client, expect success.
   log('info', '--- Step 2: confirm post-fix path succeeds with injected client ---');

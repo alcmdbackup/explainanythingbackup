@@ -13,6 +13,7 @@
 import type { Variant, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import { BudgetExceededError } from '../../types';
 import type { Rating, ComparisonResult, EnsembleRunner } from '../../shared/computeRatings';
+import { renderFingerprintProse } from '../setup/renderFingerprintProse';
 import {
   createRating, updateRating, updateDraw,
   compareWithBiasMitigation, DEFAULT_UNCERTAINTY, DEFAULT_CONVERGENCE_UNCERTAINTY,
@@ -349,6 +350,14 @@ export async function rankSingleVariant(
 
       let comparisonResult: ComparisonResult;
       const comparisonStartTime = Date.now();
+      // generate_enforce_style_fingerprint_evolution_20260620: render the MODE-shaped target
+      // style from traits at this single read site, so paragraph-mode judging never inherits
+      // the article-shaped prose. Undefined ⇒ no style block.
+      const targetStyleProse = config.styleFingerprint
+        ? (config.comparisonMode === 'paragraph'
+            ? renderFingerprintProse(config.styleFingerprint.traits, 'paragraph')
+            : config.styleFingerprint.prose)
+        : undefined;
       try {
         comparisonResult = await compareWithBiasMitigation(
           variant.text,
@@ -361,6 +370,7 @@ export async function rankSingleVariant(
           priorPicks,
           nextContext,
           originalParagraph,
+          targetStyleProse,
         );
       } catch (e) {
         if (e instanceof BudgetExceededError) {

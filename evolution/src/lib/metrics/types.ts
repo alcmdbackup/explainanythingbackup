@@ -10,7 +10,7 @@ import type { AgentName } from '../core/agentNames';
 
 // ─── Entity & Metric Name Types ─────────────────────────────────
 
-export const ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic', 'criteria', 'judge_rubric'] as const;
+export const ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic', 'criteria', 'judge_rubric', 'style_fingerprint'] as const;
 export type EntityType = typeof ENTITY_TYPES[number];
 
 export const AGGREGATION_METHODS = ['sum', 'avg', 'max', 'min', 'count', 'bootstrap_mean', 'bootstrap_percentile'] as const;
@@ -87,6 +87,14 @@ export const STATIC_METRIC_NAMES = [
   'paragraph_recombine_cost',
   'total_paragraph_recombine_cost', 'avg_paragraph_recombine_cost_per_run',
   'paragraph_slot_match_persist_failures',
+  // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — coherence-pass
+  // umbrella cost metric + propagation rollups + observability counter +
+  // slot-level provenance ratio metrics (observational only — see metrics.md noise caveat).
+  'paragraph_recombine_coherence_cost',
+  'total_paragraph_recombine_coherence_cost', 'avg_paragraph_recombine_coherence_cost_per_run',
+  'coherence_pass_silent_rejection_count',
+  'slot_provenance_ratio_p25', 'slot_provenance_ratio_p50',
+  'avg_slot_provenance_ratio_p25', 'avg_slot_provenance_ratio_p50',
   // G7 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
   // per-phase estimation-error rollups for paragraph_recombine.
   'paragraph_rewrite_estimation_error_pct', 'paragraph_rank_estimation_error_pct',
@@ -119,6 +127,10 @@ export const STATIC_METRIC_NAMES = [
   'total_variants', 'winner_count',
   // Criteria metrics (run_count already declared above)
   'avg_score', 'frequency_as_weakest', 'total_variants_focused', 'avg_elo_delta_when_focused',
+  // Style fingerprint metrics (generate_enforce_style_fingerprint_evolution_20260620) —
+  // total cost of extraction LLM calls, written at CRUD time via writeMetricMax against
+  // the fingerprint entity (extraction happens outside any run, so it cannot use seed_cost).
+  'total_extraction_cost',
 ] as const;
 export type StaticMetricName = typeof STATIC_METRIC_NAMES[number];
 /**

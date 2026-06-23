@@ -148,20 +148,40 @@ export const listExperimentsAction = adminAction(
   },
 );
 
+/** Hard ceiling for prompt/strategy list responses. The default PostgREST
+ *  `db-max-rows` is 1000 — without an explicit `.limit()`, older prompts (e.g.
+ *  the "Federal Reserve" prompt) silently fall off the end as the library
+ *  grows past 1000 rows. 10000 covers any realistic library size without
+ *  unbounded payloads. If a deployment grows beyond this, add a search box
+ *  (filter at query level) rather than bumping further. */
+const LIST_HARD_CAP = 10000;
+
 /** List active prompts (evolution_prompts) for experiment creation. */
 export const getPromptsAction = adminAction(
   'getPrompts',
-  async (input: { status?: string; filterTestContent?: boolean } | undefined, ctx: AdminContext) => {
+  async (input: { status?: string; filterTestContent?: boolean; includeParagraphTopics?: boolean } | undefined, ctx: AdminContext) => {
     let query = ctx.supabase
       .from('evolution_prompts')
       .select('id, prompt, name, status, created_at')
-      .order('created_at', { ascending: false });
+      // Exclude soft-deleted prompts (deletePromptAction sets deleted_at). Mirrors
+      // getArenaTopicsAction and every other prompt-listing action; without it,
+      // soft-deleted prompts still appear in the Start Experiment wizard.
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(LIST_HARD_CAP);
 
     if (input?.status) {
       query = query.eq('status', input.status);
     }
     if (input?.filterTestContent) {
       query = applyTestContentColumnFilter(query);
+    }
+    // Hide paragraph_recombine per-slot sub-arena topics (prompt_kind='paragraph')
+    // by default — they are auto-generated [para] scaffolding, not article topics
+    // a user starts an experiment on, and they flood the picker after each run.
+    // Mirrors getArenaTopicsAction's includeParagraphTopics opt-in (D13 + D20).
+    if (!input?.includeParagraphTopics) {
+      query = query.eq('prompt_kind', 'article');
     }
 
     const { data, error } = await query;
@@ -177,7 +197,8 @@ export const getStrategiesAction = adminAction(
     let query = ctx.supabase
       .from('evolution_strategies')
       .select('id, name, label, description, config, config_hash, pipeline_type, status, created_by, created_at')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(LIST_HARD_CAP);
 
     if (input?.status) {
       query = query.eq('status', input.status);

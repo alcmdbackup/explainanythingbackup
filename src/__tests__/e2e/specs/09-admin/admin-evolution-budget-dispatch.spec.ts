@@ -106,8 +106,8 @@ adminTest.describe('Budget-Aware Dispatch', { tag: '@evolution' }, () => {
       .insert({
         name: `${TEST_PREFIX} Strategy`,
         config: {
-          generationModel: 'gpt-4.1-nano',
-          judgeModel: 'gpt-4.1-nano',
+          generationModel: 'deepseek-v4-flash',
+          judgeModel: 'deepseek-v4-flash',
           iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
           maxComparisonsPerVariant: 3,
           budgetBufferAfterParallel: 0.50,
@@ -270,7 +270,7 @@ adminTest.describe('Strategy Form — Budget Dispatch Fields', { tag: '@evolutio
     await details.click();
 
     // Verify fields are present in the wizard Step 1
-    await expect(adminPage.getByText('Max Comparisons per Variant')).toBeVisible({ timeout: 10_000 });
+    await expect(adminPage.getByText('Max Matches per Variant')).toBeVisible({ timeout: 10_000 });
     await expect(adminPage.getByText('Budget Floor Mode')).toBeVisible();
   });
 
@@ -326,8 +326,8 @@ adminTest.describe('Strategy Form — Budget Dispatch Fields', { tag: '@evolutio
       .insert({
         name: '[TEST_EVO] Paragraph Recombine Multi-Dispatch',
         config: {
-          generationModel: 'gpt-4.1-nano',
-          judgeModel: 'gpt-4.1-nano',
+          generationModel: 'deepseek-v4-flash',
+          judgeModel: 'deepseek-v4-flash',
           iterationConfigs: [
             { agentType: 'generate', budgetPercent: 60 },
             {
@@ -366,8 +366,8 @@ adminTest.describe('Strategy Form — Budget Dispatch Fields', { tag: '@evolutio
       .insert({
         name: '[TEST_EVO] Buffer Display Test',
         config: {
-          generationModel: 'gpt-4.1-nano',
-          judgeModel: 'gpt-4.1-nano',
+          generationModel: 'deepseek-v4-flash',
+          judgeModel: 'deepseek-v4-flash',
           iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
           budgetBufferAfterParallel: 0.35,
           budgetBufferAfterSequential: 0.10,
@@ -388,7 +388,7 @@ adminTest.describe('Strategy Form — Budget Dispatch Fields', { tag: '@evolutio
     await configTab.waitFor({ state: 'visible', timeout: 30_000 });
     await configTab.click();
     // Wait for the config display to render — look for the model name
-    await expect(adminPage.getByText('gpt-4.1-nano').first()).toBeVisible({ timeout: 10_000 });
+    await expect(adminPage.getByText('deepseek-v4-flash').first()).toBeVisible({ timeout: 10_000 });   // verifies the swapped model name renders in admin UI
 
     // Verify buffer values are displayed as percentages
     await expect(adminPage.getByText('35%')).toBeVisible({ timeout: 10_000 });

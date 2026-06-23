@@ -162,5 +162,13 @@ describe('llmCostConfigActions', () => {
       expect(result.success).toBe(true);
       expect(result.data).toHaveProperty('monthlyCap');
     });
+
+    it('returns failure() instead of throwing when the gate errors (so the cost dashboard can surface it, not a generic crash)', async () => {
+      mockGateInstance.getSpendingSummary.mockRejectedValueOnce(new Error('daily_cost_rollups unreachable'));
+      const result = await getSpendingSummaryAction();
+      expect(result.success).toBe(false);
+      expect(result.data).toBeNull();
+      expect(result.error).not.toBeNull();
+    });
   });
 });

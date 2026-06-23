@@ -270,6 +270,18 @@ describe('buildRubricComparisonPrompt', () => {
     const p = buildRubricComparisonPrompt('a', 'b', RUBRIC, 'paragraph');
     expect(p).toContain('paragraph');
   });
+  it('injects a Target Style block in BOTH modes when targetStyleProse is set (byte-identical when absent)', () => {
+    const prose = 'Match a terse, declarative voice. Use american spelling.';
+    for (const mode of ['article', 'paragraph'] as const) {
+      const withStyle = buildRubricComparisonPrompt('a', 'b', RUBRIC, mode, undefined, undefined, undefined, prose);
+      const withoutStyle = buildRubricComparisonPrompt('a', 'b', RUBRIC, mode);
+      expect(withStyle).toContain('## Target Style');
+      expect(withStyle).toContain(prose);
+      expect(withoutStyle).not.toContain('## Target Style');
+      // Byte-identical when targetStyleProse is omitted.
+      expect(buildRubricComparisonPrompt('a', 'b', RUBRIC, mode, undefined, undefined, undefined, undefined)).toEqual(withoutStyle);
+    }
+  });
   it('reframes anchors into quality tiers when present', () => {
     const withAnchors: ResolvedJudgeRubric = {
       rubricId: 'r',

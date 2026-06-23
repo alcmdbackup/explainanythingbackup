@@ -110,9 +110,19 @@ async function buildDbTargets(): Promise<DbTarget[]> {
     const { error } = await target.client.from('evolution_runs').select('id').limit(1);
     if (error) {
       log('error', `Target unreachable, skipping`, { db: target.name, error: error.message });
-    } else {
-      reachable.push(target);
+      continue;
     }
+    // FAIL-CLOSED tracking preflight: evolution LLM calls now THROW when their llmCallTracking
+    // row can't be written (requireTracking — debug_llm_spending_data_issues_stage_20260621).
+    // Verify the tracking table is reachable with THIS injected client up front, so a target where
+    // tracking is broken (missing table / wrong client) is skipped loudly at boot instead of
+    // failing every run mid-flight. Read-only probe — no stray row inserted into the audited table.
+    const tracking = await target.client.from('llmCallTracking').select('id').limit(1);
+    if (tracking.error) {
+      log('error', `Target llmCallTracking unreachable, skipping (fail-closed tracking would fail every run)`, { db: target.name, error: tracking.error.message });
+      continue;
+    }
+    reachable.push(target);
   }
   if (reachable.length === 0) {
     throw new Error(`[FATAL] No reachable targets — check env files and network`);

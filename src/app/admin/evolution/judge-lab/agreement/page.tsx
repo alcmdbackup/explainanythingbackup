@@ -215,9 +215,9 @@ export default function AgreementSweepPage(): JSX.Element {
         data-testid="judge-lab-agreement-launcher"
       >
         <p className="text-sm font-ui" style={{ color: 'var(--text-secondary)' }}>
-          Run a holistic (no-rubric) judge AND a rubric judge on the same pairs, then measure how often
+          Run a holistic (no-rubric) judge AND a rubric judge on the same matches, then measure how often
           the rubric — overall and per criterion — agrees with the holistic winner. 4 LLM calls per
-          pair·repeat (2 holistic + 2 rubric).
+          match·repeat (2 holistic + 2 rubric).
         </p>
 
         <div className="grid grid-cols-2 gap-3 text-xs font-ui md:grid-cols-3">

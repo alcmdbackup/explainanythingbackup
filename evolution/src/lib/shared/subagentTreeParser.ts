@@ -396,6 +396,57 @@ export function parseCreateSeedArticleTree(detail: Record<string, unknown> | nul
   return out;
 }
 
+/**
+ * `paragraph_recombine_with_coherence_pass` (wrapper around per-slot pipeline + coherence pass).
+ *
+ * Tree: L1 wrapper → L2 slot.0 / slot.1 / … (same shape as paragraph_recombine)
+ *                  → L2 recombine (deterministic)
+ *                  → L2 coherence_pass (Composite, when run) → L3 cycle.1 →
+ *                       L4 propose, L4 review, L4 apply (deterministic)
+ *
+ * When `detail.coherencePass.skipped` is set (disabled/budget/kill_switch/format_invalid_recombine),
+ * the L2 coherence_pass node is emitted as a Deterministic leaf with the skip reason as summary.
+ *
+ * paragraph_recombine_agent_with_coherence_pass_evolution_20260620 Phase 6.
+ */
+export function parseParagraphRecombineWithCoherencePassTree(
+  detail: Record<string, unknown> | null | undefined,
+): SubagentNode[] {
+  if (!detail) return [];
+  // 1. Reuse the existing paragraph_recombine tree for slot.* + recombine nodes.
+  const slotTree = parseParagraphRecombineTree(detail);
+
+  // 2. Coherence pass branch.
+  const coherencePass = detail.coherencePass as Record<string, unknown> | undefined;
+  if (!coherencePass) return slotTree;
+
+  // Skipped path: emit a leaf with the skip reason.
+  if (typeof coherencePass.skipped === 'string') {
+    const skipReason = coherencePass.skipped;
+    const skipNode = makeChild([], 'coherence_pass', 'Deterministic', 0, 0, {
+      summary: `skipped (${skipReason})`,
+    });
+    return [...slotTree, skipNode];
+  }
+
+  // Active path: cycle data lives in coherencePass.cycles[]. Reuse parseIterativeEditingTree
+  // by handing it a synthetic detail object shaped like iterativeEditingExecutionDetail
+  // (just the cycles[] field — the parser only reads that + ranking, and we don't have ranking
+  // at this layer).
+  const cycles = coherencePass.cycles as Array<Record<string, unknown>> | undefined;
+  if (!cycles || cycles.length === 0) return slotTree;
+
+  const cyclesTree = parseIterativeEditingTree({ cycles });
+  const cycleCost = cyclesTree.reduce((s, n) => s + n.costUsd, 0);
+
+  const coherencePassNode = makeChild([], 'coherence_pass', 'Composite', 0, cycleCost, {
+    children: cyclesTree,
+    summary: `${cycles.length} cycle${cycles.length === 1 ? '' : 's'}`,
+  });
+
+  return [...slotTree, coherencePassNode];
+}
+
 // ─── Façade dispatch ─────────────────────────────────────────────
 
 /**
@@ -435,6 +486,16 @@ export function parseSubagentTreeByAgentName(
       try { return parseParagraphRecombineTree(detail); }
       catch (err) {
         console.warn('[subagentTreeParser] paragraph_recombine parser failed; rendering empty tree', err);
+        return [];
+      }
+    case 'paragraph_recombine_with_coherence_pass':
+      // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 Phase 6.
+      // Composes the existing paragraph_recombine slot tree + an editing cycles tree
+      // under a synthetic 'coherence_pass' L2 node. Re-uses both parsers unchanged;
+      // the only new logic here is the composition.
+      try { return parseParagraphRecombineWithCoherencePassTree(detail); }
+      catch (err) {
+        console.warn('[subagentTreeParser] paragraph_recombine_with_coherence_pass parser failed; rendering empty tree', err);
         return [];
       }
     default:

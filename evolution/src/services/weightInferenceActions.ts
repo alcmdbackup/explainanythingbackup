@@ -18,8 +18,11 @@ import {
   type EvolutionWiSessionRow,
 } from '@evolution/lib/schemas';
 import {
+  assertWithinWeightInferenceAutoCap,
   auditConsistency,
+  estimateAutoRunCost,
   fitWeights,
+  matchesFromPool,
   orientToCanonical,
   pairConfidence,
   remainingPairs,
@@ -156,6 +159,83 @@ async function loadSessionCriteria(
   });
 }
 
+interface TestSetPoolInput {
+  variantId: string;
+  content: string;
+  mu: number | null;
+  sigma: number | null;
+}
+
+/** Resolve a Judge Lab test set into its snapshot articles + frozen canonical pair refs.
+ *  Shared by create-session (materialization) and the preview (count + size estimate). */
+async function resolveTestSetPool(
+  db: SupabaseClient,
+  testSetId: string,
+  pairKind: 'article' | 'paragraph',
+): Promise<{ articleInputs: TestSetPoolInput[]; pairRefs: Array<[string, string]> }> {
+  const { data: ts, error: tsErr } = await db
+    .from('judge_eval_test_sets')
+    .select('pair_bank_id')
+    .eq('id', testSetId)
+    .single();
+  if (tsErr || !ts) throw new Error(`test set not found: ${pgMsg(tsErr)}`);
+  const { data: bank, error: bErr } = await db
+    .from('judge_eval_pair_banks')
+    .select('pairs')
+    .eq('id', ts.pair_bank_id as string)
+    .single();
+  if (bErr || !bank) throw new Error(`pair bank not found: ${pgMsg(bErr)}`);
+  const { data: members, error: mErr } = await db
+    .from('judge_eval_test_set_members')
+    .select('pair_label, pair_kind')
+    .eq('test_set_id', testSetId);
+  if (mErr) throw new Error(`test-set members load failed: ${pgMsg(mErr)}`);
+  const resolved = resolveTestSetPairs(
+    (bank.pairs as unknown as BankPair[]) ?? [],
+    (members ?? []) as unknown as TestSetMember[],
+    pairKind,
+  );
+  return {
+    articleInputs: resolved.variants.map((v) => ({ variantId: v.variantId, content: v.content, mu: v.mu, sigma: v.sigma })),
+    pairRefs: resolved.pairs.map((p) => [p.aVariantId, p.bVariantId] as [string, string]),
+  };
+}
+
+/** Distinct canonical pair count from raw (possibly duplicated, unordered) variant-id pairs. */
+function distinctPairCount(pairRefs: ReadonlyArray<[string, string]>): number {
+  const seen = new Set<string>();
+  for (const [a, b] of pairRefs) {
+    if (!a || !b || a === b) continue;
+    seen.add(a < b ? `${a}|${b}` : `${b}|${a}`);
+  }
+  return seen.size;
+}
+
+/** Top-N arena pool stats for a topic preview: count of usable variants + avg content chars.
+ *  Mirrors the create-session pool query exactly (synced_to_arena + variant_kind + not archived).
+ *  Returns only aggregates — article bodies never leave the server. */
+async function topicPoolStats(
+  db: SupabaseClient,
+  promptId: string,
+  pairKind: 'article' | 'paragraph',
+  sampleSize: number,
+): Promise<{ poolSize: number; avgArticleChars: number }> {
+  const { data, error } = await db
+    .from('evolution_variants')
+    .select('id, variant_content')
+    .eq('prompt_id', promptId)
+    .eq('synced_to_arena', true)
+    .eq('variant_kind', pairKind)
+    .is('archived_at', null)
+    .order('elo_score', { ascending: false })
+    .limit(sampleSize);
+  if (error) throw new Error(`pool preview failed: ${pgMsg(error)}`);
+  const rows = data ?? [];
+  const poolSize = rows.length;
+  const totalChars = rows.reduce((s, r) => s + ((r.variant_content as string | null)?.length ?? 0), 0);
+  return { poolSize, avgArticleChars: poolSize > 0 ? Math.round(totalChars / poolSize) : 0 };
+}
+
 /** Build PairObservation rows + the replica set for the fit/audit from persisted rows. */
 async function loadFitData(
   db: SupabaseClient,
@@ -283,31 +363,10 @@ export const createWeightInferenceSessionAction = adminAction(
 
     if (sourceKind === 'test_set') {
       if (!parsed.judge_eval_test_set_id) throw new Error('a Judge Lab test set is required for a test-set source');
-      const { data: ts, error: tsErr } = await supabase
-        .from('judge_eval_test_sets')
-        .select('pair_bank_id')
-        .eq('id', parsed.judge_eval_test_set_id)
-        .single();
-      if (tsErr || !ts) throw new Error(`test set not found: ${pgMsg(tsErr)}`);
-      const { data: bank, error: bErr } = await supabase
-        .from('judge_eval_pair_banks')
-        .select('pairs')
-        .eq('id', ts.pair_bank_id as string)
-        .single();
-      if (bErr || !bank) throw new Error(`pair bank not found: ${pgMsg(bErr)}`);
-      const { data: members, error: mErr } = await supabase
-        .from('judge_eval_test_set_members')
-        .select('pair_label, pair_kind')
-        .eq('test_set_id', parsed.judge_eval_test_set_id);
-      if (mErr) throw new Error(`test-set members load failed: ${pgMsg(mErr)}`);
-      const resolved = resolveTestSetPairs(
-        (bank.pairs as unknown as BankPair[]) ?? [],
-        (members ?? []) as unknown as TestSetMember[],
-        pairKind,
-      );
-      if (resolved.pairs.length === 0) throw new Error(`test set has no ${pairKind} pairs to import`);
-      articleInputs = resolved.variants.map((v) => ({ variantId: v.variantId, content: v.content, mu: v.mu, sigma: v.sigma }));
-      pairRefs = resolved.pairs.map((p) => [p.aVariantId, p.bVariantId]);
+      const pool = await resolveTestSetPool(supabase, parsed.judge_eval_test_set_id, pairKind);
+      if (pool.pairRefs.length === 0) throw new Error(`test set has no ${pairKind} pairs to import`);
+      articleInputs = pool.articleInputs;
+      pairRefs = pool.pairRefs;
     } else {
       if (!parsed.prompt_id) throw new Error('an arena topic (prompt_id) is required for a topic source');
       const { data: variants, error: vErr } = await supabase
@@ -330,6 +389,31 @@ export const createWeightInferenceSessionAction = adminAction(
         mu: (v.mu as number | null) ?? null,
         sigma: (v.sigma as number | null) ?? null,
       }));
+    }
+
+    // 1b. Auto mode: whole-run cost pre-flight BEFORE creating anything (so a cap violation
+    //     never leaves an orphan session). Activates the WEIGHT_INFERENCE_AUTO_MAX_USD ceiling
+    //     using the same estimator the form displays; per-chunk enforcement still runs in autoRun.
+    if (parsed.mode === 'auto') {
+      const K = parsed.criteriaIds.length;
+      const matches =
+        pairRefs.length > 0
+          ? distinctPairCount(pairRefs)
+          : matchesFromPool(articleInputs.length, K).matches;
+      const totalChars = articleInputs.reduce((s, a) => s + (a.content?.length ?? 0), 0);
+      const avgArticleChars = articleInputs.length > 0 ? Math.round(totalChars / articleInputs.length) : 0;
+      const { perCallUsd } = estimateAutoRunCost({
+        matches,
+        repeats: parsed.auto_repeats,
+        model: parsed.judge_model ?? '',
+        avgArticleChars,
+        criteriaCount: K,
+      });
+      assertWithinWeightInferenceAutoCap({
+        remainingPairs: matches,
+        repeats: parsed.auto_repeats,
+        estCostPerCall: perCallUsd,
+      });
     }
 
     // 2. create the session row (is_test_content set by trigger)
@@ -515,46 +599,110 @@ export const listWeightInferenceSessionsAction = adminAction(
   },
 );
 
+export interface WiPreviewResult {
+  required: ReturnType<typeof requiredRatings>;
+  pairsTotal: number;
+  overallDone: number;
+  criteriaDone: number;
+  remaining: number;
+  /** Exact matches that WILL be judged for a new session (= materialized pairs for a topic;
+   *  the frozen-pair count for a test set). For the session-progress branch, equals pairsTotal. */
+  matchesToJudge: number;
+  /** Articles actually available in the pool (topic, capped at sampleSize) or distinct test-set
+   *  variants; 0 when not estimable (no source selected). */
+  poolSize: number;
+  /** Mean article length (chars) across the pool — feeds the Q2 cost estimate; 0 when N/A. */
+  avgArticleChars: number;
+  /** Which term caps the match count, for the UI explainer. */
+  bindingLimit: 'pool' | 'recommendation' | 'test_set' | null;
+}
+
 export const getWeightInferencePreviewAction = adminAction(
   'getWeightInferencePreview',
   async (
-    input: { sessionId?: string; criteriaCount?: number; replicationRate?: number },
+    input: {
+      sessionId?: string;
+      criteriaCount?: number;
+      replicationRate?: number;
+      sourceKind?: 'topic' | 'test_set';
+      promptId?: string;
+      sampleSize?: number;
+      pairKind?: 'article' | 'paragraph';
+      testSetId?: string;
+    },
     ctx: AdminContext,
-  ): Promise<{
-    required: ReturnType<typeof requiredRatings>;
-    pairsTotal: number;
-    overallDone: number;
-    criteriaDone: number;
-    remaining: number;
-  }> => {
+  ): Promise<WiPreviewResult> => {
     assertEnabled();
     const { supabase } = ctx;
-    if (!input.sessionId) {
-      const K = input.criteriaCount ?? 0;
-      const required = requiredRatings(K, { replicationRate: input.replicationRate });
-      return { required, pairsTotal: 0, overallDone: 0, criteriaDone: 0, remaining: required.pairs };
+
+    // ── Existing session: live progress against materialized rows ──
+    if (input.sessionId) {
+      const criteria = await loadSessionCriteria(supabase, input.sessionId);
+      const required = requiredRatings(criteria.length, { replicationRate: input.replicationRate });
+      const [{ count: pairsTotal }, { count: overallDone }] = await Promise.all([
+        supabase
+          .from('evolution_weight_inference_comparisons')
+          .select('*', { count: 'exact', head: true })
+          .eq('session_id', input.sessionId)
+          .eq('pass', 0),
+        supabase
+          .from('evolution_weight_inference_comparisons')
+          .select('*', { count: 'exact', head: true })
+          .eq('session_id', input.sessionId)
+          .eq('pass', 0)
+          .not('overall_winner', 'is', null),
+      ]);
+      return {
+        required,
+        pairsTotal: pairsTotal ?? 0,
+        overallDone: overallDone ?? 0,
+        criteriaDone: 0,
+        remaining: remainingPairs(overallDone ?? 0, pairsTotal ?? 0),
+        matchesToJudge: pairsTotal ?? 0,
+        poolSize: 0,
+        avgArticleChars: 0,
+        bindingLimit: null,
+      };
     }
-    const criteria = await loadSessionCriteria(supabase, input.sessionId);
-    const required = requiredRatings(criteria.length, { replicationRate: input.replicationRate });
-    const [{ count: pairsTotal }, { count: overallDone }] = await Promise.all([
-      supabase
-        .from('evolution_weight_inference_comparisons')
-        .select('*', { count: 'exact', head: true })
-        .eq('session_id', input.sessionId)
-        .eq('pass', 0),
-      supabase
-        .from('evolution_weight_inference_comparisons')
-        .select('*', { count: 'exact', head: true })
-        .eq('session_id', input.sessionId)
-        .eq('pass', 0)
-        .not('overall_winner', 'is', null),
-    ]);
+
+    // ── New session: estimate the EXACT matches that will be judged ──
+    // (Topic: min(C(M,2), requiredRatings(K).pairs) with server-counted M. Test set: the
+    //  frozen-pair count.) Article bodies are read only to compute avgArticleChars server-side.
+    const K = input.criteriaCount ?? 0;
+    const required = requiredRatings(K, { replicationRate: input.replicationRate });
+    const sourceKind = input.sourceKind ?? 'topic';
+    let matchesToJudge = required.pairs;
+    let poolSize = 0;
+    let avgArticleChars = 0;
+    let bindingLimit: WiPreviewResult['bindingLimit'] = null;
+
+    if (sourceKind === 'topic' && input.promptId) {
+      const sampleSize = Math.min(100, Math.max(2, Math.floor(input.sampleSize ?? 30)));
+      const stats = await topicPoolStats(supabase, input.promptId, input.pairKind ?? 'article', sampleSize);
+      poolSize = stats.poolSize;
+      avgArticleChars = stats.avgArticleChars;
+      const m = matchesFromPool(poolSize, K, { replicationRate: input.replicationRate });
+      matchesToJudge = m.matches;
+      bindingLimit = m.bindingLimit;
+    } else if (sourceKind === 'test_set' && input.testSetId) {
+      const pool = await resolveTestSetPool(supabase, input.testSetId, input.pairKind ?? 'article');
+      poolSize = pool.articleInputs.length;
+      matchesToJudge = distinctPairCount(pool.pairRefs);
+      const totalChars = pool.articleInputs.reduce((s, a) => s + (a.content?.length ?? 0), 0);
+      avgArticleChars = poolSize > 0 ? Math.round(totalChars / poolSize) : 0;
+      bindingLimit = 'test_set';
+    }
+
     return {
       required,
-      pairsTotal: pairsTotal ?? 0,
-      overallDone: overallDone ?? 0,
+      pairsTotal: 0,
+      overallDone: 0,
       criteriaDone: 0,
-      remaining: remainingPairs(overallDone ?? 0, pairsTotal ?? 0),
+      remaining: required.pairs,
+      matchesToJudge,
+      poolSize,
+      avgArticleChars,
+      bindingLimit,
     };
   },
 );

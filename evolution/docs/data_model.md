@@ -98,6 +98,7 @@ Central table for pipeline executions. Each run belongs to exactly one strategy 
 | `strategy_id` | UUID | NOT NULL, FK -> `evolution_strategies(id)` | Enforced NOT NULL since 20260318 |
 | `budget_cap_usd` | NUMERIC(10,4) | default `1.00` | Per-run budget limit |
 | `status` | TEXT | NOT NULL, CHECK `('pending','claimed','running','completed','failed','cancelled')` | See [Run Status Lifecycle](#run-status-lifecycle) |
+| `allow_test_execution` | BOOLEAN | NOT NULL, default `false` | Per-run opt-in flag (since `20260621000001_evolution_claim_gate.sql`). When `true`, queue claims (`claim_evolution_run` called without `p_run_id`) WILL pick this run up even if its strategy has `is_test_content=true`. Default false → safe-by-default: future tests inserting pending fixture rows get auto-skipped by the runner. Set true ONLY when an integration test needs to exercise queue-claim semantics with mocked LLM. Targeted claims (`p_run_id != NULL`) bypass this gate regardless. Lifecycle: stays `true` after claim/complete; cleaned with the strategy by the janitor (filters on `is_test_content`, not this column). |
 | `pipeline_version` | TEXT | NOT NULL, default `'v2'` | |
 | `runner_id` | TEXT | | ID of the claiming runner |
 | `error_message` | TEXT | | Populated on failure |
@@ -423,6 +424,15 @@ Five tables (migration `20260619000002`) backing the **Implied Rubric Weights** 
 - `evolution_weight_inference_comparisons` — one row per pair **per pass**: `id`, `session_id` CASCADE, `article_a_id`/`article_b_id` → articles CASCADE with **CHECK `article_a_id < article_b_id`** (canonical order; PG uuid order == lowercase-UUID string order), `pass` (0=original, 1=reversal replica), `shown_swapped`, `overall_winner` (`a`/`b`/`tie`, canonical-oriented, NULL until judged), `source` (`human`/`llm`), `rater_id` (server-derived), auto-mode `confidence`/`judge_model`/`cost`/`forward_winner`/`reverse_winner`/`forward_raw`/`reverse_raw`; UNIQUE `(session_id, article_a_id, article_b_id, rater_id, pass)`. (Mirrors `evolution_arena_comparisons`; note the `tie` enum vs arena's `draw`.)
 - `evolution_weight_inference_dimension_verdicts` — per-criterion verdict for a comparison: `comparison_id` CASCADE, `criteria_id` (bare, snapshot-tolerant), `criteria_name` snapshot, `verdict` (`a`/`b`/`tie`), `confidence`, `position`; PK `(comparison_id, criteria_id)`. (Mirrors `evolution_submatch_dimension_verdicts` / `judge_eval_dimension_verdicts`.)
 
+### Style-fingerprint tables (generate_enforce_style_fingerprint_evolution_20260620)
+
+Migration `20260621000001`. A **style fingerprint** is a DB-first, user-authored description of a writer's style, computed over a SET of articles and injected into evolution generation prompts + the judging rubric. DB-first entity pattern (standard RLS, soft-delete via `deleted_at`, `is_test_content` BEFORE trigger on `name`). Full deep dive: [Style Fingerprint](../../docs/feature_deep_dives/style_fingerprint.md).
+
+- `evolution_style_fingerprints` — entity: `id`, `name` UNIQUE (CHECK `^[A-Za-z][a-zA-Z0-9_-]{0,128}$`), `description`, **`fingerprint` JSONB** (structured traits — sentence length, spelling region, tone, signature phrases, …), **`fingerprint_prose` TEXT** (rendered article-scope prose, display-only — runtime re-derives prose from `fingerprint`), `article_count`, `status`, `is_test_content`, soft-delete, timestamps.
+- `evolution_style_fingerprint_articles` — junction (the article set): `id`, `fingerprint_id`→fingerprints CASCADE, **`explanation_id` BIGINT**→`explanations` CASCADE *(nullable)*, **`article_text` TEXT** *(nullable)*, `position`, `added_at`. CHECK enforces **exactly one non-empty source** per row: `((explanation_id IS NOT NULL) <> (article_text IS NOT NULL)) AND (article_text IS NULL OR length(trim(article_text)) > 0)`.
+- `evolution_runs` gains **`style_fingerprint_id` UUID** (no FK — run survives fingerprint hard-delete) + **`style_fingerprint_snapshot` JSONB** (immutable `{traits}` captured at run start, so later edits never change what a historical run was generated/judged against).
+- `evolution_metrics.entity_type` CHECK extended with `'style_fingerprint'` (for the `total_extraction_cost` metric, written at CRUD time).
+
 ## Entity Relationships
 
 For a visual diagram, see [`entities.md`](./entities.md) and [`entity_diagram.png`](./entity_diagram.png).
@@ -482,12 +492,26 @@ All RPCs are `SECURITY DEFINER` with `search_path = public`, granted exclusively
 
 Atomically claims the oldest pending run using `FOR UPDATE SKIP LOCKED`. Returns the claimed run row. If `p_run_id` is provided, claims only that specific run. `p_max_concurrent` (added migration `20260323000002`) caps total concurrent claimed/running runs server-side — claims fail with empty result when the cap is reached.
 
+**Test-content gate** (added migration `20260621000001_evolution_claim_gate.sql`). The inner SELECT joins `evolution_strategies` and applies three OR branches:
+1. `p_run_id IS NOT NULL` — targeted claim, bypass gate
+2. `NOT s.is_test_content` — queue claim on a real strategy (normal path)
+3. `r.allow_test_execution = true` — queue claim on a test strategy WHEN the row opts in (for integration tests with mocked LLM)
+
+This prevents the minicomputer's systemd runner from accidentally executing E2E-test fixtures against real LLM providers (the reduce_e2e_testing_llm_costs_20260621 project's structural fix).
+
 ```sql
--- Core locking pattern:
-SELECT id FROM evolution_runs
-WHERE status = 'pending'
-  AND (p_run_id IS NULL OR id = p_run_id)
-ORDER BY created_at ASC
+-- Core locking pattern (with gate):
+SELECT r.id
+FROM evolution_runs r
+LEFT JOIN evolution_strategies s ON s.id = r.strategy_id
+WHERE r.status = 'pending'
+  AND (
+    p_run_id IS NOT NULL
+    OR NOT COALESCE(s.is_test_content, false)
+    OR r.allow_test_execution = true
+  )
+  AND (p_run_id IS NULL OR r.id = p_run_id)
+ORDER BY r.created_at ASC
 LIMIT 1
 FOR UPDATE SKIP LOCKED
 ```

@@ -16,6 +16,16 @@ Each labelled pair contributes a feature vector `v ∈ {−1,0,+1}ᴷ` (per-crit
 
 The fitted weights are stored RAW in the rubric; the existing `normalizeDimensions` (read-time, in `rubricJudge.ts`) renormalizes — so non-negative output is required (a negative would be silently zeroed downstream).
 
+## How the rubric is "implied" — and do the weights sum to 1?
+
+**"Implied"** means the weights are *inferred from preference data*, not typed in by an admin. For each labelled match the judge gives a per-criterion winner (the feature vector) and an independent **overall** winner (the label); `fitWeights` finds the weights so that the weighted vote of the per-criterion winners best predicts the overall winner. A criterion that consistently agrees with the overall winner earns a large weight; an irrelevant one trends to ~0; one that *opposes* the overall is clamped to 0. In auto mode this reverse-engineers the judge model's own implicit rubric.
+
+**Do they sum to 1? Yes** — `normalizeToWeights` clamps negatives to 0 and divides by the total, so the returned weights are non-negative and sum to 1 (the degenerate/all-zero case returns all 0). **Should they? Yes, by design**, but it's a normalization *convention*: the production vote `sign(Σ wᵢ·vᵢ)` is scale-invariant (any positive scaling gives the same decision), so sum-to-1 is just the interpretable form — each weight is that criterion's *share of the decision*. The trade-off: normalization discards the raw coefficients' magnitude (how decisive the rubric is overall), keeping only relative importance. Note the *exported* rubric drops zero/​barely-matters dims, so the stored subset may not literally sum to 1 — `normalizeDimensions` renormalizes at read time, so the vote is unaffected.
+
+## New-session preview & cost estimate
+
+`getWeightInferencePreviewAction` returns the **exact** number of matches a new session will judge — `matchesToJudge = min(C(M,2), requiredRatings(K).pairs)` for a topic (with `M` = the topic's `synced_to_arena` article variants actually available, capped at the pool size) and the frozen-pair count for a test set — plus `poolSize`, `bindingLimit` (`pool` vs `recommendation`), and `avgArticleChars`. The form's live preview re-fires on every input that affects the count (criteria, replication rate, source, topic, pool size, pair kind, test set) and explains *why* a given count is held. For **auto** mode it also shows a **cost estimate** via `estimateAutoRunCost` (chars-based pricing over the real per-match shape: 2 holistic + 2 rubric calls × repeats), which updates as you change the model. The same `perCallUsd` feeds `assertWithinWeightInferenceAutoCap`, so the displayed estimate and the enforced `WEIGHT_INFERENCE_AUTO_MAX_USD` cap agree.
+
 ## Reviewer-bias audit
 
 A configurable `replication_rate` (default 0.15) re-shows a sample of pairs a second time with sides **swapped** (`pass=1`). Verdicts are stored **canonical-oriented** (flipped on save via `shown_swapped`), so the two passes are directly comparable. `auditConsistency` computes a **position-bias rate** (verdict flipped under reversal) and a **self-consistency rate** (verdict agreed) for the overall verdict and per criterion — the human analogs of Judge Lab's LLM-judge metrics. Replicated-pair agreement feeds a **per-pair confidence** (`pairConfidence`) that weights the pair in the fit. Replica (`pass=1`) rows feed ONLY the audit/confidence — never the training matrix (no double-counting).
@@ -47,6 +57,14 @@ A session's pairs come from one of two sources (`evolution_weight_inference_sess
 - **`test_set`** — reuse a **Judge Lab test set**: read its frozen members + the pair-bank's `pairs` JSONB via the pure `resolveTestSetPairs(bankPairs, members, kind)` helper, snapshot the distinct variants as articles, and materialize **one comparison per frozen pair** (canonical-ordered). This reuses Judge Lab's curation (article/paragraph kind, stratified strategies, clone-&-curate, frozen membership) and enables the same pairs to be judged by a human, by auto mode, and by the production judge for apples-to-apples comparison.
 
 **`pair_kind`** (`article` | `paragraph`) selects the comparison framing — threaded into `judgePairOnce`/`compareWithBiasMitigation` as the `ComparisonMode` so paragraph pairs judge in paragraph mode. Paragraph pairs come from a test set (the topic source is article-only in practice — an arena topic holds article variants).
+
+### Arena-topic flow (what "select an arena topic" does)
+1. **Require** a `prompt_id` (the topic).
+2. **Sample the pool**: `evolution_variants WHERE prompt_id=<topic> AND synced_to_arena AND variant_kind='article' AND archived_at IS NULL`, ordered by `elo_score DESC`, `LIMIT sample_size` ("Article pool size", default 30). Throws if `< 2` variants exist.
+3. **Snapshot** each sampled variant into `evolution_weight_inference_articles` (content + `mu`/`sigma` frozen at create, so later edits/archival don't change the run).
+4. **Materialize matches**: build all `C(M,2)` candidate pairs, seeded-shuffle, keep the first `min(C(M,2), requiredRatings(K).pairs)` as `pass=0` rows (canonical-ordered, random `shown_swapped` for display debiasing).
+5. **Replicas**: human mode adds `⌊matches × replication_rate⌋` `pass=1` reversal re-checks; auto mode adds none (its 2-pass reversal handles position bias).
+6. Judging proceeds — human via `getNextPairAction`, or auto via the API route — and the fit reads back canonical-oriented winners. The topic source is **article-only** in practice (arena topics hold article variants); paragraph matches come only from a test set, which is why the form hardwires `pair_kind: 'article'` for a topic source.
 
 ## Implementation notes
 - Pairs are materialized eagerly at session create: all `C(M,2)` candidates are seeded-shuffled (`createSeededRng(hash(sessionId))`), the first `requiredRatings(K).pairs` are kept as `pass=0` rows, and a `replication_rate` fraction get a `pass=1` reversal replica.

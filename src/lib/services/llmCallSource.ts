@@ -38,10 +38,16 @@ export const CALL_SOURCES = Object.freeze({
   // Chat + import
   streamChatApi: brand('stream-chat-api'),
   importArticle: brand('importArticle'), // ← no URL/source suffix (normalized: bounded cardinality)
+  // Offline / CLI tools — bounded sources (model suffix normalized away). Routed through the
+  // attributed chokepoint so their real spend is captured + entity-filterable.
+  oneshot: brand('oneshot'),
+  oneshotOutline: brand('oneshot_outline'),
+  pilotModeB: brand('pilot_mode_b'),
   // evolution_* sources whose suffix is NOT an AgentName (so the factory can't produce them)
   evolutionJudgeEval: brand('evolution_judge_eval'),
   evolutionPromptEditor: brand('evolution_prompt_editor'),
   evolutionWeightInference: brand('evolution_weight_inference'),
+  evolutionStyleFingerprintExtraction: brand('evolution_style_fingerprint_extraction'),
   matchViewerRejudge: brand('match_viewer_rejudge'),
 } as const);
 

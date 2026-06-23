@@ -68,6 +68,10 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
       // Paragraph Recombine agent (rank_individual_paragraphs_evolution_20260525)
       { ...METRIC_CATALOG.paragraph_recombine_cost, compute: () => 0 },
       { ...METRIC_CATALOG.paragraph_slot_match_persist_failures, compute: () => 0 },
+      // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — coherence-pass
+      // umbrella cost + silent-rejection observability counter.
+      { ...METRIC_CATALOG.paragraph_recombine_coherence_cost, compute: () => 0 },
+      { ...METRIC_CATALOG.coherence_pass_silent_rejection_count, compute: () => 0 },
       // Sequential Context-Aware Generation (debug_performance_paragraph_recombine_20260612).
       // Default compute returns 0; actual values written by the agent during execution + at
       // finalization extractors when invocations carry the new sequential execution_detail.
@@ -106,6 +110,11 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
       { ...METRIC_CATALOG.median_sentence_verbatim_ratio, compute: computeMedianSentenceVerbatimRatio },
       { ...METRIC_CATALOG.p25_sentence_verbatim_ratio, compute: computeP25SentenceVerbatimRatio },
       { ...METRIC_CATALOG.min_sentence_verbatim_ratio, compute: computeMinSentenceVerbatimRatio },
+      // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — slot-level
+      // provenance ratio percentiles. Compute returns 0 as placeholder; finalization
+      // extractor wires the real percentile from execution_detail.slots[*].rewrites[*].provenanceRatio.
+      { ...METRIC_CATALOG.slot_provenance_ratio_p25, compute: () => 0 },
+      { ...METRIC_CATALOG.slot_provenance_ratio_p50, compute: () => 0 },
     ],
     atPropagation: [],
   };

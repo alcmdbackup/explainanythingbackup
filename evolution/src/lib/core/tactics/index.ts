@@ -133,6 +133,9 @@ export const TACTIC_PALETTE: Record<string, string> = {
   paragraph_recombine: '#06b6d4',   // cyan — marker tactic for paragraph_recombine variants
                                     // (rank_individual_paragraphs_evolution_20260525 D19/D14;
                                     // matches the timeline PARAGRAPH_REWRITE_COLOR per Phase 6)
+  paragraph_recombine_with_coherence_pass: '#0891b2', // dark cyan — sibling agent (same family,
+                                    // distinct color for tactic leaderboard A/B isolation).
+                                    // paragraph_recombine_agent_with_coherence_pass_evolution_20260620
 
   // Tree search prefixed variants
   tree_search_edit_dimension: '#eab308',
@@ -192,6 +195,12 @@ export const MARKER_TACTICS: ReadonlyArray<{
     name: 'paragraph_recombine',
     label: 'Paragraph Recombine',
     agent_type: 'paragraph_recombine',
+    category: 'meta',
+  },
+  {
+    name: 'paragraph_recombine_with_coherence_pass',
+    label: 'Paragraph Recombine with Coherence Pass',
+    agent_type: 'paragraph_recombine_with_coherence_pass',
     category: 'meta',
   },
 ];
