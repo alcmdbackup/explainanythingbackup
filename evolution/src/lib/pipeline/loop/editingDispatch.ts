@@ -64,7 +64,8 @@ export function resolveEditingDispatchRuntime(args: {
   const sorted = [...filtered].sort((a, b) => {
     const ea = iterationStartRatings.get(a.id)?.elo ?? Number.NEGATIVE_INFINITY;
     const eb = iterationStartRatings.get(b.id)?.elo ?? Number.NEGATIVE_INFINITY;
-    return eb - ea;
+    if (eb !== ea) return eb - ea;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
   const { eligibleCount, effectiveCap } = applyCutoffToCount(sorted.length, cutoff);
   return { eligibleParents: sorted.slice(0, eligibleCount), effectiveCap };

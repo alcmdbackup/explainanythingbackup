@@ -240,16 +240,23 @@ export function createEvolutionLLMClient(
           // B013-S2 (intentional): getTotalSpent/getPhaseCosts read SHARED aggregate;
           // under parallel dispatch GREATEST resolves the racing writes correctly.
           if (db && runId) {
+            const totalSpent = costTracker.getTotalSpent();
+            const phaseCost = costTracker.getPhaseCosts()[agentName] ?? 0;
+            const costMetricName = COST_METRIC_BY_AGENT[agentName];
             try {
-              const totalSpent = costTracker.getTotalSpent();
-              const phaseCost = costTracker.getPhaseCosts()[agentName] ?? 0;
               await writeMetricMax(db, 'run', runId, 'cost', totalSpent, 'during_execution');
-              const costMetricName = COST_METRIC_BY_AGENT[agentName];
               if (costMetricName) {
                 await writeMetricMax(db, 'run', runId, costMetricName, phaseCost, 'during_execution');
               }
             } catch (err) {
-              logger?.warn('Cost write failed (non-fatal)', { phaseName: agentName, error: err instanceof Error ? err.message : String(err) });
+              logger?.warn('Cost write failed (non-fatal)', {
+                phaseName: agentName,
+                runId,
+                totalSpent,
+                phaseCost,
+                costMetricName: costMetricName ?? null,
+                error: err instanceof Error ? err.message : String(err),
+              });
             }
           }
 

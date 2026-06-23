@@ -149,7 +149,10 @@ function computeEligibleIds(
   if (pool.length < 2) return [];
   const sortedByElo = pool
     .map((v) => ({ id: v.id, elo: ratings.get(v.id)?.elo ?? 0 }))
-    .sort((a, b) => b.elo - a.elo);
+    .sort((a, b) => {
+      if (b.elo !== a.elo) return b.elo - a.elo;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
   const top15Cutoff = computeTop15Cutoff(ratings);
 
   const eligible = sortedByElo.filter(({ id }) => {
@@ -314,7 +317,7 @@ export async function evolveArticle(
   for (let iterIdx = 0; iterIdx < resolvedConfig.iterationConfigs.length; iterIdx++) {
     const iterCfg = resolvedConfig.iterationConfigs[iterIdx]!;
     const iterBudgetUsd = (iterCfg.budgetPercent / 100) * totalBudget;
-    const iterTracker = createIterationBudgetTracker(iterBudgetUsd, costTracker, iterIdx);
+    const iterTracker = createIterationBudgetTracker(iterBudgetUsd, costTracker, iterIdx, logger);
 
     // Kill / abort / deadline checks at iteration boundary
     if (options?.signal?.aborted) {
@@ -1375,7 +1378,12 @@ export async function evolveArticle(
             // J4 step 1+2: filter by qualityCutoff then seeded pre-shuffle.
             const cutoff = iterCfg.qualityCutoff;
             const eloOf = (v: Variant): number => (ratings.get(v.id)?.elo ?? 0);
-            const sorted = [...inRunPool].sort((a, b) => eloOf(b) - eloOf(a));
+            const sorted = [...inRunPool].sort((a, b) => {
+              const ea = eloOf(a);
+              const eb = eloOf(b);
+              if (eb !== ea) return eb - ea;
+              return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+            });
             let eligible: Variant[];
             if (cutoff.mode === 'topN') {
               eligible = sorted.slice(0, Math.max(1, cutoff.value));
@@ -1675,7 +1683,12 @@ export async function evolveArticle(
           if (maxDispatchesK > 1 && iterSourceMode === 'pool' && iterCfg.qualityCutoff) {
             const cutoff = iterCfg.qualityCutoff;
             const eloOf = (v: Variant): number => (ratings.get(v.id)?.elo ?? 0);
-            const sorted = [...inRunPool].sort((a, b) => eloOf(b) - eloOf(a));
+            const sorted = [...inRunPool].sort((a, b) => {
+              const ea = eloOf(a);
+              const eb = eloOf(b);
+              if (eb !== ea) return eb - ea;
+              return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+            });
             let eligible: Variant[];
             if (cutoff.mode === 'topN') {
               eligible = sorted.slice(0, Math.max(1, cutoff.value));

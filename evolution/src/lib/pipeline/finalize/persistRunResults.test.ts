@@ -1191,7 +1191,11 @@ describe('propagateMetrics', () => {
       from: jest.fn().mockReturnValue({
         select: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockResolvedValue({ data: [{ id: RUN_ID }], error: null }),
+            eq: jest.fn().mockReturnValue({
+              order: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue({ data: [{ id: RUN_ID }], error: null }),
+              }),
+            }),
           }),
         }),
       }),

@@ -383,10 +383,11 @@ export function estimateIterativeEditingCost(
 
   // Phase 3.1 — Post-cycle ranking cost (D3 surfaces this as `editingRank` peer
   // field on EstPerAgentValue). The final variant's article size for ranking is
-  // estimated as the post-last-cycle articleChars (after worst-case growth).
+  // estimated as the post-last-cycle articleChars (after worst-case growth);
+  // ranking runs AFTER cycles so it operates on the grown article, not seedChars.
   // When poolSize=0 (ranking disabled), the cost is 0.
   const expectedRanking = poolSize > 0 && maxComparisonsPerVariant > 0
-    ? estimateRankingCost(seedChars, judgeModel, poolSize, maxComparisonsPerVariant)
+    ? estimateRankingCost(articleChars, judgeModel, poolSize, maxComparisonsPerVariant)
     : 0;
   const upperBoundRanking = poolSize > 0 && maxComparisonsPerVariant > 0
     ? estimateRankingCost(articleChars, judgeModel, poolSize, maxComparisonsPerVariant)

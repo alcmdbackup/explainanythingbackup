@@ -78,7 +78,7 @@ const SYNTAX_DOCS = `Use any of these CriticMarkup forms for each atomic edit:
 
 Both substitution forms are accepted. The reviewer groups markup spans that are adjacent (separated only by whitespace, no paragraph break between) and accepts or rejects each group as one atomic unit. Place related edits next to each other; separate independent edits with a blank line.
 
-You may optionally tag a span with [#N] (e.g. {++ [#1] ... ++}) to force grouping across non-adjacent spans. Most edits will not need this — the adjacency rule handles common cases.`;
+You may optionally tag a span with [#N] (e.g. {++ [#1] ... ++}) to force grouping across non-adjacent spans, where N is a POSITIVE INTEGER (1, 2, 3, …). Tags like [#0] or [#-1] are silently dropped. Most edits will not need this — the adjacency rule handles common cases.`;
 
 const SELF_CHECK = `Self-check before responding (do this literally, not metaphorically):
   1. Mentally delete every {++…++} and the new-side of every {~~old~>new~~}.

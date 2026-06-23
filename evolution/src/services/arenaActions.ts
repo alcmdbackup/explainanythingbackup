@@ -299,11 +299,27 @@ export const getArenaEntriesAction = adminAction(
   ): Promise<{ items: ArenaEntry[]; total: number }> => {
     if (!validateUuid(input.topicId)) throw new Error('Invalid topicId');
 
+    // Pin variant_kind to the topic's prompt_kind so an article topic never
+    // surfaces paragraph rewrites and a paragraph (slot) topic never surfaces
+    // article variants. Without this, evolution_variants's mixed-kind table
+    // sometimes returned the wrong kind for a given prompt_id (data-invariant
+    // violation seen in 2026-05 staging runs). The SlotsTab embeds this
+    // leaderboard for paragraph slots and must see paragraph variants.
+    const { data: promptRow, error: promptError } = await ctx.supabase
+      .from('evolution_prompts')
+      .select('prompt_kind')
+      .eq('id', input.topicId)
+      .single();
+    if (promptError) throw promptError;
+    const topicVariantKind =
+      (promptRow as { prompt_kind?: string | null } | null)?.prompt_kind ?? 'article';
+
     let query = ctx.supabase
       .from('evolution_variants')
       .select('*', { count: 'exact' })
       .eq('prompt_id', input.topicId)
       .eq('synced_to_arena', true)
+      .eq('variant_kind', topicVariantKind)
       .order('elo_score', { ascending: false });
 
     if (!input.includeArchived) query = query.is('archived_at', null);

@@ -167,16 +167,22 @@ describe('estimateCosts', () => {
       expect(cost.expected).toBeGreaterThan(0);
     });
 
-    it('upperBoundRanking covers larger article (post-cycle growth)', () => {
-      // upperBoundRanking uses post-cycle articleChars (after 1.5× growth per cycle)
-      // so it should exceed expectedRanking (computed at seedChars).
+    it('upperBoundRanking exceeds expectedRanking by the safety margin', () => {
+      // Post-fix: both expectedRanking and upperBoundRanking use post-cycle
+      // articleChars (ranking runs after editing cycles, on the grown article —
+      // not seedChars). The difference between the two is just the
+      // EDITING_UPPER_BOUND_SAFETY_MARGIN (1.3×). Pre-fix the gap was much
+      // larger because expectedRanking was undersized at seedChars, which made
+      // ranking-cost projections systematically optimistic.
       const cost = estimateIterativeEditingCost(
         8000, 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano',
         3, 20, 15,
       );
-      // Upper bound includes 1.3× safety margin × (1.5×)^3 article growth, so
-      // ranking-side upperBound is materially larger than expected.
-      expect(cost.upperBoundRanking).toBeGreaterThan(cost.expectedRanking * 2);
+      expect(cost.upperBoundRanking).toBeGreaterThan(cost.expectedRanking);
+      // The ratio approximates the safety margin (1.3×); allow modest slack
+      // for floating-point + downstream rounding inside estimateRankingCost.
+      expect(cost.upperBoundRanking / cost.expectedRanking).toBeGreaterThan(1.2);
+      expect(cost.upperBoundRanking / cost.expectedRanking).toBeLessThan(1.5);
     });
 
     it('ranking cost scales with maxComparisonsPerVariant', () => {

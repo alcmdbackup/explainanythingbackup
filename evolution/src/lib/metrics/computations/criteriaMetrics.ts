@@ -90,7 +90,12 @@ export async function computeCriteriaMetrics(
       .select('id, mu, sigma')
       .in('id', chunk);
     for (const p of parents ?? []) {
-      const r = dbToRating((p.mu ?? 25) as number, (p.sigma ?? 8.333) as number);
+      // Postgres NUMERIC can deserialize as string in some driver paths;
+      // Number() coerces both string and number cases so dbToRating receives
+      // a real number, not a string-shaped cast.
+      const mu = Number(p.mu ?? 25);
+      const sigma = Number(p.sigma ?? 8.333);
+      const r = dbToRating(mu, sigma);
       parentEloById.set(p.id as string, r.elo);
     }
   }
@@ -101,7 +106,7 @@ export async function computeCriteriaMetrics(
     if (!parentId) continue;
     const parentElo = parentEloById.get(parentId);
     if (parentElo === undefined) continue;
-    const childRating = dbToRating((v.mu ?? 25) as number, (v.sigma ?? 8.333) as number);
+    const childRating = dbToRating(Number(v.mu ?? 25), Number(v.sigma ?? 8.333));
     deltas.push(childRating.elo - parentElo);
   }
   const avgEloDeltaWhenFocused = deltas.length > 0

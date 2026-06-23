@@ -164,6 +164,13 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
     },
 
     recordSpend(phase: AgentName, actualCost: number, reservedAmount: number): void {
+      // Mirror reserve()'s input validation. Negative or non-finite costs would
+      // silently corrupt totalSpent and let the budget gate underreport spend.
+      if (!Number.isFinite(actualCost) || actualCost < 0) {
+        throw new Error(
+          `V2CostTracker.recordSpend: actualCost must be finite and non-negative (phase=${phase}, got=${actualCost})`,
+        );
+      }
       totalReserved = Math.max(0, totalReserved - reservedAmount);
       totalSpent += actualCost;
       phaseCosts[phase] = (phaseCosts[phase] ?? 0) + actualCost;
@@ -241,9 +248,29 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
  * Phase 12 kill switch: when EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED === 'false',
  * iter-tracker getPhaseCosts/getSubagentCosts revert to per-iter accounting. Tristate:
  * unset / 'true' / other → false (new run-cumulative), 'false' → true (legacy per-iter).
+ *
+ * DEPRECATED: legacy per-iter mode silently breaks writeMetricMax(GREATEST) for
+ * agent names that appear across multiple iterations (e.g. 'ranking' in both
+ * generate+swiss). Cost metrics under-report when the flag is set. We log a
+ * one-time warning at first invocation so operators notice. Plan to remove the
+ * kill switch entirely after one release cycle of clean telemetry.
  */
 function isLegacyPerIterPhaseCosts(): boolean {
   return process.env.EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED === 'false';
+}
+
+let legacyPerIterWarned = false;
+function maybeWarnLegacyPerIterMode(logger: EntityLogger | undefined): void {
+  if (legacyPerIterWarned) return;
+  if (!isLegacyPerIterPhaseCosts()) return;
+  legacyPerIterWarned = true;
+  const msg =
+    '[V2CostTracker] EVOLUTION_RUN_CUMULATIVE_PHASE_COSTS_ENABLED=false is DEPRECATED. ' +
+    'Per-iter phase costs break writeMetricMax(GREATEST) when an AgentName recurs across ' +
+    'iterations (e.g. ranking in both generate + swiss). Cost metrics will under-report. ' +
+    'Unset the variable to opt into run-cumulative accounting.';
+  if (logger) logger.warn(msg, { phaseName: 'budget' });
+  else console.warn(msg);
 }
 
 /**
@@ -256,10 +283,13 @@ export function createIterationBudgetTracker(
   iterationBudgetUsd: number,
   runTracker: V2CostTracker,
   iterationIndex: number,
+  logger?: EntityLogger,
 ): V2CostTracker {
   let iterSpent = 0;
   let iterReserved = 0;
   const iterPhaseCosts: Partial<Record<AgentName, number>> = {};
+  // Fire once if the deprecated kill switch is on — operators need to see this.
+  maybeWarnLegacyPerIterMode(logger);
 
   return {
     reserve(phase: AgentName, estimatedCost: number): number {

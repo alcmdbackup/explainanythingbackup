@@ -12,6 +12,7 @@
 
 import type { Variant, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import { BudgetExceededError } from '../../types';
+import { isTransientError } from '../../shared/classifyErrors';
 import type { Rating, ComparisonResult, EnsembleRunner } from '../../shared/computeRatings';
 import { renderFingerprintProse } from '../setup/renderFingerprintProse';
 import {
@@ -155,7 +156,14 @@ export function selectOpponent(
 
     candidates.push({ id: opp.id, rating: oppRating, pWin, entropy, score });
 
-    if (score > bestScore) {
+    // Per Decision §12: ties broken by lexicographic id for determinism. Float
+    // ties on entropy/uncertainty^k are rare but possible (mirror ratings,
+    // identical seeds); the tiebreak matches the editingDispatch / debate
+    // pattern so the picked opponent is reproducible across reruns.
+    if (
+      score > bestScore ||
+      (score === bestScore && bestId !== null && opp.id < bestId)
+    ) {
       bestScore = score;
       bestId = opp.id;
       bestPWin = pWin;
@@ -380,16 +388,31 @@ export async function rankSingleVariant(
           });
           break;
         }
-        // Non-budget LLM error — record as zero-confidence draw and continue.
-        // B019-S1: log the error so transient outages aren't indistinguishable from
-        // genuine ties.
-        logger?.warn('rankSingleVariant: comparison LLM call failed, recording as TIE', {
+        const errMsg = (e instanceof Error ? e.message : String(e)).slice(0, 500);
+        // Sibling of D5 (cost-tracking 402-cascade): permanent provider errors
+        // (402 Payment Required, parse failures, auth) must NOT be masked as
+        // fake zero-confidence TIEs. Re-throw so the outer catch propagates the
+        // failure rather than corrupting the binary-search signal with synthetic
+        // draws and silently consuming comparison budget on every opponent.
+        if (!isTransientError(e)) {
+          logger?.error('rankSingleVariant: permanent LLM error, aborting variant ranking', {
+            phaseName: 'ranking',
+            variantId: variant.id,
+            opponentId: opp.id,
+            error: errMsg,
+          });
+          throw e;
+        }
+        // Transient (5xx, rate-limit, timeout): skip this opponent without
+        // polluting matchBuffer/completedPairs. The outer loop will pick a
+        // different opponent next round, leaving budget available for real signal.
+        logger?.warn('rankSingleVariant: transient LLM error, skipping opponent', {
           phaseName: 'ranking',
           variantId: variant.id,
           opponentId: opp.id,
-          error: (e instanceof Error ? e.message : String(e)).slice(0, 500),
+          error: errMsg,
         });
-        comparisonResult = { winner: 'TIE', confidence: 0, turns: 2 };
+        continue;
       }
       const comparisonDurationMs = Date.now() - comparisonStartTime;
 

@@ -289,6 +289,41 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
         invocationId: ctx.invocationId,
       });
     } catch (err) {
+      // I3: persist partial detail before re-throwing so the invocation row
+      // captures cost incurred and which helper failed.
+      const partialEvalCost = (ctx.costTracker.getOwnSpent?.() ?? 0) - costBeforeEval;
+      const partialEvalDurationMs = Date.now() - evalStart;
+      if (ctx.invocationId) {
+        const partial: ProposerApproverExecutionDetail = {
+          detailType: 'proposer_approver_criteria_generate',
+          tactic: 'criteria_driven_propose_approve',
+          weakestCriteriaIds: [],
+          weakestCriteriaNames: [],
+          evaluateAndSuggest: {
+            criteriaScored: [],
+            suggestions: [],
+            durationMs: partialEvalDurationMs,
+            cost: partialEvalCost,
+          },
+          cycles: [],
+          totalCost: partialEvalCost,
+          surfaced: false,
+        };
+        try {
+          await updateInvocation(ctx.db, ctx.invocationId, {
+            cost_usd: partialEvalCost,
+            success: false,
+            execution_detail: partial as unknown as Record<string, unknown>,
+          });
+        } catch (writeErr) {
+          // Persist failure must not mask the original LLM error. Log + continue
+          // so the EvaluateAndSuggestLLMError below still propagates.
+          ctx.logger.warn('I3 partial-detail write failed', {
+            phaseName: 'evaluate_and_suggest',
+            error: writeErr instanceof Error ? writeErr.message : String(writeErr),
+          });
+        }
+      }
       throw new EvaluateAndSuggestLLMError(
         `Evaluate+suggest LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -334,6 +369,39 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
         invocationId: ctx.invocationId,
       });
     } catch (err) {
+      // I3: persist partial detail (eval+suggest results captured) before re-throwing.
+      const partialProposeCost = (ctx.costTracker.getOwnSpent?.() ?? 0) - costBeforePropose;
+      const partialTotal = evalCost + partialProposeCost;
+      if (ctx.invocationId) {
+        const partial: ProposerApproverExecutionDetail = {
+          detailType: 'proposer_approver_criteria_generate',
+          tactic: 'criteria_driven_propose_approve',
+          weakestCriteriaIds,
+          weakestCriteriaNames,
+          evaluateAndSuggest: {
+            criteriaScored: parsed.criteriaScored,
+            suggestions: parsed.suggestions,
+            ...(parsed.droppedSuggestions.length > 0 && { droppedSuggestions: parsed.droppedSuggestions }),
+            durationMs: evalDurationMs,
+            cost: evalCost,
+          },
+          cycles: [],
+          totalCost: partialTotal,
+          surfaced: false,
+        };
+        try {
+          await updateInvocation(ctx.db, ctx.invocationId, {
+            cost_usd: partialTotal,
+            success: false,
+            execution_detail: partial as unknown as Record<string, unknown>,
+          });
+        } catch (writeErr) {
+          ctx.logger.warn('I3 partial-detail write failed', {
+            phaseName: 'criteria_proposer',
+            error: writeErr instanceof Error ? writeErr.message : String(writeErr),
+          });
+        }
+      }
       throw new Error(`Proposer LLM call failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     const proposeCostUsd = (ctx.costTracker.getOwnSpent?.() ?? 0) - costBeforePropose;
@@ -366,6 +434,50 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
         invocationId: ctx.invocationId,
       });
     } catch (err) {
+      // I3: persist partial detail (eval + propose + parse/validate captured) before re-throwing.
+      const partialForwardCost = (ctx.costTracker.getOwnSpent?.() ?? 0) - costBeforeForward;
+      const partialTotal = evalCost + proposeCostUsd + partialForwardCost;
+      if (ctx.invocationId) {
+        const partial: ProposerApproverExecutionDetail = {
+          detailType: 'proposer_approver_criteria_generate',
+          tactic: 'criteria_driven_propose_approve',
+          weakestCriteriaIds,
+          weakestCriteriaNames,
+          evaluateAndSuggest: {
+            criteriaScored: parsed.criteriaScored,
+            suggestions: parsed.suggestions,
+            ...(parsed.droppedSuggestions.length > 0 && { droppedSuggestions: parsed.droppedSuggestions }),
+            durationMs: evalDurationMs,
+            cost: evalCost,
+          },
+          cycles: [{
+            proposedGroupsRaw,
+            droppedPreApprover,
+            approverGroups: approverGroups.length,
+            forwardDecisions: [],
+            mirrorDecisions: [],
+            appliedGroups: 0,
+            droppedPostApprover: [],
+            proposeCostUsd,
+            approveForwardCostUsd: partialForwardCost,
+            approveMirrorCostUsd: 0,
+          }],
+          totalCost: partialTotal,
+          surfaced: false,
+        };
+        try {
+          await updateInvocation(ctx.db, ctx.invocationId, {
+            cost_usd: partialTotal,
+            success: false,
+            execution_detail: partial as unknown as Record<string, unknown>,
+          });
+        } catch (writeErr) {
+          ctx.logger.warn('I3 partial-detail write failed', {
+            phaseName: 'criteria_forward_approver',
+            error: writeErr instanceof Error ? writeErr.message : String(writeErr),
+          });
+        }
+      }
       throw new Error(`Forward approver LLM call failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     const approveForwardCostUsd = (ctx.costTracker.getOwnSpent?.() ?? 0) - costBeforeForward;
@@ -428,7 +540,6 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
             model: approverResolvedModel,
             invocationId: ctx.invocationId,
           });
-          approveMirrorCostUsd = (ctx.costTracker.getOwnSpent?.() ?? 0) - costBeforeMirror;
           const parsedMirror = parseReviewDecisions(mirrorOutput, mGroups.map((g) => g.groupNumber));
           if (parsedMirror.length === 0) {
             mirrorAbortReason = 'mirror_parse_null';
@@ -447,6 +558,10 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
           for (const g of forwardAcceptedGroups) {
             mirrorDecisions.push({ groupNumber: g.groupNumber, decision: null, reason: 'mirror_llm_error' });
           }
+        } finally {
+          // Capture mirror cost regardless of whether complete()/parse succeeded —
+          // a partial provider response can incur cost before throwing.
+          approveMirrorCostUsd = (ctx.costTracker.getOwnSpent?.() ?? 0) - costBeforeMirror;
         }
       }
     }

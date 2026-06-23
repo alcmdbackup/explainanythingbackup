@@ -36,6 +36,7 @@ import { classifyDriftMagnitude } from './recoverDrift';
 import { snapDriftToSource } from './snapDriftToSource';
 import { buildApproverSystemPrompt, buildApproverUserPrompt } from './approverPrompt';
 import { splitRationaleAndRewrite } from './splitRationaleAndRewrite';
+import { sanitizeForPriorContext } from '../paragraphRecombine/promptSafety';
 import {
   computeMarkupFromRewrite,
   RewriteParseError,
@@ -466,10 +467,18 @@ export async function runEditingCycle(args: RunEditingCycleArgs): Promise<RunEdi
   // ── Approver call ──
   const costBeforeApproveCall = costScope.getOwnSpent?.() ?? 0;
   const approverSys = buildApproverSystemPrompt();
+  // Mode B (rewrite) rationale is LLM-generated proposer output — treat it as
+  // untrusted and redact delimiter-tag literals before injecting into the
+  // approver prompt. Without this a proposer that echoes </UNTRUSTED_…> tags
+  // (whether benign accident or adversarial injection) can break out of the
+  // data scope. Mirrors the paragraph_recombine priorPicks defense.
+  const sanitizedRationale = isRewriteMode && modeBRationale !== undefined
+    ? sanitizeForPriorContext(modeBRationale).sanitized
+    : undefined;
   const approverUser = buildApproverUserPrompt(
     workingMarkup,
     validation.approverGroups,
-    isRewriteMode ? modeBRationale : undefined,
+    sanitizedRationale,
   );
   let approverResponse: string;
   try {

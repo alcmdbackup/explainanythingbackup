@@ -29,7 +29,7 @@ const { getRunCostEstimatesAction, getStrategyCostEstimatesAction } =
 function makeBaseRunData(overrides: Partial<RunCostEstimates> = {}): RunCostEstimates {
   return {
     runId: 'run-1',
-    summary: { totalCost: 0.847, estimatedCost: 0.754, absError: 0.093, errorPct: 12.4, budgetCap: 1.0 },
+    summary: { totalCost: 0.847, estimatedCost: 0.754, absError: 0.093, errorPct: 12.4, budgetCap: 1.0, costCoverage: 'complete' },
     costByAgent: [
       { agentName: 'generate_from_previous_article', invocations: 7, estimatedUsd: 0.72, actualUsd: 0.81, errorPct: 12.5, coverage: 'est+act' },
       { agentName: 'swiss_ranking', invocations: 4, estimatedUsd: null, actualUsd: 0.056, errorPct: null, coverage: 'actual-only' },
@@ -66,7 +66,7 @@ function makeStrategyData(overrides: Partial<StrategyCostEstimates> = {}): Strat
   return {
     strategyId: 'strat-1',
     summary: { totalCost: 38.91, estimatedCost: 35.0, absError: 0.4, errorPct: 9.2, budgetCap: null,
-      runCount: 47, runsWithEstimates: 35 },
+      costCoverage: null, runCount: 47, runsWithEstimates: 35 },
     runs: [
       { runId: 'r1', status: 'completed', createdAt: '2026-04-14T10:00:00Z', totalCost: 0.95, estimatedCost: 0.84, errorPct: 13.1 },
       { runId: 'r2', status: 'completed', createdAt: '2026-04-14T09:00:00Z', totalCost: 0.73, estimatedCost: 0.71, errorPct: 2.8 },
@@ -134,7 +134,7 @@ describe('CostEstimatesTab — Run view', () => {
 
   it('shows pre-instrumentation badge when neither run-level summary NOR per-invocation estimates exist', async () => {
     getRunCostEstimatesAction.mockResolvedValue({ success: true, data: makeBaseRunData({
-      summary: { totalCost: null, estimatedCost: null, absError: null, errorPct: null, budgetCap: null },
+      summary: { totalCost: null, estimatedCost: null, absError: null, errorPct: null, budgetCap: null, costCoverage: null },
       invocations: [
         // No generationEstimate / rankingEstimate on any invocation
         { id: 'inv-1', agentName: 'generate_from_previous_article', iteration: 1, tactic: null,
@@ -148,7 +148,7 @@ describe('CostEstimatesTab — Run view', () => {
 
   it('shows rollup-missing badge when run-level summary is empty but per-invocation estimates exist', async () => {
     getRunCostEstimatesAction.mockResolvedValue({ success: true, data: makeBaseRunData({
-      summary: { totalCost: 0.1, estimatedCost: null, absError: null, errorPct: null, budgetCap: 1.0 },
+      summary: { totalCost: 0.1, estimatedCost: null, absError: null, errorPct: null, budgetCap: 1.0, costCoverage: 'sparse' },
       // makeBaseRunData's default invocations include generationEstimate / rankingEstimate values
     }), error: null });
     render(<CostEstimatesTab entityType="run" entityId="run-1" />);

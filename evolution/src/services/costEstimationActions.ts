@@ -64,6 +64,11 @@ export interface CostSummary {
   absError: number | null;
   errorPct: number | null;
   budgetCap: number | null;
+  /** Cost coverage flag: 'complete' when every invocation has a numeric cost_usd
+   *  AND the sum of invocation costs reconciles with totalCost (±5%). 'sparse'
+   *  when invocations are missing cost_usd OR the sum diverges from totalCost.
+   *  Null when there are no invocations to reconcile. */
+  costCoverage: 'complete' | 'sparse' | null;
 }
 
 export interface CostByAgentRow {
@@ -411,12 +416,34 @@ export const getRunCostEstimatesAction = adminAction(
 
     const invocations = (invRes.data ?? []) as InvRow[];
 
+    // Coverage check: reconcile sum-of-invocation-costs against the run-level
+    // metric. Sparse rows (NULL cost_usd from legacy or persistence failures)
+    // silently under-count in costByAgent without this flag — operators need to
+    // know when the breakdown doesn't add up.
+    const totalCostMetric = metricMap.get('cost') ?? null;
+    let costCoverage: 'complete' | 'sparse' | null = null;
+    if (invocations.length > 0) {
+      const missingCount = invocations.filter(
+        (i) => typeof i.cost_usd !== 'number' || !Number.isFinite(i.cost_usd),
+      ).length;
+      const invSum = invocations.reduce(
+        (acc, i) => acc + (typeof i.cost_usd === 'number' && Number.isFinite(i.cost_usd) ? i.cost_usd : 0),
+        0,
+      );
+      const reconciles =
+        totalCostMetric !== null && totalCostMetric > 0
+          ? Math.abs(invSum - totalCostMetric) / totalCostMetric <= 0.05
+          : true;
+      costCoverage = missingCount === 0 && reconciles ? 'complete' : 'sparse';
+    }
+
     const summary: CostSummary = {
-      totalCost: metricMap.get('cost') ?? null,
+      totalCost: totalCostMetric,
       estimatedCost: metricMap.get('estimated_cost') ?? null,
       absError: metricMap.get('estimation_abs_error_usd') ?? null,
       errorPct: metricMap.get('cost_estimation_error_pct') ?? null,
       budgetCap: Number.isFinite(budgetCap ?? NaN) ? budgetCap : null,
+      costCoverage,
     };
 
     const costByAgent = buildCostByAgent(invocations);
@@ -574,6 +601,8 @@ export const getStrategyCostEstimatesAction = adminAction(
         absError: stratMetricMap.get('avg_estimation_abs_error_usd') ?? null,
         errorPct: stratMetricMap.get('avg_cost_estimation_error_pct') ?? null,
         budgetCap: null,
+        // Strategy roll-up does not reconcile per-invocation; field is N/A here.
+        costCoverage: null,
         runCount: runs.length,
         runsWithEstimates,
       },
