@@ -24,9 +24,10 @@ Fix `/admin/costs` to stop under-reporting AND do **foundational rework** so a c
 
 ## Phased Execution Plan (Option C + D)
 
-### Phase 0: Pin down the write-path drop (gates Option A) — Open Q5
-- [ ] Determine why dev evolution invocations still lack `llmCallTracking` rows post-06-21 (479/517 in 3d): is the dev path running pre-fix code, or does a client bypass the `requireTracking` chokepoint? Trace `createEvolutionLLMClient` → `callLLM`/`saveLlmCallTracking` and where `evolution_invocation_id` is (not) bound.
-- [ ] Decide if Option A (write completeness) is achievable in this project or is a forward-only follow-up.
+### Phase 0: Pin down the write-path drop (gates Option A) — Open Q5 [RESOLVED in research; confirm executor in Phase 0]
+- [x] Confirmed (research): HEAD wires evolution tracking correctly, but dev runs **today** (`success=true`, cost>0, 0 tracking rows) prove the executing path bypasses the `requireTracking` fail-closed chokepoint — the gap is live, not just history.
+- [ ] Identify the executor of dev evolution runs (stale local `processRunQueue` runner on pre-fix code vs the HEAD `/api/evolution/run` route) — distinguishes cause (a) stale runner [operational fix: pull+restart] vs (b) a code path bypassing `saveTrackingAndNotify`.
+- [ ] Scope Option A accordingly: operational (runner restart) and/or a code fix for any genuine bypass path. May be a forward-only follow-up — **does not block Option B**.
 
 ### Phase 1: Canonical unified cost source (Option B + D)
 - [ ] Design a canonical cost read (DB view or RPC, e.g. `llm_spend_unified`) that UNIONs: non-evolution rows from `llmCallTracking` + evolution spend from `evolution_agent_invocations.cost_usd`, **dedup-safe** (exclude the few evolution rows already in `llmCallTracking` to avoid double-count).
