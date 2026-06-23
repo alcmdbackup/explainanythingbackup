@@ -309,11 +309,20 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
           totalCost: partialEvalCost,
           surfaced: false,
         };
-        await updateInvocation(ctx.db, ctx.invocationId, {
-          cost_usd: partialEvalCost,
-          success: false,
-          execution_detail: partial as unknown as Record<string, unknown>,
-        });
+        try {
+          await updateInvocation(ctx.db, ctx.invocationId, {
+            cost_usd: partialEvalCost,
+            success: false,
+            execution_detail: partial as unknown as Record<string, unknown>,
+          });
+        } catch (writeErr) {
+          // Persist failure must not mask the original LLM error. Log + continue
+          // so the EvaluateAndSuggestLLMError below still propagates.
+          ctx.logger.warn('I3 partial-detail write failed', {
+            phaseName: 'evaluate_and_suggest',
+            error: writeErr instanceof Error ? writeErr.message : String(writeErr),
+          });
+        }
       }
       throw new EvaluateAndSuggestLLMError(
         `Evaluate+suggest LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -380,11 +389,18 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
           totalCost: partialTotal,
           surfaced: false,
         };
-        await updateInvocation(ctx.db, ctx.invocationId, {
-          cost_usd: partialTotal,
-          success: false,
-          execution_detail: partial as unknown as Record<string, unknown>,
-        });
+        try {
+          await updateInvocation(ctx.db, ctx.invocationId, {
+            cost_usd: partialTotal,
+            success: false,
+            execution_detail: partial as unknown as Record<string, unknown>,
+          });
+        } catch (writeErr) {
+          ctx.logger.warn('I3 partial-detail write failed', {
+            phaseName: 'criteria_proposer',
+            error: writeErr instanceof Error ? writeErr.message : String(writeErr),
+          });
+        }
       }
       throw new Error(`Proposer LLM call failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -449,11 +465,18 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
           totalCost: partialTotal,
           surfaced: false,
         };
-        await updateInvocation(ctx.db, ctx.invocationId, {
-          cost_usd: partialTotal,
-          success: false,
-          execution_detail: partial as unknown as Record<string, unknown>,
-        });
+        try {
+          await updateInvocation(ctx.db, ctx.invocationId, {
+            cost_usd: partialTotal,
+            success: false,
+            execution_detail: partial as unknown as Record<string, unknown>,
+          });
+        } catch (writeErr) {
+          ctx.logger.warn('I3 partial-detail write failed', {
+            phaseName: 'criteria_forward_approver',
+            error: writeErr instanceof Error ? writeErr.message : String(writeErr),
+          });
+        }
       }
       throw new Error(`Forward approver LLM call failed: ${err instanceof Error ? err.message : String(err)}`);
     }
