@@ -25,10 +25,10 @@ import type { z } from 'zod';
 
 import { getTacticDef } from '../tactics';
 
-function buildPromptForTactic(text: string, tactic: string): string | null {
+function buildPromptForTactic(text: string, tactic: string, styleGuide?: string): string | null {
   const def = getTacticDef(tactic);
   if (!def) return null;
-  return buildEvolutionPrompt(def.preamble, 'Original Text', text, def.instructions);
+  return buildEvolutionPrompt(def.preamble, 'Original Text', text, def.instructions, { styleGuide });
 }
 
 // ─── Public types ─────────────────────────────────────────────────
@@ -202,9 +202,13 @@ export class GenerateFromPreviousArticleAgent extends Agent<
       );
     }
 
+    // generate_enforce_style_fingerprint_evolution_20260620: steer generation toward the
+    // run's target style (article-shaped prose). Read from ctx — undefined ⇒ no-op. Covers the
+    // ReflectAndGenerate agent transitively (it delegates here with ctx forwarded).
+    const styleGuide = ctx.styleFingerprint?.prose;
     const prompt = input.customPrompt
-      ? buildEvolutionPrompt(input.customPrompt.preamble, 'Original Text', parentText, input.customPrompt.instructions)
-      : buildPromptForTactic(parentText, tactic);
+      ? buildEvolutionPrompt(input.customPrompt.preamble, 'Original Text', parentText, input.customPrompt.instructions, { styleGuide })
+      : buildPromptForTactic(parentText, tactic, styleGuide);
     if (prompt === null) {
       return {
         result: { variant: null, status: 'generation_failed', surfaced: false, matches: [] },

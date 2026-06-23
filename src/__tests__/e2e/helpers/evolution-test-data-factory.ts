@@ -65,7 +65,9 @@ type EvolutionEntityType =
   | 'tactic'
   | 'judge_eval_pair_bank'
   | 'judge_rubric'
-  | 'criteria';
+  | 'criteria'
+  | 'style_fingerprint'
+  | 'fingerprint_article';
 
 /**
  * Registers an evolution entity ID for cleanup.
@@ -506,6 +508,61 @@ export async function createTestCriteria(options?: CreateTestCriteriaOptions): P
   };
 }
 
+export interface CreateTestStyleFingerprintOptions {
+  name?: string;
+  description?: string;
+}
+
+export interface TestStyleFingerprint {
+  id: string;
+  name: string;
+  /** Insert a pasted-text article into the fingerprint's set; returns the junction row id. */
+  addArticle: (articleText: string, position?: number) => Promise<string>;
+  cleanup: () => Promise<void>;
+}
+
+/**
+ * Creates a test style fingerprint (generate_enforce_style_fingerprint_evolution_20260620).
+ * evolution_style_fingerprints isn't in the generated Database types yet, so inserts use an
+ * untyped client cast. `TESTEVO-style-<ms>-…` passes evolution_style_fingerprints_name_format
+ * (no brackets) and the embedded `-<13-digit ms>-` is matched by evolution_is_test_name so the
+ * row is flagged is_test_content. Auto-tracked (fingerprint + each article).
+ */
+export async function createTestStyleFingerprint(options?: CreateTestStyleFingerprintOptions): Promise<TestStyleFingerprint> {
+  const db = getEvolutionServiceClient() as unknown as SupabaseClient;
+  const suffix = generateTestSuffix();
+  const name = options?.name ?? `TESTEVO-style-${suffix}`;
+
+  const { data, error } = await db
+    .from('evolution_style_fingerprints')
+    .insert({ name, description: options?.description ?? 'test fingerprint' })
+    .select('id')
+    .single();
+  if (error) throw new Error(`Failed to create test style fingerprint: ${error.message}`);
+
+  const id = data.id as string;
+  trackEvolutionId('style_fingerprint', id);
+
+  return {
+    id,
+    name,
+    addArticle: async (articleText: string, position = 0): Promise<string> => {
+      const { data: art, error: artErr } = await db
+        .from('evolution_style_fingerprint_articles')
+        .insert({ fingerprint_id: id, article_text: articleText, position })
+        .select('id')
+        .single();
+      if (artErr) throw new Error(`Failed to add test article: ${artErr.message}`);
+      const artId = art.id as string;
+      trackEvolutionId('fingerprint_article', artId);
+      return artId;
+    },
+    cleanup: async () => {
+      await db.from('evolution_style_fingerprints').delete().eq('id', id);
+    },
+  };
+}
+
 export interface CreateTestJudgeRubricOptions {
   name?: string;
   description?: string;
@@ -645,6 +702,11 @@ const FK_SAFE_DELETION_ORDER: { type: EvolutionEntityType; table: string }[] = [
   { type: 'tactic', table: 'evolution_tactics' },
   // criteria last: only safe to remove once any referencing rubric dimensions are gone.
   { type: 'criteria', table: 'evolution_criteria' },
+  // style fingerprints: junction first (ON DELETE CASCADE from the fingerprint, but explicit
+  // tracking deletes are no-ops once cascaded), then the fingerprint. Runs reference
+  // style_fingerprint_id with NO FK, so they need no ordering relative to these.
+  { type: 'fingerprint_article', table: 'evolution_style_fingerprint_articles' },
+  { type: 'style_fingerprint', table: 'evolution_style_fingerprints' },
 ];
 
 /**

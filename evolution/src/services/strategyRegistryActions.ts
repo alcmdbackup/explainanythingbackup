@@ -42,6 +42,9 @@ const createStrategySchema = z.object({
   /** Optional named multi-judge escalation chain (chainRegistry id). Empty → single-judge ranking.
    *  Resolved at run time in buildRunContext; escalates only when the lead judge is indecisive. */
   ensembleConfigId: z.string().max(100).optional(),
+  /** generate_enforce_style_fingerprint_evolution_20260620: per-strategy style enforcement opt-in. */
+  styleFingerprintEnabled: z.boolean().optional(),
+  styleFingerprintId: z.string().uuid().optional(),
   /** Iterative-editing Proposer model (optional). Falls back to generationModel at runtime. */
   editingModel: z.string().max(100).optional(),
   /** Iterative-editing Approver model (optional). Falls back to editingModel (which falls back
@@ -201,12 +204,21 @@ export const createStrategyAction = adminAction(
       throw new Error(`Unknown ensembleConfigId: ${parsed.ensembleConfigId}`);
     }
 
+    // generate_enforce_style_fingerprint_evolution_20260620: when style enforcement is enabled,
+    // require a valid, live fingerprint id (fail fast, mirroring validateJudgeRubricId).
+    if (parsed.styleFingerprintEnabled && parsed.styleFingerprintId) {
+      const { validateStyleFingerprintId } = await import('./styleFingerprintActions');
+      await validateStyleFingerprintId(parsed.styleFingerprintId, ctx.supabase);
+    }
+
     const config: StrategyConfig = {
       generationModel: parsed.generationModel,
       judgeModel: parsed.judgeModel,
       judgeRubricId: parsed.judgeRubricId,
       paragraphJudgeRubricId: parsed.paragraphJudgeRubricId,
       ensembleConfigId: parsed.ensembleConfigId,
+      styleFingerprintEnabled: parsed.styleFingerprintEnabled,
+      styleFingerprintId: parsed.styleFingerprintId,
       editingModel: parsed.editingModel,
       approverModel: parsed.approverModel,
       coordinatorModel: parsed.coordinatorModel,

@@ -47,6 +47,7 @@ export const CALL_SOURCES = Object.freeze({
   evolutionJudgeEval: brand('evolution_judge_eval'),
   evolutionPromptEditor: brand('evolution_prompt_editor'),
   evolutionWeightInference: brand('evolution_weight_inference'),
+  evolutionStyleFingerprintExtraction: brand('evolution_style_fingerprint_extraction'),
   matchViewerRejudge: brand('match_viewer_rejudge'),
 } as const);
 

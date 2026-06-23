@@ -10,7 +10,7 @@ import type { AgentName } from '../core/agentNames';
 
 // ─── Entity & Metric Name Types ─────────────────────────────────
 
-export const ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic', 'criteria', 'judge_rubric'] as const;
+export const ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic', 'criteria', 'judge_rubric', 'style_fingerprint'] as const;
 export type EntityType = typeof ENTITY_TYPES[number];
 
 export const AGGREGATION_METHODS = ['sum', 'avg', 'max', 'min', 'count', 'bootstrap_mean', 'bootstrap_percentile'] as const;
@@ -127,6 +127,10 @@ export const STATIC_METRIC_NAMES = [
   'total_variants', 'winner_count',
   // Criteria metrics (run_count already declared above)
   'avg_score', 'frequency_as_weakest', 'total_variants_focused', 'avg_elo_delta_when_focused',
+  // Style fingerprint metrics (generate_enforce_style_fingerprint_evolution_20260620) —
+  // total cost of extraction LLM calls, written at CRUD time via writeMetricMax against
+  // the fingerprint entity (extraction happens outside any run, so it cannot use seed_cost).
+  'total_extraction_cost',
 ] as const;
 export type StaticMetricName = typeof STATIC_METRIC_NAMES[number];
 /**

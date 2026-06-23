@@ -44,6 +44,7 @@ import {
   type BeforeAfterRatingsMap,
 } from '../../../../services/slotTopicActions';
 import { buildParagraphRewritePrompt, PARAGRAPH_REWRITE_DIRECTIVES } from './buildParagraphRewritePrompt';
+import { renderFingerprintProse } from '../../../pipeline/setup/renderFingerprintProse';
 import { getModelMaxTemperature } from '@/config/modelRegistry';
 import { estimateParagraphRecombineCost } from '../../../pipeline/infra/estimateCosts';
 import { sentenceVerbatimOverlap } from '../../../shared/sentenceOverlap';
@@ -631,6 +632,13 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
     perSlotBudgetUsd, invocationScope, ctx, llm, slotDetails, slotWinnerTexts,
   } = params;
 
+  // generate_enforce_style_fingerprint_evolution_20260620: PARAGRAPH-shaped target style
+  // (renders the paragraph variant of the prose — drops the cross-piece anti-overuse line).
+  // undefined ⇒ no-op.
+  const paragraphStyleGuide = ctx.styleFingerprint
+    ? renderFingerprintProse(ctx.styleFingerprint.traits, 'paragraph')
+    : undefined;
+
   // Per-slot state isolation invariant (D18): each parallel processSlot allocates its OWN
   // local pool/ratings/matchCounts/completedPairs/cache. rankNewVariant mutates these in
   // place — sharing across slots would corrupt rankings.
@@ -748,7 +756,7 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
       }
       const directive = PARAGRAPH_REWRITE_DIRECTIVES[index % PARAGRAPH_REWRITE_DIRECTIVES.length];
       const temperature = paragraphRewriteTemperature(index, rewritesPerParagraph, rewriteMaxTemp);
-      const prompt = buildParagraphRewritePrompt(parentH1, slot.originalText, slot.paragraphIndex, totalSlots, directive);
+      const prompt = buildParagraphRewritePrompt(parentH1, slot.originalText, slot.paragraphIndex, totalSlots, directive, paragraphStyleGuide);
       const tStart = Date.now();
       // G1 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): snapshot
       // per-rewrite cost via slotScope.getOwnSpent() delta. The shared run-cumulative

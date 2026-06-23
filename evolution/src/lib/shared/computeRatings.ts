@@ -702,6 +702,10 @@ async function runSingleComparison(
    *  Forwarded to both hardcoded and rubric paragraph-mode prompts so the "Net
    *  informational contribution" criterion + "Original Paragraph" block render. */
   originalParagraph?: string,
+  /** generate_enforce_style_fingerprint_evolution_20260620: per-run target-style prose (mode-shaped
+   *  by the caller). Forwarded to the rubric prompt so the stylistic_accuracy dimension has an
+   *  explicit expectation. Undefined ⇒ no style block (byte-identical). */
+  targetStyleProse?: string,
 ): Promise<ComparisonResult> {
   if (rubricContext) {
     // Rubric branch: per-dimension verdicts, per-pass weighted scoring, top-level
@@ -709,8 +713,8 @@ async function runSingleComparison(
     const dimensionNames = rubricContext.dimensions.map((d) => d.name);
     return run2PassReversal<Record<string, Verdict | null>, RubricComparisonResult>({
       buildPrompts: () => ({
-        forward: buildRubricComparisonPrompt(textA, textB, rubricContext, mode, priorPicks, nextContext, originalParagraph),
-        reverse: buildRubricComparisonPrompt(textB, textA, rubricContext, mode, priorPicks, nextContext, originalParagraph),
+        forward: buildRubricComparisonPrompt(textA, textB, rubricContext, mode, priorPicks, nextContext, originalParagraph, targetStyleProse),
+        reverse: buildRubricComparisonPrompt(textB, textA, rubricContext, mode, priorPicks, nextContext, originalParagraph, targetStyleProse),
       }),
       callLLM,
       parseResponse: (resp) => parseRubricVerdict(resp, dimensionNames),
@@ -757,14 +761,16 @@ async function dispatchEnsembleComparison(
   nextContext?: readonly string[],
   /** Phase 4a-2: forwarded alongside priorPicks/nextContext. */
   originalParagraph?: string,
+  /** Style fingerprint: forwarded to each chain-member runSingleComparison. */
+  targetStyleProse?: string,
 ): Promise<ComparisonResult> {
   const models = (runner.chain.models[mode] ?? []).slice(0, runner.chain.cap);
   if (models.length === 0) {
-    return runSingleComparison(textA, textB, callLLM, mode, rubricContext, priorPicks, nextContext, originalParagraph);
+    return runSingleComparison(textA, textB, callLLM, mode, rubricContext, priorPicks, nextContext, originalParagraph, targetStyleProse);
   }
   const members: ProdSubmatchRecord[] = [];
   for (const model of models) {
-    const one = await runSingleComparison(textA, textB, runner.makeJudge(model), mode, rubricContext, priorPicks, nextContext, originalParagraph);
+    const one = await runSingleComparison(textA, textB, runner.makeJudge(model), mode, rubricContext, priorPicks, nextContext, originalParagraph, targetStyleProse);
     members.push({
       model,
       escalationStep: members.length,
@@ -833,6 +839,10 @@ export async function compareWithBiasMitigation(
   /** Phase 4a-2: parent's slot-N text. Forwarded alongside priorPicks/nextContext to
    *  both holistic and rubric paragraph-mode paths. */
   originalParagraph?: string,
+  /** generate_enforce_style_fingerprint_evolution_20260620: per-run target-style prose
+   *  (mode-shaped by the caller — article prose for article mode, paragraph prose for
+   *  paragraph mode). Forwarded to the rubric path only. Undefined ⇒ no style block. */
+  targetStyleProse?: string,
 ): Promise<ComparisonResult> {
   // NOTE (B029/B039): makeCacheKey is keyed on the texts only, NOT on `mode`. This is safe
   // because each call site uses a mode-homogeneous cache. When a rubric is in play the key
@@ -851,8 +861,8 @@ export async function compareWithBiasMitigation(
   }
 
   const result = ensembleRunner
-    ? await dispatchEnsembleComparison(textA, textB, callLLM, mode, rubricContext, ensembleRunner, priorPicks, nextContext, originalParagraph)
-    : await runSingleComparison(textA, textB, callLLM, mode, rubricContext, priorPicks, nextContext, originalParagraph);
+    ? await dispatchEnsembleComparison(textA, textB, callLLM, mode, rubricContext, ensembleRunner, priorPicks, nextContext, originalParagraph, targetStyleProse)
+    : await runSingleComparison(textA, textB, callLLM, mode, rubricContext, priorPicks, nextContext, originalParagraph, targetStyleProse);
 
   // B033: cache partial-failure results at `confidence >= 0.3` (was `> 0.3`). The 0.3
   // boundary result (one forward pass succeeded + one null) is deterministic once

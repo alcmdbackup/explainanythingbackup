@@ -15,6 +15,14 @@
       "docs": ["evolution/docs/implicit_rubric_weights.md"]
     },
     {
+      "pattern": "evolution/src/**/*[Ss]tyleFingerprint*.ts",
+      "docs": ["docs/feature_deep_dives/style_fingerprint.md"]
+    },
+    {
+      "pattern": "src/app/admin/evolution/style-fingerprints/**",
+      "docs": ["docs/feature_deep_dives/style_fingerprint.md"]
+    },
+    {
       "pattern": "src/lib/services/tags*.ts",
       "docs": ["docs/feature_deep_dives/tag_system.md"]
     },

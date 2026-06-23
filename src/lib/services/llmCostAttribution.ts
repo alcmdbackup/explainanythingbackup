@@ -37,6 +37,7 @@ const ENTITY_BY_SOURCE: Record<string, string> = {
   [CALL_SOURCES.evolutionJudgeEval]: 'Evolution: judge eval',
   [CALL_SOURCES.evolutionPromptEditor]: 'Evolution: prompt editor',
   [CALL_SOURCES.evolutionWeightInference]: 'Evolution: weight inference',
+  [CALL_SOURCES.evolutionStyleFingerprintExtraction]: 'Evolution: style fingerprint extraction',
   [CALL_SOURCES.matchViewerRejudge]: 'Arena rejudge',
 };
 
