@@ -3,7 +3,7 @@
 ## Background
 Look at recent CI runs as well as `docs/docs_overall/testing_overview.md`, `docs/docs_overall/environments.md`, and `docs/feature_deep_dives/testing_setup.md` and look for ways to make tests less flaky and more reliable. Amend the testing overview if necessary with any new findings.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1268)
 - Look at recent CI runs (GitHub Actions: `ci.yml`, `e2e-nightly.yml`, `post-deploy-smoke.yml`, `supabase-migrations.yml`) to identify recurring flakiness / stability patterns.
 - Review the three named docs for existing flakiness rules and coverage gaps:
   - `docs/docs_overall/testing_overview.md`
