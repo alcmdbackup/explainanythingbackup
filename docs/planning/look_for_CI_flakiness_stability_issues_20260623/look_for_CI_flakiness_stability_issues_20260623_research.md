@@ -23,7 +23,9 @@ Three root-cause patterns + three systemic gaps emerged (details in Key Findings
 - **Enforcement:** `flakiness/require-hydration-wait` only fires on POM `navigate→click`, so inline spec `navigate→assert-on-deep-element` bypasses it.
 - **Observability:** flaky/retry data already exists in `test-results/results.json` (Playwright JSON reporter) but is never surfaced; nightly auto-issues carry no failing-test names.
 
-A non-issue worth recording to prevent future false alarms: **post-deploy-smoke "skipped" runs are correct behavior** — they are `deployment_status` events from non-production/preview deploys filtered out by the job `if:`; real coverage runs on `push:[production]`.
+A non-issue worth recording to prevent future false alarms: **post-deploy-smoke "skipped" runs are correct behavior** — they are `deployment_status` events from non-production/preview deploys filtered out by the job `if:`; real coverage runs on `push:[production]` (8 lifetime prod-push runs, all succeeded).
+
+**Update (broad sweep, 2026-06-23):** a thorough multi-run sweep (4 agents over ~18 CI failures + all 7 scheduled workflows) found this is **not** a single-source problem — there are **5 distinct flakiness sources**, two of them higher-impact than the original `toBeVisible` cluster. See "Additional flakiness sources" below.
 
 ## Documents Read
 
@@ -73,16 +75,39 @@ A non-issue worth recording to prevent future false alarms: **post-deploy-smoke 
 2. **Sub-default hardcoded expect timeouts** — specs pass `{ timeout: 10000 }` (or other literals < the env-scaled default), which *reduces* the CI/prod budget rather than relying on the config default that scales 10s→20s→60s. Lint-detectable; strong candidate for a new `flakiness/*` rule (flag hardcoded expect/visibility timeouts below the local default, or any hardcoded literal where the config default would be larger).
 3. **Retry-masked flakes are invisible + nightly issues are detail-free** — `test-results/results.json` captures flaky/failed test titles but nothing ingests it. Opportunity: a small CI step that parses `results.json` to (a) emit a job **step-summary / annotation** listing flaky (passed-on-retry) tests, and (b) embed failing+flaky test names into the `notify-release-health` issue body so triage survives log expiry.
 
+### Additional flakiness sources (broad sweep, 2026-06-23)
+Verified across ~18 recent CI failures (last ~2 days, logs recovered via `gh api .../jobs/<id>/logs`) + all 7 scheduled workflows (nightly failures recovered from non-expired Playwright report artifacts). Ordered by impact.
+
+**S1 — `webServer` startup timeout (whole-job flake, ~20% of failed CI runs).** Error `Timed out waiting Nms from config.webServer` → Next.js dev/build never finished compiling → **no tests ran, whole E2E job red**. Found in 4 of 20 inspected failed runs (`27965342067`, `27962655857`, `27961954996`, `27918994139`). Root cause: the CI webServer command is `npm run build && npm start` under a **single** webServer timeout, so a cold/slow `.next` build eats the server-start budget. The timeout was just bumped **180000→240000ms on 2026-06-22 (PR #1258, `de2113413`)** — a partial mitigation; the structural issue (build bundled into start budget) remains. Systematic fix space: run `npm run build` as a **separate CI step** before Playwright and have `webServer.command` be just `npm start` with a short timeout (decouples build time from start budget; lets the build step own its caching/retry). Secondary webServers (3009/3010) are correctly gated behind `RUN_GUEST_AUTO_TESTS`/`RUN_PROD_AI`, so no multi-build on the standard path. **NOT covered by the original plan.**
+
+**S2 — Nightly real-AI transient failures (the actual cause of nightly red).** All three recent nightly failures (06-07, 06-19, 06-22) share an identical signature across browsers — these are real-AI-only and **cannot** reproduce in PR-CI (which mocks LLMs):
+  - `action-buttons.spec.ts › should save explanation to library` (public/@critical) — prod AI streaming returns `Error communicating with AI service`; 3 retries all fail. Most consistent nightly flake.
+  - `admin-evolution-run-pipeline.spec.ts › run completed successfully` + `admin-evolution-iterative-editing.spec.ts › exactly one final variant` (evolution shard, **real** minicomputer run) — run status returns `failed`; matches the documented OpenRouter **402 credit / 429 quota** arena-only wipeout (detector exists: `evolution/scripts/detectArenaOnlyWipeouts.ts`).
+  These are "deterministic-when-the-backend-is-down, intermittent-over-time." Fix space is mostly ops + triage classification (distinguish AI-backend-down from code regression) rather than test code; the planned results.json→issue surfacer (gap #3) directly helps capture them.
+
+**S3 — `admin-evolution-iterative-editing.spec.ts:189` is the dominant chronic flaky spec (8 runs).** Flaky (passed-on-retry) in 8 distinct runs; in some runs it *hard-fails* all retries due to a real pipeline/FK issue, so it's a mixed-signal spec. Confirms the 09-admin cluster (S+original finding) is chronic, not a one-off. The matches / paragraph-recombine / judge-lab-test-sets specs each flaked in ≥2 runs.
+
+**S4 — Integration (Evolution) 429/503 noise.** Integration job logs show 15–32 hits of HTTP 429 (rate limit) / 503 in 3 runs (`27988932726`, `27961544483`, `27886052639`), interleaved with real assertion failures. Latent rate-limit flake risk (likely Supabase auth or an under-mocked API under `maxWorkers:1` rapid calls; cf. testing_setup "Supabase rate limits" known issue). Worth a scoped look; may be partly ops.
+
+**S5 — `Verify Seed Reuse` workflow has NEVER run (dead coverage).** `verify-seed-reuse.yml` is "active" but has 0 lifetime runs — its trigger never fires, so it provides zero signal. Not flakiness per se, but a stability/coverage gap worth fixing or removing.
+
+**Minor / not-flake (recorded to avoid mis-triage):**
+- `supabase-migrations` "Check migration order" fails on feature branches with out-of-order timestamps (3/20) — deterministic gate working as intended; expected pre-merge noise.
+- Real recurring **bugs** (not flake) that dominate red and must not be "stabilized" away: `character varying(255) does not match expected type text` RPC return-type drift (4 runs, one 10-spec wipeout), `schema_migrations_pkey` collision (2 runs), `Module not found: 'fs'` client-bundle break (1 run).
+- `e2e-real-ai-smoke.yml` 20/20 green; `Evolution Run Health` 9/9 green; post-deploy-smoke prod-push runs all green.
+
 ### Doc-amendment targets (the deliverable)
 - `testing_overview.md` — add a rule (+ Enforcement Summary row) for sub-default hardcoded timeouts; extend Rule 18 note to cover inline-spec navigate→assert; add a short "Surfacing retry-masked flakes" subsection if the results.json surfacer is built.
 - `testing_setup.md` — note the `results.json` flaky-capture + any new surfacer script.
 - `environments.md` — note any change to `notify-release-health` issue body; record that post-deploy-smoke "skipped" deployment_status runs are expected.
 
 ## Open Questions
-1. **Scope** — Docs-only amendment (Option A), or docs + at least one new enforced rule / CI surfacer (Option B)? The strongest systematic wins are gaps #2 (new lint rule) and #3 (results.json surfacer). Recommend Option B with the timeout-lint + the flaky surfacer; defer the hydration-rule extension (#1) if AST work proves heavy.
-2. **Fix the live flakes now?** — Should this project also fix the 3 root-cause specs (paragraph-recombine hydration wait, prompt-registry await+timeout, judge-lab filter reset), or only add enforcement + docs and leave spec fixes to owners? Fixing them validates the new rules against real cases.
-3. **Nightly triage** — Is embedding failing-test names into the release-health issue enough, or is a longer Actions log-retention bump also wanted?
-4. **Timeout-rule threshold** — what literal counts as "too short"? Proposal: flag any hardcoded `{ timeout: N }` on `expect`/`toBeVisible`/`waitFor` where `N < 15000`, with an eslint-disable escape hatch for justified long-poll cases.
+*(Original Q1–Q4 resolved via AskUserQuestion — see `_planning.md` "Resolved Open Questions": Option B + fix specs; nightly = embed test names in issue; threshold `N <= 10000`. The broad sweep adds new scope questions Q5–Q8.)*
+
+5. **Fold S1 (webServer build/start decouple) into this project?** Highest-impact infra flake (~20% of failed runs), but it's a CI-workflow + `playwright.config.ts` change touching the E2E pipeline — larger blast radius, partially mitigated already by the 180→240s bump (PR #1258). Recommend **yes, as its own phase**: move `npm run build` to a dedicated CI step and reduce `webServer.command` to `npm start` with a short timeout. Biggest single reliability win found.
+6. **S2 (nightly real-AI flakes) — fix vs document+detect?** Real-AI/ops nondeterminism, not test-code bugs. Recommend: the planned results.json→issue surfacer captures them; additionally **document** them in testing_overview as a known nightly-flake class and have triage distinguish "AI-backend-down" (transient) from code regressions. No spec rewrite.
+7. **S4 (integration 429/503) — investigate now or defer?** Needs a scoped dig (which API rate-limits, is a mock missing). Recommend a short timeboxed investigation; defer the fix to a follow-up if root cause is ops/provider-side.
+8. **S5 (`Verify Seed Reuse` never runs) — fix trigger or remove?** Quick cleanup: repair the trigger or delete the dead workflow. Recommend including as a tiny task.
 
 ## Code Files Read
 - `eslint.config.mjs` — flat-config registration + file-glob scoping of all `flakiness/*` rules (the scope table).
