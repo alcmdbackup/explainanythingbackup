@@ -62,8 +62,10 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 15. **Restore global.fetch in unit tests.** Any test that assigns `global.fetch` must save the original and restore it in `afterEach`: `const originalFetch = global.fetch; afterEach(() => { global.fetch = originalFetch; });`
 16. **E2E specs that import database tools must have afterAll cleanup.** Any spec file importing `@supabase/supabase-js`, `test-data-factory`, or `evolution-test-helpers` must include a `test.afterAll` or `adminTest.afterAll` block that deletes created entities. Enforced by ESLint `flakiness/require-test-cleanup`.
 17. **Never hardcode URLs in Page Objects or fixtures.** Use `page.goto('/relative-path')` so Playwright resolves against the configured `baseURL`. Never construct absolute URLs with `process.env.BASE_URL || 'http://localhost:...'` — the fallback port will be wrong when the dev server runs on a dynamic port. If you need the base URL outside `page.goto()` (e.g., cookie domain), read it from `process.env.BASE_URL` which is set by `playwright.config.ts` from instance discovery. Enforced by ESLint `flakiness/no-hardcoded-base-url`.
-18. **Wait for hydration proof before interacting.** Visible !== interactive. After navigating to a page with dynamic imports or server-fetched data, wait for a data-dependent element (e.g., a table with rows, a loaded form) before clicking buttons or links. A button can be visible in SSR HTML but not wired to its React handler until hydration completes. Pattern: `await table.waitFor({ state: 'visible', timeout: 30000 }); await button.click();` Enforced by ESLint `flakiness/require-hydration-wait`.
+18. **Wait for hydration proof before interacting — and before asserting on deep elements.** Visible !== interactive. After navigating to a page with dynamic imports or server-fetched data, wait for a data-dependent element (e.g., a table with rows, a loaded form) before clicking buttons or links. A button can be visible in SSR HTML but not wired to its React handler until hydration completes. Pattern: `await table.waitFor({ state: 'visible', timeout: 30000 }); await button.click();` Enforced by ESLint `flakiness/require-hydration-wait` (which targets POM `navigate→click`). **The same applies to inline-spec `navigate→assert`:** navigating and then immediately `expect(deepElement).toBeVisible()` on an SSR-rendered shell element (tab buttons, headers) races hydration the same way — wait for a data-loaded proof element first. The `admin-evolution-paragraph-recombine.spec.ts:64` flake (June 2026) was exactly this: it asserted `[role="tab"]` buttons (server-rendered) before the Slots tab panel had hydrated; fixed by waiting for `[data-testid="paragraph-slots-tab"]` first. The lint rule does not yet catch the inline-spec form — apply the pattern by hand.
 19. **Stale specs must be deleted with the feature.** When removing a feature, delete its E2E specs in the same commit/PR as the feature removal. Orphaned specs cannot pass and pollute CI noise once the next branch tries to run them. Enforced by `npm run check:stale-specs`, which fails any PR whose specs reference `data-testid` values that no source file under `src/components/`, `src/app/`, `src/lib/`, `src/hooks/`, `src/editorFiles/`, or `evolution/src/` produces. PR #930 post-merge had to delete `admin-evolution-anchor-ranking.spec.ts` (added in #855) because the "anchor" concept was removed in #929 but its 111-line spec was not.
+20. **Never hardcode a per-assertion `timeout` that is <= the local `expect` default (10000ms).** Playwright's `expect` timeout is env-scaled by `playwright.config.ts` (local 10s / CI 20s / production 60s). A literal `{ timeout: N }` with `N <= 10000` on a web-first assertion (`toBeVisible`/`toHaveText`/`toHaveCount`/…) or `locator.waitFor` **overrides** that scaling to one fixed value everywhere — so in CI/prod it *shrinks* the budget below the config default, making the assertion more likely to flake under load, not less. Prefer dropping the `timeout` option entirely (use the scaled default); for a genuinely slow operation use a literal **larger** than the default. The `admin-prompt-registry.spec.ts:61` flake was a `{ timeout: 10000 }` on the post-create row assertion that gave the create round-trip + list refresh only 10s in CI instead of 20s. Enforced as `warn` (while the ~122-site backlog is burned down — promote to `error` once clean) by ESLint `flakiness/no-subdefault-expect-timeout`.
+21. **Build the app in a dedicated CI step, not inside the Playwright `webServer` command.** When the CI `webServer.command` is `npm run build && npm start`, the Next build competes with the webServer **start** timeout — a cold `.next` build can exhaust it, producing `Timed out waiting from config.webServer` and a whole-job failure with zero tests run (this was ~20% of failed CI runs in June 2026). Run `npm run build` as its own job step before Playwright, and keep `webServer.command` **start-only** (`npm start`) with a short start budget (~120s). The build then owns its own caching/retry. Workflows that test against a deployed URL (set `BASE_URL`) disable the webServer and are unaffected.
 
 ### Enforcement Summary
 
@@ -88,7 +90,9 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 | Rule 15: Restore global.fetch | Code review + `afterEach` pattern | Edit-time |
 | Rule 16: E2E cleanup for DB imports | ESLint `flakiness/require-test-cleanup` | Lint (CI + IDE) |
 | Rule 17: No hardcoded URLs in POMs | ESLint `flakiness/no-hardcoded-base-url` | Lint (CI + IDE) |
-| Rule 18: Wait for hydration proof | ESLint `flakiness/require-hydration-wait` | Lint (CI + IDE) |
+| Rule 18: Wait for hydration proof | ESLint `flakiness/require-hydration-wait` (POM navigate→click only; inline-spec navigate→assert is by-hand) | Lint (CI + IDE) |
+| Rule 20 (new): No sub-default hardcoded assertion timeouts | ESLint `flakiness/no-subdefault-expect-timeout` (warn) | Lint (CI + IDE) |
+| Rule 21 (new): Build in a dedicated CI step; webServer start-only | `ci.yml` "Build app for E2E" step + start-only `playwright.config.ts` webServer | CI (config/review) |
 | Column label uniqueness | ESLint `flakiness/no-duplicate-column-labels` | Lint (CI + IDE) |
 | Timeout cascade detection | ESLint `flakiness/warn-slow-with-retries` (warn) | Lint (CI + IDE) |
 | Mandatory LLM call_source attribution | ESLint `flakiness/require-llm-call-source` (callLLM 2nd arg must be `CALL_SOURCES.*`/factory, not literal/cast) | Lint (CI + IDE) |
@@ -351,7 +355,7 @@ E2E tests run after lint/tsc/build/unit/integration checks pass. The dev server 
 |--------|-------|-----|
 | **Unit tests** | Same behavior | `--maxWorkers=2` |
 | **Integration** | Same behavior | Same behavior |
-| **E2E server** | `npm run dev` (HMR, strict mode) | `npm run build && npm start` |
+| **E2E server** | `npm run dev` (HMR, strict mode) | `npm run build` (dedicated step) → start-only `npm start` webServer |
 | **E2E retries** | 0 | 2 |
 | **E2E timeout** | 30s test / 10s expect | 60s test / 20s expect |
 | **E2E mode** | `E2E_TEST_MODE` via env | `E2E_TEST_MODE` inline at runtime |
@@ -415,6 +419,16 @@ Firefox was retired from CI on 2026-06-12; the `e2e-evolution` PR-CI job is now 
 - **Fail strategy:** Continues on failure (tests all browsers)
 - **Secrets:** Uses `environment: Production` secrets (production Supabase URL, test user credentials, Vercel bypass token)
 
+#### Surfacing nightly failures (results.json → release-health issue)
+
+On failure, the `notify-release-health` job no longer files a run-URL-only issue. Each matrix row uploads its `test-results/results.json` artifact; the notify job downloads them and runs `scripts/summarize-test-results.ts`, which parses the Playwright JSON report(s) and embeds the actual **failed** + **flaky** (passed-on-retry) test names into the `[release-health]` issue body (and recurrence comment), de-duplicated across rows. This makes triage survive GitHub Actions log expiry — the original failure mode where a 3-day-old issue pointed at logs that no longer existed. The summarizer also tags likely-transient entries (`transient-AI?`) using the patterns below. *Known limitation:* the issue is created `if: failure()`, so flakes on a **green** nightly are not surfaced.
+
+#### Known nightly real-AI flake class
+
+Nightly runs real AI against production (no `E2E_TEST_MODE`), so some "failures" are upstream-AI/ops nondeterminism, **not** code regressions, and **cannot reproduce in PR-CI** (which mocks LLMs). Recognize and triage these as transient (the surfacer tags them `transient-AI?`):
+- `action-buttons.spec.ts › should save explanation to library` failing with `Error communicating with AI service` — a transient prod AI-streaming/provider error (all retries fail when the backend is down).
+- `admin-evolution-run-pipeline.spec.ts › run completed successfully` / `admin-evolution-iterative-editing.spec.ts › exactly one final variant` returning run status `failed` — the OpenRouter **402 credit / 429 quota** arena-only wipeout (detector: `evolution/scripts/detectArenaOnlyWipeouts.ts`; see debugging.md "arena_only wipeout"). Fix is ops (top up credits / switch model), not test code.
+
 ### Post-Deploy Smoke Tests (`post-deploy-smoke.yml`)
 
 **Trigger:** Vercel deployment completes successfully to Production
@@ -440,7 +454,7 @@ Firefox was retired from CI on 2026-06-12; the `e2e-evolution` PR-CI job is now 
 | **E2E_TEST_MODE** | Yes (mocked SSE) | No (real AI) | No (real AI) |
 | **@skip-prod** | runs locally + in CI (config `grepInvert` is prod-gated on `isProduction`) | excluded via CLI `--grep-invert="@skip-prod"` + the now prod-gated config `grepInvert` | N/A (only @smoke runs) |
 
-> **Note:** CI workflow builds and runs the app locally on the GitHub runner (`npm run build && npm start`). Nightly and Post-Deploy Smoke workflows test against the live production deployment (no local build).
+> **Note:** CI workflow builds and runs the app locally on the GitHub runner — `npm run build` runs as a **dedicated step** before Playwright, then the start-only `npm start` webServer boots the prebuilt app (Rule 21). Nightly and Post-Deploy Smoke workflows test against the live production deployment (no local build).
 
 > **Note:** The backup mirror repo (`alcmdbackup/explainanythingbackup`) receives code pushes from `/finalize` and `/mainToProd` but has no CI workflows enabled. It is an append-only code store, not a test target.
 
