@@ -103,8 +103,14 @@ against `SUM(evolution_agent_invocations.cost_usd)` and the run-level `evolution
 5. **The 06-21 claim-gate works going forward** — test spend collapsed from ~$11/day to ~$0.3/day after it landed. The $33.82 is mostly pre-gate history.
 6. **Data already exists; this is a read-path + classification problem, not a backfill problem.** `llmCallTracking` rows for the gap window are unbackfillable (no token data / join key).
 
-## Open Questions
-1. **Which exact surface did the user see "$3" on** — `/admin/costs` (llmCallTracking, ~$0 for evolution) or `/admin/evolution-dashboard` with "Hide test content" ON (~$3 real)? This changes the fix emphasis. (Recommend confirming with the user.)
+## Resolved Decisions (user, 2026-06-23)
+- **Surface in scope:** `/admin/costs` page (the `llmCallTracking`-based one — broken for evolution). (Q1)
+- **Deliverable:** fix the `/admin/costs` read path **AND** do **foundational rework** so that *all* spend (evolution + non-evolution) is captured by a canonical, complete cost source — so future cost consumers cannot silently under-report. (Q2)
+- **Environment:** Dev only for now; prod check deferred. (Q4)
+- Implication: the goal is a **single complete cost ledger / canonical read** rather than a point-fix to one action. The core defect is that `llmCallTracking` is supposed to be the per-call ledger for ALL LLM calls, but evolution calls don't reliably write to it (audit-gap), so every consumer that reads `llmCallTracking` under-reports total spend by the evolution amount. Foundational options to weigh in planning: (A) make evolution calls reliably write `llmCallTracking` so one ledger is complete going forward; (B) a canonical unified cost view/RPC that UNIONs non-evolution `llmCallTracking` + evolution `evolution_agent_invocations` (dedup-safe, no double count); (C) both — fix the write path forward + unified read covering the historical gap.
+
+## Open Questions (Q1/Q2/Q4 resolved above; remaining)
+1. ~~**Which exact surface did the user see "$3" on**~~ — `/admin/costs` (llmCallTracking, ~$0 for evolution) or `/admin/evolution-dashboard` with "Hide test content" ON (~$3 real)? This changes the fix emphasis. (Recommend confirming with the user.)
 2. **Scope of fix:** make `/admin/costs` read evolution cost from `evolution_agent_invocations` (mirror `getRunCostsWithFallback`) so the headline reflects truth? Or is the deliverable primarily to **surface test vs real spend** so test money is "adequately accounted for"?
 3. **Should test-strategy spend be shown as a first-class line** (e.g., a "test" category in the stacked chart / By-Entity tab) rather than only toggled in/out?
 4. **Prod vs Dev:** these numbers are Dev. Production (minicomputer → prod DB) evolution spend is separate; should `/admin/costs` on the evolution (prod) host be checked via `npm run query:prod` to confirm the same gap there?
