@@ -76,11 +76,13 @@ function pctWithCI(value: number | null, ci: WilsonInterval | null): string {
 function Tile({
   label,
   value,
+  denominator,
   formula,
   testId,
 }: {
   label: string;
   value: string;
+  denominator: string;
   formula: string;
   testId?: string;
 }): JSX.Element {
@@ -91,6 +93,9 @@ function Tile({
     >
       <div className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">{label}</div>
       <div className="text-sm font-mono text-[var(--text-primary)]">{value}</div>
+      <div className="text-xs font-ui text-[var(--text-secondary)] leading-tight">
+        per <strong>{denominator}</strong>
+      </div>
       <div className="text-xs font-mono italic text-[var(--text-muted)] leading-tight">{formula}</div>
     </div>
   );
@@ -159,40 +164,52 @@ export default function AgreementRunDetailPage(): JSX.Element {
   // Each tile carries its computation as a small formula line so the metric is unambiguous
   // without consulting docs. Formulas are evaluated over the error-free per-(pair × repeat)
   // call set, kind-filtered. "committed" = confidence > 0.6 AND winner ∈ {A, B}.
-  const tiles: Array<{ label: string; value: string; formula: string; testId: string }> = [
+  const tiles: Array<{
+    label: string;
+    value: string;
+    denominator: string;
+    formula: string;
+    testId: string;
+  }> = [
     {
       label: 'Per-pair (most-common) agreement',
       value: pctWithCI(metrics.perPairModalAgreeRate, metrics.perPairModalAgreeRateCi),
-      formula: 'pairs where most-common(rubric_winner) = most-common(holistic_winner) / total pairs · TIE=TIE counts as agreement · collapses N repeats into one verdict per judge',
+      denominator: `${metrics.nPairs} pair${metrics.nPairs === 1 ? '' : 's'} (collapses N repeats into one verdict per judge per pair)`,
+      formula: 'pairs where most-common(rubric_winner) = most-common(holistic_winner) / total pairs · TIE=TIE counts as agreement',
       testId: 'tile-per-pair',
     },
     {
       label: 'Per-repeat agreement',
       value: pctWithCI(metrics.perRepeatAgreeRate, metrics.perRepeatAgreeRateCi),
+      denominator: `${metrics.n} call${metrics.n === 1 ? '' : 's'} (every pair × repeat counted separately)`,
       formula: 'calls where rubric_winner = holistic_winner / total calls · TIE=TIE counts as agreement · no decisive filter',
       testId: 'tile-per-repeat',
     },
     {
       label: 'Both-decisive agreement',
       value: pctWithCI(metrics.bothDecisiveAgreeRate, metrics.bothDecisiveAgreeRateCi),
+      denominator: 'calls where both judges confidence > 0.6 (high-confidence TIE counts as a verdict, not an abstention)',
       formula: 'calls where rubric_winner = holistic_winner AND both confidence > 0.6 / calls where both confidence > 0.6 · mutual TIE@>0.6 counts as agreement',
       testId: 'tile-both-decisive',
     },
     {
       label: 'Single-judge abstain',
       value: pctWithCI(metrics.abstainDivergenceRate, metrics.abstainDivergenceRateCi),
+      denominator: `${metrics.n} call${metrics.n === 1 ? '' : 's'} (every pair × repeat counted separately) · counts calls where exactly one of the two judges committed`,
       formula: 'calls where exactly one judge is committed to A or B / total calls · committed = confidence > 0.6 AND winner ∈ {A, B} · mutual TIE does NOT count as divergence',
       testId: 'tile-abstain',
     },
     {
       label: 'Holistic position bias',
       value: pctWithCI(metrics.holisticPositionBiasRate, metrics.holisticPositionBiasRateCi),
+      denominator: 'calls where both holistic passes parsed (forward + reverse winners both non-null)',
       formula: 'calls where holistic_forward_winner ≠ holistic_reverse_winner / calls where both passes parsed · derived server-side from stored raws',
       testId: 'tile-holistic-pos-bias',
     },
     {
       label: 'Rubric position bias',
       value: pctWithCI(metrics.rubricPositionBiasRate, metrics.rubricPositionBiasRateCi),
+      denominator: 'calls where both rubric passes parsed (forward + reverse winners both non-null)',
       formula: 'calls where rubric_forward_winner ≠ rubric_reverse_winner / calls where both passes parsed · derived server-side from stored raws',
       testId: 'tile-rubric-pos-bias',
     },
@@ -424,7 +441,14 @@ export default function AgreementRunDetailPage(): JSX.Element {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3" data-testid="agreement-metrics">
               {tiles.map((t) => (
-                <Tile key={t.label} label={t.label} value={t.value} formula={t.formula} testId={t.testId} />
+                <Tile
+                  key={t.label}
+                  label={t.label}
+                  value={t.value}
+                  denominator={t.denominator}
+                  formula={t.formula}
+                  testId={t.testId}
+                />
               ))}
             </div>
             <p className="text-xs font-ui" style={{ color: 'var(--text-muted)' }}>
@@ -491,18 +515,21 @@ export default function AgreementRunDetailPage(): JSX.Element {
               <Tile
                 label="Holistic judge"
                 value={pctWithCI(metrics.holisticAccuracy, metrics.holisticAccuracyCi)}
+                denominator="committed holistic calls on large-gap pairs (confidence > 0.6 AND winner ∈ {A, B}; confident TIE excluded as abstention)"
                 formula="committed holistic calls where holistic_winner = expected_winner / committed holistic calls on large-gap pairs"
                 testId="tile-holistic-acc"
               />
               <Tile
                 label="Rubric judge"
                 value={pctWithCI(metrics.rubricAccuracy, metrics.rubricAccuracyCi)}
+                denominator="committed rubric calls on large-gap pairs (confidence > 0.6 AND winner ∈ {A, B}; confident TIE excluded as abstention)"
                 formula="committed rubric calls where rubric_winner = expected_winner / committed rubric calls on large-gap pairs"
                 testId="tile-rubric-acc"
               />
               <Tile
                 label="Δ (rubric − holistic)"
                 value={metrics.accuracyDelta == null ? '—' : pct(metrics.accuracyDelta)}
+                denominator="not a rate — difference of two accuracy rates (above), so no single denominator"
                 formula="rubric_accuracy − holistic_accuracy · positive = rubric beats holistic; negative = the reverse"
                 testId="tile-acc-delta"
               />
