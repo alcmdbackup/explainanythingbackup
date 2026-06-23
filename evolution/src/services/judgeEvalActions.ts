@@ -29,10 +29,12 @@ import {
   DEFAULT_JUDGE_EVAL_MAX_CALLS,
   DEFAULT_JUDGE_EVAL_MAX_USD,
 } from '@evolution/lib/judgeEval/settings';
-import { parseWinner } from '@evolution/lib/shared/computeRatings';
-import { parseRubricVerdict } from '@evolution/lib/shared/rubricJudge';
 import { wilsonScoreCI } from '@evolution/lib/shared/wilsonCI';
 import type { PositionBiasAggregates } from '@evolution/lib/judgeEval/agreementMetrics';
+import {
+  computePositionBiasFromRaws,
+  type RawsRow,
+} from '@evolution/lib/judgeEval/positionBiasFromRaws';
 import {
   executeEscalationSweep,
   type EscalationSweepOutcome,
@@ -945,89 +947,10 @@ export const getAgreementRunDetailAction = adminAction(
         .eq('agreement_run_id', runId)
         .is('error', null);
       if (!rawsRes.error && rawsRes.data) {
-        type RawRow = {
-          pair_kind: 'article' | 'paragraph';
-          holistic_forward_raw: string | null;
-          holistic_reverse_raw: string | null;
-          rubric_forward_raw: string | null;
-          rubric_reverse_raw: string | null;
-        };
-        // parseRubricVerdict returns Record<string, Verdict | null>; reduce to a winner via simple
-        // majority (treats null/unparsable as "no signal" for position-bias purposes).
-        const winnerOf = (rec: Record<string, string | null> | null): string | null => {
-          if (!rec) return null;
-          let a = 0, b = 0;
-          for (const v of Object.values(rec)) {
-            if (v === 'A') a += 1;
-            else if (v === 'B') b += 1;
-          }
-          if (a === 0 && b === 0) return null;
-          if (a > b) return 'A';
-          if (b > a) return 'B';
-          return 'TIE';
-        };
-        // Critical: the reverse pass's prompt swaps the texts (text_b labeled "A",
-        // text_a labeled "B"). So a literal "A" from the reverse pass means variant_b
-        // won in canonical terms. We MUST flip the reverse pass's letter back to
-        // canonical before comparing — without the flip, the metric is INVERTED
-        // (raw-letter mismatch = canonical agreement = unbiased, but we were calling
-        // that "position bias"). Also, position bias is only meaningful when BOTH
-        // passes committed to a definite A or B; one-TIE-one-committed and
-        // mutual-TIE are excluded from the denominator (they reflect indecision,
-        // not position bias).
-        const flipCanonical = (w: 'A' | 'B' | 'TIE' | null): 'A' | 'B' | 'TIE' | null => {
-          if (w === 'A') return 'B';
-          if (w === 'B') return 'A';
-          return w; // TIE / null unchanged
-        };
-        for (const r of rawsRes.data as unknown as RawRow[]) {
-          const kindBucket = positionBias[r.pair_kind];
-
-          // Holistic: parseWinner on each raw, flip reverse to canonical, compare.
-          // parseWinner returns string | null — narrow to the 3-value alphabet before flipping.
-          const narrowWinner = (s: string | null): 'A' | 'B' | 'TIE' | null =>
-            s === 'A' || s === 'B' || s === 'TIE' ? s : null;
-          const hFwdRaw = narrowWinner(r.holistic_forward_raw ? parseWinner(r.holistic_forward_raw) : null);
-          const hRevRaw = narrowWinner(r.holistic_reverse_raw ? parseWinner(r.holistic_reverse_raw) : null);
-          const hRevCanonical = flipCanonical(hRevRaw);
-          // Only count when BOTH passes committed to a definite A or B.
-          if (
-            (hFwdRaw === 'A' || hFwdRaw === 'B') &&
-            (hRevCanonical === 'A' || hRevCanonical === 'B')
-          ) {
-            kindBucket.holisticParsed += 1;
-            positionBias.both.holisticParsed += 1;
-            if (hFwdRaw !== hRevCanonical) {
-              kindBucket.holisticMismatch += 1;
-              positionBias.both.holisticMismatch += 1;
-            }
-          }
-
-          // Rubric: parseRubricVerdict needs dimension names. Per-pass winner via
-          // simple majority of per-criterion verdicts, then flip reverse to canonical.
-          if (dimNames.length > 0) {
-            const rFwdVerdicts = r.rubric_forward_raw
-              ? parseRubricVerdict(r.rubric_forward_raw, dimNames)
-              : null;
-            const rRevVerdicts = r.rubric_reverse_raw
-              ? parseRubricVerdict(r.rubric_reverse_raw, dimNames)
-              : null;
-            const rFwd = narrowWinner(winnerOf(rFwdVerdicts));
-            const rRev = narrowWinner(winnerOf(rRevVerdicts));
-            const rRevCanonical = flipCanonical(rRev);
-            if (
-              (rFwd === 'A' || rFwd === 'B') &&
-              (rRevCanonical === 'A' || rRevCanonical === 'B')
-            ) {
-              kindBucket.rubricParsed += 1;
-              positionBias.both.rubricParsed += 1;
-              if (rFwd !== rRevCanonical) {
-                kindBucket.rubricMismatch += 1;
-                positionBias.both.rubricMismatch += 1;
-              }
-            }
-          }
-        }
+        // Derivation lives in a pure module so it can be unit-tested. The reverse pass's
+        // winner letter is flipped to canonical (A↔B) before comparison — see
+        // positionBiasFromRaws.ts for the full rationale + the bug-fix history.
+        Object.assign(positionBias, computePositionBiasFromRaws(rawsRes.data as RawsRow[], dimNames));
       }
     }
 
