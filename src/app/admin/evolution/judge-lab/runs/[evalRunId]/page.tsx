@@ -146,11 +146,11 @@ export default function EvalRunDetailPage(): JSX.Element {
       </div>
 
       <div className="rounded-book paper-texture card-enhanced p-4">
-        <div className="text-sm font-semibold font-ui mb-2" role="heading" aria-level={2}>Per-pair</div>
+        <div className="text-sm font-semibold font-ui mb-2" role="heading" aria-level={2}>Per-match</div>
         <table className="w-full text-xs" data-testid="per-pair-table">
           <thead>
             <tr className="text-left text-[var(--text-muted)]">
-              <th className="py-1">Pair</th><th>Kind</th><th>Decisive</th><th>Avg conf</th><th>N</th>
+              <th className="py-1">Match</th><th>Kind</th><th>Decisive</th><th>Avg conf</th><th>N</th>
             </tr>
           </thead>
           <tbody>
@@ -166,7 +166,7 @@ export default function EvalRunDetailPage(): JSX.Element {
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-[var(--text-muted)]">* accuracy uses large-gap pairs only (mu-gap ground truth); close pairs are tie-acceptable.</p>
+      <p className="text-xs text-[var(--text-muted)]">* accuracy uses large-gap matches only (mu-gap ground truth); close matches are tie-acceptable.</p>
     </div>
   );
 }

@@ -178,7 +178,7 @@ function ResultCard({ result, stored }: { result: RejudgeResult; stored: 'A' | '
     <div data-testid="rejudge-result-card" className="border border-[var(--border-default)] rounded p-3 bg-[var(--surface-secondary)]">
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         <span className="font-mono text-xs text-[var(--text-muted)]">
-          {result.judgeModel} · temp {result.temperature ?? '—'} · {result.explainReasoning ? 'reasoning' : 'verdict-only'}
+          {result.judgeModel} · temp {result.temperature ?? '—'} · {result.explainReasoning ? 'reasoning' : 'winner-only'}
         </span>
         <span className="font-semibold">
           WINNER {result.winner} · conf {result.confidence.toFixed(2)} · {result.turns}t · ${result.costUsd.toFixed(4)}
@@ -450,7 +450,7 @@ export default function MatchDetailPage(): JSX.Element {
             <>
               <p className="mt-1 text-xs text-[var(--text-muted)]">
                 Pre-filled with the default {mode} rubric — edit and run it directly. Overrides only
-                the rubric block; the two texts and a verdict line are appended automatically.
+                the rubric block; the two texts and a winner line are appended automatically.
               </p>
               <textarea
                 data-testid="rejudge-custom-prompt"
@@ -478,7 +478,7 @@ export default function MatchDetailPage(): JSX.Element {
           >
             {rejudging ? 'Re-judging…' : '▶ Re-judge'}
           </button>
-          <span className="text-xs text-[var(--text-muted)]">2-pass reversal · {explainReasoning ? 'reasoning ↑ tokens' : 'verdict-only'}</span>
+          <span className="text-xs text-[var(--text-muted)]">2-pass reversal · {explainReasoning ? 'reasoning ↑ tokens' : 'winner-only'}</span>
         </div>
 
         {results.length > 0 && (

@@ -20,7 +20,7 @@ interface BankRow {
 
 export default function PairBanksPage(): JSX.Element {
   useEffect(() => {
-    document.title = 'Judge Lab · Pair-banks';
+    document.title = 'Judge Lab · Match Banks';
   }, []);
   const [rows, setRows] = useState<BankRow[]>([]);
   const [topicId, setTopicId] = useState(FEDERAL_RESERVE_2);
@@ -32,7 +32,7 @@ export default function PairBanksPage(): JSX.Element {
   const load = useCallback(async () => {
     const res = await listPairBanksAction();
     if (res.success && res.data) setRows(res.data as BankRow[]);
-    else if (!res.success) toast.error(res.error?.message ?? 'Failed to load banks');
+    else if (!res.success) toast.error(res.error?.message ?? 'Failed to load match banks');
   }, []);
 
   useEffect(() => {
@@ -41,7 +41,7 @@ export default function PairBanksPage(): JSX.Element {
 
   const seed = async () => {
     if (!topicId || !bankName) {
-      toast.error('Enter a topic id and bank name');
+      toast.error('Enter a topic id and match bank name');
       return;
     }
     setBusy(true);
@@ -62,11 +62,11 @@ export default function PairBanksPage(): JSX.Element {
         items={[
           { label: 'Evolution', href: '/admin/evolution-dashboard' },
           { label: 'Judge Lab', href: '/admin/evolution/judge-lab' },
-          { label: 'Pair-banks' },
+          { label: 'Match Banks' },
         ]}
       />
       <p className="text-sm text-[var(--text-muted)] font-ui">
-        A pair-bank is the full set of comparison pairs pulled from an arena topic. Carve frozen
+        A match bank is the full set of matches pulled from an arena topic. Carve frozen
         Test Sets from it for repeatable, comparable sweeps. Large topics may exceed the server
         time limit — use <code>judge-eval.ts seed</code> for those.
       </p>
@@ -77,7 +77,7 @@ export default function PairBanksPage(): JSX.Element {
           <label>Topic id</label>
           <input className="w-80 font-mono bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded px-2 py-1"
             value={topicId} onChange={(e) => setTopicId(e.target.value)} data-testid="seed-topic" />
-          <label>Bank name</label>
+          <label>Match bank name</label>
           <input className="bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded px-2 py-1"
             value={bankName} onChange={(e) => setBankName(e.target.value)} data-testid="seed-bank-name" />
           <label className="flex items-center gap-1"><input type="checkbox" checked={includeArticles} onChange={(e) => setIncludeArticles(e.target.checked)} />articles</label>
@@ -98,7 +98,7 @@ export default function PairBanksPage(): JSX.Element {
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && <tr><td colSpan={3} className="py-3 text-[var(--text-muted)]">No banks yet — seed one above.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={3} className="py-3 text-[var(--text-muted)]">No match banks yet — seed one above.</td></tr>}
             {rows.map((b) => (
               <tr key={b.id} className="border-t border-[var(--border-default)]" data-testid="pair-bank-row">
                 <td className="py-1">{b.name}</td>

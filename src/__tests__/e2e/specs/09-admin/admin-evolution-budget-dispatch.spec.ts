@@ -270,7 +270,7 @@ adminTest.describe('Strategy Form — Budget Dispatch Fields', { tag: '@evolutio
     await details.click();
 
     // Verify fields are present in the wizard Step 1
-    await expect(adminPage.getByText('Max Comparisons per Variant')).toBeVisible({ timeout: 10_000 });
+    await expect(adminPage.getByText('Max Matches per Variant')).toBeVisible({ timeout: 10_000 });
     await expect(adminPage.getByText('Budget Floor Mode')).toBeVisible();
   });
 

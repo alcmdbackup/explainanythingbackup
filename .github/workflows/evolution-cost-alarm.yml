@@ -1,0 +1,112 @@
+# Daily test-bucket cost alarm for evolution.
+# Fires at 18:00 UTC (end of staging workday). Soft warn at $0.05/24h, hard alarm
+# at $0.10/24h (per reduce_e2e_testing_llm_costs_20260621 Phase 3). On hard alarm
+# files a `[release-health]` issue and posts Slack.
+#
+# Baseline expected post-fix is ~$0.04/24h from Pattern A-1 spec executions, so
+# soft warn surfaces "approaching trouble" and hard alarm pages.
+
+name: Evolution Test Cost Alarm
+
+on:
+  schedule:
+    - cron: '0 18 * * *'  # daily 18:00 UTC
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Window in days (default 1)'
+        required: false
+        default: '1'
+      threshold:
+        description: 'Hard threshold USD (default 0.10)'
+        required: false
+        default: '0.10'
+      soft:
+        description: 'Soft threshold USD (default 0.05)'
+        required: false
+        default: '0.05'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-cost:
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 10
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      DAYS: ${{ github.event.inputs.days || '1' }}
+      THRESHOLD: ${{ github.event.inputs.threshold || '0.10' }}
+      SOFT: ${{ github.event.inputs.soft || '0.05' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run cost check
+        id: check
+        # cost-check exits 1 on hard alarm so we don't fail-fast the workflow
+        # before we get a chance to file the issue + Slack alert.
+        continue-on-error: true
+        run: |
+          npx tsx evolution/scripts/checkTestStrategyCost.ts \
+            --days "$DAYS" \
+            --threshold "$THRESHOLD" \
+            --soft "$SOFT"
+      - name: File [release-health] issue on hard alarm
+        if: ${{ steps.check.outputs.status == 'hard_alarm' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "[release-health] Evolution test-bucket cost alarm: \$${{ steps.check.outputs.total_usd }} in ${{ steps.check.outputs.days }}d (threshold \$${{ steps.check.outputs.threshold }})" \
+            --label "release-health" \
+            --body "Test-bucket cost over hard threshold.
+
+          | Metric | Value |
+          | --- | --- |
+          | Total | \$${{ steps.check.outputs.total_usd }} |
+          | Window | ${{ steps.check.outputs.days }}d |
+          | Soft threshold | \$${{ steps.check.outputs.soft }} |
+          | Hard threshold | \$${{ steps.check.outputs.threshold }} |
+          | Sample rows | ${{ steps.check.outputs.sample_rows }} |
+
+          ## Investigation
+          1. Check staging /admin/costs for the active call_source mix
+          2. Run \`npx tsx evolution/scripts/checkTestStrategyCost.ts --days 1\` locally
+          3. Inspect recent runs:
+             \`\`\`sql
+             SELECT r.id, s.name, r.created_at, SUM(inv.cost_usd) AS run_cost
+             FROM evolution_runs r
+             JOIN evolution_strategies s ON s.id = r.strategy_id
+             JOIN evolution_agent_invocations inv ON inv.run_id = r.id
+             WHERE s.is_test_content = true
+               AND inv.created_at > now() - interval '24 hours'
+             GROUP BY r.id, s.name, r.created_at
+             ORDER BY run_cost DESC LIMIT 20;
+             \`\`\`
+
+          Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - name: Slack alert on hard alarm
+        if: ${{ steps.check.outputs.status == 'hard_alarm' }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then exit 0; fi
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"[release-health] Evolution test-bucket cost alarm — \$${{ steps.check.outputs.total_usd }} over ${{ steps.check.outputs.days }}d (threshold \$${{ steps.check.outputs.threshold }}). Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$SLACK_WEBHOOK_URL" || true
+      - name: Log soft warn
+        if: ${{ steps.check.outputs.status == 'soft_warn' }}
+        run: |
+          echo "::warning::Test cost soft-warn: \$${{ steps.check.outputs.total_usd }} in ${{ steps.check.outputs.days }}d (soft \$${{ steps.check.outputs.soft }})"
+      - name: Fail workflow on hard alarm
+        if: ${{ steps.check.outputs.status == 'hard_alarm' }}
+        run: |
+          echo "Failing workflow to keep alarm visible in Actions UI."
+          exit 1

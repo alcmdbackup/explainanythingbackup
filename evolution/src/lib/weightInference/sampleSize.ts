@@ -39,3 +39,29 @@ export function requiredRatings(K: number, opts: RequiredRatingsOptions = {}): R
 export function remainingPairs(currentPairs: number, targetPairs: number): number {
   return Math.max(0, targetPairs - Math.max(0, currentPairs));
 }
+
+/** Unordered pairs from M items: C(M,2) = M·(M−1)/2 (0 when M < 2). */
+export function pairsFromPool(m: number): number {
+  const k = Math.max(0, Math.floor(m));
+  return k < 2 ? 0 : (k * (k - 1)) / 2;
+}
+
+/**
+ * Matches that will actually be judged for a topic pool of `poolSize` articles and
+ * `criteriaCount` criteria: `min(C(poolSize,2), requiredRatings(K).pairs)`. Also reports which
+ * term binds — the pool (too few articles) or the recommendation — for the UI explainer.
+ */
+export function matchesFromPool(
+  poolSize: number,
+  criteriaCount: number,
+  opts: RequiredRatingsOptions = {},
+): { matches: number; cMax: number; recommended: number; bindingLimit: 'pool' | 'recommendation' } {
+  const cMax = pairsFromPool(poolSize);
+  const recommended = requiredRatings(criteriaCount, opts).pairs;
+  return {
+    matches: Math.min(cMax, recommended),
+    cMax,
+    recommended,
+    bindingLimit: cMax <= recommended ? 'pool' : 'recommendation',
+  };
+}

@@ -1,0 +1,68 @@
+# Layer-3 nightly smoke for the evolution claim-and-execute pipeline.
+# reduce_e2e_testing_llm_costs_20260621 Phase 3.
+#
+# Goal: catch silent breakage of the minicomputer runner's queue-claim path. The
+# claim gate (20260621000001_evolution_claim_gate.sql) means the existing E2E
+# specs all use targeted claim, so the queue-claim → execute path goes
+# unexercised in CI. This workflow inserts ONE pending run against the
+# `Nightly smoke fixture` strategy (real-name, is_test_content=false →
+# claimable) and asserts ≥1 variant + cost ≤ $0.05 within 15 minutes.
+#
+# Runs at 06:15 UTC to clear e2e-nightly.yml's 06:00 slot (per plan).
+# `continue-on-error: true` per e2e-real-ai-smoke.yml convention (provider
+# outage tolerance).
+
+name: Evolution Nightly Smoke
+
+on:
+  schedule:
+    - cron: '15 6 * * *'  # 06:15 UTC daily
+  workflow_dispatch:
+    inputs:
+      poll_minutes:
+        description: 'Max wait minutes (default 15)'
+        required: false
+        default: '15'
+      max_cost:
+        description: 'Max cost USD (default 0.05)'
+        required: false
+        default: '0.05'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 25
+    continue-on-error: true
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      POLL_MINUTES: ${{ github.event.inputs.poll_minutes || '15' }}
+      MAX_COST: ${{ github.event.inputs.max_cost || '0.05' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Trigger smoke + assert
+        id: smoke
+        run: |
+          npx tsx evolution/scripts/triggerNightlySmoke.ts \
+            --poll-minutes "$POLL_MINUTES" \
+            --max-cost "$MAX_COST"
+      - name: Slack alert on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then exit 0; fi
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"Evolution nightly smoke FAILED. run_id=${{ steps.smoke.outputs.run_id || 'n/a' }} status=${{ steps.smoke.outputs.status || 'n/a' }} reason=${{ steps.smoke.outputs.reason || 'n/a' }}. Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$SLACK_WEBHOOK_URL" || true

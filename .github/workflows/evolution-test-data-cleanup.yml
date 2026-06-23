@@ -1,0 +1,74 @@
+# Weekly janitor that deletes stale `is_test_content=true` strategies + their runs
+# from staging. Cuts the long-tail accumulation that grows after the
+# 20260621000001_evolution_claim_gate.sql gate stops the runner from claiming
+# them (they sit as un-claimable pending rows).
+#
+# reduce_e2e_testing_llm_costs_20260621 Phase 3.
+
+name: Evolution Test Data Cleanup (janitor)
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Mondays 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Apply deletes (else dry-run)'
+        required: true
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+      days:
+        description: 'TTL in days (default 14)'
+        required: false
+        default: '14'
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 15
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      # Scheduled cron defaults to apply=true; workflow_dispatch may override with dry-run.
+      APPLY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.apply || 'true' }}
+      DAYS: ${{ github.event.inputs.days || '14' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run janitor
+        id: janitor
+        run: |
+          if [ "$APPLY" = "true" ]; then
+            npx tsx evolution/scripts/janitorTestData.ts --apply --days "$DAYS"
+          else
+            npx tsx evolution/scripts/janitorTestData.ts --days "$DAYS"
+          fi
+      - name: Slack alert on large-batch deletion
+        if: ${{ success() && steps.janitor.outputs.dry_run == 'false' && fromJSON(steps.janitor.outputs.strategies_deleted || '0') > 50 }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "::warning::SLACK_WEBHOOK_URL not configured — skipping Slack alert"
+            exit 0
+          fi
+          MESSAGE="Evolution janitor deleted ${{ steps.janitor.outputs.strategies_deleted }} stale test strategies + ${{ steps.janitor.outputs.runs_deleted }} runs from staging. Large batch — worth a look. Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -X POST -H 'Content-type: application/json' --data "{\"text\":\"$MESSAGE\"}" "$SLACK_WEBHOOK_URL" || echo "::warning::Slack post failed"
+      - name: Slack alert on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then exit 0; fi
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"Evolution janitor FAILED. Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$SLACK_WEBHOOK_URL" || true

@@ -1,6 +1,6 @@
 // Implied Rubric Weights — sessions landing + new-session form. Lists weight-inference
-// sessions and creates one (pick arena topic + criteria + pool size), showing the
-// ratings-needed preview before creation. Human mode (auto mode added in Phase 5).
+// sessions and creates one (pick arena topic + criteria + pool size), showing the exact
+// match-count preview + (auto mode) a cost estimate before creation. Human or auto (LLM-judge) mode.
 
 'use client';
 
@@ -16,10 +16,12 @@ import {
   createWeightInferenceSessionAction,
   getWeightInferencePreviewAction,
   type WiSessionListItem,
+  type WiPreviewResult,
 } from '@evolution/services/weightInferenceActions';
 import { getArenaTopicsAction } from '@evolution/services/arenaActions';
 import { listCriteriaAction } from '@evolution/services/criteriaActions';
 import { listTestSetsAction } from '@evolution/services/judgeEvalActions';
+import { estimateAutoRunCost } from '@evolution/lib/weightInference/autoCost';
 import { getModelOptions, DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
 
 const MODEL_OPTIONS = getModelOptions();
@@ -56,7 +58,7 @@ export default function WeightInferencePage(): JSX.Element {
   const [judgeModel, setJudgeModel] = useState(DEFAULT_JUDGE_MODEL);
   const [judgeTemperature, setJudgeTemperature] = useState(0);
   const [autoRepeats, setAutoRepeats] = useState(1);
-  const [preview, setPreview] = useState<{ pairs: number; comparisons: number; verdicts: number } | null>(null);
+  const [preview, setPreview] = useState<WiPreviewResult | null>(null);
   const [creating, setCreating] = useState(false);
 
   const reload = useCallback(async () => {
@@ -85,16 +87,24 @@ export default function WeightInferencePage(): JSX.Element {
     })();
   }, []);
 
-  // live ratings-needed preview
+  // Live preview: re-fires when ANY input that changes the match count / cost changes —
+  // criteria, replication rate, source, topic, pool size, pair kind, test set. (Q1: the old
+  // effect only depended on criteria + replicationRate, so pool size / topic never updated it.)
   useEffect(() => {
     void (async () => {
+      if (selectedCriteria.size < 2) { setPreview(null); return; }
       const res = await getWeightInferencePreviewAction({
         criteriaCount: selectedCriteria.size,
         replicationRate,
+        sourceKind,
+        promptId: sourceKind === 'topic' ? (topicId || undefined) : undefined,
+        sampleSize,
+        pairKind: sourceKind === 'topic' ? 'article' : pairKind,
+        testSetId: sourceKind === 'test_set' ? (testSetId || undefined) : undefined,
       });
-      if (res.success && res.data) setPreview(res.data.required);
+      if (res.success && res.data) setPreview(res.data);
     })();
-  }, [selectedCriteria, replicationRate]);
+  }, [selectedCriteria, replicationRate, sourceKind, topicId, sampleSize, pairKind, testSetId]);
 
   const toggleCriterion = (id: string): void => {
     setSelectedCriteria((prev) => {
@@ -137,32 +147,35 @@ export default function WeightInferencePage(): JSX.Element {
     }
   };
 
-  const selectedTestSet = testSets.find((t) => t.id === testSetId);
-  let testSetPairs = 0;
-  if (selectedTestSet) {
-    testSetPairs = pairKind === 'article' ? selectedTestSet.sizeArticle : selectedTestSet.sizeParagraph;
-  }
-  // What a test-set session will ACTUALLY judge (vs. the K-based recommendation).
+  // Preview math, derived from the server's exact estimate (Q1: matchesToJudge already accounts
+  // for the pool size / min(C(M,2), recommended) cap). A "match" is one head-to-head pairing.
   const criteriaCount = selectedCriteria.size;
-  const tsReplicas = mode === 'auto' ? 0 : Math.floor(testSetPairs * replicationRate);
-  const tsComparisons = testSetPairs + tsReplicas;
-  const tsVerdicts = tsComparisons * (1 + criteriaCount);
+  const matches = preview?.matchesToJudge ?? 0;
+  const recommended = preview?.required.pairs ?? 0;
+  const replicas = mode === 'auto' ? 0 : Math.floor(matches * replicationRate);
+  const comparisons = matches + replicas; // matches + reversal re-checks
+  const judgments = comparisons * (1 + criteriaCount); // one overall + K per-criterion each
+  const llmCalls = matches * autoRepeats * 4;
+  const costEst =
+    mode === 'auto'
+      ? estimateAutoRunCost({
+          matches,
+          repeats: autoRepeats,
+          model: judgeModel,
+          avgArticleChars: preview?.avgArticleChars ?? 0,
+          criteriaCount,
+        })
+      : null;
+  const fmtUsd = (x: number): string => (x < 0.01 ? `$${x.toFixed(4)}` : `$${x.toFixed(2)}`);
 
-  // Test-set preview sentences (avoids nested ternaries inside JSX).
-  const recommendedPairs = preview?.pairs ?? 0;
-  let tsRecommendation = '.';
-  if (selectedTestSet) {
-    tsRecommendation =
-      testSetPairs >= recommendedPairs
-        ? ` — at or above the ~${recommendedPairs} recommended.`
-        : ` — fewer than the ~${recommendedPairs} recommended; weights will be rougher.`;
-  }
-  let tsJudgePlan = '';
-  if (selectedTestSet && testSetPairs > 0) {
-    tsJudgePlan =
-      mode === 'auto'
-        ? ` You'll judge all ${testSetPairs} → ≈ ${testSetPairs * autoRepeats * 4} LLM calls (judge ${judgeModel}).`
-        : ` You'll judge ${tsComparisons} comparisons (with reversal audit) → ${tsVerdicts} total verdicts.`;
+  // Plain-language breakdown of min( C(M,2), max(20, 12·K) ) for the topic source (Q1 explainer).
+  let bindingNote = '';
+  if (preview && sourceKind === 'topic' && preview.poolSize > 0) {
+    const cMax = (preview.poolSize * (preview.poolSize - 1)) / 2;
+    bindingNote =
+      preview.bindingLimit === 'pool'
+        ? `Your pool of ${preview.poolSize} articles allows ${cMax} distinct matches (${preview.poolSize}×${preview.poolSize - 1}÷2) — fewer than the ${recommended} recommended for ${criteriaCount} criteria (12 per criterion, min 20), so all ${matches} will be judged.`
+        : `That's the recommended ${recommended} for ${criteriaCount} criteria (12 per criterion, min 20); your pool of ${preview.poolSize} could supply up to ${cMax} distinct matches.`;
   }
 
   return (
@@ -171,7 +184,10 @@ export default function WeightInferencePage(): JSX.Element {
       <div>
         <h1 className="font-display text-4xl font-bold text-[var(--text-primary)]">Implied Rubric Weights</h1>
         <p className="font-body text-[var(--text-secondary)] mt-1">
-          Infer judge-rubric weights from human pairwise verdicts, then save the result as a rubric.
+          Infer judge-rubric weights from pairwise winners — picked by you, or by an LLM judge (auto mode) —
+          then save the result as a rubric. Weights are <em>implied</em>: each criterion&apos;s weight is fit so
+          the weighted vote of per-criterion winners best predicts the overall winner, then normalized to sum
+          to 100%. Pick an arena topic (its top arena articles become the pool) or a Judge Lab test set.
         </p>
       </div>
 
@@ -322,19 +338,30 @@ export default function WeightInferencePage(): JSX.Element {
           {preview && selectedCriteria.size >= 2 && (
             <div className="rounded-page border border-[var(--border-default)] bg-[var(--surface-elevated)] p-4 font-body text-sm text-[var(--text-secondary)]" data-testid="wi-preview">
               <span data-testid="wi-recommended">
-                Recommended: ≈ <strong className="text-[var(--text-primary)]">{preview.pairs}</strong> pairs for stable weights ({criteriaCount} criteria).
+                Judging <strong className="text-[var(--text-primary)]">{matches}</strong> match{matches === 1 ? '' : 'es'} ({criteriaCount} criteria; ≈ {recommended} recommended).
               </span>
-              {sourceKind === 'topic' ? (
-                <span className="block mt-1">
-                  {mode === 'auto'
-                    ? `You'll judge ≈ ${preview.pairs} pairs → ≈ ${preview.pairs * autoRepeats * 4} LLM calls (judge ${judgeModel}).`
-                    : `You'll judge ${preview.comparisons} comparisons (with reversal audit) → ${preview.verdicts} total verdicts.`}
-                </span>
-              ) : (
+              {sourceKind === 'topic' && preview.poolSize > 0 && (
+                <span className="block mt-1" data-testid="wi-match-breakdown">{bindingNote}</span>
+              )}
+              {sourceKind === 'topic' && topicId && preview.poolSize === 0 && (
+                <span className="block mt-1 text-[var(--status-warning)]">This topic has no arena articles yet — pick another topic.</span>
+              )}
+              {sourceKind === 'test_set' && (
                 <span className="block mt-1" data-testid="wi-testset-size">
-                  This test set provides <strong className="text-[var(--text-primary)]">{testSetPairs}</strong> {pairKind} pair{testSetPairs === 1 ? '' : 's'}
-                  {tsRecommendation}
-                  {tsJudgePlan}
+                  This test set provides <strong className="text-[var(--text-primary)]">{matches}</strong> {pairKind} match{matches === 1 ? '' : 'es'}
+                  {recommended > matches
+                    ? ` — fewer than the ~${recommended} recommended; weights will be rougher.`
+                    : ` — at or above the ~${recommended} recommended.`}
+                </span>
+              )}
+              <span className="block mt-1">
+                {mode === 'auto'
+                  ? `≈ ${llmCalls} LLM calls (4 per match × ${autoRepeats} repeat${autoRepeats === 1 ? '' : 's'}; 2 holistic + 2 rubric).`
+                  : `You'll make ${comparisons} comparisons (incl. reversal re-checks) → ${judgments} total judgments.`}
+              </span>
+              {costEst && matches > 0 && (
+                <span className="block mt-1" data-testid="wi-cost-estimate">
+                  Estimated cost: ≈ <strong className="text-[var(--text-primary)]">{fmtUsd(costEst.totalUsd)}</strong> with {judgeModel} (upper-bound).
                 </span>
               )}
               <span className="block text-[var(--text-secondary)] mt-1">Rough estimate; refines live{mode === 'auto' ? ' as the run progresses' : ' as you judge'}.</span>

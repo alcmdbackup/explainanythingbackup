@@ -103,7 +103,7 @@ function StopReasonBadge({ reason }: { reason: IterStopReason }): JSX.Element {
       icon = '\u26A0'; label = 'Budget'; cls = 'bg-amber-500/20 text-amber-400 border-amber-500/30';
       break;
     case 'iteration_no_pairs':
-      icon = '\u2717'; label = 'No Pairs'; cls = 'bg-red-500/20 text-red-400 border-red-500/30';
+      icon = '\u2717'; label = 'No Matches'; cls = 'bg-red-500/20 text-red-400 border-red-500/30';
       break;
     default:
       icon = '?'; label = reason.replace(/_/g, ' '); cls = 'bg-gray-500/20 text-gray-400 border-gray-500/30';

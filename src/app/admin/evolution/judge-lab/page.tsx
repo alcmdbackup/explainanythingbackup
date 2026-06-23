@@ -222,7 +222,7 @@ export default function JudgeLabPage(): JSX.Element {
       return;
     }
     const o = res.data!;
-    const line = `${o.estimate.cells} cells · ${o.estimate.comparisons} comparisons · ${o.plannedCalls} calls · est $${o.estimate.estimatedCostUsd.toFixed(4)}`;
+    const line = `${o.estimate.cells} cells · ${o.estimate.comparisons} matches · ${o.plannedCalls} calls · est $${o.estimate.estimatedCostUsd.toFixed(4)}`;
     if (dryRun) {
       setEstimate(line);
       toast.success('Dry run complete — no LLM calls made');
@@ -269,12 +269,12 @@ export default function JudgeLabPage(): JSX.Element {
       return;
     }
     const o = res.data!;
-    const line = `${o.estimate.cells} cells · ${o.estimate.comparisons} comparisons · ${o.plannedCalls} calls · est $${o.estimate.estimatedCostUsd.toFixed(4)}`;
+    const line = `${o.estimate.cells} cells · ${o.estimate.comparisons} matches · ${o.plannedCalls} calls · est $${o.estimate.estimatedCostUsd.toFixed(4)}`;
     if (dryRun) {
       setEstimate(line);
       toast.success('Dry run complete — no LLM calls made');
     } else {
-      toast.success(`Escalation sweep complete: ${o.pairCount} pair(s). ${line}`);
+      toast.success(`Escalation sweep complete: ${o.pairCount} match(es). ${line}`);
       void loadLeaderboard();
     }
   };
@@ -290,7 +290,7 @@ export default function JudgeLabPage(): JSX.Element {
         <Link className="underline" href="/admin/evolution/matches">Match Viewer</Link>.
       </p>
       <div className="flex gap-3 text-xs">
-        <Link className="underline" href="/admin/evolution/judge-lab/pair-banks">Pair-banks</Link>
+        <Link className="underline" href="/admin/evolution/judge-lab/pair-banks">Match Banks</Link>
         <Link className="underline" href="/admin/evolution/judge-lab/test-sets">Test Sets</Link>
       </div>
 
@@ -415,9 +415,9 @@ export default function JudgeLabPage(): JSX.Element {
           <summary className="text-xs cursor-pointer text-[var(--text-muted)]">Custom judge prompt (rubric override)</summary>
           <p className="mt-2 text-xs text-[var(--text-muted)]">
             Pre-filled with the default rubric for the selected Kind, for reference. <strong>Leave it
-            unchanged</strong> to use the engine&apos;s built-in per-pair rubric (article pairs judged
-            with the article rubric, paragraph pairs with the paragraph rubric). <strong>Edit it</strong>
-            to apply your own rubric to <em>all</em> pairs in the sweep — it overrides only the rubric
+            unchanged</strong> to use the engine&apos;s built-in per-match rubric (article matches judged
+            with the article rubric, paragraph matches with the paragraph rubric). <strong>Edit it</strong>
+            to apply your own rubric to <em>all</em> matches in the sweep — it overrides only the rubric
             block; the two texts and a final &ldquo;Your answer: A|B|TIE&rdquo; line are appended.
           </p>
           <textarea
@@ -442,7 +442,7 @@ export default function JudgeLabPage(): JSX.Element {
               checked={explainReasoning}
               onChange={(e) => setExplainReasoning(e.target.checked)}
             />
-            Explain reasoning (judge writes a brief rationale before its verdict — more tokens/cost)
+            Explain reasoning (judge writes a brief rationale before picking the winner — more tokens/cost)
           </label>
         </details>
 
@@ -474,9 +474,9 @@ export default function JudgeLabPage(): JSX.Element {
       {sweepMode === 'escalation' && (
       <div className="rounded-book paper-texture card-enhanced p-4 space-y-3" data-testid="judge-lab-escalation">
         <p className="text-xs text-[var(--text-muted)] font-ui">
-          A mode-aware judge chain: article pairs are escalated through the article models and
-          paragraph pairs through the paragraph models, aggregated by the selected rule until a
-          decisive verdict (or the chain cap) is reached.
+          A mode-aware judge chain: article matches are escalated through the article models and
+          paragraph matches through the paragraph models, aggregated by the selected rule until a
+          decisive winner (or the chain cap) is reached.
         </p>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -599,7 +599,7 @@ export default function JudgeLabPage(): JSX.Element {
             className="bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded px-2 py-1 text-xs"
             value={escRubricId}
             onChange={(e) => setEscRubricId(e.target.value)}
-            title="Judge each submatch per-dimension via a registered rubric (dimension verdicts persisted)."
+            title="Judge each submatch per-dimension via a registered rubric (dimension winners persisted)."
           >
             <option value="">Holistic (no rubric)</option>
             {escRubrics.map((r) => (
@@ -630,8 +630,8 @@ export default function JudgeLabPage(): JSX.Element {
           <summary className="text-xs cursor-pointer text-[var(--text-muted)]">Custom judge prompt (rubric override)</summary>
           <p className="mt-2 text-xs text-[var(--text-muted)]">
             Pre-filled with the default rubric for the selected Kind, for reference. <strong>Leave it
-            unchanged</strong> to use the engine&apos;s built-in per-pair rubric. <strong>Edit it</strong>
-            to apply your own rubric to <em>all</em> pairs at every step of the chain.
+            unchanged</strong> to use the engine&apos;s built-in per-match rubric. <strong>Edit it</strong>
+            to apply your own rubric to <em>all</em> matches at every step of the chain.
           </p>
           <textarea
             data-testid="escalation-custom-prompt"
@@ -655,7 +655,7 @@ export default function JudgeLabPage(): JSX.Element {
               checked={explainReasoning}
               onChange={(e) => setExplainReasoning(e.target.checked)}
             />
-            Explain reasoning (judge writes a brief rationale before its verdict — more tokens/cost)
+            Explain reasoning (judge writes a brief rationale before picking the winner — more tokens/cost)
           </label>
         </details>
 
