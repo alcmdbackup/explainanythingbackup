@@ -178,6 +178,11 @@ describe('experimentActions', () => {
   // ─── listExperimentsAction ──────────────────────────────────
 
   describe('listExperimentsAction', () => {
+    // `limit` was added to the chain when `LIST_HARD_CAP` was introduced on
+    // getPromptsAction + getStrategiesAction. Mocks must support it or the
+    // next chained method call (eq/order/etc.) throws on undefined.
+    const CHAIN_METHODS = ['select', 'eq', 'in', 'not', 'order', 'limit'];
+
     /** Mock that routes to different chain mocks based on table name. */
     function makeRoutedMock(handlers: Record<string, () => Record<string, jest.Mock>>) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -187,7 +192,7 @@ describe('experimentActions', () => {
         // Default chain that resolves to empty
         const empty: Record<string, jest.Mock> = {};
         const self = () => empty;
-        for (const m of ['select', 'eq', 'in', 'not', 'order']) empty[m] = jest.fn(self);
+        for (const m of CHAIN_METHODS) empty[m] = jest.fn(self);
         empty.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null }));
         return empty;
       }) as any;
@@ -196,7 +201,7 @@ describe('experimentActions', () => {
     function makeChain(data: unknown, error: unknown = null): Record<string, jest.Mock> {
       const chain: Record<string, jest.Mock> = {};
       const self = () => chain;
-      for (const m of ['select', 'eq', 'in', 'not', 'order']) chain[m] = jest.fn(self);
+      for (const m of CHAIN_METHODS) chain[m] = jest.fn(self);
       chain.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data, error }));
       return chain;
     }
@@ -266,6 +271,7 @@ describe('experimentActions', () => {
         in: jest.fn().mockReturnThis(),
         not: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
         then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
       };
       mockSupabase.from = jest.fn().mockReturnValue(chain);
@@ -287,6 +293,7 @@ describe('experimentActions', () => {
         in: jest.fn().mockReturnThis(),
         not: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
         then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
       };
       mockSupabase.from = jest.fn().mockReturnValue(chain);
@@ -308,6 +315,7 @@ describe('experimentActions', () => {
         in: jest.fn().mockReturnThis(),
         not: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
         then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
       };
       mockSupabase.from = jest.fn().mockReturnValue(chain);
@@ -325,6 +333,7 @@ describe('experimentActions', () => {
         in: jest.fn().mockReturnThis(),
         not: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
         then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
       };
       mockSupabase.from = jest.fn().mockReturnValue(chain);
@@ -346,6 +355,7 @@ describe('experimentActions', () => {
         in: jest.fn().mockReturnThis(),
         not: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
         then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
       };
       mockSupabase.from = jest.fn().mockReturnValue(chain);
@@ -363,6 +373,7 @@ describe('experimentActions', () => {
         in: jest.fn().mockReturnThis(),
         not: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
         then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
       };
       mockSupabase.from = jest.fn().mockReturnValue(chain);

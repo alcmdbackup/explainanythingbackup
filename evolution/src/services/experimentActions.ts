@@ -148,6 +148,14 @@ export const listExperimentsAction = adminAction(
   },
 );
 
+/** Hard ceiling for prompt/strategy list responses. The default PostgREST
+ *  `db-max-rows` is 1000 — without an explicit `.limit()`, older prompts (e.g.
+ *  the "Federal Reserve" prompt) silently fall off the end as the library
+ *  grows past 1000 rows. 10000 covers any realistic library size without
+ *  unbounded payloads. If a deployment grows beyond this, add a search box
+ *  (filter at query level) rather than bumping further. */
+const LIST_HARD_CAP = 10000;
+
 /** List active prompts (evolution_prompts) for experiment creation. */
 export const getPromptsAction = adminAction(
   'getPrompts',
@@ -155,7 +163,8 @@ export const getPromptsAction = adminAction(
     let query = ctx.supabase
       .from('evolution_prompts')
       .select('id, prompt, name, status, created_at')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(LIST_HARD_CAP);
 
     if (input?.status) {
       query = query.eq('status', input.status);
@@ -177,7 +186,8 @@ export const getStrategiesAction = adminAction(
     let query = ctx.supabase
       .from('evolution_strategies')
       .select('id, name, label, description, config, config_hash, pipeline_type, status, created_by, created_at')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(LIST_HARD_CAP);
 
     if (input?.status) {
       query = query.eq('status', input.status);

@@ -811,7 +811,10 @@ export default function NewStrategyPage(): JSX.Element {
         updated.weakestK ??= 1;
         delete updated.editingProposerSoftCap;
         delete updated.disableApproverFiltering;
-      } else if (updated.agentType === 'paragraph_recombine') {
+      } else if (
+        updated.agentType === 'paragraph_recombine'
+        || updated.agentType === 'paragraph_recombine_with_coherence_pass'
+      ) {
         // Clear unrelated criteria/editing/reflection/debate fields.
         delete updated.tacticGuidance;
         delete updated.reflectionTopN;

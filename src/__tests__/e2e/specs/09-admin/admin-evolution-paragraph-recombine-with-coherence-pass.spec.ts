@@ -153,12 +153,16 @@ adminTest.describe('Paragraph Recombine With Coherence Pass — Strategy Wizard'
     await expect(agentTypeSelect).toBeVisible({ timeout: 10000 });
     await agentTypeSelect.selectOption('paragraph_recombine_with_coherence_pass');
 
-    // Override 2 of the 5 knobs to non-default values so we can assert they're
-    // serialised into the strategy config (omitted-default fields are stripped
-    // by the wizard's toIterationConfigsPayload — that's tested in the
-    // integration test; here we exercise the explicit-value path).
+    // Override coherence-pass knobs + shared paragraph_recombine knob (maxDispatches)
+    // to non-default values. The maxDispatches override pins a regression: the
+    // wizard's updateIteration reducer used to wipe paragraph fields for the new
+    // agent because the `'paragraph_recombine'` branch didn't include the new
+    // agent type — typing into maxDispatches got silently reset on the next
+    // re-render. Asserting `maxDispatches: 3` lands in the persisted config locks
+    // that fix.
     await adminPage.locator('[data-testid="coherence-pass-proposer-model-0"]').fill('gpt-4.1-mini');
     await adminPage.locator('[data-testid="coherence-pass-rewrite-temp-floor-0"]').fill('0.8');
+    await adminPage.locator('[data-testid="max-dispatches-0"]').fill('3');
 
     // Submit.
     const createBtn = adminPage.locator('button', { hasText: 'Create Strategy' });
@@ -190,5 +194,7 @@ adminTest.describe('Paragraph Recombine With Coherence Pass — Strategy Wizard'
     expect(it0.agentType).toBe('paragraph_recombine_with_coherence_pass');
     expect(it0.coherencePassProposerModel).toBe('gpt-4.1-mini');
     expect(it0.coherencePassRewriteTempFloor).toBe(0.8);
+    // Regression pin: shared paragraph_recombine knob persists for the new agent type.
+    expect(it0.maxDispatches).toBe(3);
   });
 });
