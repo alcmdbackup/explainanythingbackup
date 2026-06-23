@@ -523,8 +523,30 @@ describe('arenaActions', () => {
   // ─── getArenaEntriesAction ───────────────────────────────────
 
   describe('getArenaEntriesAction', () => {
+    // The action now pre-fetches the topic's prompt_kind from evolution_prompts
+    // so the leaderboard filters variant_kind to match the topic kind. Tests
+    // route the from() lookup through this helper so the prompt-row mock and
+    // the variants-chain mock are wired together. promptKind defaults to
+    // 'article' but can be overridden per-test.
+    const buildArenaEntriesMocks = (
+      variantsChain: Record<string, unknown>,
+      opts: { promptKind?: string; tacticsChain?: Record<string, unknown> } = {},
+    ): jest.Mock => {
+      const promptKind = opts.promptKind ?? 'article';
+      const promptChain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: { prompt_kind: promptKind }, error: null }),
+      };
+      return jest.fn().mockImplementation((table: string) => {
+        if (table === 'evolution_prompts') return promptChain;
+        if (table === 'evolution_tactics' && opts.tacticsChain) return opts.tacticsChain;
+        return variantsChain;
+      });
+    };
+
     it('returns entries sorted by elo_score with total count', async () => {
-      const chain = {
+      const variantsChain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
@@ -533,7 +555,7 @@ describe('arenaActions', () => {
           resolve({ data: [MOCK_ENTRY], count: 1, error: null })
         ),
       };
-      mockSupabase.from = jest.fn().mockReturnValue(chain);
+      mockSupabase.from = buildArenaEntriesMocks(variantsChain);
 
       const result = await getArenaEntriesAction({ topicId: VALID_UUID });
 
@@ -550,12 +572,14 @@ describe('arenaActions', () => {
       expect(result.error?.message).toContain('Invalid topicId');
     });
 
-    // Bug-sweep fix (2026-06-23): article-topic leaderboards must filter
-    // variant_kind='article' so paragraph rewrites that share prompt_id with
-    // article variants don't pollute the result set.
-    it('filters by variant_kind=article so paragraph rewrites do not pollute the leaderboard', async () => {
+    // Bug-sweep fix (2026-06-23): variant_kind filter must MATCH the topic's
+    // prompt_kind so an article topic surfaces only article variants and a
+    // paragraph (slot) topic surfaces only paragraph rewrites. The first
+    // landing hardcoded 'article' and regressed admin-evolution-paragraph-
+    // recombine.spec.ts (SlotsTab leaderboard); this restores per-topic dispatch.
+    it('filters variant_kind=article when the topic is an article prompt', async () => {
       const eqMock = jest.fn().mockReturnThis();
-      const chain = {
+      const variantsChain = {
         select: jest.fn().mockReturnThis(),
         eq: eqMock,
         order: jest.fn().mockReturnThis(),
@@ -564,7 +588,7 @@ describe('arenaActions', () => {
           resolve({ data: [MOCK_ENTRY], count: 1, error: null })
         ),
       };
-      mockSupabase.from = jest.fn().mockReturnValue(chain);
+      mockSupabase.from = buildArenaEntriesMocks(variantsChain, { promptKind: 'article' });
 
       await getArenaEntriesAction({ topicId: VALID_UUID });
 
@@ -572,8 +596,27 @@ describe('arenaActions', () => {
       expect(eqCalls).toContainEqual(['variant_kind', 'article']);
     });
 
+    it('filters variant_kind=paragraph when the topic is a paragraph (slot) prompt', async () => {
+      const eqMock = jest.fn().mockReturnThis();
+      const variantsChain = {
+        select: jest.fn().mockReturnThis(),
+        eq: eqMock,
+        order: jest.fn().mockReturnThis(),
+        is: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: [MOCK_ENTRY], count: 1, error: null })
+        ),
+      };
+      mockSupabase.from = buildArenaEntriesMocks(variantsChain, { promptKind: 'paragraph' });
+
+      await getArenaEntriesAction({ topicId: VALID_UUID });
+
+      const eqCalls = eqMock.mock.calls.map((c) => c.slice(0, 2));
+      expect(eqCalls).toContainEqual(['variant_kind', 'paragraph']);
+    });
+
     it('returns error on DB failure', async () => {
-      const chain = {
+      const variantsChain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
@@ -582,7 +625,7 @@ describe('arenaActions', () => {
           resolve({ data: null, count: null, error: { message: 'query failed' } })
         ),
       };
-      mockSupabase.from = jest.fn().mockReturnValue(chain);
+      mockSupabase.from = buildArenaEntriesMocks(variantsChain);
 
       const result = await getArenaEntriesAction({ topicId: VALID_UUID });
 
@@ -605,10 +648,7 @@ describe('arenaActions', () => {
         select: jest.fn().mockReturnThis(),
         in: jest.fn().mockResolvedValue({ data: [{ id: 'tactic-uuid-1', name: 'structural_transform' }], error: null }),
       };
-      mockSupabase.from = jest.fn().mockImplementation((table: string) => {
-        if (table === 'evolution_tactics') return tacticsChain;
-        return variantsChain;
-      });
+      mockSupabase.from = buildArenaEntriesMocks(variantsChain, { tacticsChain });
 
       const result = await getArenaEntriesAction({ topicId: VALID_UUID });
 
@@ -619,7 +659,7 @@ describe('arenaActions', () => {
 
     it('leaves agent_name/tactic_id null when DB row has no agent_name (seed/manual)', async () => {
       const entryNoAgent = { ...MOCK_ENTRY, agent_name: null };
-      const chain = {
+      const variantsChain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
@@ -628,7 +668,7 @@ describe('arenaActions', () => {
           resolve({ data: [entryNoAgent], count: 1, error: null })
         ),
       };
-      mockSupabase.from = jest.fn().mockReturnValue(chain);
+      mockSupabase.from = buildArenaEntriesMocks(variantsChain);
 
       const result = await getArenaEntriesAction({ topicId: VALID_UUID });
 
@@ -652,10 +692,7 @@ describe('arenaActions', () => {
         select: jest.fn().mockReturnThis(),
         in: jest.fn().mockResolvedValue({ data: [], error: null }),
       };
-      mockSupabase.from = jest.fn().mockImplementation((table: string) => {
-        if (table === 'evolution_tactics') return tacticsChain;
-        return variantsChain;
-      });
+      mockSupabase.from = buildArenaEntriesMocks(variantsChain, { tacticsChain });
 
       const result = await getArenaEntriesAction({ topicId: VALID_UUID });
 
