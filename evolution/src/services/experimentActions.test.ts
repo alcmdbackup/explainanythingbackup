@@ -364,6 +364,44 @@ describe('experimentActions', () => {
       expect(result.success).toBe(true);
       expect(chain.eq).not.toHaveBeenCalledWith('is_test_content', expect.anything());
     });
+
+    it('hides paragraph topics by default (prompt_kind=article)', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
+        is: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getPromptsAction({ status: 'active', filterTestContent: true });
+
+      expect(result.success).toBe(true);
+      expect(chain.eq).toHaveBeenCalledWith('prompt_kind', 'article');
+    });
+
+    it('includes paragraph topics when includeParagraphTopics is true', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
+        is: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getPromptsAction({ status: 'active', filterTestContent: true, includeParagraphTopics: true });
+
+      expect(result.success).toBe(true);
+      expect(chain.eq).not.toHaveBeenCalledWith('prompt_kind', 'article');
+    });
   });
 
   // ─── getStrategiesAction filterTestContent ─────────────────

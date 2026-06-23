@@ -159,7 +159,7 @@ const LIST_HARD_CAP = 10000;
 /** List active prompts (evolution_prompts) for experiment creation. */
 export const getPromptsAction = adminAction(
   'getPrompts',
-  async (input: { status?: string; filterTestContent?: boolean } | undefined, ctx: AdminContext) => {
+  async (input: { status?: string; filterTestContent?: boolean; includeParagraphTopics?: boolean } | undefined, ctx: AdminContext) => {
     let query = ctx.supabase
       .from('evolution_prompts')
       .select('id, prompt, name, status, created_at')
@@ -175,6 +175,13 @@ export const getPromptsAction = adminAction(
     }
     if (input?.filterTestContent) {
       query = applyTestContentColumnFilter(query);
+    }
+    // Hide paragraph_recombine per-slot sub-arena topics (prompt_kind='paragraph')
+    // by default — they are auto-generated [para] scaffolding, not article topics
+    // a user starts an experiment on, and they flood the picker after each run.
+    // Mirrors getArenaTopicsAction's includeParagraphTopics opt-in (D13 + D20).
+    if (!input?.includeParagraphTopics) {
+      query = query.eq('prompt_kind', 'article');
     }
 
     const { data, error } = await query;

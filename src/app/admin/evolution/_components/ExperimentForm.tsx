@@ -65,6 +65,9 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
   const [submitting, setSubmitting] = useState(false);
   const [setupSubmitted, setSetupSubmitted] = useState(false);
   const [showCreatePrompt, setShowCreatePrompt] = useState(false);
+  // Paragraph_recombine creates a per-slot `[para]` topic per paragraph; hidden by
+  // default so they don't flood the picker. Toggle to include them.
+  const [showParagraphPrompts, setShowParagraphPrompts] = useState(false);
 
   const createPromptFields: FieldDef[] = useMemo(() => [
     { name: 'name', label: 'Prompt Name', type: 'text', required: true, placeholder: 'e.g., Explain gravity for kids' },
@@ -94,17 +97,29 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
     toast.success(`Prompt "${newPrompt.name}" created`);
   }, []);
 
+  const loadPrompts = useCallback(async (includeParagraph: boolean) => {
+    const res = await getPromptsAction({ status: 'active', filterTestContent: true, includeParagraphTopics: includeParagraph });
+    if (res.success && res.data) {
+      const prompts = res.data;
+      setAvailablePrompts(prompts);
+      // If the selected prompt is no longer listed (e.g. a paragraph prompt that got
+      // filtered out), clear the selection so downstream steps stay valid.
+      setSelectedPromptId(prev => (prev && prompts.some(p => p.id === prev) ? prev : ''));
+    } else if (!res.success) {
+      toast.error(res.error?.message ?? 'Failed to load prompts');
+    }
+  }, []);
+
+  const handleToggleParagraphPrompts = useCallback((next: boolean) => {
+    setShowParagraphPrompts(next);
+    void loadPrompts(next);
+  }, [loadPrompts]);
+
   useEffect(() => {
     (async () => {
-      const [promptsRes, strategiesRes] = await Promise.all([
-        getPromptsAction({ status: 'active', filterTestContent: true }),
-        getStrategiesAction({ status: 'active', filterTestContent: true }),
-      ]);
-      if (promptsRes.success && promptsRes.data) {
-        setAvailablePrompts(promptsRes.data);
-      } else if (!promptsRes.success) {
-        toast.error(promptsRes.error?.message ?? 'Failed to load prompts');
-      }
+      const strategiesP = getStrategiesAction({ status: 'active', filterTestContent: true });
+      await loadPrompts(false);
+      const strategiesRes = await strategiesP;
       if (strategiesRes.success && strategiesRes.data) {
         setStrategies(strategiesRes.data);
       } else if (!strategiesRes.success) {
@@ -112,7 +127,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
       }
       setLoading(false);
     })();
-  }, []);
+  }, [loadPrompts]);
 
   const setupErrors: string[] = [];
   if (!name.trim()) setupErrors.push('Enter an experiment name');
@@ -258,6 +273,16 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
             <div>
               <label className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-2">
                 Prompt
+              </label>
+              <label className="flex items-center gap-2 mb-2 text-xs font-ui text-[var(--text-secondary)] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showParagraphPrompts}
+                  onChange={(e) => handleToggleParagraphPrompts(e.target.checked)}
+                  className="w-4 h-4 accent-[var(--accent-gold)]"
+                  data-testid="show-paragraph-prompts"
+                />
+                Show paragraph (slot) prompts
               </label>
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {availablePrompts.length === 0 ? (
