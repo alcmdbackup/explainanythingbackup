@@ -177,6 +177,11 @@ export default defineConfig({
         // Primary 3008 server — has E2E_TEST_MODE=true so middleware guest auto-login is suppressed
         // and existing unauth-redirect tests still pass.
         // Use production build in CI for stability; dev server locally for HMR.
+        // CI builds the app in a DEDICATED `npm run build` step BEFORE Playwright
+        // (see ci.yml e2e jobs), so this command is start-only — the build time no
+        // longer competes with the server-start timeout below. This removes the
+        // recurring `Timed out waiting from config.webServer` flake where a cold
+        // `.next` build ate the whole start budget (testing_overview Rule 21 / S1).
         // Note: E2E_TEST_MODE must be set at runtime (npm start), not build time,
         // because the app blocks E2E_TEST_MODE in production builds.
         // FAST_DEV=true bypasses observability wrappers (withActiveSpan span exporters,
@@ -184,11 +189,13 @@ export default defineConfig({
         // OTel/Sentry export latency on every agent execution. Production builds
         // run with full observability; this only affects the E2E job's web server.
         command: process.env.CI
-          ? 'npm run build && E2E_TEST_MODE=true FAST_DEV=true npm start -- -p 3008'
+          ? 'E2E_TEST_MODE=true FAST_DEV=true npm start -- -p 3008'
           : 'npm run dev -- -p 3008',
         url: baseURL,
         reuseExistingServer: !process.env.CI,
-        timeout: process.env.CI ? 240000 : 120000,
+        // Start-only budget (the build is a separate CI step). Was 240000 when this
+        // command also ran `npm run build`.
+        timeout: process.env.CI ? 120000 : 120000,
         env: {
           NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
           ...(process.env.CI ? {} : { E2E_TEST_MODE: 'true' }),
@@ -207,15 +214,16 @@ export default defineConfig({
       //
       // GATED: only spins up when RUN_GUEST_AUTO_TESTS=1 is set. Playwright starts
       // ALL configured webServers regardless of which projects are selected, so
-      // leaving this unconditional would add ~2 min `npm run build` per E2E CI
-      // run for the standard chromium-critical job that doesn't need it.
+      // leaving this unconditional would start an extra server for the standard
+      // chromium-critical job that doesn't need it. (Build is a separate CI step;
+      // this command is start-only — see the primary server's note above.)
       ...(process.env.RUN_GUEST_AUTO_TESTS === '1' ? [{
         command: process.env.CI
-          ? 'env -u E2E_TEST_MODE bash -c "npm run build && npm start -- -p 3009"'
+          ? 'env -u E2E_TEST_MODE npm start -- -p 3009'
           : 'env -u E2E_TEST_MODE npm run dev -- -p 3009',
         url: 'http://localhost:3009',
         reuseExistingServer: !process.env.CI,
-        timeout: process.env.CI ? 240000 : 120000,
+        timeout: process.env.CI ? 120000 : 120000,
         env: {
           NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
           ...(process.env.NODE_USE_ENV_PROXY ? { NODE_USE_ENV_PROXY: '1' } : {}),
@@ -227,11 +235,11 @@ export default defineConfig({
       // `env -u E2E_TEST_MODE` strips the inherited var (Playwright `env:` merges, not replaces).
       ...(process.env.RUN_PROD_AI === '1' ? [{
         command: process.env.CI
-          ? 'env -u E2E_TEST_MODE bash -c "npm run build && npm start -- -p 3010"'
+          ? 'env -u E2E_TEST_MODE npm start -- -p 3010'
           : 'env -u E2E_TEST_MODE npm run dev -- -p 3010',
         url: 'http://localhost:3010',
         reuseExistingServer: !process.env.CI,
-        timeout: process.env.CI ? 240000 : 120000,
+        timeout: process.env.CI ? 120000 : 120000,
         env: {
           NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
           TEST_LLM_MODEL: process.env.TEST_LLM_MODEL || 'google/gemini-2.5-flash',
