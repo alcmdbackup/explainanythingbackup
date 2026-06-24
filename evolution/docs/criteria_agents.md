@@ -73,11 +73,11 @@ Forks `IterativeEditingAgent`'s propose/review/apply pattern, single-cycle. Per 
 
 1. **Eval phase** (same as 1, 2).
 2. **Proposer call** — full article verbatim + inline CriticMarkup edits. System prompt extends `IterativeEditingAgent`'s soft rules with the 3 criteria-specific ones AND a "bias toward proposing more edits" framing: the proposer is told the approver pass will filter low-value candidates, so withholding a useful edit costs more than emitting an extra one. The framing instructs it to address every weakness and propose alternates where multiple plausible fixes exist. User prompt includes criteria block + evaluation results + weakest-K suggestions + article body.
-3. **Implementer pre-check** — `parseProposedEdits` + `validateEditGroups({ lengthCapRatio: 1.10, redundancyJaccardThreshold: 0.35, flowGuardrailEnabled: true })`. The `validateEditGroups` extension (Phase 3.3) takes opts that:
+3. **Implementer pre-check** — `parseProposedEdits` + `validateEditGroups({ lengthCapRatio: 1.10, flowGuardrailEnabled: true })`. The `validateEditGroups` extension (Phase 3.3) takes opts that:
    - Tighten the size-ratio cap from 1.5× to 1.10× (default).
    - Add a transition-word regex hard rule that rejects edits at paragraph starts that delete/replace transition phrases.
-   - Add a trigram Jaccard semantic-overlap check that rejects edits whose newText shares > 35% of trigrams with the rest of the article.
-4. **Forward approver call** (`'criteria_forward_approver'` label) — JSONL output with optional `redundancy_violation` / `flow_violation` / `length_violation` flags per group.
+   - (The trigram-Jaccard `redundancyJaccardThreshold` guardrail was removed in `investigate_paragraph_recombine_coherence_pass_performance_20260623` Phase 2b/2c — lexical, blocked legitimate intentional repetition, and the approver LLM is the actual quality gate.)
+4. **Forward approver call** (`'criteria_forward_approver'` label) — JSONL output with optional `flow_violation` / `length_violation` flags per group.
 5. **Mirror approver call** (`'criteria_mirror_approver'` label, only if `iterCfg.includesMirrorApprover ?? true`):
    - **Mirror short-circuit**: only run on forward-accepted groups. Forward-rejected groups get null mirror decision with reason `short_circuited_forward_rejected`.
    - Apply forward-accepted groups to original → A'. Validate A' format. If A' fails format → `mirrorAbortReason = 'a_prime_format_invalid'`, drop ALL forward-accepted groups.
@@ -153,8 +153,7 @@ Mirror approver toggle is per-iteration (`includesMirrorApprover` field on `Iter
 - `evolution/src/lib/core/agents/singlePassEvaluateCriteriaAndGenerate.ts` — single-pass (2).
 - `evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts` — propose/approve (3).
 - `evolution/src/lib/core/agents/editing/mirrorEdits.ts` — mirror-edit primitives (4 helpers).
-- `evolution/src/lib/core/agents/editing/checkSemanticOverlap.ts` — trigram Jaccard.
-- `evolution/src/lib/core/agents/editing/validateEditGroups.ts` — extended with parameterized opts.
+- `evolution/src/lib/core/agents/editing/validateEditGroups.ts` — extended with parameterized opts. (The trigram-Jaccard helper `checkSemanticOverlap.ts` was deleted in `investigate_paragraph_recombine_coherence_pass_performance_20260623` Phase 2c.)
 - `evolution/src/lib/shared/sentenceOverlap.ts` — sentence-overlap helper.
 - `evolution/src/lib/metrics/computations/sentenceOverlapMetrics.ts` — run-level percentile compute.
 

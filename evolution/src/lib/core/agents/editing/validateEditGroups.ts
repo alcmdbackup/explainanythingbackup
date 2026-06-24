@@ -21,7 +21,6 @@ import {
   SIZE_RATIO_HARD_CAP,
 } from './constants';
 import type { EditingGroup, EditingDroppedGroup, ValidateResult } from './types';
-import { checkSemanticOverlap } from './checkSemanticOverlap';
 
 const RE_HEADING_LINE = /^#+ /m;
 const RE_LIST_ITEM_LINE = /^[*+\-] /m;
@@ -38,9 +37,6 @@ export const DEFAULT_LENGTH_CAP_RATIO = 1.10;
 export interface ValidateEditGroupsOptions {
   /** Override SIZE_RATIO_HARD_CAP (1.5×) with a tighter ratio (e.g. 1.10× for propose/approve). */
   lengthCapRatio?: number;
-  /** When set, edits whose newText shares more than this fraction of trigrams with the rest
-   *  of the article (article minus old range) are dropped as redundant. undefined disables. */
-  redundancyJaccardThreshold?: number;
   /** When true, edits at paragraph-start that delete or replace a transition word are dropped. */
   flowGuardrailEnabled?: boolean;
 }
@@ -73,11 +69,6 @@ function violatesHardRule(
           return 'flow_transition_violation';
         }
       }
-    }
-    // Redundancy guardrail (opt-in): newText shares too many trigrams with rest of article.
-    if (opts?.redundancyJaccardThreshold !== undefined && e.newText.length >= 30) {
-      const result = checkSemanticOverlap(e.newText, currentText, e.range, opts.redundancyJaccardThreshold);
-      if (result.exceeds) return 'semantic_overlap_with_existing_content';
     }
   }
   return null;

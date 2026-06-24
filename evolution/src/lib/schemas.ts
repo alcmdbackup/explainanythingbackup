@@ -812,10 +812,6 @@ export const iterationConfigSchema = z.object({
    *  Drops highest-numbered groups until projected article length stays within this ratio.
    *  Range 1.01–1.50. Only valid when agentType === 'proposer_approver_criteria_generate'. */
   lengthCapRatio: z.number().min(1.01).max(1.50).optional(),
-  /** Trigram Jaccard similarity threshold above which an edit is dropped as redundant.
-   *  Range 0–1, default 0.35. Only valid for the 2 new criteria-based agent types
-   *  (single-pass + propose/approve). Higher = more permissive (fewer drops). */
-  redundancyJaccardThreshold: z.number().min(0).max(1).optional(),
   /** Whether the propose/approve agent runs the mirror-approver pass.
    *  Default true at runtime (`?? true`). Only valid when
    *  agentType === 'proposer_approver_criteria_generate'. Hash canonicalization
@@ -885,6 +881,16 @@ export const iterationConfigSchema = z.object({
   coherencePassRewriteTempFloor: z.number().min(0).max(2).optional(),
   /** Upper bound of the per-rewrite temperature ladder. Default 1.0. Refine: ceiling >= floor. */
   coherencePassRewriteTempCeiling: z.number().min(0).max(2).optional(),
+  /** Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3.
+   *  Maximum article-growth ratio the coherence-pass propose/approve cycle is allowed.
+   *  Default 1.10 (10%). Range 1.0–2.0. Only valid when
+   *  agentType === 'paragraph_recombine_with_coherence_pass'. */
+  coherencePassLengthCapRatio: z.number().min(1.0).max(2.0).optional(),
+  /** Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 4.
+   *  Maximum number of propose-approve-apply cycles in the coherence pass.
+   *  Default 2. Range 1–5. Only valid when
+   *  agentType === 'paragraph_recombine_with_coherence_pass'. */
+  coherencePassMaxCycles: z.number().int().min(1).max(5).optional(),
 }).refine(
   // sourceMode is for parent-article selection in variant-producing iterations.
   // Debate selects parents internally (top-2 from pool snapshot per Decision §16) so
@@ -953,13 +959,6 @@ export const iterationConfigSchema = z.object({
   (c) => c.agentType === 'proposer_approver_criteria_generate' || c.lengthCapRatio === undefined,
   { message: 'lengthCapRatio only valid when agentType is proposer_approver_criteria_generate' },
 ).refine(
-  // NEW: redundancyJaccardThreshold is only valid for the 2 new criteria-based agent types
-  // (single-pass + propose/approve). Legacy criteria_and_generate doesn't have a redundancy guardrail.
-  (c) => c.agentType === 'single_pass_evaluate_criteria_and_generate'
-    || c.agentType === 'proposer_approver_criteria_generate'
-    || c.redundancyJaccardThreshold === undefined,
-  { message: 'redundancyJaccardThreshold only valid for single_pass_evaluate_criteria_and_generate or proposer_approver_criteria_generate' },
-).refine(
   // NEW: includesMirrorApprover is only valid for proposer_approver_criteria_generate.
   (c) => c.agentType === 'proposer_approver_criteria_generate' || c.includesMirrorApprover === undefined,
   { message: 'includesMirrorApprover only valid when agentType is proposer_approver_criteria_generate' },
@@ -1018,6 +1017,14 @@ export const iterationConfigSchema = z.object({
     || c.coherencePassRewriteTempFloor === undefined
     || c.coherencePassRewriteTempCeiling >= c.coherencePassRewriteTempFloor,
   { message: 'coherencePassRewriteTempCeiling must be >= coherencePassRewriteTempFloor', path: ['coherencePassRewriteTempCeiling'] },
+).refine(
+  // investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3.
+  (c) => c.agentType === 'paragraph_recombine_with_coherence_pass' || c.coherencePassLengthCapRatio === undefined,
+  { message: 'coherencePassLengthCapRatio only valid when agentType is paragraph_recombine_with_coherence_pass' },
+).refine(
+  // investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 4.
+  (c) => c.agentType === 'paragraph_recombine_with_coherence_pass' || c.coherencePassMaxCycles === undefined,
+  { message: 'coherencePassMaxCycles only valid when agentType is paragraph_recombine_with_coherence_pass' },
 );
 
 export type IterationConfig = z.infer<typeof iterationConfigSchema>;
@@ -2729,13 +2736,15 @@ export const paragraphRecombineWithCoherencePassExecutionDetailSchema = executio
   coherencePass: z.union([
     z.object({
       cycles: z.array(editingCycleSchema),
-      /** Coherence-pass-specific config snapshot for the invocation detail UI. */
+      /** Coherence-pass-specific config snapshot for the invocation detail UI.
+       *  Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 2a:
+       *  redundancyJaccardThreshold + flowGuardrailEnabled removed (the agent no longer
+       *  applies those guardrails). Legacy detail rows with those keys still parse
+       *  cleanly because zod's default object behavior ignores unknown keys. */
       config: z.object({
         proposerModel: z.string(),
         approverModel: z.string(),
         lengthCapRatio: z.number(),
-        redundancyJaccardThreshold: z.number(),
-        flowGuardrailEnabled: z.boolean(),
       }),
       /** Silent-rejection observability: approver returned > 0 groups but apply count == 0. */
       silentRejection: z.boolean().optional(),

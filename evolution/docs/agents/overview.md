@@ -463,7 +463,7 @@ The architectural counterpart to single-pass — tests the **architectural-selec
 - `usesLLM = true`
 - `getAttributionDimension(detail) → detail.weakestCriteriaNames[0]`
 
-**Algorithm** (single cycle): eval+suggest → proposer (full article + inline CriticMarkup) → `validateEditGroups` with `{ lengthCapRatio: 1.10, redundancyJaccardThreshold: 0.35, flowGuardrailEnabled: true }` → forward approver → mirror approver (only if `iterCfg.includesMirrorApprover ?? true`) → strict-binary aggregator (APPLY iff `(forward, mirror) === ('accept', 'reject')`) → applier → post-cycle ranking.
+**Algorithm** (single cycle): eval+suggest → proposer (full article + inline CriticMarkup) → `validateEditGroups` with `{ lengthCapRatio: 1.10, flowGuardrailEnabled: true }` → forward approver → mirror approver (only if `iterCfg.includesMirrorApprover ?? true`) → strict-binary aggregator (APPLY iff `(forward, mirror) === ('accept', 'reject')`) → applier → post-cycle ranking. (The trigram-Jaccard `redundancyJaccardThreshold` guardrail was removed in `investigate_paragraph_recombine_coherence_pass_performance_20260623` Phase 2b/2c — the approver LLM is the actual quality gate.)
 
 **Cost stack**: 4 LLM calls per parent (eval + propose + forward + mirror) plus ranking. ~3-4× per-variant cost vs vanilla `generate`. Three new AgentName labels (`criteria_proposer`, `criteria_forward_approver`, `criteria_mirror_approver`) all bucket into the umbrella `proposer_approver_criteria_cost` metric. Mirror short-circuit reclaims 20-30% of mirror cost proportional to forward rejection rate.
 
@@ -595,12 +595,15 @@ Selected per-iteration via `IterationConfig.agentType: 'paragraph_recombine_with
 
 **AgentName labels**: REUSES `paragraph_rewrite` + `paragraph_rank` for the per-slot pipeline (cost routes to existing `paragraph_recombine_cost`). NEW: `coherence_pass_propose` + `coherence_pass_review` for the Phase D coherence pass (cost routes to new `paragraph_recombine_coherence_cost` umbrella).
 
-**Coherence pass implementation**: calls the shared `runEditingCycle()` helper with:
-- Custom proposer prompt (`buildCoherencePassProposerPrompt.ts` — inter-paragraph-seam focus)
+**Coherence pass implementation** (substantially reworked by `investigate_paragraph_recombine_coherence_pass_performance_20260623`): bounded loop of `runEditingCycle()` calls (default 2 cycles, configurable 1-5 via `coherencePassMaxCycles`). Each cycle:
+- Custom proposer prompt (`buildCoherencePassProposerPrompt.ts` — voice-restoration scope, no edit-count cap)
 - Standard approver prompt (reused from `editing/approverPrompt.ts`)
-- Tight `validateOpts`: `lengthCapRatio: 1.02`, `redundancyJaccardThreshold: 0.30`, `flowGuardrailEnabled: true`
+- `validateOpts: { lengthCapRatio }` — default 1.10 (configurable via `coherencePassLengthCapRatio`). `redundancyJaccardThreshold` + `flowGuardrailEnabled` dropped (Phase 2a).
+- `proposerUserPrompt` REBUILT FROM RUNNING TEXT each cycle (RULE-1 byte-equality requires this).
 - `driftRecovery: 'skip'` (the recombined article is the source of truth)
-- Per-invocation budget gate at 0.85× cap
+- Mode A only — no `rewriteMode`, so no `coalesceAdjacentGroups` / `capGroupsByMagnitude`. No edit-count cap.
+- Per-invocation budget gate at 0.85× cap; per-cycle budget gate at 0.9×.
+- Kill switch: `EVOLUTION_COHERENCE_PASS_DEFAULTS_V2='false'` reverts defaults to legacy (1.02 / 1 cycle) without a deploy.
 
 **A/B isolation lever**: `coherencePassEnabled: false` skips the coherence pass entirely. The per-invocation cap default flips to $0.05 (vs $0.10 with coherence). Use to isolate the coherence pass's contribution to Elo lift.
 

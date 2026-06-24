@@ -1641,7 +1641,6 @@ describe('iterationConfigSchema — new criteria-based agents (updated_criteria_
       budgetPercent: 100,
       criteriaIds: validCriteriaIds,
       weakestK: 2,
-      redundancyJaccardThreshold: 0.35,
     })).not.toThrow();
   });
 
@@ -1653,9 +1652,24 @@ describe('iterationConfigSchema — new criteria-based agents (updated_criteria_
       weakestK: 1,
       editingMaxCycles: 1,
       lengthCapRatio: 1.10,
-      redundancyJaccardThreshold: 0.35,
       includesMirrorApprover: true,
     })).not.toThrow();
+  });
+
+  // Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 2b:
+  // legacy strategies in DB may have `redundancyJaccardThreshold` set on the iter config.
+  // Zod's default object behavior strips unknown keys, so the parsed result lacks the
+  // field — config still loads cleanly.
+  it('legacy redundancyJaccardThreshold field is silently dropped on parse (Phase 2b)', () => {
+    const parsed = iterationConfigSchema.parse({
+      agentType: 'single_pass_evaluate_criteria_and_generate',
+      budgetPercent: 100,
+      criteriaIds: validCriteriaIds,
+      weakestK: 2,
+      redundancyJaccardThreshold: 0.35, // legacy field — should strip
+    });
+    expect(parsed).not.toHaveProperty('redundancyJaccardThreshold');
+    expect(parsed.weakestK).toBe(2);
   });
 
   it('requires criteriaIds for single_pass_evaluate_criteria_and_generate', () => {
@@ -1682,14 +1696,92 @@ describe('iterationConfigSchema — new criteria-based agents (updated_criteria_
     })).toThrow(/lengthCapRatio only valid when agentType is proposer_approver_criteria_generate/);
   });
 
-  it('rejects redundancyJaccardThreshold on legacy criteria_and_generate', () => {
+  // Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3.
+  it('accepts coherencePassLengthCapRatio at the range boundaries (1.0 and 2.0)', () => {
     expect(() => iterationConfigSchema.parse({
-      agentType: 'criteria_and_generate',
+      agentType: 'paragraph_recombine_with_coherence_pass',
       budgetPercent: 100,
-      criteriaIds: validCriteriaIds,
-      weakestK: 1,
-      redundancyJaccardThreshold: 0.35,
-    })).toThrow(/redundancyJaccardThreshold only valid/);
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassLengthCapRatio: 1.0,
+    })).not.toThrow();
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassLengthCapRatio: 2.0,
+    })).not.toThrow();
+  });
+
+  it('rejects coherencePassLengthCapRatio outside [1.0, 2.0]', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassLengthCapRatio: 0.99,
+    })).toThrow();
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassLengthCapRatio: 2.01,
+    })).toThrow();
+  });
+
+  it('rejects coherencePassLengthCapRatio on non-coherence-pass agent type', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine',
+      budgetPercent: 100,
+      sourceMode: 'seed',
+      coherencePassLengthCapRatio: 1.10,
+    })).toThrow(/coherencePassLengthCapRatio only valid/);
+  });
+
+  // Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 4.
+  it('accepts coherencePassMaxCycles at the range boundaries (1 and 5)', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassMaxCycles: 1,
+    })).not.toThrow();
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassMaxCycles: 5,
+    })).not.toThrow();
+  });
+
+  it('rejects coherencePassMaxCycles outside [1, 5]', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassMaxCycles: 0,
+    })).toThrow();
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassMaxCycles: 6,
+    })).toThrow();
+  });
+
+  it('rejects coherencePassMaxCycles on non-coherence-pass agent type', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine',
+      budgetPercent: 100,
+      sourceMode: 'seed',
+      coherencePassMaxCycles: 2,
+    })).toThrow(/coherencePassMaxCycles only valid/);
   });
 
   it('rejects includesMirrorApprover on non-proposer_approver agent type', () => {

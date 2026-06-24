@@ -213,8 +213,6 @@ function buildApproverUserPrompt(
 export interface ProposerApproverInput extends EvaluateCriteriaInput {
   /** Length cap ratio (default DEFAULT_LENGTH_CAP_RATIO = 1.10). */
   lengthCapRatio?: number;
-  /** Redundancy Jaccard threshold (default 0.35). */
-  redundancyJaccardThreshold?: number;
   /** Whether to run the mirror approver pass (default true). */
   includesMirrorApprover?: boolean;
 }
@@ -266,7 +264,6 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
 
     const effectiveWeakestK = Math.min(input.weakestK, input.criteria.length);
     const lengthCapRatio = input.lengthCapRatio ?? DEFAULT_LENGTH_CAP_RATIO;
-    const redundancyJaccardThreshold = input.redundancyJaccardThreshold ?? 0.35;
     const includesMirrorApprover = input.includesMirrorApprover ?? true;
 
     // Resolve per-purpose models. Mirrors IterativeEditingAgent's pattern so a
@@ -411,7 +408,6 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
     const proposedGroupsRaw = parseResult.groups.length;
     const validation = validateEditGroups(parseResult.groups, input.parentText, {
       lengthCapRatio,
-      redundancyJaccardThreshold,
       flowGuardrailEnabled: true,
     });
     const droppedPreApprover = validation.droppedPreApprover.map((d) => ({
