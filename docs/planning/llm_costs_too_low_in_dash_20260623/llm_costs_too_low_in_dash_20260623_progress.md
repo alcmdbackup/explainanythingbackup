@@ -54,4 +54,9 @@
 
 ## Phase 4: Verify + finalize
 ### Work Done
-[In progress — migration:verify, dev reconciliation spot-check, then /finalize full check suite]
+- **Dev reconciliation spot-check (7d):** merge will show $23.20 (real $2.91 + test $20.28) vs the $0.0165 `/admin/costs` shows today — confirms the under-count fix + test/real split against real data.
+- **migration:verify:** fails on a PRE-EXISTING 2025 migration (`20251109053825_fix_drift.sql`, `role "anon" does not exist`) — the local harness's bare postgres doesn't seed Supabase roles, so it never reaches my `20260624` migration. Not my change. Made my migration's grants role-existence-guarded for robustness. CI's deploy applies to real staging (roles exist).
+- Full local check suite + plan completeness via /finalize.
+
+### Notes
+- The merge ships behind `COST_DASHBOARD_UNIFIED_EVOLUTION` (default OFF). Activation (after the migration deploys to staging): set the env flag to `true`. Full `/admin/costs` render verification is a post-deploy ops step (needs the RPC live + flag on).

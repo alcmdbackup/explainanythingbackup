@@ -50,10 +50,14 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION get_evolution_spend_buckets(text, timestamptz, timestamptz) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION get_evolution_spend_buckets(text, timestamptz, timestamptz) TO service_role;
--- Allow the read-only debug role (npm run query:staging) to call it for verification.
+-- Grant guarded by role existence so the migration is robust even where Supabase roles aren't
+-- seeded (e.g. the bare ephemeral postgres used by migration:verify). On real Supabase both roles
+-- exist. readonly_local lets `npm run query:staging` call it for verification.
 DO $$
 BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION get_evolution_spend_buckets(text, timestamptz, timestamptz) TO service_role';
+  END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'readonly_local') THEN
     EXECUTE 'GRANT EXECUTE ON FUNCTION get_evolution_spend_buckets(text, timestamptz, timestamptz) TO readonly_local';
   END IF;
