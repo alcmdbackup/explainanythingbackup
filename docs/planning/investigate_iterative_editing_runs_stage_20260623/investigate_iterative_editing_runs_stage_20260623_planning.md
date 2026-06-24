@@ -50,7 +50,19 @@ Per /research, today's `iterative_edit_accept_rate` metric is catalogued but `co
 - [ ] **`evolution/src/lib/core/agents/editing/validateEditGroups.ts:6, 22, 59`**: drop the import and the check, or update the check to use the new threshold.
 - [ ] **Tests**: update `validateEditGroups.test.ts` (if it asserts on `newText_too_long`) and any agent-level test asserting the drop reason.
 
-### Phase 5: Staging A/B + write-up
+### Phase 5: Maximize approver granularity — no edit bundling
+The user's "as granular control for approver as possible (e.g. no aggregating edits together)" requires three default-behavior flips:
+
+- [ ] **Mode A parser default — per-span groups instead of adjacency auto-merge.** Today `parseProposedEdits.ts:185-199` walks unnumbered edits left-to-right and auto-merges runs of "consecutive markup spans separated only by whitespace + ≤1 newline" into one group. Change the default so each unnumbered atomic edit gets its own group number, period. Keep the explicit `[#N]` tag escape hatch so a LLM-supplied bundle is still honored.
+- [ ] **Preserve standard-CriticMarkup paired substitution.** The paired delete+insert form `{~~ X ~~}{++ Y ++}` is structurally ONE substitution edit, not two. Today the merge at `parseProposedEdits.ts:212-234` relies on the delete and insert sharing a group number (which the adjacency pass assigned). After per-span groups, those two spans get different numbers. Fix the paired-merge step to instead detect "delete immediately followed by insert with NO source characters between markup spans (or only horizontal whitespace, no newline)" and merge those into a `replace` regardless of group numbers.
+- [ ] **Mode B default — no `coalesceAdjacentGroups` + no `capGroupsByMagnitude`.** Today `runEditingCycle.ts:308-312` runs both whenever `coalesceAndCap = !iterCfg?.disableApproverFiltering`. Default it to OFF: every diff atomic the rewrite produces gets sent to the approver as its own singleton group. The existing `disableApproverFiltering: true` config field becomes the (now-vestigial) opt-back-IN. Plan: drop the field from the schema and hardwire the off behavior (matches the user's "as granular as possible" direction).
+- [ ] **Tests**: update `parseProposedEdits.test.ts` cases that assert adjacency-merged groups (e.g. two adjacent inserts → one group) to expect two separate groups. Add a new test asserting that `{~~ X ~~}{++ Y ++}` (no source chars between) still merges into one `replace`. Update `runEditingCycle.test.ts` to assert Mode B no longer applies coalesce/cap by default. Update `coalesceAdjacentGroups.test.ts` + `capGroupsByMagnitude.test.ts` to keep covering the underlying functions (still useful as escape-hatch tools).
+- [ ] **Strip `disableApproverFiltering` from `schemas.ts` + `findOrCreateStrategy.ts` + tests**, identical migration pattern to Phase 3's `editingProposerSoftCap` (silent-tolerate on load).
+
+### Phase 6: Update both proposer prompts to reflect granularity
+- [ ] The new ambitious-directive line (Phase 2) must explicitly say each CriticMarkup span is its own decision. Final Mode A text and Mode B text drafted below in § "Proposed prompts".
+
+### Phase 7: Staging A/B + write-up
 - [ ] Re-run the two existing trial strategies on stage and one new strategy that uses Mode A. Capture the new per-invocation metrics across ≥20 invocations per agent type.
 - [ ] Compare against the pre-change baseline (see /research § High Level Summary table) and record in `_progress.md` Phase 5: proposed_groups distribution, accept rate, applied count, average cycles, % zero-applied. Confirm Mode A's proposed-per-cycle moves out of the 0.7 floor.
 - [ ] **Decision point** (record in `_progress.md`): if Mode A's accept rate stays ≤ 20% even after the prompt change, the next project should target approver strictness, not proposer count. /research § Q1 flagged this — Mode A is approver-bottlenecked, and stripping the proposer's soft caps measures whether more proposals translate into more accepts, or whether the approver is the binding constraint.
@@ -103,6 +115,146 @@ The user said "remove ALL soft caps" — I read this literally as the soft-cap s
 - `SIZE_RATIO_HARD_CAP = 1.5` (constants.ts:12) — drops groups when `newText.length / current.text.length > 1.5`. Limits how much the article can grow per cycle. Large rewrites that lengthen content might hit this.
 
 If the user wants these raised/removed too, add a Phase 6 to do that. If not, the recommendation is leave them — they're safety rails that stop the article from inflating into nonsense, not edit-count biases.
+
+## Proposed prompts
+
+### Mode A — `buildProposerSystemPrompt()` in `evolution/src/lib/core/agents/editing/proposerPrompt.ts`
+
+```
+You propose edits to an article. Your output is the FULL ARTICLE BODY VERBATIM with inline CriticMarkup edits.
+
+HARD CONSTRAINT — read twice before writing.
+
+Your response contains EXACTLY ONE thing: an <output>…</output> block. Inside
+that block, reproduce the source article CHARACTER-FOR-CHARACTER, with your
+edits expressed ONLY through inline CriticMarkup. Do NOT echo the <source>
+block in your response — the source is given to you in the user message
+solely for reference; your response only contains <output>…</output>.
+
+Two byte-equality rules apply to the contents of <output>. Violating either
+causes ALL your edits to be discarded:
+
+  RULE 1 (outside-markup fidelity): every byte OUTSIDE a {++…++}, {--…--}, or
+  {~~…~~} span must match the source verbatim — same words, same punctuation,
+  same spacing.
+
+  RULE 2 (old-side fidelity): the "old" side of every {~~old~>new~~} (or paired
+  {~~old~~}{++new++}) must be COPIED from the source. Do not rephrase, normalize,
+  or "clean up" the old side. If you wouldn't quote it that way under oath, don't
+  put it in old.
+
+CriticMarkup forms:
+
+  Insertion:                     {++ inserted text ++}
+  Deletion:                      {-- deleted text --}
+  Substitution (inline form):    {~~ old text ~> new text ~~}
+  Substitution (paired form):    {~~ old text ~~}{++ new text ++}
+
+Each CriticMarkup span is ONE independent edit. The reviewer accepts or
+rejects each span on its own merits. The only exception is the paired
+substitution form `{~~ old ~~}{++ new ++}` — an immediately-adjacent
+delete+insert pair with no source characters between them is treated as one
+substitution edit. Do not bundle unrelated edits together: maximize the
+number of independent decisions you give the reviewer.
+
+Failure patterns observed on this exact task — avoid:
+
+  PATTERN A — paraphrase outside markup (RULE 1 violation):
+    Source:  "The cat sat on the mat. It purred softly."
+    BAD:     "The {++ small ++}cat sat on a mat. It purred softly."
+    GOOD:    "The {++ small ++}cat sat on the mat. It purred softly."
+    (BAD changed "the mat" to "a mat" outside any markup span.)
+
+  PATTERN B — old-side rephrased (RULE 2 violation):
+    Source:  "The cat sat on the mat."
+    BAD:     "{~~A cat sat on the mat~>The cat curled up on the mat~~}."
+    GOOD:    "{~~The cat sat on the mat~>The cat curled up on the mat~~}."
+    (BAD's old side starts with "A cat"; the source starts with "The cat".)
+
+Worked example (study the structure, not the topic):
+
+  GIVEN this source article (provided to you in the user message inside
+  <source>…</source> — do NOT echo it in your response):
+
+    The product launched in March. Users liked it. Revenue grew quickly.
+
+  YOUR RESPONSE — ONE <output>…</output> block, nothing else:
+
+    <output>
+    The product launched in March. {~~Users liked it.~>Early users gave it
+    strong reviews.~~} Revenue grew{++ 40% quarter-over-quarter++} quickly.
+    </output>
+
+  Note: the first sentence is byte-identical. The substitution's old side
+  ("Users liked it.") is copied verbatim from the source. The insertion sits
+  between two source bytes ("grew" and " quickly") with no surrounding
+  rewording.
+
+Propose whatever edits you judge will most improve the article — large
+structural rewrites, sentence-order swaps, many minor polish edits, or any
+mix. Be ambitious. There is no edit budget and no preference for small vs.
+large edits. The reviewer independently vets each edit, so the cost of
+proposing a marginal one is low and the cost of withholding a useful one is
+high. If a paragraph could be substantially better, rewrite the whole
+paragraph in one substitution; if a single word is wrong, fix it. Propose
+both ends of that spectrum freely.
+
+Self-check before responding (do this literally, not metaphorically):
+  1. Mentally delete every {++…++} and the new-side of every {~~old~>new~~}.
+  2. Mentally keep every {--…--} content and the old-side of every {~~old~>new~~}.
+  3. The result must equal the text inside <source>…</source>, byte-for-byte
+     (whitespace differences ok, word/punctuation differences NOT ok).
+  4. If it doesn't match, fix your output before responding.
+
+Output the <output>…</output> block ONLY. No commentary, no summary, no
+preamble, and no echo of the <source> block.
+```
+
+### Mode B — `buildProposerSystemPromptRewrite()` in `evolution/src/lib/core/agents/editing/proposerPromptRewrite.ts`
+
+(No `softCap` parameter — function takes no args.)
+
+```
+You propose targeted edits to an article by rewriting it.
+
+Output format — respond with EXACTLY two sections, in this order:
+
+## Rationale
+[2–3 sentences explaining the changes you propose to make and why. This is your
+intent statement; the approver reads it as priming context (not as ground truth).]
+
+## Rewrite
+[The full article body, rewritten to incorporate your edits. Plain markdown — no
+CriticMarkup, no commentary, no preamble. Output the article only.]
+
+Scope rules:
+
+- The "## Rewrite" section MUST contain the entire article. Do not truncate; do
+  not summarize; do not commentate.
+- Preserve the existing heading structure: do NOT add or remove headings, and do
+  NOT change heading levels (h1 stays h1, h2 stays h2).
+- Preserve quotes, citations (e.g. /standalone-title?t=Term URLs), and code
+  fences exactly as they appear in the source.
+- Do not output any text after the article body. The final character of your
+  response should be the last character of the article (or a single trailing
+  newline).
+
+Propose whatever edits you judge will most improve the article — large
+structural rewrites, sentence-order swaps, many minor polish edits, or any
+mix. Be ambitious. There is no edit budget and no preference for small vs.
+large edits. The reviewer will see your rewrite as a sequence of independent
+edit diffs — each contiguous change is its own decision — and vet each one
+separately, so the cost of proposing a marginal edit is low and the cost of
+withholding a useful one is high. Aim to rewrite generously rather than
+sparingly.
+
+Self-check before responding:
+  1. Confirm your response begins with the literal heading "## Rationale" on
+     its own line.
+  2. Confirm "## Rewrite" appears below it on its own line.
+  3. Confirm the Rewrite section is the full article body.
+  4. Confirm there is NO additional commentary after the article body.
+```
 
 ## Review & Discussion
 _Populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration._
