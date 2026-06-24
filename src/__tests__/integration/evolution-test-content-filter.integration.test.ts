@@ -203,7 +203,11 @@ describe('evolution_prompts applyTestContentColumnFilter (Phase 1 B17 fix)', () 
     // should set is_test_content=true for the first three and false for
     // the last one.
     const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    realName = `Real Prompt ${suffix}`;
+    // realName must contain NO bare 10-13 digit run: evolution_is_test_name (broadened in
+    // migration 20260623000001) now flags any name with a `[-_ ]\d{10,13}[-_ ]` run as test
+    // content, so a `Date.now()`-based name is wrongly classified test. A UUID (hyphen-broken
+    // hex) + a trailing letter guarantees no boundary-matched digit run.
+    realName = `Real Prompt ${crypto.randomUUID()}r`;
     const seeds = [
       { prompt: `body A ${suffix}`, name: `[TEST] Bracket ${suffix}` },
       { prompt: `body B ${suffix}`, name: `[E2E] Bracket ${suffix}` },
