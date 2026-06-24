@@ -33,7 +33,7 @@
 
 ## Phase 1: Canonical merge (DONE)
 ### Work Done
-- Migration `20260624000001`: `idx_invocations_created_at` + `get_evolution_spend_buckets` RPC (invocation-grain, test/real via run→strategy join). `database.types.ts` updated.
+- Migration `20260624173000`: `idx_invocations_created_at` + `get_evolution_spend_buckets` RPC (invocation-grain, test/real via run→strategy join). `database.types.ts` updated.
 - `evolution/src/services/costAnalytics.ts`: evolution spend from invocations (source of truth), non-evo from `llmCallTracking` (call_source dedup filter); shared `evolutionSpendTotal` reused by summary + reconciliation oracle. Gated by `COST_DASHBOARD_UNIFIED_EVOLUTION` (default off). 6 new unit tests (32 total green).
 - tsc + lint + check:llm-coverage + check:stale-specs all green.
 
