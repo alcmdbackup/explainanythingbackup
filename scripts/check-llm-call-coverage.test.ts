@@ -53,4 +53,18 @@ describe('check-llm-call-coverage', () => {
   it('allowlist contains the chokepoint', () => {
     expect(ALLOWLIST.has('src/lib/services/llms.ts')).toBe(true);
   });
+
+  it('run-evolution-local.ts is NOT allowlisted (routes through callLLM now)', () => {
+    // Regression anchor: it was removed from the allowlist when it stopped using a direct-SDK
+    // provider (llm_costs_too_low_in_dash_20260623). If a direct bypass is reintroduced there,
+    // the guard must flag it.
+    expect(ALLOWLIST.has('evolution/scripts/run-evolution-local.ts')).toBe(false);
+  });
+
+  it('flags a new direct-SDK pipeline provider file', () => {
+    const violations = findViolations([
+      { path: 'evolution/scripts/some-new-runner.ts', content: 'await client.chat.completions.create({})' },
+    ]);
+    expect(violations.some((v) => v.file === 'evolution/scripts/some-new-runner.ts')).toBe(true);
+  });
 });

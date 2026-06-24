@@ -1,0 +1,88 @@
+# Evolution tracking reconciliation monitor (llm_costs_too_low_in_dash_20260623, Layer 3).
+# Compares evolution spend from the source of truth (evolution_agent_invocations.cost_usd) vs the
+# per-call audit total (llmCallTracking evolution_*). A large gap = evolution calls not writing
+# joinable tracking rows. Scheduled-only (NOT a required PR check), staging-only; files a
+# [release-health] issue on divergence so a RED reconciliation is visible without blocking merges.
+#
+# NOTE: this is EXPECTED to be RED until the write path (Layer 1/2) is fully deployed everywhere.
+# That is the point — it is the detector proving the write path is fixed and stays fixed.
+
+name: Evolution Tracking Reconciliation
+
+on:
+  schedule:
+    - cron: '30 18 * * *'  # daily 18:30 UTC (after the cost alarm)
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Window in days (default 7)'
+        required: false
+        default: '7'
+      ratio:
+        description: 'Divergence ratio (alarm when invocation > tracking * ratio; default 1.5)'
+        required: false
+        default: '1.5'
+      floor:
+        description: 'Absolute floor USD (ignore windows below this; default 0.50)'
+        required: false
+        default: '0.50'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 10
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      DAYS: ${{ github.event.inputs.days || '7' }}
+      RATIO: ${{ github.event.inputs.ratio || '1.5' }}
+      FLOOR: ${{ github.event.inputs.floor || '0.50' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run reconciliation check
+        id: check
+        # exits 1 on divergence; continue so we can file the issue first.
+        continue-on-error: true
+        run: |
+          npx tsx evolution/scripts/checkTrackingReconciliation.ts \
+            --days "$DAYS" --ratio "$RATIO" --floor "$FLOOR"
+      - name: File [release-health] issue on divergence
+        if: ${{ steps.check.outputs.status == 'divergent' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "[release-health] Evolution tracking gap: invocations \$${{ steps.check.outputs.invocation_usd }} vs tracking \$${{ steps.check.outputs.tracking_usd }} (${{ steps.check.outputs.days }}d)" \
+            --label "release-health" \
+            --body "Evolution spend in evolution_agent_invocations materially exceeds llmCallTracking — calls are not writing joinable tracking rows.
+
+          | Metric | Value |
+          | --- | --- |
+          | Invocation total (source of truth) | \$${{ steps.check.outputs.invocation_usd }} |
+          | Tracking total (llmCallTracking evolution_*) | \$${{ steps.check.outputs.tracking_usd }} |
+          | Ratio | ${{ steps.check.outputs.ratio }}x |
+          | Window | ${{ steps.check.outputs.days }}d |
+          | Floor | \$${{ steps.check.outputs.floor }} |
+
+          ## Investigation
+          1. Confirm the runner + dev tools run the fail-closed tracked path (createTrackedEvolutionProvider).
+             A worktree on pre-fix code, or a new direct-SDK provider, re-opens the gap.
+          2. Check whether the LLM_REQUIRE_TRACKING_DISABLED kill-switch is set (it would swallow write failures).
+          3. Local repro: \`npx tsx evolution/scripts/checkTrackingReconciliation.ts --days 7\`
+
+          Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - name: Fail workflow on divergence
+        if: ${{ steps.check.outputs.status == 'divergent' }}
+        run: |
+          echo "Failing workflow to keep the reconciliation gap visible in Actions UI."
+          exit 1

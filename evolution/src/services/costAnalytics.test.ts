@@ -55,6 +55,7 @@ describe('CostAnalytics Service', () => {
     order: jest.Mock;
     limit: jest.Mock;
     like: jest.Mock;
+    not: jest.Mock;
     rpc: jest.Mock;
   };
 
@@ -74,6 +75,7 @@ describe('CostAnalytics Service', () => {
       order: jest.fn().mockReturnThis(),
       limit: jest.fn(),
       like: jest.fn().mockReturnThis(),
+      not: jest.fn().mockReturnThis(),
       rpc: jest.fn()
     };
 
@@ -549,15 +551,111 @@ describe('CostAnalytics Service', () => {
 
   describe('getEvolutionReconciliationAction', () => {
     it('returns tracking vs invocation cost', async () => {
-      // from('llmCallTracking') chain → lte resolves; from('evolution_agent_invocations') chain → lte resolves
-      mockSupabase.lte
-        .mockResolvedValueOnce({ data: [{ estimated_cost_usd: '0.10' }, { estimated_cost_usd: '0.05' }], error: null })
-        .mockResolvedValueOnce({ data: [{ cost_usd: '2.00' }], error: null });
+      // Tracking side: from('llmCallTracking').like().gte().lte() → lte resolves.
+      // Invocation side now shares evolutionSpendTotal → get_evolution_spend_buckets RPC.
+      mockSupabase.lte.mockResolvedValueOnce({
+        data: [{ estimated_cost_usd: '0.10' }, { estimated_cost_usd: '0.05' }], error: null,
+      });
+      mockSupabase.rpc.mockResolvedValue({
+        data: [{ bucket: '2026-06-23T00:00:00Z', is_test: false, call_count: 1, total_cost: '2.00' }],
+        error: null,
+      });
 
       const result = await getEvolutionReconciliationAction({});
       expect(result.success).toBe(true);
       expect(result.data?.trackingCost).toBeCloseTo(0.15, 5);
       expect(result.data?.invocationCost).toBeCloseTo(2.0, 5);
+    });
+
+    it('reconciliation counts test invocations (includeTest:true) regardless of filter', async () => {
+      mockSupabase.lte.mockResolvedValueOnce({ data: [], error: null });
+      mockSupabase.rpc.mockResolvedValue({
+        data: [
+          { bucket: '2026-06-23T00:00:00Z', is_test: false, call_count: 1, total_cost: '1.00' },
+          { bucket: '2026-06-23T00:00:00Z', is_test: true, call_count: 1, total_cost: '3.00' },
+        ],
+        error: null,
+      });
+      // Even with includeTest:false on the filter, the oracle sums all (its all-up contract).
+      const result = await getEvolutionReconciliationAction({ includeTest: false });
+      expect(result.data?.invocationCost).toBeCloseTo(4.0, 5);
+    });
+  });
+
+  describe('canonical evolution merge (COST_DASHBOARD_UNIFIED_EVOLUTION)', () => {
+    const prev = process.env.COST_DASHBOARD_UNIFIED_EVOLUTION;
+    beforeEach(() => { process.env.COST_DASHBOARD_UNIFIED_EVOLUTION = 'true'; });
+    afterAll(() => {
+      if (prev === undefined) delete process.env.COST_DASHBOARD_UNIFIED_EVOLUTION;
+      else process.env.COST_DASHBOARD_UNIFIED_EVOLUTION = prev;
+    });
+
+    const evoBuckets = [
+      { bucket: '2026-06-23T00:00:00Z', is_test: false, call_count: 2, total_cost: '5.00' },
+      { bucket: '2026-06-23T00:00:00Z', is_test: true, call_count: 3, total_cost: '20.00' },
+    ];
+
+    it('summary total = non-evolution (llmCallTracking) + evolution (invocations); excludes evolution rows from the tracking side', async () => {
+      // Main query + nullCount query both terminate at .not() when the flag is on.
+      mockSupabase.not
+        .mockResolvedValueOnce({ data: [{ estimated_cost_usd: '0.50', total_tokens: 100 }], error: null, count: 1 })
+        .mockResolvedValueOnce({ count: 0, error: null });
+      mockSupabase.rpc.mockResolvedValue({ data: evoBuckets, error: null });
+
+      const result = await getCostSummaryAction({}); // includeTest defaults true
+      expect(result.success).toBe(true);
+      // 0.50 non-evo + 5 + 20 evo = 25.50
+      expect(result.data?.totalCost).toBeCloseTo(25.5, 5);
+      expect(result.data?.totalCalls).toBe(1 + 2 + 3);
+      expect(result.data?.evolutionMerged).toBe(true);
+      // Dedup: evolution rows excluded from the tracking query.
+      expect(mockSupabase.not).toHaveBeenCalledWith('call_source', 'like', 'evolution_%');
+    });
+
+    it('summary honours includeTest=false on BOTH sides (evolution test buckets dropped)', async () => {
+      mockSupabase.not
+        .mockResolvedValueOnce({ data: [], error: null, count: 0 })
+        .mockResolvedValueOnce({ count: 0, error: null });
+      mockSupabase.rpc.mockResolvedValue({ data: evoBuckets, error: null });
+
+      const result = await getCostSummaryAction({ includeTest: false });
+      // only the non-test evolution bucket (5.00) counts
+      expect(result.data?.totalCost).toBeCloseTo(5.0, 5);
+      expect(result.data?.totalCalls).toBe(2);
+    });
+
+    it('granularity chart merges evolution buckets from the source of truth', async () => {
+      mockSupabase.rpc.mockImplementation((fn: string) =>
+        Promise.resolve(
+          fn === 'get_evolution_spend_buckets'
+            ? { data: evoBuckets, error: null }
+            : { data: [{ bucket: '2026-06-23T00:00:00Z', call_source: 'evaluateTags', model: 'm', is_test: false, call_count: 1, total_tokens: 10, total_cost: '0.50' }], error: null },
+        ),
+      );
+
+      const result = await getSpendByGranularityAction({ granularity: 'day' });
+      expect(result.success).toBe(true);
+      const bucket = result.data?.[0];
+      expect(bucket?.nonEvolutionCost).toBeCloseTo(0.5, 5);
+      expect(bucket?.evolutionCost).toBeCloseTo(25.0, 5); // 5 + 20 (includeTest default on)
+      expect(bucket?.totalCost).toBeCloseTo(25.5, 5);
+    });
+
+    it('by-entity surfaces evolution as a single rolled-up entity', async () => {
+      mockSupabase.rpc.mockImplementation((fn: string) =>
+        Promise.resolve(
+          fn === 'get_evolution_spend_buckets'
+            ? { data: evoBuckets, error: null }
+            : { data: [{ bucket: 'b', call_source: 'evolution_generation', model: 'm', is_test: false, call_count: 9, total_tokens: 1, total_cost: '0.04' }, { bucket: 'b', call_source: 'evaluateTags', model: 'm', is_test: false, call_count: 1, total_tokens: 1, total_cost: '0.50' }], error: null },
+        ),
+      );
+
+      const result = await getCostByEntityAction({});
+      const evo = result.data?.find((e) => e.category === 'evolution');
+      // The incomplete evolution_generation tracking row ($0.04) is excluded; the source-of-truth
+      // rollup ($25) replaces it as a single entity.
+      expect(evo?.totalCost).toBeCloseTo(25.0, 5);
+      expect(result.data?.find((e) => e.entity === 'Evolution: generation')).toBeUndefined();
     });
   });
 });

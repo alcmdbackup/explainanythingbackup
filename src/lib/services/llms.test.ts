@@ -1856,6 +1856,22 @@ describe('saveTrackingAndNotify (fail-closed tracking)', () => {
     ).rejects.toThrow();
     expect(order).toEqual(['onUsage']);
   });
+
+  it('kill-switch LLM_REQUIRE_TRACKING_DISABLED wins over requireTracking (rollback path)', async () => {
+    const prev = process.env.LLM_REQUIRE_TRACKING_DISABLED;
+    process.env.LLM_REQUIRE_TRACKING_DISABLED = 'true';
+    try {
+      const onUsage = jest.fn();
+      // Even with requireTracking:true, the write failure is swallowed (does not throw).
+      await expect(
+        saveTrackingAndNotify(row, usageMeta, { requireTracking: true, onUsage }),
+      ).resolves.toBeUndefined();
+      expect(onUsage).toHaveBeenCalledWith(usageMeta);
+    } finally {
+      if (prev === undefined) delete process.env.LLM_REQUIRE_TRACKING_DISABLED;
+      else process.env.LLM_REQUIRE_TRACKING_DISABLED = prev;
+    }
+  });
 });
 
 describe('applyTestLlmModelOverride (TEST_LLM_MODEL)', () => {

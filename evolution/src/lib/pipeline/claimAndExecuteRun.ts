@@ -3,21 +3,17 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
-import { callLLM } from '@/lib/services/llms';
-import { evolutionSource } from '@/lib/services/llmCallSource';
-import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
+import { createTrackedEvolutionProvider, type LLMProvider } from './infra/trackedEvolutionProvider';
 import { buildRunContext, type ClaimedRun } from './setup/buildRunContext';
 import { evolveArticle } from './loop/runIterationLoop';
 import { finalizeRun, syncToArena } from './finalize/persistRunResults';
 import { classifyError } from './classifyError';
-import type { AgentName } from '../core/agentNames';
 import { writeMetricMax } from '../metrics/writeMetrics';
 import { CreateSeedArticleAgent } from '../core/agents/createSeedArticle';
 import { deepCloneRatings } from '../core/agents/generateFromPreviousArticle';
 import { createCostTracker } from './infra/trackBudget';
 import { createEvolutionLLMClient } from './infra/createEvolutionLLMClient';
 import { persistSeedVariantRow } from './persistSeedVariant';
-import { evolutionE2EMockResponse } from './infra/e2eTestLlm';
 import { hydrateCalibrationCache, isCalibrationEnabled } from './infra/costCalibrationLoader';
 import { deriveSeed } from '../shared/seededRandom';
 import { createRating, ratingToDb } from '../shared/computeRatings';
@@ -26,19 +22,7 @@ import { evolutionVariantInsertSchema } from '../schemas';
 
 export type { ClaimedRun } from './setup/buildRunContext';
 
-/** System UUID for evolution pipeline LLM calls (llmCallTracking.userid is uuid NOT NULL). */
-const EVOLUTION_SYSTEM_USERID = '00000000-0000-4000-8000-000000000001';
-
 const DEFAULT_MAX_CONCURRENT_RUNS = 5;
-
-/** D5 (fix_structured_judging_evolution_bugs): output-token cap for every evolution LLM call,
- *  forwarded to callLLM as `maxOutputTokens` → OpenAI `max_tokens` (non-reasoning models only;
- *  reasoning models are exempted inside callLLM). Covers the largest evolution per-call estimate
- *  (evaluate_and_suggest ≈ 2300 tokens) with margin while clearing OpenRouter's 402 affordability
- *  pre-check (which otherwise reserves the model max ~65535). Env kill-switch: set
- *  EVOLUTION_MAX_OUTPUT_TOKENS to a large value (or unset → default) to neutralize a truncation
- *  regression without a redeploy (runner restart required to pick up the env change). */
-const EVOLUTION_MAX_OUTPUT_TOKENS = parseInt(process.env.EVOLUTION_MAX_OUTPUT_TOKENS ?? '', 10) || 4096;
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -196,69 +180,9 @@ export async function claimAndExecuteRun(
   let heartbeatInterval: NodeJS.Timeout | null = null;
 
   try {
-    const llmProvider: LLMProvider = {
-      async complete(
-        prompt: string,
-        label: AgentName,
-        opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high'; invocationId?: string },
-      ): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number; cachedPromptTokens?: number } }> {
-        // E2E_TEST_MODE (fix_test_isolation_issues_20260622): return a deterministic, LLM-free
-        // response so evolution E2E/integration specs run the real pipeline with zero real-AI.
-        // Synthetic non-zero usage keeps createEvolutionLLMClient's cost tracking (and the
-        // iterative_edit_cost / ranking.cost metrics) > 0. Disabled (returns null) outside E2E mode.
-        const e2eMock = evolutionE2EMockResponse(prompt, label);
-        if (e2eMock !== null) {
-          return {
-            text: e2eMock,
-            usage: { promptTokens: Math.max(1, Math.ceil(prompt.length / 4)), completionTokens: Math.max(1, Math.ceil(e2eMock.length / 4)) },
-          };
-        }
-        let capturedUsage: { promptTokens: number; completionTokens: number; reasoningTokens?: number; cachedPromptTokens?: number } | null = null;
-        const text = await callLLM(
-          prompt,
-          evolutionSource(label),
-          EVOLUTION_SYSTEM_USERID,
-          allowedLLMModelSchema.parse(opts?.model ?? 'deepseek-chat'),
-          false,
-          null,
-          null,
-          null,
-          false,
-          {
-            temperature: opts?.temperature,
-            reasoningEffort: opts?.reasoningEffort,
-            // Inject the pipeline's Supabase client so saveLlmCallTracking doesn't fall back
-            // to createSupabaseServiceClient (Next.js-coupled, broken from CLI runner — see
-            // docs/planning/debug_evolution_run_cost_20260426).
-            trackingDb: supabase,
-            // FAIL-CLOSED: if this call's spend can't be recorded, throw (fail the run) rather
-            // than silently continue — closes the 2026-02-23 evolution per-call audit gap.
-            requireTracking: true,
-            // D5: cap output tokens for ALL evolution calls (single chokepoint — every
-            // generation/ranking/seed/judge call routes through this complete()). Set
-            // unconditionally here, NOT via `opts`, because the opts shape above is fixed and
-            // would drop an un-threaded field. callLLM ignores it for reasoning models.
-            maxOutputTokens: EVOLUTION_MAX_OUTPUT_TOKENS,
-            // Thread the evolution_invocation_id when available so llmCallTracking rows
-            // can join back to evolution_agent_invocations for per-invocation cost audit.
-            evolutionInvocationId: opts?.invocationId,
-            onUsage: (u) => {
-              capturedUsage = {
-                promptTokens: u.promptTokens,
-                completionTokens: u.completionTokens,
-                reasoningTokens: u.reasoningTokens > 0 ? u.reasoningTokens : undefined,
-                cachedPromptTokens: u.cachedPromptTokens,
-              };
-            },
-          },
-        );
-        // onUsage fires inside saveTrackingAndNotify which is awaited by the LLM call path,
-        // so capturedUsage is populated by the time callLLM returns. Fallback to zeros if
-        // somehow absent (keeps downstream code safe; Phase 2 will treat missing as "skip token path").
-        const usage = capturedUsage ?? { promptTokens: 0, completionTokens: 0 };
-        return { text, usage };
-      },
-    };
+    // Shared tracked provider: routes every evolution call through callLLM with fail-closed
+    // tracking + injected trackingDb + the output-token cap. See trackedEvolutionProvider.ts.
+    const llmProvider: LLMProvider = createTrackedEvolutionProvider({ db: supabase });
 
     heartbeatInterval = startHeartbeat(supabase, runId, options.runnerId);
 
@@ -279,14 +203,6 @@ export async function claimAndExecuteRun(
 }
 
 // ─── Shared execution logic ──────────────────────────────────────
-
-interface LLMProvider {
-  complete(
-    prompt: string,
-    label: AgentName,
-    opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high'; invocationId?: string },
-  ): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number; cachedPromptTokens?: number } }>;
-}
 
 /** Build context, run evolution loop, finalize, sync arena. Re-throws on failure. */
 async function executePipeline(

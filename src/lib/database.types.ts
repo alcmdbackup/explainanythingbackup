@@ -2441,6 +2441,19 @@ export type Database = {
           total_cost: number
         }[]
       }
+      get_evolution_spend_buckets: {
+        Args: {
+          p_granularity: string
+          p_start: string
+          p_end: string
+        }
+        Returns: {
+          bucket: string
+          is_test: boolean
+          call_count: number
+          total_cost: number
+        }[]
+      }
       remove_and_renumber_source: {
         Args: {
           p_explanation_id: number

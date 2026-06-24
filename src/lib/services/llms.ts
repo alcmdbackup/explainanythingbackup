@@ -298,7 +298,10 @@ export async function saveTrackingAndNotify(
             tracking_failure_count: trackingFailureCount,
         });
         // FAIL-CLOSED: evolution (and any requireTracking) call must fail when its spend can't be recorded.
-        if (options?.requireTracking) {
+        // Kill-switch: LLM_REQUIRE_TRACKING_DISABLED=true reverts to best-effort swallow WITHOUT a
+        // deploy if fail-closed starts failing runs (rollback for the Layer-1 guarantee). The env
+        // check WINS over requireTracking so the rollback path is unambiguous.
+        if (options?.requireTracking && process.env.LLM_REQUIRE_TRACKING_DISABLED !== 'true') {
             throw trackingError;
         }
     }

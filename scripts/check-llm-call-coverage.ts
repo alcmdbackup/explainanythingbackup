@@ -32,8 +32,9 @@ export const ALLOWLIST = new Set<string>([
   // Documented self-tracker: multi-provider direct-SDK content tool. Tracks via its own
   // trackLLMCall (bounded call_source, loud catch, is_test derived). debug_llm_spending_…_20260621.
   'evolution/scripts/lib/oneshotGenerator.ts',
-  // Dev-only local evolution runner (not a deployed spend path).
-  'evolution/scripts/run-evolution-local.ts',
+  // run-evolution-local.ts was REMOVED from the allowlist (llm_costs_too_low_in_dash_20260623):
+  // it now routes real-LLM calls through createTrackedEvolutionProvider → callLLM (no direct SDK,
+  // no hand-written tracking insert), so the guard must flag it if a direct bypass is reintroduced.
   // Ad-hoc model benchmark / probe scripts (dev-only, run by hand; no production spend path).
   'evolution/scripts/test-qwen3-thinking.ts',
   'evolution/scripts/test-oss20b-thinking.ts',
