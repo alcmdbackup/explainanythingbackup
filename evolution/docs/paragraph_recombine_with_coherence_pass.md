@@ -36,13 +36,18 @@ Three phases per invocation:
 4. Validate the recombined article via `validateFormat`. On invalid, emit `surfaced=false` with `failure.code='format_invalid'`.
 
 ### Phase C (optional): Coherence pass
+
+> **Major rework by `investigate_paragraph_recombine_coherence_pass_performance_20260623`** (2026-06-23). Original hypothesis ("isolated rewrites + minor seam smoothing beats sequential context-aware generation") was invalidated by 4 consecutive staging runs with negative `eloAttrDelta:paragraph_recombine_with_coherence_pass`. The agent is now repositioned as "isolated rewrites + a real editing pass": the proposer prompt authorizes voice repair, the Jaccard redundancy + flow guardrails are dropped from `validateOpts`, the length cap defaults open to 1.10 (vs 1.02), and the single cycle is replaced with a bounded loop (default 2 cycles).
+
 5. Pre-coherence-pass budget gate at **0.85× perInvocationCap** — skipped with `coherencePass: { skipped: 'budget' }` if scope ≥ gate.
-6. When `coherencePassEnabled !== false`: single propose-review-apply cycle via the shared `runEditingCycle()` helper extracted from `IterativeEditingAgent`. Uses tight `validateOpts`:
-   - `lengthCapRatio: 1.02` (max 2% article growth — coherence pass should be MINOR)
-   - `redundancyJaccardThreshold: 0.30` (drop edits that duplicate existing text)
-   - `flowGuardrailEnabled: true` (preserve transitions; only drop transitions when replacement preserves another)
-7. AgentName labels: `coherence_pass_propose` + `coherence_pass_review` → cost lands in the new `paragraph_recombine_coherence_cost` umbrella metric.
-8. Silent-rejection observability: if approverGroups > 0 but appliedCount == 0, increments `coherence_pass_silent_rejection_count` and logs a warn.
+6. When `coherencePassEnabled !== false`: a bounded loop of `runEditingCycle()` calls (the same shared helper extracted from `IterativeEditingAgent`). Each cycle:
+   - Rebuilds `proposerUserPrompt` from the running text. Cycle 2+ must see the post-cycle-1 article as `<source>` — otherwise `parseProposedEdits`' RULE-1 byte-equality drops every group.
+   - Uses `validateOpts: { lengthCapRatio }` only. `redundancyJaccardThreshold` + `flowGuardrailEnabled` removed (Phase 2a): both blocked legitimate voice-repair edits without catching paraphrased duplication; the approver LLM is the actual quality gate.
+   - Loop terminates when `cycleResult.stopReason` is set OR `cycleNumber > maxCycles`.
+   - **Mode A only** — `runEditingCycle` is called WITHOUT a `rewriteMode` argument, so `coalesceAdjacentGroups` + `capGroupsByMagnitude` are skipped. Intentional: no edit-count cap, no per-group cap.
+   - **`driftRecovery: 'skip'`** — the recombined article is the source of truth; nothing to drift from. With multi-cycle this means minor drift in cycle 2+ aborts via stopReason rather than attempting snap recovery against a moving source.
+7. AgentName labels: `coherence_pass_propose` + `coherence_pass_review` → cost lands in the `paragraph_recombine_coherence_cost` umbrella metric (sums propose + review accumulators across all cycles; the underlying `getPhaseCosts` accumulators are run-cumulative so the sum-write is MAX-safe).
+8. Silent-rejection observability: per-cycle counter accumulated across the loop. If any cycle had `approverGroups.length > 0 && appliedGroups.length === 0`, the agent writes the run-total to `coherence_pass_silent_rejection_count` once at end-of-loop and logs a warn.
 
 ### Phase D: Article-level ranking + emit
 9. The recombined+smoothed article variant is ranked against the run pool via `rankNewVariant` (uses the invocation's `input.llm` → `ranking_cost`, distinct from per-slot `paragraph_rank` → `paragraph_recombine_cost`).
@@ -76,21 +81,27 @@ Floor and ceiling are tunable per-iteration via `coherencePassRewriteTempFloor` 
 - `perInvocationCapUsd` (default **conditional**: $0.10 when `coherencePassEnabled !== false`, $0.05 when explicitly false)
 - `maxDispatches` (default 1 — back-compat single-dispatch; opt into multi-dispatch by raising)
 
-**Coherence-pass-only** (5 new fields):
-- `coherencePassEnabled?: boolean` — default true. When false, the coherence pass is skipped and the recombined article is emitted as-is. **This is the A/B isolation lever** for measuring the coherence pass's contribution to Elo lift.
+**Coherence-pass-only** (7 fields after `investigate_paragraph_recombine_coherence_pass_performance_20260623`):
+- `coherencePassEnabled?: boolean` — default true. When false, the coherence pass is skipped and the recombined article is emitted as-is. **This was the original A/B isolation lever**; with the Phase-2a/3/4 changes, the agent's hypothesis has shifted (see Algorithm notes above).
 - `coherencePassProposerModel?: string` — default `generationModel`
 - `coherencePassApproverModel?: string` — default `judgeModel`
 - `coherencePassRewriteTempFloor?: number` — default 0.6 (range 0-2)
 - `coherencePassRewriteTempCeiling?: number` — default 1.0 (range 0-2; must be ≥ floor)
+- `coherencePassLengthCapRatio?: number` (Phase 3) — default **1.10** (range 1.0-2.0). The per-cycle article-growth ceiling. NOTE: with `coherencePassMaxCycles > 1` the cap COMPOUNDS — at the defaults (1.10 × 2 cycles) worst-case length is 1.21× original.
+- `coherencePassMaxCycles?: number` (Phase 4) — default **2** (range 1-5). Maximum number of propose-approve-apply cycles.
+
+**Kill switch** (env-var): `EVOLUTION_COHERENCE_PASS_DEFAULTS_V2`. Default `'true'` (or unset) uses the new aggressive defaults (1.10 / 2 cycles). Setting to `'false'` flips defaults to legacy (1.02 / 1 cycle) WITHOUT a deploy — the agent reads the env var per-invocation via `resolveCoherencePassDefaults()`. Explicit per-strategy values (set via the wizard or iter-config) ALWAYS override; the kill switch only changes what the DEFAULT is.
 
 ## Cost envelope
 
 Per-invocation cost at defaults (12 slots × 3 rewrites × 8 comparisons + coherence pass at gpt-4.1-nano / qwen-2.5-7b):
 - Per-slot rewrite + ranking: **~$0.0048 actual median** (same as `paragraph_recombine`)
-- Coherence pass propose + review: **~$0.0035 typical** (~$0.005 worst case)
-- **Total: ~$0.008-0.010/variant** with coherence pass enabled
+- Coherence pass propose + review: post `investigate_paragraph_recombine_coherence_pass_performance_20260623` defaults (`maxCycles=2`): **~$0.007 typical** (~$0.014 worst case). Legacy single-cycle: ~$0.0035 typical.
+- **Total at new defaults: ~$0.012-0.020/variant** with coherence pass enabled.
 
-Per-invocation safety cap: **$0.10** (vs $0.05 for plain `paragraph_recombine`). Drops to $0.05 when `coherencePassEnabled=false`. Pre-coherence-pass budget gate at 0.85× cap.
+Per-invocation safety cap: **$0.10** (vs $0.05 for plain `paragraph_recombine`). Drops to $0.05 when `coherencePassEnabled=false`. Pre-coherence-pass budget gate at 0.85× cap. Per-cycle gate at 0.9× — `runEditingCycle` early-exits with `stopReason: 'invocation_budget_near_exhaustion'`.
+
+**Compounding length cap**: `lengthCapRatio` is applied per cycle to the running text. At defaults (1.10 × 2 cycles) worst-case article length is 1.21× original. With `coherencePassLengthCapRatio: 1.20 × coherencePassMaxCycles: 3` worst-case is 1.728× original — the wizard help text warns about this.
 
 ## Cost metrics
 

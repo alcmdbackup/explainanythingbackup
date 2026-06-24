@@ -57,11 +57,10 @@ interface IterationConfig {
   // but FIXED at 1 for proposer_approver_criteria_generate (single-cycle invariant).
   editingMaxCycles?: number;
   editingEligibilityCutoff?: { mode: 'topN' | 'topPercent'; value: number };
-  // Guardrail fields for the 2 new criteria agents. lengthCapRatio is
-  // proposer_approver-only (default 1.10). redundancyJaccardThreshold is
-  // valid for both new criteria agents (default 0.35).
+  // Guardrail fields. lengthCapRatio is proposer_approver-only (default 1.10).
+  // (redundancyJaccardThreshold was removed in
+  // investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 2b.)
   lengthCapRatio?: number;
-  redundancyJaccardThreshold?: number;
   // Mirror-approver toggle for proposer_approver_criteria_generate only
   // (default true; emitted to config_hash ONLY when explicitly false).
   includesMirrorApprover?: boolean;
