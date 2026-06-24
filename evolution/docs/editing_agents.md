@@ -13,9 +13,9 @@ Reintroduced in `feat/bring_back_editing_agents_evolution_20260430` after the V1
    - `{-- deleted text --}` (delete)
    - `{~~ old text ~> new text ~~}` (substitution, inline form)
    - `{~~ old text ~~}{++ new text ++}` (substitution, standard CriticMarkup paired form)
-   The optional `[#N]` group tag (e.g. `{++ [#1] inserted ++}`) forces grouping across non-adjacent spans; if omitted, the parser auto-assigns group numbers via the adjacency rule below. Both substitution forms are accepted.
+   The optional `[#N]` group tag (e.g. `{++ [#1] inserted ++}`) forces grouping across non-adjacent spans; if omitted, each unnumbered span gets its OWN group (per-span granularity — see Implementer pre-check below). Both substitution forms are accepted; the position-adjacency paired-merge collapses `{~~ X ~~}{++ Y ++}` into one substitution.
 2. **Implementer pre-check** (deterministic):
-   - Parse markup → atomic edits grouped by `[#N]` if explicit, otherwise by **adjacency** (consecutive markup spans separated only by horizontal whitespace + at most one newline form one auto-group; paragraph break `\n\n` splits groups). Adjacent paired delete+insert with the same group number is normalized to a `replace`. Standard CriticMarkup paired form `{~~ X ~~}{++ Y ++}` is treated as a substitution via this merge.
+   - Parse markup → atomic edits grouped by `[#N]` if explicit, otherwise **each unnumbered span gets its own group** (per-span granularity — the post-`investigate_iterative_editing_runs_stage_20260623` default; previously adjacency auto-bundled). The standard CriticMarkup paired form `{~~ X ~~}{++ Y ++}` is treated as ONE substitution edit via a position-adjacency rule (delete-immediately-followed-by-insert, only horizontal whitespace between, no newlines) — independent of group numbers.
    - Strip markup → `recoveredSource`. Compare against `current.text` → drift check.
    - On drift: classify magnitude. Major → abort. Minor → recovery LLM call (`iterative_edit_drift_recovery`).
    - Apply hard rules per group (length cap, heading-cross, code-fence, list-boundary, horizontal rule, paragraph break). Group-level coherence: any atomic edit in a group fails any rule → drop the WHOLE group.
@@ -109,40 +109,15 @@ Three operational health metrics (live during execution, alert thresholds env-tu
 - `EDITING_RANK_ENABLED='false'` — disables the post-cycle ranking step only. Editing still runs and emits final variants, but they land in the pool with default Elo (pre-ranking-project behavior). Default: `'true'`. Use this kill-switch if ranking misbehaves operationally; editing remains functional.
 - `EVOLUTION_DRIFT_RECOVERY_ENABLED='false'` — disables drift recovery. Minor drift is treated as major (cycle aborts).
 
-## Disabling approver filtering (experimental)
+## Max approver granularity (default since `investigate_iterative_editing_runs_stage_20260623`)
 
-Added by `meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616` Phase 6. Mode B (`iterative_editing_rewrite`) only.
+Both Mode A (parser) and Mode B (post-parse) now default to per-span approver decisions:
 
-Setting `disableApproverFiltering: true` on an `iterative_editing_rewrite` iteration's config skips the post-parse `coalesceAdjacentGroups` + `capGroupsByMagnitude(K=10)` steps. The approver then sees every diff atomic as its own singleton group instead of bundled groups capped at K=10.
+- **Parser default**: each unnumbered CriticMarkup span is its OWN group. Adjacent-bundling has been removed. The paired-substitution form `{~~ X ~~}{++ Y ++}` still merges into one substitution edit, but via position-adjacency (no source chars between markup spans, or only horizontal whitespace — no newlines) rather than via shared group number.
+- **Mode B default**: `coalesceAdjacentGroups` + `capGroupsByMagnitude(K=10)` no longer run by default. Every diff atomic the rewrite produces becomes its own singleton group. The legacy `disableApproverFiltering` schema field that used to opt out is gone; existing strategy JSONB rows that still carry it are silent-tolerated (Zod default strip-unknown).
+- **`[#N]` explicit grouping** remains the escape hatch for callers that need bundled decisions.
 
-**What stays the same in both modes**:
-- `validateEditGroups` still runs: heading-cross, quote-modification, code-fence, list-boundary, paragraph-break, `EDIT_NEWTEXT_LENGTH_CAP=500`, `AGENT_MAX_ATOMIC_EDITS_PER_GROUP=5`, `AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30`, size-ratio guardrail (≤1.5× article growth).
-- The approver's system prompt, output contract, and per-group accept/reject semantics.
-- All Mode A behavior. The field is exclusive to `iterative_editing_rewrite` per a Zod refine; FIELD_GATES strips it pre-hash on any non-rewrite agent type.
-
-**Cost impact**: at `editingProposerSoftCap=8` (range widened from 5 to 10 in this PR) the proposer typically emits 40-60 atomics. Under bypass the per-cycle approver call sees ~30 groups (capped by `AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30`) instead of 10. Approver token cost rises ~10-15% per cycle; per-run cost moves from ~$0.038 → ~$0.041 on `gemini-2.5-flash-lite`.
-
-**When to use**: in controlled A/B experiments comparing per-atomic vs per-bundle approver veto granularity (the Phase 6 use case). Production strategies should leave it `false` (default) until the experiment confirms a positive lift.
-
-**Verifying the shape change via SQL**. The two arms' `execution_detail.cycles[*].proposedGroupsRaw` arrays differ structurally:
-
-```sql
--- Control arm: ≤10 groups per cycle, some multi-atomic (bundled)
-SELECT i.id,
-       jsonb_array_length(c.cycle->'proposedGroupsRaw')               AS group_count,
-       jsonb_path_query_array(c.cycle->'proposedGroupsRaw',
-                              '$[*].atomicEdits[*]') -> 'atomicEdits' AS atomic_edits
-FROM evolution_agent_invocations i
-JOIN evolution_runs r ON i.run_id = r.id
-CROSS JOIN LATERAL jsonb_array_elements(COALESCE(i.execution_detail->'cycles', '[]'::jsonb)) AS c(cycle)
-WHERE r.strategy_id = '<control_strategy_id>'
-ORDER BY i.id;
-
--- Treatment arm: >10 groups per cycle, each containing 1 atomic edit (singleton)
--- Same query, swap the strategy_id for the treatment arm.
-```
-
-Control rows will show `group_count` ≤ 10 with some groups containing 2-5 atomic edits (bundled by `coalesceAdjacentGroups`). Treatment rows show `group_count` up to 30 (capped by `AGENT_MAX_ATOMIC_EDITS_PER_CYCLE`) with each group containing exactly 1 atomic edit (`parseProposedEdits`'s adjacency auto-grouping may produce occasional 2-atomic groups from paired delete+insert pairs, which is expected — see `verifyBundleSplitStage1.ts` for the relaxed `mean atomics/group < 1.5` acceptance criterion).
+The cycle-/group-level hard rules (`AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30`, `AGENT_MAX_ATOMIC_EDITS_PER_GROUP=5`, `SIZE_RATIO_HARD_CAP=1.5×`, heading-cross / code-fence / list-boundary / paragraph-break checks in `validateEditGroups`) remain as safety rails. The 500-char per-atomic-edit length soft cap (`EDIT_NEWTEXT_LENGTH_CAP`) was removed so sentence-order swaps can ship as single substitution edits.
 
 ## Roadmap (out of scope for v1)
 

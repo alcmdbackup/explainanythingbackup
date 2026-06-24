@@ -105,8 +105,10 @@ const iterationConfigSchema = z.object({
   weakestK: z.number().int().min(1).optional(),                // valid for all 3 criteria-based agent types
   editingMaxCycles: z.number().int().min(1).max(5).optional(), // iterative_editing free; proposer_approver fixed at 1
   editingEligibilityCutoff: cutoffSchema.optional(),           // iterative_editing + proposer_approver
-  editingProposerSoftCap: z.number().int().min(1).max(10).optional(), // iterative_editing_rewrite only; widened from max=5 by meta_analysis_2026-06-16 Phase 6
-  disableApproverFiltering: z.boolean().optional(),            // iterative_editing_rewrite only (Phase 6 bundle-split A/B experiment)
+  // (editingProposerSoftCap + disableApproverFiltering removed by
+  //  investigate_iterative_editing_runs_stage_20260623. Mode B post-parse coalesce/cap
+  //  is now DEFAULT-OFF; existing strategy rows that still carry these fields are
+  //  silent-tolerated via Zod's default strip-unknown behavior.)
   lengthCapRatio: z.number().min(1.01).max(1.50).optional(),   // proposer_approver only (default 1.10)
   redundancyJaccardThreshold: z.number().min(0).max(1).optional(), // single_pass + proposer_approver (default 0.35)
   includesMirrorApprover: z.boolean().optional(),              // proposer_approver only (default true)
