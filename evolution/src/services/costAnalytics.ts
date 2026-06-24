@@ -133,6 +133,70 @@ async function fetchSpendBuckets(
   return (data ?? []) as SpendBucketRow[];
 }
 
+// ─── Canonical evolution-spend merge (llm_costs_too_low_in_dash_20260623) ───
+// /admin/costs reads llmCallTracking, which is incomplete for evolution. Evolution spend is
+// sourced at INVOCATION grain from evolution_agent_invocations (the source of truth every path
+// populates) via the get_evolution_spend_buckets RPC, then merged app-side. Non-evolution rows
+// stay in llmCallTracking; the dedup is a call_source filter (evolution rows are excluded from
+// the non-evo side — equivalent to attributeCallSource(...).category !== 'evolution', since both
+// reduce to a startsWith('evolution_') test). Gated by an env flag for safe, reversible rollout.
+
+/** Single label used for evolution in the by-model / by-user tabs (no per-model/user grain). */
+const EVOLUTION_PIPELINE_LABEL = 'evolution-pipeline';
+
+/** Whether the canonical evolution merge is active. Unset/false ⇒ exact pre-merge behaviour. */
+function unifiedEvolutionEnabled(): boolean {
+  return process.env.COST_DASHBOARD_UNIFIED_EVOLUTION === 'true';
+}
+
+/** One row from the get_evolution_spend_buckets RPC. */
+interface EvolutionSpendBucketRow {
+  bucket: string;
+  is_test: boolean;
+  call_count: number;
+  total_cost: number;
+}
+
+/** Fetch evolution spend buckets (invocation-grain) for the window/granularity. */
+async function fetchEvolutionSpendBuckets(
+  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
+  filters: CostFilters,
+): Promise<EvolutionSpendBucketRow[]> {
+  const granularity: Granularity = filters.granularity ?? 'day';
+  const { start, end } = resolveRange(filters);
+  const { data, error } = await supabase.rpc('get_evolution_spend_buckets', {
+    p_granularity: granularity,
+    p_start: start,
+    p_end: end,
+  });
+  if (error) {
+    logger.error('Error fetching evolution spend buckets', { error: error.message });
+    throw error;
+  }
+  return (data ?? []) as EvolutionSpendBucketRow[];
+}
+
+/**
+ * Total evolution spend (+ call count) in the window, honouring includeTest. Shared by the
+ * summary headline and the reconciliation oracle so both compute identical invocation-grain math
+ * (exact parity when includeTest matches). Granularity is irrelevant for a sum.
+ */
+async function evolutionSpendTotal(
+  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
+  filters: CostFilters,
+): Promise<{ cost: number; calls: number }> {
+  const rows = await fetchEvolutionSpendBuckets(supabase, { ...filters, granularity: 'day' });
+  const includeTest = filters.includeTest ?? true;
+  let cost = 0;
+  let calls = 0;
+  for (const r of rows) {
+    if (!includeTest && r.is_test) continue;
+    cost += Number(r.total_cost) || 0;
+    calls += Number(r.call_count) || 0;
+  }
+  return { cost, calls };
+}
+
 /**
  * Get cost summary for a time period.
  */
@@ -174,6 +238,11 @@ const _getCostSummaryAction = withLogging(async (
     if (filters.includeTest === false) {
       query = query.eq('is_test', false);
     }
+    // Canonical merge: exclude evolution rows here — evolution spend is sourced from the
+    // invocation source of truth below, so the llmCallTracking side is non-evolution only.
+    if (unifiedEvolutionEnabled()) {
+      query = query.not('call_source', 'like', 'evolution_%');
+    }
 
     const { data, error, count } = await query;
 
@@ -199,12 +268,23 @@ const _getCostSummaryAction = withLogging(async (
     if (filters.includeTest === false) {
       nullCountQuery = nullCountQuery.eq('is_test', false);
     }
+    if (unifiedEvolutionEnabled()) {
+      nullCountQuery = nullCountQuery.not('call_source', 'like', 'evolution_%');
+    }
 
     const { count: nullCount } = await nullCountQuery;
 
-    const totalCalls = count || 0;
-    const totalCost = data?.reduce((sum, row) => sum + (Number(row.estimated_cost_usd) || 0), 0) || 0;
+    let totalCalls = count || 0;
+    let totalCost = data?.reduce((sum, row) => sum + (Number(row.estimated_cost_usd) || 0), 0) || 0;
     const totalTokens = data?.reduce((sum, row) => sum + (row.total_tokens || 0), 0) || 0;
+
+    // Add evolution spend from the source of truth (evolution_agent_invocations), honouring
+    // the same includeTest toggle. Skipped on model/user filters (evolution has no such grain).
+    if (unifiedEvolutionEnabled() && !filters.model && !filters.userId) {
+      const evo = await evolutionSpendTotal(supabase, filters);
+      totalCost += evo.cost;
+      totalCalls += evo.calls;
+    }
 
     return {
       success: true,
@@ -350,6 +430,9 @@ const _getCostByModelAction = withLogging(async (
     if (filters.includeTest === false) {
       query = query.eq('is_test', false);
     }
+    if (unifiedEvolutionEnabled()) {
+      query = query.not('call_source', 'like', 'evolution_%');
+    }
 
     const { data, error } = await query;
 
@@ -379,6 +462,22 @@ const _getCostByModelAction = withLogging(async (
           reasoningTokens: row.reasoning_tokens || 0,
           totalTokens: row.total_tokens || 0,
           totalCost: Number(row.estimated_cost_usd) || 0
+        });
+      }
+    }
+
+    if (unifiedEvolutionEnabled() && !filters.userId) {
+      const evo = await evolutionSpendTotal(supabase, filters);
+      if (evo.calls > 0 || evo.cost > 0) {
+        // No per-model grain at invocation level → one rolled-up "evolution-pipeline" row.
+        modelMap.set(EVOLUTION_PIPELINE_LABEL, {
+          model: EVOLUTION_PIPELINE_LABEL,
+          callCount: evo.calls,
+          promptTokens: 0,
+          completionTokens: 0,
+          reasoningTokens: 0,
+          totalTokens: 0,
+          totalCost: evo.cost,
         });
       }
     }
@@ -440,6 +539,9 @@ const _getCostByUserAction = withLogging(async (
     if (filters.includeTest === false) {
       query = query.eq('is_test', false);
     }
+    if (unifiedEvolutionEnabled()) {
+      query = query.not('call_source', 'like', 'evolution_%');
+    }
 
     const { data, error } = await query;
 
@@ -464,6 +566,18 @@ const _getCostByUserAction = withLogging(async (
           callCount: 1,
           totalTokens: row.total_tokens || 0,
           totalCost: Number(row.estimated_cost_usd) || 0
+        });
+      }
+    }
+
+    if (unifiedEvolutionEnabled() && !filters.model) {
+      const evo = await evolutionSpendTotal(supabase, filters);
+      if (evo.calls > 0 || evo.cost > 0) {
+        userMap.set(EVOLUTION_PIPELINE_LABEL, {
+          userId: EVOLUTION_PIPELINE_LABEL,
+          callCount: evo.calls,
+          totalTokens: 0,
+          totalCost: evo.cost,
         });
       }
     }
@@ -612,24 +726,39 @@ const _getSpendByGranularityAction = withLogging(async (
   try {
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
+    const merge = unifiedEvolutionEnabled();
     const rows = await fetchSpendBuckets(supabase, filters);
 
     const byBucket = new Map<string, SpendBucket>();
+    const emptyBucket = (bucket: string): SpendBucket => ({
+      bucket, evolutionCost: 0, nonEvolutionCost: 0, totalCost: 0, callCount: 0,
+    });
     for (const row of rows) {
       const { category } = attributeCallSource(row.call_source);
+      // When merging, evolution comes from the invocation source of truth below; skip the
+      // incomplete evolution rows in llmCallTracking so they aren't double-counted.
+      if (merge && category === 'evolution') continue;
       const cost = Number(row.total_cost) || 0;
-      const existing = byBucket.get(row.bucket) ?? {
-        bucket: row.bucket,
-        evolutionCost: 0,
-        nonEvolutionCost: 0,
-        totalCost: 0,
-        callCount: 0,
-      };
+      const existing = byBucket.get(row.bucket) ?? emptyBucket(row.bucket);
       if (category === 'evolution') existing.evolutionCost += cost;
       else existing.nonEvolutionCost += cost;
       existing.totalCost += cost;
       existing.callCount += Number(row.call_count) || 0;
       byBucket.set(row.bucket, existing);
+    }
+
+    if (merge) {
+      const includeTest = filters.includeTest ?? true;
+      const evoRows = await fetchEvolutionSpendBuckets(supabase, filters);
+      for (const row of evoRows) {
+        if (!includeTest && row.is_test) continue;
+        const cost = Number(row.total_cost) || 0;
+        const existing = byBucket.get(row.bucket) ?? emptyBucket(row.bucket);
+        existing.evolutionCost += cost;
+        existing.totalCost += cost;
+        existing.callCount += Number(row.call_count) || 0;
+        byBucket.set(row.bucket, existing);
+      }
     }
 
     return {
@@ -654,11 +783,14 @@ const _getCostByEntityAction = withLogging(async (
   try {
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
+    const merge = unifiedEvolutionEnabled();
     const rows = await fetchSpendBuckets(supabase, filters);
 
     const byEntity = new Map<string, EntityCost>();
     for (const row of rows) {
       const { entity, category } = attributeCallSource(row.call_source);
+      // When merging, evolution is a single entity sourced from invocations below.
+      if (merge && category === 'evolution') continue;
       const existing = byEntity.get(entity) ?? {
         entity,
         category,
@@ -670,6 +802,20 @@ const _getCostByEntityAction = withLogging(async (
       existing.totalTokens += Number(row.total_tokens) || 0;
       existing.totalCost += Number(row.total_cost) || 0;
       byEntity.set(entity, existing);
+    }
+
+    if (merge) {
+      const evo = await evolutionSpendTotal(supabase, filters);
+      if (evo.calls > 0 || evo.cost > 0) {
+        // Evolution has no per-model/token grain at invocation level → one rolled-up entity.
+        byEntity.set(EVOLUTION_PIPELINE_LABEL, {
+          entity: EVOLUTION_PIPELINE_LABEL,
+          category: 'evolution',
+          callCount: evo.calls,
+          totalTokens: 0,
+          totalCost: evo.cost,
+        });
+      }
     }
 
     return {
@@ -710,17 +856,10 @@ const _getEvolutionReconciliationAction = withLogging(async (
     }
     const trackingCost = (trackRows ?? []).reduce((s, r) => s + (Number(r.estimated_cost_usd) || 0), 0);
 
-    // Invocation-based evolution spend (source of truth for the audit-gap window).
-    const { data: invRows, error: invErr } = await supabase
-      .from('evolution_agent_invocations')
-      .select('cost_usd')
-      .gte('created_at', start)
-      .lte('created_at', end);
-    if (invErr) {
-      logger.error('Error fetching invocation cost', { error: invErr.message });
-      throw invErr;
-    }
-    const invocationCost = (invRows ?? []).reduce((s, r) => s + (Number(r.cost_usd) || 0), 0);
+    // Invocation-based evolution spend (source of truth for the audit-gap window). Sourced via
+    // the SAME shared helper the dashboard summary uses, so the two compute identical
+    // invocation-grain math. includeTest:true ⇒ count all invocations (the oracle's all-up sum).
+    const { cost: invocationCost } = await evolutionSpendTotal(supabase, { ...filters, includeTest: true });
 
     return { success: true, data: { trackingCost, invocationCost }, error: null };
   } catch (error) {
