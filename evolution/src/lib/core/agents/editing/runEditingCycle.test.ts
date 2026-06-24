@@ -183,7 +183,7 @@ describe('runEditingCycle — LLM error handling (I3)', () => {
       driftRecovery: 'snap',
       proposerSystemPrompt: 'sys',
       proposerUserPrompt: 'user',
-      rewriteMode: { proposerSoftCap: 3, coalesceAndCap: true },
+      rewriteMode: { coalesceAndCap: true },
     });
     expect(result.stopReason).toBe('proposer_format_violation');
   });

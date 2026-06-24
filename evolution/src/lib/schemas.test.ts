@@ -778,110 +778,46 @@ describe('strategyConfigSchema', () => {
     })).not.toThrow();
   });
 
-  // ─── editingProposerSoftCap range + new disableApproverFiltering field ──
-  // Added by meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6.
-  describe('editingProposerSoftCap and disableApproverFiltering (Mode B bundle-split experiment)', () => {
-    it('accepts editingProposerSoftCap=8 on iterative_editing_rewrite (widened from max=5 to max=10)', () => {
-      expect(() => strategyConfigSchema.parse({
-        ...validBase,
-        iterationConfigs: [
-          { agentType: 'generate', budgetPercent: 34 },
-          { agentType: 'iterative_editing_rewrite', budgetPercent: 66, editingProposerSoftCap: 8 },
-        ],
-      })).not.toThrow();
-    });
-
-    it('accepts editingProposerSoftCap=10 (new upper bound)', () => {
-      expect(() => strategyConfigSchema.parse({
-        ...validBase,
-        iterationConfigs: [
-          { agentType: 'generate', budgetPercent: 34 },
-          { agentType: 'iterative_editing_rewrite', budgetPercent: 66, editingProposerSoftCap: 10 },
-        ],
-      })).not.toThrow();
-    });
-
-    it('rejects editingProposerSoftCap=11 (above new max=10)', () => {
-      expect(() => strategyConfigSchema.parse({
-        ...validBase,
-        iterationConfigs: [
-          { agentType: 'generate', budgetPercent: 34 },
-          { agentType: 'iterative_editing_rewrite', budgetPercent: 66, editingProposerSoftCap: 11 },
-        ],
-      })).toThrow();
-    });
-
-    it('accepts disableApproverFiltering=true on iterative_editing_rewrite', () => {
-      expect(() => strategyConfigSchema.parse({
-        ...validBase,
-        iterationConfigs: [
-          { agentType: 'generate', budgetPercent: 34 },
-          { agentType: 'iterative_editing_rewrite', budgetPercent: 66, disableApproverFiltering: true },
-        ],
-      })).not.toThrow();
-    });
-
-    it('accepts disableApproverFiltering=false on iterative_editing_rewrite (production default)', () => {
-      expect(() => strategyConfigSchema.parse({
-        ...validBase,
-        iterationConfigs: [
-          { agentType: 'generate', budgetPercent: 34 },
-          { agentType: 'iterative_editing_rewrite', budgetPercent: 66, disableApproverFiltering: false },
-        ],
-      })).not.toThrow();
-    });
-
-    it('accepts omitted disableApproverFiltering on iterative_editing_rewrite (production default)', () => {
+  // ─── editingProposerSoftCap + disableApproverFiltering REMOVED ──
+  // investigate_iterative_editing_runs_stage_20260623 dropped both fields.
+  // Existing strategy JSONB rows that still carry them are silent-tolerated:
+  // Zod's default object behavior strips unknown keys at parse time.
+  describe('editingProposerSoftCap + disableApproverFiltering — silent-tolerate on load', () => {
+    it('strips a legacy iterationConfigs payload that still carries editingProposerSoftCap and disableApproverFiltering (no parse error)', () => {
       const result = strategyConfigSchema.parse({
         ...validBase,
         iterationConfigs: [
           { agentType: 'generate', budgetPercent: 34 },
-          { agentType: 'iterative_editing_rewrite', budgetPercent: 66 },
+          {
+            agentType: 'iterative_editing_rewrite',
+            budgetPercent: 66,
+            // Legacy fields. Zod default behavior on z.object — strip unknown keys.
+            editingProposerSoftCap: 8,
+            disableApproverFiltering: true,
+          },
         ],
       });
-      expect(result.iterationConfigs[1]!.disableApproverFiltering).toBeUndefined();
+      const iter = result.iterationConfigs[1]! as Record<string, unknown>;
+      expect(iter.editingProposerSoftCap).toBeUndefined();
+      expect(iter.disableApproverFiltering).toBeUndefined();
     });
 
-    it('rejects disableApproverFiltering on Mode A (iterative_editing)', () => {
-      expect(() => strategyConfigSchema.parse({
-        ...validBase,
-        iterationConfigs: [
-          { agentType: 'generate', budgetPercent: 34 },
-          { agentType: 'iterative_editing', budgetPercent: 66, disableApproverFiltering: true },
-        ],
-      })).toThrow(/disableApproverFiltering only valid when agentType is iterative_editing_rewrite/);
-    });
-
-    it.each([
-      'generate',
-      'reflect_and_generate',
-      'criteria_and_generate',
-      'single_pass_evaluate_criteria_and_generate',
-      'proposer_approver_criteria_generate',
-      'debate_and_generate',
-      'paragraph_recombine',
-    ])('rejects disableApproverFiltering on non-rewrite agent type: %s', (agentType) => {
-      expect(() => iterationConfigSchema.parse({
-        agentType, budgetPercent: 100, disableApproverFiltering: true,
-        // satisfy per-agent-type required fields
-        ...(agentType === 'criteria_and_generate' || agentType === 'single_pass_evaluate_criteria_and_generate' || agentType === 'proposer_approver_criteria_generate'
-          ? { criteriaIds: ['00000000-0000-0000-0000-000000000001'] }
-          : {}),
-        ...(agentType === 'debate_and_generate' ? { sourceMode: 'seed' } : {}),
-      })).toThrow(/disableApproverFiltering only valid when agentType is iterative_editing_rewrite/);
-    });
-
-    it('accepts both editingProposerSoftCap and disableApproverFiltering together on iterative_editing_rewrite (Treatment-arm shape)', () => {
+    it('strips legacy fields on Mode A (iterative_editing) too — no per-agent-type rejection', () => {
       const result = strategyConfigSchema.parse({
         ...validBase,
         iterationConfigs: [
           { agentType: 'generate', budgetPercent: 34 },
-          { agentType: 'iterative_editing_rewrite', budgetPercent: 33, editingProposerSoftCap: 8, disableApproverFiltering: true },
-          { agentType: 'iterative_editing_rewrite', budgetPercent: 33, editingProposerSoftCap: 8, disableApproverFiltering: true },
+          {
+            agentType: 'iterative_editing',
+            budgetPercent: 66,
+            editingProposerSoftCap: 3,
+            disableApproverFiltering: false,
+          },
         ],
       });
-      expect(result.iterationConfigs[1]!.editingProposerSoftCap).toBe(8);
-      expect(result.iterationConfigs[1]!.disableApproverFiltering).toBe(true);
+      const iter = result.iterationConfigs[1]! as Record<string, unknown>;
+      expect(iter.editingProposerSoftCap).toBeUndefined();
+      expect(iter.disableApproverFiltering).toBeUndefined();
     });
   });
 

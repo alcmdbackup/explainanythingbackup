@@ -77,7 +77,7 @@ describe('parseProposedEdits', () => {
   });
 });
 
-describe('parseProposedEdits — adjacency-based auto-grouping', () => {
+describe('parseProposedEdits — per-span auto-grouping (max approver granularity)', () => {
   it('parses a single unnumbered insertion → auto group 1', () => {
     const source = 'Hello world.';
     const markup = 'Hello {++ cruel ++}world.';
@@ -89,12 +89,13 @@ describe('parseProposedEdits — adjacency-based auto-grouping', () => {
     expect(r.groups[0]!.atomicEdits[0]!.newText).toBe('cruel');
   });
 
-  it('two adjacent unnumbered inserts (single space between) → one group of 2', () => {
+  it('two adjacent unnumbered inserts (single space between) → TWO separate groups', () => {
     const source = 'foo bar';
     const markup = '{++ A ++} {++ B ++}foo bar';
     const r = parseProposedEdits(markup, source);
-    expect(r.groups).toHaveLength(1);
-    expect(r.groups[0]!.atomicEdits).toHaveLength(2);
+    expect(r.groups).toHaveLength(2);
+    expect(r.groups[0]!.atomicEdits).toHaveLength(1);
+    expect(r.groups[1]!.atomicEdits).toHaveLength(1);
   });
 
   it('two unnumbered inserts separated by prose → two groups', () => {
@@ -113,15 +114,27 @@ describe('parseProposedEdits — adjacency-based auto-grouping', () => {
     expect(r.groups).toHaveLength(2);
   });
 
-  it('single newline between unnumbered spans → one group', () => {
+  it('single newline between unnumbered spans → TWO separate groups (newline no longer bundles)', () => {
     const source = 'a\nb';
     const markup = '{++ A ++}\n{++ B ++}a\nb';
     const r = parseProposedEdits(markup, source);
-    expect(r.groups).toHaveLength(1);
-    expect(r.groups[0]!.atomicEdits).toHaveLength(2);
+    expect(r.groups).toHaveLength(2);
+    expect(r.groups[0]!.atomicEdits).toHaveLength(1);
+    expect(r.groups[1]!.atomicEdits).toHaveLength(1);
   });
 
-  it('standard CriticMarkup paired form `{~~ X ~~}{++ Y ++}` → one merged replace edit', () => {
+  it('three unnumbered spans, all adjacent → THREE separate groups', () => {
+    const markup = '{++ A ++} {++ B ++} {++ C ++}rest';
+    const r = parseProposedEdits(markup, 'rest');
+    expect(r.groups).toHaveLength(3);
+    expect(r.groups[0]!.atomicEdits).toHaveLength(1);
+    expect(r.groups[1]!.atomicEdits).toHaveLength(1);
+    expect(r.groups[2]!.atomicEdits).toHaveLength(1);
+  });
+});
+
+describe('parseProposedEdits — paired-substitution position-adjacency merge', () => {
+  it('standard CriticMarkup paired form `{~~ X ~~}{++ Y ++}` (no chars between) → one merged replace edit', () => {
     const source = 'old text here';
     const markup = '{~~ old ~~}{++ new ++} text here';
     const r = parseProposedEdits(markup, source);
@@ -131,6 +144,23 @@ describe('parseProposedEdits — adjacency-based auto-grouping', () => {
     expect(e.kind).toBe('replace');
     expect(e.oldText).toBe('old');
     expect(e.newText).toBe('new');
+  });
+
+  it('paired form with a SINGLE horizontal space between spans → one merged replace edit (tolerates h-whitespace)', () => {
+    const source = 'old text here';
+    const markup = '{~~ old ~~} {++ new ++} text here';
+    const r = parseProposedEdits(markup, source);
+    expect(r.groups).toHaveLength(1);
+    expect(r.groups[0]!.atomicEdits[0]!.kind).toBe('replace');
+  });
+
+  it('paired form with a NEWLINE between spans → TWO separate groups (newline blocks merge)', () => {
+    const source = 'old\ntext';
+    const markup = '{~~ old ~~}\n{++ new ++}\ntext';
+    const r = parseProposedEdits(markup, source);
+    expect(r.groups).toHaveLength(2);
+    const kinds = r.groups.map((g) => g.atomicEdits[0]!.kind).sort();
+    expect(kinds).toEqual(['delete', 'insert']);
   });
 
   it('paired delete-then-insert with adjacency (no number) → merges into replace', () => {
@@ -143,7 +173,16 @@ describe('parseProposedEdits — adjacency-based auto-grouping', () => {
     expect(r.groups[0]!.atomicEdits[0]!.newText).toBe('new');
   });
 
-  it('explicit [#N] adjacent to unnumbered → separate groups (explicit creates boundary)', () => {
+  it('recoveredSource is byte-equal to source for unnumbered paired-form substitution', () => {
+    const source = 'Hello old text.';
+    const markup = 'Hello {~~ old ~~}{++ new ++} text.';
+    const r = parseProposedEdits(markup, source);
+    expect(r.recoveredSource).toBe(source);
+  });
+});
+
+describe('parseProposedEdits — explicit [#N] tag escape hatch', () => {
+  it('explicit [#N] adjacent to unnumbered → separate groups (explicit creates its own group)', () => {
     const source = 'foo bar baz';
     const markup = '{++ [#7] A ++} {++ B ++}foo bar baz';
     const r = parseProposedEdits(markup, source);
@@ -152,7 +191,7 @@ describe('parseProposedEdits — adjacency-based auto-grouping', () => {
     expect(r.groups.map((g) => g.groupNumber).sort((a, b) => a - b)).toEqual([7, 8]);
   });
 
-  it('same explicit [#N] across non-adjacent spans → still merged into one group', () => {
+  it('same explicit [#N] across non-adjacent spans → still merged into one group (caller-controlled bundling)', () => {
     const source = 'one. two. three.';
     const markup = '{~~ [#1] one ~> 1 ~~}. plain text {~~ [#1] two ~> 2 ~~}. three.';
     const r = parseProposedEdits(markup, source);
@@ -160,31 +199,15 @@ describe('parseProposedEdits — adjacency-based auto-grouping', () => {
     expect(r.groups[0]!.atomicEdits).toHaveLength(2);
   });
 
-  it('three unnumbered spans, all adjacent → one group of 3', () => {
-    const markup = '{++ A ++} {++ B ++} {++ C ++}rest';
-    const r = parseProposedEdits(markup, 'rest');
-    expect(r.groups).toHaveLength(1);
-    expect(r.groups[0]!.atomicEdits).toHaveLength(3);
-  });
-
-  it('recoveredSource is byte-equal to source for unnumbered paired-form substitution', () => {
-    const source = 'Hello old text.';
-    const markup = 'Hello {~~ old ~~}{++ new ++} text.';
-    const r = parseProposedEdits(markup, source);
-    expect(r.recoveredSource).toBe(source);
-  });
-
-  it('cross-block matching is prevented by negative lookahead — `{~~ X ~~}{~~ Y ~> Z ~~}` parses as two edits', () => {
+  it('cross-block matching is prevented by negative lookahead — `{~~ X ~~}{~~ Y ~> Z ~~}` parses as two SEPARATE edits', () => {
     const source = 'one two';
     const markup = '{~~ X ~~}{~~ Y ~> Z ~~} stuff';
     const r = parseProposedEdits(markup, source);
     // One delete (`{~~ X ~~}`) + one replace (`{~~ Y ~> Z ~~}`).
-    // They are adjacent (no whitespace between) → same auto-group.
-    // BUT the merge logic only merges delete-then-insert pairs, not delete-then-replace.
-    // So we expect 1 group with 2 atomic edits (delete + replace, both unnumbered, adjacent).
-    expect(r.groups).toHaveLength(1);
-    expect(r.groups[0]!.atomicEdits).toHaveLength(2);
-    const kinds = r.groups[0]!.atomicEdits.map((e) => e.kind).sort();
+    // Per-span groups + paired-merge only fires for delete-then-INSERT (not delete-then-REPLACE),
+    // so the two edits land in two separate groups.
+    expect(r.groups).toHaveLength(2);
+    const kinds = r.groups.map((g) => g.atomicEdits[0]!.kind).sort();
     expect(kinds).toEqual(['delete', 'replace']);
   });
 });

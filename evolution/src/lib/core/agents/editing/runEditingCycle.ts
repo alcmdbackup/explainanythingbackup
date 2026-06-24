@@ -54,11 +54,11 @@ import type {
 /** Mode B (rewrite-then-diff) discriminator. Inner-cycle behavior for the
  *  IterativeEditingRewriteAgent path. */
 export interface RewriteModeOptions {
-  proposerSoftCap: number;
   /** When true, apply coalesceAdjacentGroups + capGroupsByMagnitude post-parse.
-   *  Maps to !iterCfg.disableApproverFiltering. */
+   *  Now defaults to FALSE (max approver granularity) — set true only when a caller
+   *  explicitly wants the post-parse bundling (e.g. legacy tests). */
   coalesceAndCap: boolean;
-  capLimit?: number; // default 10
+  capLimit?: number; // default 10 (only consulted when coalesceAndCap === true)
 }
 
 export interface RunEditingCycleArgs {

@@ -3,7 +3,6 @@
 // and per-group caps.
 //
 // Rules enforced:
-//   - newText length ≤ EDIT_NEWTEXT_LENGTH_CAP (500 chars)
 //   - oldText / newText must not contain "\n\n" (paragraph break)
 //   - range must not cross a heading line (^#+ )
 //   - newText must not introduce a heading line
@@ -19,7 +18,6 @@
 import {
   AGENT_MAX_ATOMIC_EDITS_PER_CYCLE,
   AGENT_MAX_ATOMIC_EDITS_PER_GROUP,
-  EDIT_NEWTEXT_LENGTH_CAP,
   SIZE_RATIO_HARD_CAP,
 } from './constants';
 import type { EditingGroup, EditingDroppedGroup, ValidateResult } from './types';
@@ -56,7 +54,6 @@ function violatesHardRule(
     return `group_too_large_${group.atomicEdits.length}`;
   }
   for (const e of group.atomicEdits) {
-    if (e.newText.length > EDIT_NEWTEXT_LENGTH_CAP) return 'newText_too_long';
     if (e.oldText.includes('\n\n')) return 'oldText_contains_paragraph_break';
     if (e.newText.includes('\n\n')) return 'newText_contains_paragraph_break';
     if (RE_CODE_FENCE.test(e.oldText) || RE_CODE_FENCE.test(e.newText)) return 'code_fence_in_edit';

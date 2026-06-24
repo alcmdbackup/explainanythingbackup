@@ -70,8 +70,8 @@ const FIELD_GATES: Partial<Record<keyof IterCfg, (t: AgentType) => boolean>> = {
   reflectionTopN: (t) => t === 'reflect_and_generate',
   editingMaxCycles: (t) => isEditingAgentType(t) || t === 'proposer_approver_criteria_generate',
   editingEligibilityCutoff: (t) => isEditingAgentType(t) || t === 'proposer_approver_criteria_generate',
-  editingProposerSoftCap: (t) => t === 'iterative_editing_rewrite',
-  disableApproverFiltering: (t) => t === 'iterative_editing_rewrite',
+  // editingProposerSoftCap + disableApproverFiltering FIELD_GATES removed by
+  // investigate_iterative_editing_runs_stage_20260623 — see _planning.md.
   criteriaIds: (t) => CRITERIA_BASED.has(t),
   weakestK: (t) => CRITERIA_BASED.has(t),
   lengthCapRatio: (t) => t === 'proposer_approver_criteria_generate',
@@ -108,6 +108,15 @@ function sortGuidance(g: unknown): unknown {
  *  fields, drop empty criteriaIds, sort set-like arrays. */
 function normalizeIteration(iter: IterCfg): Record<string, unknown> {
   const out: Record<string, unknown> = { ...iter };
+
+  // Legacy-field strip: investigate_iterative_editing_runs_stage_20260623 removed
+  // editingProposerSoftCap + disableApproverFiltering. Existing strategy rows that
+  // still carry them must hash identically to clean rows so the wizard's re-submit
+  // path stays dedup-stable, and live runs against existing strategy_ids continue
+  // to ignore the values. We strip pre-canonicalize so the legacy fields never
+  // reach the hash payload regardless of agent_type.
+  delete out.editingProposerSoftCap;
+  delete out.disableApproverFiltering;
 
   // D1.1 — runtime-default folding (omitted ≡ explicit-default).
   if (out.agentType === 'proposer_approver_criteria_generate' && out.includesMirrorApprover === undefined) {

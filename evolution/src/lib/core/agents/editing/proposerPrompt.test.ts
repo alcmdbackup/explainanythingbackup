@@ -4,25 +4,44 @@ describe('buildProposerSystemPrompt', () => {
   let prompt: string;
   beforeAll(() => { prompt = buildProposerSystemPrompt(); });
 
-  it('embeds the soft rules', () => {
-    expect(prompt.toLowerCase()).toMatch(/soft rules/);
+  it('embeds the preservation rules (structural protection only — not bias-down)', () => {
+    expect(prompt.toLowerCase()).toMatch(/preservation rules/);
     expect(prompt).toMatch(/quotes/i);
     expect(prompt).toMatch(/citations/i);
     expect(prompt).toMatch(/heading/i);
-    expect(prompt).toMatch(/voice/i);
+    expect(prompt).toMatch(/code fences/i);
+  });
+
+  it('does NOT contain the removed bias-down soft rules', () => {
+    expect(prompt.toLowerCase()).not.toMatch(/prefer one-sentence edits/);
+    expect(prompt.toLowerCase()).not.toMatch(/voice, tone, and reading level/);
+    expect(prompt.toLowerCase()).not.toMatch(/edit only when the change demonstrably improves/);
+    expect(prompt.toLowerCase()).not.toMatch(/never for its own sake/);
+  });
+
+  it('contains the ambitious-proposal directive (no edit budget, no preference for size)', () => {
+    expect(prompt.toLowerCase()).toMatch(/be ambitious/);
+    expect(prompt.toLowerCase()).toMatch(/no edit budget/);
+    expect(prompt.toLowerCase()).toMatch(/cost of withholding a useful one is\s*high/);
+  });
+
+  it('does NOT contain the removed EDIT_BUDGET soft cap language', () => {
+    expect(prompt.toLowerCase()).not.toMatch(/at most 3 atomic edits/);
+    expect(prompt.toLowerCase()).not.toMatch(/surgical changes ship/);
+    expect(prompt.toLowerCase()).not.toMatch(/sprawling rewrites get discarded/);
   });
 
   it('documents the markup forms', () => {
-    // Insertion / deletion / substitution (inline + paired). [#N] is optional.
     expect(prompt).toMatch(/\{\+\+ inserted/);
     expect(prompt).toMatch(/\{-- deleted/);
     expect(prompt).toMatch(/\{~~ old text ~> new text ~~\}/);
     expect(prompt).toMatch(/\{~~ old text ~~\}\{\+\+ new text \+\+\}/);
   });
 
-  it('explains adjacency-based grouping', () => {
-    expect(prompt.toLowerCase()).toMatch(/adjacent|adjacency/);
-    expect(prompt.toLowerCase()).toMatch(/group|groups/);
+  it('explains per-span (max granularity) grouping', () => {
+    // Each unnumbered span is its own group; only paired delete+insert merges.
+    expect(prompt.toLowerCase()).toMatch(/each criticmarkup span is one independent edit/);
+    expect(prompt.toLowerCase()).toMatch(/maximize\s+the\s+number\s+of\s+independent\s+decisions/);
   });
 
   it('mentions [#N] only as an optional override', () => {
@@ -36,11 +55,9 @@ describe('buildProposerSystemPrompt', () => {
   });
 
   it('does not include the article body (that is in the user prompt)', () => {
-    // Sanity check — system prompt is content-agnostic.
     expect(prompt).not.toMatch(/Article to edit/i);
   });
 
-  // Phase 2 hardening assertions
   it('leads with HARD CONSTRAINT and labels both RULE 1 and RULE 2', () => {
     expect(prompt).toMatch(/HARD CONSTRAINT/);
     expect(prompt).toMatch(/RULE 1/);
@@ -61,10 +78,6 @@ describe('buildProposerSystemPrompt', () => {
     expect(goodCount).toBeGreaterThanOrEqual(2);
   });
 
-  it('states the 3-edit soft cap', () => {
-    expect(prompt.toLowerCase()).toMatch(/at most 3 atomic edits/);
-  });
-
   it('self-check is concrete with numbered steps and byte-equality phrasing', () => {
     expect(prompt).toMatch(/Self-check/i);
     expect(prompt).toMatch(/1\.\s+Mentally delete/);
@@ -72,11 +85,6 @@ describe('buildProposerSystemPrompt', () => {
   });
 
   it('explicitly tells the model NOT to echo the <source> block in its response', () => {
-    // Regression guard for the gemini-2.5-flash-lite echo bug observed in
-    // production: the proposer copied the entire <source> block into its
-    // response before emitting the actual <output>. Prompt now states this
-    // is forbidden in three places (HARD_CONSTRAINT, WORKED_EXAMPLE, closing
-    // instruction) so even weak instruction-following models pick it up.
     expect(prompt).toMatch(/do not echo the <source>|do NOT echo the <source>|no echo of the <source>/i);
   });
 });

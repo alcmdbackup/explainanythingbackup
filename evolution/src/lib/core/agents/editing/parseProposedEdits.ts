@@ -3,7 +3,7 @@
 // tags, nested tags, invalid explicit numbers like `[#0]` or `[#-1]`) are
 // silently dropped rather than thrown — the agent's robustness contract per
 // Decisions §11. Unnumbered spans (no `[#N]` tag at all) are NOT dropped;
-// they are auto-grouped via the adjacency rule (see below).
+// each unnumbered span is its OWN group (one approver decision per span).
 //
 // Markup forms accepted:
 //   {++ [#N] inserted ++}                — insert (numbered or unnumbered)
@@ -11,10 +11,15 @@
 //   {~~ [#N] old ~> new ~~}              — inline substitution
 //   {~~ [#N] deleted ~~}{++ [#N] new ++} — paired-form substitution (standard CriticMarkup)
 //
-// `[#N]` is OPTIONAL. When absent, the parser auto-assigns sequential group
-// numbers via the adjacency rule (consecutive markup spans separated only by
-// horizontal whitespace + at most one newline form one group). Adjacent paired
-// delete+insert with the same group number is normalized to one 'replace' edit.
+// `[#N]` is OPTIONAL. When absent, each span gets its own sequential auto-assigned
+// group number — the reviewer sees one decision per atomic edit, maximizing
+// approver granularity. Adjacency between unnumbered spans is NO LONGER used to
+// bundle them. The standard CriticMarkup paired delete+insert form
+// `{~~ X ~~}{++ Y ++}` is still treated as one substitution edit, but via a
+// POSITION-ADJACENCY rule (delete-immediately-followed-by-insert, optional
+// horizontal whitespace between, NO newlines) — not via shared group number.
+// Explicit `[#N]` tags still honor explicit grouping across non-adjacent spans
+// (escape hatch for callers that want bundling).
 
 import { CONTEXT_LEN } from './constants';
 import type {
@@ -35,10 +40,11 @@ const RE_REPLACE = /\{~~\s*(?:\[#(\d+)\])?\s*((?:(?!~~\}|~>)[\s\S])*?)\s*~>\s*((
 const RE_DELETE_TILDE = /\{~~\s*(?:\[#(\d+)\])?\s*((?:(?!~~\}|~>)[\s\S])*?)\s*~~\}/g;
 const RE_ANY_MARKUP = /\{(\+\+|--|~~)/;
 
-// Adjacency predicate: consecutive markup spans separated only by horizontal
-// whitespace + at most one newline form one group. Paragraph break (\n\n)
-// signals semantic separation → different groups.
-const ADJACENT_WHITESPACE = /^[ \t\r]*\n?[ \t\r]*$/;
+// Paired-substitution gap predicate: when a delete-kind span is IMMEDIATELY
+// followed by an insert-kind span with ONLY horizontal whitespace between
+// (no newlines), treat them as one substitution edit. This preserves the
+// standard CriticMarkup paired form `{~~ X ~~}{++ Y ++}` as one edit.
+const PAIRED_DELETE_INSERT_GAP = /^[ \t]*$/;
 
 interface RawAtomic {
   /** Explicit `[#N]` from the markup, or `undefined` when unnumbered (parser
@@ -182,20 +188,16 @@ export function parseProposedEdits(
     lastEnd = r.markupEnd;
   }
 
-  // Adjacency-based auto-group assignment for unnumbered edits. Walk
-  // left-to-right; consecutive originally-unnumbered edits separated only by
-  // ADJACENT_WHITESPACE share an auto-assigned group. Explicit numbers are
-  // honored as-is and break unnumbered runs.
-  const wasUnnumbered = filtered.map((r) => r.groupNumber === undefined);
+  // Per-span auto-group assignment: each originally-unnumbered edit gets its OWN
+  // group number. The reviewer sees one approver decision per atomic edit. Explicit
+  // `[#N]` tags still honor explicit grouping (escape hatch for callers that want
+  // bundling — same explicit number across non-adjacent spans → one group).
   const explicitNumbers = filtered.map((r) => r.groupNumber).filter((n): n is number => n !== undefined);
   let nextAutoGroup = (explicitNumbers.length > 0 ? Math.max(...explicitNumbers) : 0) + 1;
-  for (let i = 0; i < filtered.length; i++) {
-    const cur = filtered[i]!;
-    if (!wasUnnumbered[i]) continue;
-    const prev = i > 0 && wasUnnumbered[i - 1] ? filtered[i - 1]! : null;
-    const isAdjacentToPrev = prev != null
-      && ADJACENT_WHITESPACE.test(proposedMarkup.slice(prev.markupEnd, cur.markupStart));
-    cur.groupNumber = isAdjacentToPrev ? prev.groupNumber : nextAutoGroup++;
+  for (const r of filtered) {
+    if (r.groupNumber === undefined) {
+      r.groupNumber = nextAutoGroup++;
+    }
   }
 
   // Every filtered.groupNumber is now a number. Tighten the type for downstream.
@@ -204,11 +206,12 @@ export function parseProposedEdits(
     groupNumber: r.groupNumber as number,
   }));
 
-  // Merge adjacent paired delete+insert with the same group number into one replace.
-  // Auto-assigned groups for adjacent unnumbered delete+insert pairs naturally end
-  // up with the same group number via the adjacency pass above, so this step
-  // covers both explicit `{-- [#1] X --}{++ [#1] Y ++}` and standard
-  // CriticMarkup `{~~ X ~~}{++ Y ++}` paired form transparently.
+  // Position-adjacency paired-merge: a delete-kind span IMMEDIATELY followed by an
+  // insert-kind span (only optional horizontal whitespace between, NO newlines) is
+  // ONE substitution edit. This handles standard CriticMarkup paired form
+  // `{~~ X ~~}{++ Y ++}` and explicit `{-- X --}{++ Y ++}` regardless of group
+  // numbering, so per-span groups don't accidentally split a structural substitution
+  // into two unrelated decisions.
   const merged: Array<RawAtomic & { groupNumber: number }> = [];
   for (let i = 0; i < numbered.length; i++) {
     const cur = numbered[i];
@@ -216,11 +219,11 @@ export function parseProposedEdits(
     const next = numbered[i + 1];
     if (
       next != null
-      && cur.groupNumber === next.groupNumber
       && cur.kind === 'delete' && next.kind === 'insert'
+      && PAIRED_DELETE_INSERT_GAP.test(proposedMarkup.slice(cur.markupEnd, next.markupStart))
     ) {
       merged.push({
-        groupNumber: cur.groupNumber,
+        groupNumber: cur.groupNumber,  // collapse to the earlier-span's group number
         kind: 'replace',
         markupStart: cur.markupStart,
         markupEnd: next.markupEnd,

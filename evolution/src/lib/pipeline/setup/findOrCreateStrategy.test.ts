@@ -244,119 +244,31 @@ describe('V2 hashStrategyConfig', () => {
     expect(hashStrategyConfig(a)).not.toBe(hashStrategyConfig(b));
   });
 
-  // ─── disableApproverFiltering FIELD_GATES coverage (Phase 6 bundle-split A/B) ───
-  // The field is exclusive to iterative_editing_rewrite per the Zod refine, but the
-  // FIELD_GATES strip is the defense-in-depth that protects config_hash uniqueness:
-  // a stale wizard state where someone toggles disableApproverFiltering=true and then
-  // switches agentType away must NOT change the hash for the new agent type.
-  describe('disableApproverFiltering FIELD_GATES (meta_analysis Phase 6)', () => {
-    it('produces a DIFFERENT hash on two iterative_editing_rewrite configs differing only in disableApproverFiltering', () => {
-      const ctl: StrategyConfig = {
+  // ─── editingProposerSoftCap + disableApproverFiltering REMOVED ───
+  // investigate_iterative_editing_runs_stage_20260623 dropped both fields. The
+  // hash-stability tests that used to assert these fields participated in the hash
+  // are no longer relevant; existing strategy rows that still carry them parse via
+  // Zod's default strip-unknown behavior. Replaced with a single regression that
+  // both fields are now hash-invisible.
+  describe('editingProposerSoftCap + disableApproverFiltering — removed from hash', () => {
+    it('two iterative_editing_rewrite configs differing only by these legacy fields produce the SAME hash', () => {
+      const a: StrategyConfig = {
         ...baseConfig,
         iterationConfigs: [
           { agentType: 'generate', budgetPercent: 34 },
-          { agentType: 'iterative_editing_rewrite', budgetPercent: 66, editingProposerSoftCap: 8 },
+          { agentType: 'iterative_editing_rewrite', budgetPercent: 66 },
         ],
       };
-      const trt: StrategyConfig = {
+      const b: StrategyConfig = {
         ...baseConfig,
         iterationConfigs: [
           { agentType: 'generate', budgetPercent: 34 },
-          { agentType: 'iterative_editing_rewrite', budgetPercent: 66, editingProposerSoftCap: 8, disableApproverFiltering: true },
+          // Legacy fields silently stripped by Zod default + (now absent) FIELD_GATES.
+          { agentType: 'iterative_editing_rewrite', budgetPercent: 66, editingProposerSoftCap: 8, disableApproverFiltering: true } as never,
         ],
       };
-      expect(hashStrategyConfig(ctl)).not.toBe(hashStrategyConfig(trt));
+      expect(hashStrategyConfig(a)).toBe(hashStrategyConfig(b));
     });
-
-    it('produces the SAME hash for true and unset (false-equivalent default) on the same iterative_editing_rewrite config — false is NOT hashed', () => {
-      // Note: explicit `false` is a meaningful set value — it gets canonicalized into
-      // the hash and would differ from omitted. This test pins the behavior of
-      // CANONICAL EQUIVALENCE between unset and explicit-false IF the FIELD_GATES
-      // strip is configured to drop falsy defaults. We don't strip falsy here;
-      // unset and explicit-false hash differently. This codifies the contract.
-      const unset: StrategyConfig = {
-        ...baseConfig,
-        iterationConfigs: [
-          { agentType: 'generate', budgetPercent: 34 },
-          { agentType: 'iterative_editing_rewrite', budgetPercent: 66, editingProposerSoftCap: 8 },
-        ],
-      };
-      const explicitFalse: StrategyConfig = {
-        ...baseConfig,
-        iterationConfigs: [
-          { agentType: 'generate', budgetPercent: 34 },
-          { agentType: 'iterative_editing_rewrite', budgetPercent: 66, editingProposerSoftCap: 8, disableApproverFiltering: false },
-        ],
-      };
-      // Document: explicit false IS canonicalized (Boolean stays in the hash payload).
-      // So this hashes differently from unset. If we later decide to coerce
-      // unset⇔false equivalence, this test guards the change.
-      expect(hashStrategyConfig(unset)).not.toBe(hashStrategyConfig(explicitFalse));
-    });
-
-    // FIELD_GATES strip test: parametrized over every non-rewrite agent type so a
-    // future agent-type addition (without a matching FIELD_GATES entry) regresses HERE,
-    // not silently in production strategy-row drift.
-    it.each([
-      'generate',
-      'reflect_and_generate',
-      'criteria_and_generate',
-      'single_pass_evaluate_criteria_and_generate',
-      'proposer_approver_criteria_generate',
-      'debate_and_generate',
-      'iterative_editing', // Mode A
-      'paragraph_recombine',
-      'swiss',
-    ] as const)('strips disableApproverFiltering on non-rewrite agent type %s (hash collision)', (agentType) => {
-      // Build a config that uses the agent type as iteration 2.  We use a permissive
-      // payload that satisfies the Zod refines for variant-producing agents (criteria
-      // and debate). FIELD_GATES strip runs PRE-Zod inside normalize, so even malformed
-      // payloads still strip the field.
-      const clean: StrategyConfig = {
-        ...baseConfig,
-        iterationConfigs: [
-          { agentType: 'generate', budgetPercent: 60 },
-          { agentType, budgetPercent: 40,
-            // satisfy required fields for the criteria agents and debate
-            ...(agentType === 'criteria_and_generate' || agentType === 'single_pass_evaluate_criteria_and_generate' || agentType === 'proposer_approver_criteria_generate'
-              ? { criteriaIds: ['00000000-0000-0000-0000-000000000001'] }
-              : {}),
-          } as never,
-        ],
-      };
-      const stale: StrategyConfig = {
-        ...baseConfig,
-        iterationConfigs: [
-          { agentType: 'generate', budgetPercent: 60 },
-          { agentType, budgetPercent: 40,
-            disableApproverFiltering: true,
-            ...(agentType === 'criteria_and_generate' || agentType === 'single_pass_evaluate_criteria_and_generate' || agentType === 'proposer_approver_criteria_generate'
-              ? { criteriaIds: ['00000000-0000-0000-0000-000000000001'] }
-              : {}),
-          } as never,
-        ],
-      };
-      expect(hashStrategyConfig(clean)).toBe(hashStrategyConfig(stale));
-    });
-  });
-
-  // ─── editingProposerSoftCap=8 hash-stability (Phase 6 A3) ───
-  it('produces a DIFFERENT hash when editingProposerSoftCap changes from 3 (default) to 8', () => {
-    const softCap3: StrategyConfig = {
-      ...baseConfig,
-      iterationConfigs: [
-        { agentType: 'generate', budgetPercent: 34 },
-        { agentType: 'iterative_editing_rewrite', budgetPercent: 66, editingProposerSoftCap: 3 },
-      ],
-    };
-    const softCap8: StrategyConfig = {
-      ...baseConfig,
-      iterationConfigs: [
-        { agentType: 'generate', budgetPercent: 34 },
-        { agentType: 'iterative_editing_rewrite', budgetPercent: 66, editingProposerSoftCap: 8 },
-      ],
-    };
-    expect(hashStrategyConfig(softCap3)).not.toBe(hashStrategyConfig(softCap8));
   });
 
   it('strips criteriaIds + weakestK on non-criteria iterations (hash collision)', () => {
@@ -458,7 +370,9 @@ describe('V2 hashStrategyConfig', () => {
     });
     const editBase = hashStrategyConfig(edit({}));
     expect(hashStrategyConfig(edit({ editingMaxCycles: 4 }))).not.toBe(editBase);
-    expect(hashStrategyConfig(edit({ editingProposerSoftCap: 2 }))).not.toBe(editBase);
+    // editingProposerSoftCap was removed by investigate_iterative_editing_runs_stage_20260623.
+    // The field is now hash-invisible; legacy rows hash identically to clean rows.
+    expect(hashStrategyConfig(edit({ editingProposerSoftCap: 2 } as never))).toBe(editBase);
   });
 
   // ─── v2 default-folding: omitted ≡ explicit-default (preserve dedup) ───
