@@ -41,6 +41,12 @@ const config = {
     '**/*.test.tsx',
     '**/*.spec.ts',
     '**/*.spec.tsx',
+    // Custom ESLint rule RuleTester suites (CommonJS .js — transformed via babel-jest
+    // below). Running them here puts rule-logic coverage in the CI Unit Tests job and
+    // auto-discovers new rule tests, replacing the hand-maintained `test:eslint-rules`
+    // &&-chain that only covered 16 of 28 files and ran in no CI job. See
+    // docs/docs_overall/testing_overview.md and the look_for_CI_flakiness project plan (F2).
+    '<rootDir>/eslint-rules/**/*.test.js',
   ],
 
   // Coverage configuration
