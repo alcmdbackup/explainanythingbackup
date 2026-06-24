@@ -124,7 +124,7 @@ Post-flight (both greps):
 - [ ] `ParagraphRecombineWithCoherencePassAgent.ts`
   - [ ] Add `DEFAULT_COHERENCE_PASS_LENGTH_CAP_RATIO = 1.10` constant next to existing `DEFAULT_COHERENCE_*` constants (line ~79-83).
   - [ ] Add `coherencePassLengthCapRatio?: number` to `ParagraphRecombineWithCoherencePassInput` (lines 89-106).
-  - [ ] In `execute()`: resolve `const effectiveLengthCapRatio = input.coherencePassLengthCapRatio ?? DEFAULT_COHERENCE_PASS_LENGTH_CAP_RATIO` and pass to `validateOpts.lengthCapRatio` in the `runEditingCycle` call.
+  - [ ] In `execute()`: resolve via the `resolveCoherencePassDefaults()` helper introduced in Phase 5 (the kill-switch path), as `const {lengthCapRatio: killSwitchLengthCap} = resolveCoherencePassDefaults(); const effectiveLengthCapRatio = input.coherencePassLengthCapRatio ?? killSwitchLengthCap;`. Pass to `validateOpts.lengthCapRatio` in the `runEditingCycle` call. Explicit input still overrides; only the DEFAULT flips when the kill switch is off.
   - [ ] Persist `effectiveLengthCapRatio` in `coherencePass.config.lengthCapRatio` so execution_detail reflects the actual applied cap (not the default).
 - [ ] `evolution/src/lib/pipeline/loop/runIterationLoop.ts`
   - [ ] Thread `iterCfg.coherencePassLengthCapRatio` into the agent input (next to existing `coherencePassEnabled`, `coherencePassProposerModel`, etc).
@@ -143,6 +143,7 @@ Post-flight (both greps):
 - [ ] `ParagraphRecombineWithCoherencePassAgent.ts`
   - [ ] Add `DEFAULT_COHERENCE_PASS_MAX_CYCLES = 2` constant next to existing `DEFAULT_COHERENCE_*` constants.
   - [ ] Add `coherencePassMaxCycles?: number` to `ParagraphRecombineWithCoherencePassInput`.
+  - [ ] In `execute()`: resolve via the `resolveCoherencePassDefaults()` helper (same kill-switch path as Phase 3), `const {maxCycles: killSwitchMaxCycles} = resolveCoherencePassDefaults(); const maxCycles = input.coherencePassMaxCycles ?? killSwitchMaxCycles;`.
 - [ ] `ParagraphRecombineWithCoherencePassAgent.ts:301-377` (the coherence-pass block) — multi-cycle refactor
 
 ```
@@ -161,42 +162,32 @@ for (let cycleNumber = 1; cycleNumber <= maxCycles; cycleNumber++) {
   // there is no parent to drift from. With multi-cycle, this means any minor drift in
   // cycle 2+ aborts via stopReason cleanly (rather than attempting snap recovery against
   // a moving source). This is intentional; documented in Phase 5 cost-envelope notes.
-  let cycleResult: RunEditingCycleResult;
-  try {
-    cycleResult = await runEditingCycle({
-      text: currentText,
-      llm,
-      costScope: invocationScope,
-      perInvocationBudgetUsd: effectiveCapUsd,
-      cycleNumber,
-      proposerLabel: 'coherence_pass_propose',
-      approverLabel: 'coherence_pass_review',
-      models: { editing: proposerModel, approver: approverModel },
-      validateOpts: { lengthCapRatio: effectiveLengthCapRatio },
-      driftRecovery: 'skip',
-      proposerSystemPrompt: buildCoherencePassProposerSystemPrompt(),
-      // CRITICAL (per Security reviewer #2): rebuild the user prompt from currentText
-      // every iteration — otherwise cycle 2+ would propose CriticMarkup against the
-      // STALE source text, and parseProposedEdits(proposedMarkup, currentText) would
-      // drop almost all groups via RULE-1 outside-markup-fidelity check.
-      proposerUserPrompt: buildCoherencePassProposerUserPrompt(currentText),
-    });
-  } catch (err) {
-    // I3 partial-cycle persistence: if runEditingCycle throws unexpectedly
-    // (e.g. unhandled parser bug), push a partial cycle marker before re-throwing
-    // so cycles[] reflects what completed. Mirrors the existing pattern at
-    // IterativeEditingAgent.ts catch block.
-    cycles.push({
-      cycleNumber,
-      partialCycleOnThrow: true,
-      errorMessage: err instanceof Error ? err.message : String(err),
-      parentText: currentText,
-      proposeCostUsd: 0,
-      approveCostUsd: 0,
-      sizeRatio: 1.0,
-    } as Partial<EditingCycle> as EditingCycle);
-    throw err;
-  }
+  // NOTE on error handling: runEditingCycle catches its own LLM errors and returns
+  // `stopReason='helper_threw'` with a fully-populated EditingCycle (see runEditingCycle.ts
+  // lines 217-231). The outer catch is only for truly UNEXPECTED throws (e.g. parser
+  // crashes outside the helper's try block). Per IterativeEditingAgent.ts:267-271
+  // precedent, we do NOT push a partial cycle in the outer catch — already-completed
+  // cycles[i < cycleNumber] survive in `cycles[]` because we pushed them in earlier
+  // iterations. Re-throwing propagates to the agent's outer try/catch where execution_detail
+  // gets persisted with the cycles we already pushed. No partial-cycle marker needed.
+  const cycleResult = await runEditingCycle({
+    text: currentText,
+    llm,
+    costScope: invocationScope,
+    perInvocationBudgetUsd: effectiveCapUsd,
+    cycleNumber,
+    proposerLabel: 'coherence_pass_propose',
+    approverLabel: 'coherence_pass_review',
+    models: { editing: proposerModel, approver: approverModel },
+    validateOpts: { lengthCapRatio: effectiveLengthCapRatio },
+    driftRecovery: 'skip',
+    proposerSystemPrompt: buildCoherencePassProposerSystemPrompt(),
+    // CRITICAL (per Security reviewer #2): rebuild the user prompt from currentText
+    // every iteration — otherwise cycle 2+ would propose CriticMarkup against the
+    // STALE source text, and parseProposedEdits(proposedMarkup, currentText) would
+    // drop almost all groups via RULE-1 outside-markup-fidelity check.
+    proposerUserPrompt: buildCoherencePassProposerUserPrompt(currentText),
+  });
 
   cycles.push(cycleResult.cycle);
 
@@ -245,6 +236,7 @@ if (ctx.db && ctx.runId) {
   - [ ] New test: when cycle 2 hits the per-cycle budget gate, `cycles.length === 2` with the last cycle's `stopReason: 'invocation_budget_near_exhaustion'`.
   - [ ] **New test (per Security reviewer #2)**: assert `runEditingCycle` is called with `proposerUserPrompt` rebuilt from each cycle's running text. Mock 2 cycles where cycle 1 modifies text. Assert call 1's `proposerUserPrompt` arg contains the original text and call 2's arg contains the modified text.
   - [ ] **New test (per Testing reviewer)**: zod-range boundary — `coherencePassMaxCycles: 5` parses, `6` rejects. Mirror for `coherencePassLengthCapRatio` (2.0 parses, 2.01 rejects; 1.0 parses, 0.99 rejects).
+  - [ ] **New test (per Testing reviewer iter3 #1)**: cycle-2 LLM-throw — `runEditingCycle.mockResolvedValueOnce({appliedAny:true, cycle:{...}}).mockRejectedValueOnce(new Error('parser crash'))` → assert `cycles.length === 1` (cycle 1 survived), the agent's outer try/catch persists `execution_detail` with that single cycle, and the error propagates as a failed-execute (matching IterativeEditingAgent.ts:267-271 precedent).
 - [ ] **Cost envelope update**: doc + integration sanity check.
   - Per the doc: 1 cycle ≈ $0.0035 typical. 2 cycles ≈ $0.007. Per-invocation cap stays $0.10 (75% headroom over 2 cycles). 3 cycles still fit under $0.105 ≈ $0.10 — but at 3 cycles the pre-coherence gate (0.85× cap) is more likely to fire, which is fine (graceful degradation).
 
@@ -286,14 +278,14 @@ Decision rules:
 **Rollback / kill switch (per Testing reviewer #5 + Architecture reviewer #1 clarification)**:
   - [ ] Implementation site: add a small helper `resolveCoherencePassDefaults()` in `ParagraphRecombineWithCoherencePassAgent.ts` next to the `DEFAULT_COHERENCE_*` constants. Reads `process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2` PER INVOCATION (not at process boot — instant rollback without restart). Returns `{lengthCapRatio: 1.10, maxCycles: 2}` when `'true'` (or unset — default), `{lengthCapRatio: 1.02, maxCycles: 1}` when `'false'`. Agent calls this in execute() to resolve defaults; explicit input fields still override.
   - [ ] **Naming clarification**: the existing `coherencePass.skipped` enum at `schemas.ts:2762` includes `'kill_switch'` as a value — that's an OLDER feature unrelated to this env var. This env var swaps DEFAULTS, it does not skip the pass. The pre-existing `'kill_switch'` enum value remains valid for whatever existing code path uses it.
-  - [ ] Unit test (in the new `ParagraphRecombineWithCoherencePassAgent.test.ts`): toggle the env var across two test runs, assert the resolved `validateOpts.lengthCapRatio` and the loop's `maxCycles` flip accordingly.
+  - [ ] Unit test (in the new `ParagraphRecombineWithCoherencePassAgent.test.ts`): toggle `process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2` across two test runs, assert resolved `validateOpts.lengthCapRatio` + loop's `maxCycles` flip accordingly. **Use save-restore hygiene** (per Testing reviewer iter3 #2): pattern from `evolution/src/lib/core/agents/editing/IterativeEditingAgent.test.ts:143-163` — save `const original = process.env.X`, set in `beforeEach`, restore in `afterEach` / `finally`. Prevents test pollution of subsequent tests.
   - [ ] Document the kill switch in `evolution/docs/reference.md` env-var table.
 
 **PR-revert checklist** (the kill switch handles default-only rollback; this is needed if the prompt or guardrail removal itself misbehaves):
   - [ ] Identify the 4-5 commits comprising Phases 1/2a/2b/2c/3/4 (record PR# + commit SHAs at merge time).
   - [ ] Revert order: Phase 4 → Phase 3 → Phase 2c → Phase 2b → Phase 2a → Phase 1.
-  - [ ] Special handling — Phase 2c deletes `checkSemanticOverlap.ts`; reverting requires `git show <commit>:evolution/src/lib/core/agents/editing/checkSemanticOverlap.ts > <path>` then re-commit, since plain `git revert` of a delete leaves an empty path.
-  - [ ] Special handling — Phase 2b deletes wizard UI; revert restores the deleted blocks from the original commit.
+  - [ ] Plain `git revert <commit>` correctly restores deleted files in modern git — no special handling needed for `checkSemanticOverlap.ts`. If a manual restore is preferred over a revert commit, use `git show <commit>^:evolution/src/lib/core/agents/editing/checkSemanticOverlap.ts > evolution/src/lib/core/agents/editing/checkSemanticOverlap.ts` — note `^:` (parent tree of the delete commit, where the file still exists), NOT `:` (the delete commit's own tree, where the file is gone).
+  - [ ] Wizard UI deletions in Phase 2b are likewise restored by plain `git revert`; only manual when cherry-picking from a different branch.
   - [ ] Post-revert sanity: `npm run tsc && npm run test:unit -- evolution && npm run test:unit -- src/app/admin/evolution`.
   - [ ] Post-revert staging smoke: run one coherence-pass strategy run, confirm `coherencePass.cycles.length === 1` and `coherencePass.config` shape matches pre-Phase-1.
 
