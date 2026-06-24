@@ -104,18 +104,21 @@ The user's "as granular control for approver as possible (e.g. no aggregating ed
 - [ ] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-iterative-editing.spec.ts` — verify per-cycle counts render correctly.
 
 ### B) Automated Tests
-- [ ] `npm run test:unit -- proposerPrompt` + `npm run test:unit -- proposerPromptRewrite` + `npm run test:unit -- IterativeEditingAgent` + `npm run test:unit -- validateEditGroups` + `npm run test:unit -- schemas` + `npm run test:unit -- findOrCreateStrategy`
+- [ ] `npm run test:unit -- proposerPrompt` + `npm run test:unit -- proposerPromptRewrite` + `npm run test:unit -- IterativeEditingAgent` + `npm run test:unit -- IterativeEditingRewriteAgent` + `npm run test:unit -- validateEditGroups` + `npm run test:unit -- parseProposedEdits` + `npm run test:unit -- runEditingCycle` + `npm run test:unit -- schemas` + `npm run test:unit -- findOrCreateStrategy`
 - [ ] `npm run test:integration -- evolution-pipeline`
 - [ ] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-iterative-editing.spec.ts`
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `evolution/docs/editing_agents.md` — update Configuration (drop `editingProposerSoftCap` row), Cost knobs table (drop the soft-cap row), and Operational metrics (add the five new invocation metrics + note that `iterative_edit_accept_rate` is now actually computed).
+- [ ] `evolution/docs/editing_agents.md` — update Configuration (drop `editingProposerSoftCap` row), Cost knobs table (drop the soft-cap row), and Operational metrics (add the six new invocation metrics + note that `iterative_edit_accept_rate` is now actually computed).
 - [ ] `evolution/docs/multi_iteration_strategies.md` — drop `editingProposerSoftCap` from the iterationConfig schema documentation; update field-gate description.
 - [ ] `evolution/docs/agents/overview.md` — drop the Phase-6 `editingProposerSoftCap=8` mention in the IterativeEditingAgent block.
 - [ ] `evolution/docs/cost_optimization.md` — only if the cost-knob table calls out the soft cap (review).
 - [ ] `evolution/docs/logging.md` — note the new per-invocation metric rows visible in LogsTab.
 - [ ] No changes expected: `evolution/docs/architecture.md`, `criteria_agents.md`, `paragraph_recombine*.md`, `reference.md`, `data_model.md`, `prompt_editor.md`, `rating_and_comparison.md`, `variant_lineage.md`, `arena.md`, `curriculum.md`, `implicit_rubric_weights.md`, `evolution_metrics.md`, `metrics.md`, `visualization.md`, `minicomputer_deployment.md`, `strategies_and_experiments.md`, and the three main-app feature deep dives (`ai_suggestions_overview.md`, `writing_pipeline.md`, `markdown_ast_diffing.md`).
+
+## CI exposure
+This work touches `evolution/src/lib/**` heavily, so `ci.yml`'s evolution-changes classifier will trigger the broader evolution E2E suite (not just `admin-evolution-iterative-editing.spec.ts`). Expect ~3-4 additional minutes of CI vs. a non-evolution change. Specs that may interact with parser-default flips: `admin-evolution-run-pipeline.spec.ts`, the existing iterative-editing flow specs. None should regress (the new defaults are behavior-additive), but watch for surprises.
 
 ## Rollback plan
 This work is staging-bound — no migrations, no production deploys. Option B (env-var kill-switch) was explicitly rejected in § Options Considered. Rollback path if Mode A's aggressive prompt regresses Elo or the granular-by-default parser produces excessive cycle-fail rates on stage:
