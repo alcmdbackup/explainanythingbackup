@@ -183,4 +183,181 @@ describe('computeAgreementMetrics', () => {
     const grammar = m.perCriterion.find((c) => c.name === 'Grammar')!;
     expect(grammar.groundTruthAccuracy).toBeCloseTo(0.5);
   });
+
+  // ── Wilson CI integration ──────────────────────────────────────────────────────────
+  it('Wilson CI: rates carry parallel *Ci bounds matching their denominators', () => {
+    const calls = [
+      call({}),  // agree
+      call({ pair_label: 'p2' }),  // agree
+      call({ pair_label: 'p3', rubric_winner: 'B' }),  // disagree
+    ];
+    const m = computeAgreementMetrics(calls, []);
+    expect(m.perRepeatAgreeRate).toBeCloseTo(2 / 3);
+    expect(m.perRepeatAgreeRateCi).not.toBeNull();
+    expect(m.perRepeatAgreeRateCi!.low).toBeGreaterThanOrEqual(0);
+    expect(m.perRepeatAgreeRateCi!.high).toBeLessThanOrEqual(1);
+    expect(m.perRepeatAgreeRateCi!.low).toBeLessThan(m.perRepeatAgreeRate);
+    expect(m.perRepeatAgreeRateCi!.high).toBeGreaterThan(m.perRepeatAgreeRate);
+  });
+
+  it('Wilson CI: null when denominator is 0', () => {
+    const m = computeAgreementMetrics([], []);
+    expect(m.perRepeatAgreeRateCi).toBeNull();
+    expect(m.bothDecisiveAgreeRateCi).toBeNull();
+    expect(m.holisticAccuracyCi).toBeNull();
+  });
+
+  it('Wilson CI: per-rate denominators differ — both-decisive CI uses its OWN n, not total n', () => {
+    // 10 calls: 2 both-decisive (both agree), 8 with holistic TIE.
+    // strict_agree denom = 10, both_decisive denom = 2 — CIs should differ in width.
+    const calls = [
+      ...Array.from({ length: 2 }, (_, i) =>
+        call({ pair_label: `p${i}`, holistic_confidence: 1.0, rubric_confidence: 1.0 }),
+      ),
+      ...Array.from({ length: 8 }, (_, i) =>
+        call({ pair_label: `p${i + 2}`, holistic_winner: 'TIE', holistic_confidence: 0.5, rubric_winner: 'A', rubric_confidence: 1.0 }),
+      ),
+    ];
+    const m = computeAgreementMetrics(calls, []);
+    const strictWidth = m.perRepeatAgreeRateCi!.high - m.perRepeatAgreeRateCi!.low;
+    const bothDecWidth = m.bothDecisiveAgreeRateCi!.high - m.bothDecisiveAgreeRateCi!.low;
+    expect(bothDecWidth).toBeGreaterThan(strictWidth); // smaller n → wider CI
+  });
+
+  it('per-criterion CIs populate alongside rates', () => {
+    const criteria = [
+      crit({ criteria_name: 'X', agrees_with_holistic: true }),
+      crit({ criteria_name: 'X', agrees_with_holistic: true }),
+      crit({ criteria_name: 'X', agrees_with_holistic: false }),
+    ];
+    const m = computeAgreementMetrics([call({})], criteria);
+    const x = m.perCriterion[0]!;
+    expect(x.agreeRate).toBeCloseTo(2 / 3);
+    expect(x.agreeRateCi).not.toBeNull();
+    expect(x.disagreeRateCi).not.toBeNull();
+    expect(x.abstainRateCi).not.toBeNull();
+  });
+
+  // ── Position bias ─────────────────────────────────────────────────────────────────
+  it('position bias: null when not provided (legacy/no raws)', () => {
+    const m = computeAgreementMetrics([call({})], []);
+    expect(m.holisticPositionBiasRate).toBeNull();
+    expect(m.holisticPositionBiasRateCi).toBeNull();
+    expect(m.rubricPositionBiasRate).toBeNull();
+    expect(m.rubricPositionBiasRateCi).toBeNull();
+  });
+
+  it('position bias: rate = mismatch / parsed; CI populates', () => {
+    const m = computeAgreementMetrics([call({})], [], {
+      holisticMismatch: 3,
+      holisticParsed: 10,
+      rubricMismatch: 1,
+      rubricParsed: 8,
+    });
+    expect(m.holisticPositionBiasRate).toBeCloseTo(0.3);
+    expect(m.rubricPositionBiasRate).toBeCloseTo(0.125);
+    expect(m.holisticPositionBiasRateCi).not.toBeNull();
+    expect(m.rubricPositionBiasRateCi).not.toBeNull();
+  });
+
+  it('position bias: parsed=0 → rate null but input was provided', () => {
+    const m = computeAgreementMetrics([call({})], [], {
+      holisticMismatch: 0,
+      holisticParsed: 0,
+      rubricMismatch: 0,
+      rubricParsed: 0,
+    });
+    expect(m.holisticPositionBiasRate).toBeNull();
+    expect(m.rubricPositionBiasRate).toBeNull();
+    // CI is also null when n=0.
+    expect(m.holisticPositionBiasRateCi).toBeNull();
+    expect(m.rubricPositionBiasRateCi).toBeNull();
+  });
+
+  // ── Ground-truth accuracy: TIE@high-confidence is an abstention, NOT a wrong guess ──
+  it('rubric accuracy excludes high-confidence TIE verdicts (observed in run 6a6549b7)', () => {
+    // 3 calls on the same large-gap pair, expected_winner=A:
+    //   - rubric A @ 1.0 (correct)
+    //   - rubric B @ 1.0 (wrong)
+    //   - rubric TIE @ 1.0 (high-confidence abstention — must be EXCLUDED from accuracy)
+    // If TIE counts in the denominator, rubric_accuracy = 1/3 ≈ 33%.
+    // With the fix, rubric_accuracy = 1/2 = 50% (TIE@1.0 dropped from denom).
+    const calls = [
+      call({ pair_label: 'p1', gap_kind: 'large', expected_winner: 'A', rubric_winner: 'A', rubric_confidence: 1.0 }),
+      call({ pair_label: 'p2', gap_kind: 'large', expected_winner: 'A', rubric_winner: 'B', rubric_confidence: 1.0 }),
+      call({ pair_label: 'p3', gap_kind: 'large', expected_winner: 'A', rubric_winner: 'TIE', rubric_confidence: 1.0 }),
+    ];
+    const m = computeAgreementMetrics(calls, []);
+    expect(m.nLargeGap).toBe(3);
+    // 2 A/B-decisive rubric verdicts, 1 correct.
+    expect(m.rubricAccuracy).toBeCloseTo(0.5);
+  });
+
+  it('holistic accuracy: same fix — TIE@high-conf excluded', () => {
+    const calls = [
+      call({ pair_label: 'p1', gap_kind: 'large', expected_winner: 'B', holistic_winner: 'B', holistic_confidence: 1.0 }),
+      call({ pair_label: 'p2', gap_kind: 'large', expected_winner: 'B', holistic_winner: 'TIE', holistic_confidence: 1.0 }),
+    ];
+    const m = computeAgreementMetrics(calls, []);
+    // Only 1 A/B-decisive holistic; correct → 100% (not 50%).
+    expect(m.holisticAccuracy).toBeCloseTo(1.0);
+  });
+
+  it('TIE@LOW-conf is also excluded (was already excluded by the conf > 0.6 filter, regression-pinned)', () => {
+    const calls = [
+      call({ pair_label: 'p1', gap_kind: 'large', expected_winner: 'A', rubric_winner: 'A', rubric_confidence: 1.0 }),
+      // TIE @ 0.5 (low confidence) — was already excluded; included here as a regression guard.
+      call({ pair_label: 'p2', gap_kind: 'large', expected_winner: 'A', rubric_winner: 'TIE', rubric_confidence: 0.5 }),
+    ];
+    const m = computeAgreementMetrics(calls, []);
+    expect(m.rubricAccuracy).toBeCloseTo(1.0);
+  });
+
+  // ── abstain_divergence uses committed semantics, not just confidence ─────────────
+  it('abstain_divergence: TIE@high-conf is an abstention, not a commit (run 6a6549b7 pattern)', () => {
+    // Both judges are abstaining, just at different confidence levels.
+    // Under the old confidence-only filter this would have scored as divergence (1/1).
+    // Under the committed semantics neither judge committed, so divergence = 0.
+    const calls = [
+      call({
+        pair_label: 'p1',
+        holistic_winner: 'TIE',
+        holistic_confidence: 0.5,
+        rubric_winner: 'TIE',
+        rubric_confidence: 1.0,
+      }),
+    ];
+    const m = computeAgreementMetrics(calls, []);
+    expect(m.abstainDivergenceRate).toBe(0);
+  });
+
+  it('abstain_divergence: exactly one judge committed to A/B → divergence = 1', () => {
+    const calls = [
+      // Holistic committed to A, rubric was confidently TIE → divergence.
+      call({
+        pair_label: 'p1',
+        holistic_winner: 'A',
+        holistic_confidence: 1.0,
+        rubric_winner: 'TIE',
+        rubric_confidence: 1.0,
+      }),
+    ];
+    const m = computeAgreementMetrics(calls, []);
+    expect(m.abstainDivergenceRate).toBe(1);
+  });
+
+  it('abstain_divergence: both committed to A/B → no divergence (even when they disagree)', () => {
+    const calls = [
+      // Both committed, opposite winners → "both-decisive opposite", NOT abstain divergence.
+      call({
+        pair_label: 'p1',
+        holistic_winner: 'A',
+        holistic_confidence: 1.0,
+        rubric_winner: 'B',
+        rubric_confidence: 1.0,
+      }),
+    ];
+    const m = computeAgreementMetrics(calls, []);
+    expect(m.abstainDivergenceRate).toBe(0);
+  });
 });

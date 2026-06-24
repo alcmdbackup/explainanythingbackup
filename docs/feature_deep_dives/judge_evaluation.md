@@ -120,9 +120,52 @@ and runs the reducer). **CLI:** `agreement-sweep --test-set <name> --model <id> 
 **Admin UI** (`src/app/admin/evolution/judge-lab/agreement/`): a third "Agreement" entry on the
 launcher mode toggle links to the sub-route (its run-detail lives at `agreement/runs/[agreementRunId]/`
 — nested so it doesn't collide with the existing `runs/[evalRunId]`). The run-detail `view-{kind}`
-toggle re-slices every panel: the metric tiles (3 TIE buckets + per-repeat), the per-criterion
-agreement table (with the aggregated-rubric summary row), the ground-truth accuracy panel, and the
-disagreement drill-down (Open in Match Viewer via `findArenaComparisonForVariantsAction`).
+toggle re-slices every panel.
+
+**UX overhaul (fix_ux_bugs_judge_lab_agreement_20260621):**
+- **Live cost preview** on the launcher via `estimateAgreementCostAction` (ZERO LLM calls — pre-flight
+  only). Debounced 300ms; recomputes on every input change. Renders the compact one-liner
+  `${pairs} pairs × ${repeats} repeats × 4 calls = ${plannedCalls} calls · est $X · within $5 cap`
+  next to the Launch button. Color-shifts red + disables Launch when the estimate exceeds
+  `JUDGE_EVAL_MAX_CALLS` / `JUDGE_EVAL_MAX_USD`. Estimate failure ≠ Launch disabled (graceful fallback
+  renders `Cost preview unavailable` and leaves Launch enabled — preserves user agency).
+- **In-UI label/knob advice**: `<th title="...">` tooltips on terse leaderboard headers
+  (`Per-rep`, `Both-dec`, `Abstain`, `Worst criterion`); a `<details><summary>What do these mean?</summary>`
+  block at the top of the leaderboard AND the detail page with the canonical definitions. Faded
+  subtitles under the `repeats` and temperature inputs ("Each pair judged N times. 4 LLM calls per
+  repeat (2 holistic + 2 rubric)…" and "0 (recommended — matches production judge path)…").
+- **Unified canonical labels**: `Per-repeat agreement` (was `Per-rep` + `Per-repeat agree`),
+  `Per-pair (modal) agreement` (was `Per-pair agree`), `Both-decisive agreement`, `Single-judge abstain`
+  (was `Abstain / diverge`). SQL view column names (`strict_agree_rate` etc.) intentionally diverge —
+  mapping lives in `getAgreementLeaderboardAction`.
+- **6 detail-page tiles**: the original 4 (per-pair / per-repeat / both-decisive / single-judge abstain)
+  PLUS 2 new **position-bias** tiles (`Holistic position bias`, `Rubric position bias`). Position-bias
+  rates are derived server-side from the persisted `*_raw` columns (`parseWinner` for holistic,
+  `parseRubricVerdict` for rubric) and shipped as pre-aggregated counts to the client reducer — no
+  migration, immediate coverage of historical runs.
+- **95% Wilson score CIs** on every agreement rate (leaderboard + detail tiles + per-criterion table),
+  rendered as `78% [72, 84]`. Wilson is the right tool for proportions (not bootstrap). Each rate's CI
+  uses its OWN denominator (`strict_agree_rate` uses `n_calls`; `both_decisive_agree_rate` uses
+  `both_decisive_n` — these differ). Implemented via in-memory aggregation in
+  `getAgreementLeaderboardAction` over a light per-call projection (PostgREST cannot express
+  `COUNT(*) FILTER (...)` directly; in-memory aggregation is the simpler alternative to introducing an
+  RPC/migration).
+- **New `Worst criterion (disagree%)` column** on the leaderboard — the criterion with the highest
+  disagree-with-holistic rate in that run, with `name (rate%)` rendering. Highest-signal triage column
+  for "which run had the most rebellious criterion."
+- **New `/matches` sub-route** at `src/app/admin/evolution/judge-lab/agreement/runs/[agreementRunId]/matches/page.tsx`
+  mirroring the regular-sweep match-history pattern: paginated 25 Core rows, lazy expand fetches the
+  4 raws (holistic forward/reverse + rubric forward/reverse) PLUS per-criterion verdicts for that one
+  call via `getAgreementCallDetailAction`. `?disagree=1` query param filters to both-decisive
+  opposite-winner calls. "Open in Match Viewer" link via the existing
+  `findArenaComparisonForVariantsAction`. The detail page links to it via "View all matches →" + the
+  old in-page 100-row disagreement drill-down is replaced with a count headline + link to
+  `/matches?disagree=1`.
+- **Shared audit primitives**: `TextBlock`, `extractTexts`, `reasoningStateLabel` extracted to
+  `evolution/src/components/evolution/matches/sharedAuditPrimitives.tsx` (used by both the regular
+  sweep's `runs/[evalRunId]/matches/page.tsx` and the new agreement `/matches` page).
+  **Plain-text render contract**: every raw / reasoning / prompt is rendered via `<pre>` (auto-
+  escaping); NO `dangerouslySetInnerHTML`, NO Markdown-to-HTML pipeline.
 
 ## Metrics (`evolution/src/lib/judgeEval/metrics.ts`)
 

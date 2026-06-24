@@ -473,6 +473,26 @@ Note that the evolution pipeline's `llm-client.ts` imports `getModelPricing` fro
 
 ---
 
+## Agreement-sweep live cost preview (`estimateAgreementCostAction`, fix_ux_bugs_judge_lab_agreement_20260621)
+
+The Agreement Sweep launcher (`/admin/evolution/judge-lab/agreement`) renders a live debounced cost
+preview that recomputes on every input change. The action that backs it — `estimateAgreementCostAction`
+in `evolution/src/services/judgeEvalActions.ts` — is a **ZERO LLM-CALL** action by construction. It
+must perform only: (1) `loadTestSetByName` (DB read), (2) `loadTestSetPairs` + kind filter (DB +
+in-memory), (3) `estimateSweepCost` (pure math), (4) cap-status check (pure math). It MUST NOT invoke
+`createCallLLMJudge`, `runJudgeEval`, `executeAgreementSweep`, or any LLM dispatcher — the live-preview
+loop calls it on every keystroke, so a single inadvertent LLM call here would burn the global
+evolution cap on each input change. The invariant is enforced by a top-of-file comment on the action
+plus a unit-test/integration assertion that the LLM client is never invoked during a preview.
+
+The math: agreement runs 4 LLM calls per repeat (2 holistic + 2 rubric) — twice the regular sweep's
+2-pass shape. `estimateAgreementCostAction` calls `estimateSweepCost` (which returns the 2-pass cost
+per pair × repeat × cell) with `cells = 1` (single judge model, single temp, single reasoning) and
+multiplies the result by 2 for the rubric pass. `plannedCalls = pairs × repeats × 4`. The cap check is
+NON-throwing: returns `capStatus: 'ok' | 'over_calls' | 'over_usd'` so the launcher can disable the
+Launch button without aborting the action. `assertWithinJudgeEvalCap` still guards the actual
+`createAgreementSweepAction` execute path.
+
 ## Prompt Editor spend (tool_test_rewrite_prompts_evolution_20260605)
 
 The Prompt Editor (`/admin/evolution/prompt-editor`) runs single `callLLM` rewrites with
