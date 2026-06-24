@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { trackEvolutionId } from '../../helpers/evolution-test-data-factory';
 import { longTimeoutDispatcher } from '../../helpers/long-timeout-fetch';
+import { acquirePipelineLock, releasePipelineLock } from '../../helpers/pipeline-lock';
 
 const TEST_PREFIX = '[TEST_EVO] Pipeline';
 
@@ -28,6 +29,10 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
   // Pipeline runs real LLM calls; need extended timeout for seed + trigger + poll completion
   adminTest.beforeAll(async ({ browser }, testInfo) => {
     testInfo.setTimeout(360_000);
+    // Serialize against the other full-pipeline @evolution spec(s) — running two real pipelines
+    // concurrently (workers:2) contends for the shared LLM provider + tight budget and stalls
+    // completion. Released in afterAll (which runs even if beforeAll fails). See pipeline-lock.ts.
+    await acquirePipelineLock('run-pipeline');
     const sb = getServiceClient();
 
     // 1. Seed strategy with cheap models
@@ -179,6 +184,9 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
   });
 
   adminTest.afterAll(async () => {
+    // Release the pipeline mutex (acquired in beforeAll) before cleanup so the next pipeline spec
+    // can start; afterAll runs even when beforeAll failed, so the lock is always freed.
+    await releasePipelineLock();
     const sb = getServiceClient();
 
     // FK-safe cleanup order

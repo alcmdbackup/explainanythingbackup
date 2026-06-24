@@ -20,6 +20,7 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { trackEvolutionId } from '../../helpers/evolution-test-data-factory';
 import { longTimeoutDispatcher } from '../../helpers/long-timeout-fetch';
+import { acquirePipelineLock, releasePipelineLock } from '../../helpers/pipeline-lock';
 
 const TEST_PREFIX = '[TEST_EVO] Editing';
 
@@ -41,6 +42,10 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
 
   adminTest.beforeAll(async ({ browser }, testInfo) => {
     testInfo.setTimeout(600_000);
+    // Serialize against the other full-pipeline @evolution spec(s) — running two real pipelines
+    // concurrently (workers:2) starves this run's editing-rank budget (mu=25) and stalls
+    // completion. Released in afterAll (which runs even if beforeAll fails). See pipeline-lock.ts.
+    await acquirePipelineLock('iterative-editing');
     const sb = getServiceClient();
 
     // Strategy: generate → iterative_editing → swiss. editingModel and
@@ -184,10 +189,11 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
   });
 
   adminTest.afterAll(async () => {
-    // Cleanup is handled by the test-data-factory's trackEvolutionId
-    // mechanism (see beforeAll). The factory's afterAll hook deletes all
-    // tracked rows by ID. This empty afterAll keeps the eslint
-    // flakiness/require-test-cleanup rule happy.
+    // Release the pipeline mutex (acquired in beforeAll). afterAll runs even when beforeAll
+    // failed, so the lock is always freed for the next pipeline spec.
+    await releasePipelineLock();
+    // Row cleanup is handled by the test-data-factory's trackEvolutionId mechanism (see
+    // beforeAll) — its global afterAll hook deletes all tracked rows by ID.
   });
 
   adminTest('editing iteration produces exactly one final variant per invocation', async () => {
