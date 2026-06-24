@@ -31,10 +31,27 @@
 ### User Clarifications
 - Pending (see Open Questions in research doc): which surface showed "$3"; scope of fix (correct `/admin/costs` read path vs surface test spend); prod check.
 
-## Phase 2: Implement the correct fix
+## Phase 1: Canonical merge (DONE)
 ### Work Done
-[Pending]
+- Migration `20260624000001`: `idx_invocations_created_at` + `get_evolution_spend_buckets` RPC (invocation-grain, test/real via run→strategy join). `database.types.ts` updated.
+- `evolution/src/services/costAnalytics.ts`: evolution spend from invocations (source of truth), non-evo from `llmCallTracking` (call_source dedup filter); shared `evolutionSpendTotal` reused by summary + reconciliation oracle. Gated by `COST_DASHBOARD_UNIFIED_EVOLUTION` (default off). 6 new unit tests (32 total green).
+- tsc + lint + check:llm-coverage + check:stale-specs all green.
 
-## Phase 3: Verify + guard against regression
+## Phase 2: /admin/costs UI (DONE)
 ### Work Done
-[Pending]
+- Headline total already reflects merged spend (backend). Added `evolutionMerged` flag to `CostSummary`; reconciliation banner is now merge-aware (informational "included" when merged, "under-counted" warning when not).
+- E2E spec for merged totals deferred (needs flag-on webServer env + seeded evolution data) — covered by unit tests + existing `admin-costs-dashboard.spec.ts` page-load guard.
+
+## Phase 3: 3-layer write-tracking enforcement (DONE)
+### Work Done
+- **Layer 1:** `LLM_REQUIRE_TRACKING_DISABLED` kill-switch in `llms.ts` (env wins over `requireTracking`) + precedence unit test.
+- **Layer 2:** extracted `createTrackedEvolutionProvider` factory from `claimAndExecuteRun` (runner reuses, behavior-preserving, 24 tests green); rewrote `run-evolution-local.ts` to route real-LLM through the factory, DELETED `createDirectLLMProvider` + OpenAI/Anthropic/calculateLLMCost imports, require DB env for real runs, `--ungated` flag; removed allowlist entry; coverage guard green + negative-assertion test.
+- **Layer 3:** `checkTrackingReconciliation.ts` (source-of-truth vs tracking; pure `evaluateDivergence` + 5 unit tests) + `evolution-tracking-reconciliation.yml` (schedule-only, staging, files [release-health] issue).
+
+### Issues Encountered
+- New RPC not in generated types → hand-added to `database.types.ts` (CI regenerates on the migration PR).
+- Typed Supabase client choked on dynamic `select(column)` over a table union → `as unknown as` cast.
+
+## Phase 4: Verify + finalize
+### Work Done
+[In progress — migration:verify, dev reconciliation spot-check, then /finalize full check suite]
