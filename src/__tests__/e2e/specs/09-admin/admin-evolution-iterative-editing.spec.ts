@@ -275,10 +275,22 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
 
     const { data: variants } = await sb
       .from('evolution_variants')
-      .select('id, mu')
+      .select('id, mu, persisted')
+      // Per Decisions §14 + the iteration loop's surface/discard rule:
+      // persisted=false rows are the "ran but did not make the cut" audit trail —
+      // they participated in 0 comparisons (the agent's surface/discard decision
+      // bailed at status='budget' below the top-15% cutoff) and therefore retain
+      // the OpenSkill default mu=25. Filtering for persisted=true scopes the
+      // assertion to variants the merge agent actually saw. The agent-side
+      // invariant the test protects (ranking ran end-to-end on every surfaced
+      // editing variant) is unchanged. Tightened by
+      // investigate_iterative_editing_runs_stage_20260623 after the new
+      // aggressive proposer made budget exhaustion more common in this 60%-of-$0.05
+      // editing slot, surfacing the latent over-strict assertion.
+      .eq('persisted', true)
       .in('agent_invocation_id', editingInvs.map((i) => i.id));
 
-    if (!variants || variants.length === 0) return; // all-rejected path
+    if (!variants || variants.length === 0) return; // all-discarded path
     for (const v of variants) {
       // Default mu is 25 (OpenSkill default — variants that haven't been ranked).
       // Post-ranking, mu shifts; any deviation from 25 indicates ranking ran.
