@@ -344,5 +344,10 @@ The following docs were identified as relevant and may need updates:
 - **Risk** (Phase 2b/2c): existing strategies in DB with `redundancyJaccardThreshold` set will need to load cleanly through the new schema. Default zod object behavior strips unknown fields, so this is safe — but the regression test in Phase 2b explicitly verifies it.
 - **Open** (Phase 2c): does `checkSemanticOverlap.ts` have a separate `.test.ts` or property-test file? Pre-flight grep before Phase 2c will identify it. If yes, delete it; if no, no action needed.
 
+## Artifacts
+
+- **A/B seed script**: [`evolution/scripts/experiments/seedCoherencePassPerformanceExperiment_20260624.ts`](../../../evolution/scripts/experiments/seedCoherencePassPerformanceExperiment_20260624.ts) — clones the `seedBundleSplitExperiment.ts` pattern; creates two `paragraph_recombine_with_coherence_pass` strategies (Control = legacy `lengthCap=1.02, maxCycles=1`; Treatment = new `lengthCap=1.10, maxCycles=2`) against `federal_reserve_2` and enqueues N runs/arm under one `evolution_experiments` row. Queued runs flow through `createEvolutionLLMClient` → `recordSpend` → `llmCallTracking` (full production cost tracking).
+- **First A/B run** (2026-06-24): experiment `a0bcd825-e9df-48c8-afbf-8a2cb24303d6`, Control strategy `b722babf-873d-49f0-81a5-62109d172801`, Treatment strategy `fe314a1e-4894-4765-9162-8bf51c827dbc`, 8 runs/arm at $0.10/run cap.
+
 ## Review & Discussion
 [This section is populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration]

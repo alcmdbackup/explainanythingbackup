@@ -115,6 +115,10 @@ The coherence-pass agent is a **DIFFERENT** agent class (`paragraph_recombine_wi
 
 **Important**: Phase 1c-ii (drop Fidelity from slot rubric) is shared between both agents — so the post-Phase-1c-ii rubric makes the coherence-pass agent's slot judges aggressive in the same way it did the sequential agent's. But the sequential agent compensates with `nextContext` + coordinator + replan; the coherence-pass agent compensates ONLY with the post-hoc pass, which is firing at 25% useful-edit rate.
 
+## Promoted Analyses
+
+- [`docs/analysis/coherence-pass-perf-ab-results-20260624/`](../../analysis/coherence-pass-perf-ab-results-20260624/coherence-pass-perf-ab-results-20260624.md) — post-merge staging A/B comparing new defaults (lengthCap=1.10, maxCycles=2) vs legacy-pinned (1.02, 1). Verdict: **FAIL** per pre-registered decision rule (+2.1 μ directional improvement but below the +5 μ MDE; Mann-Whitney p ≈ 0.47).
+
 ## Open Questions
 
 1. **Should the coherence pass be allowed to make non-MINOR changes?** Current `lengthCapRatio: 1.02` allows ≤2% article growth — too tight for restoring voice. Lifting the cap risks article-level format issues and undermines the "MINOR" design intent, but the current setting prevents the pass from doing real work.

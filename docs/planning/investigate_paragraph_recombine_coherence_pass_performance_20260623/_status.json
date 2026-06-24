@@ -22,5 +22,8 @@
     "evolution/docs/evolution_metrics.md",
     "evolution/docs/reference.md",
     "evolution/docs/variant_lineage.md"
+  ],
+  "analyses": [
+    "docs/analysis/coherence-pass-perf-ab-results-20260624/"
   ]
 }
