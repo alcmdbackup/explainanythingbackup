@@ -152,7 +152,8 @@ Post-flight (both greps):
 //   invocationScope, effectiveCapUsd, effectiveLengthCapRatio, proposerModel, approverModel
 // Per agent invariant I3 (lines 17-21): on runEditingCycle throw, push partialCycleOnThrow
 // before re-throwing so cycle 1's completed cycle survives in execution_detail.cycles[].
-const maxCycles = input.coherencePassMaxCycles ?? DEFAULT_COHERENCE_PASS_MAX_CYCLES;
+const {maxCycles: killSwitchMaxCycles} = resolveCoherencePassDefaults();
+const maxCycles = input.coherencePassMaxCycles ?? killSwitchMaxCycles;
 const cycles: EditingCycle[] = [];
 let currentText = recombinedText;
 let silentRejectionCount = 0;
