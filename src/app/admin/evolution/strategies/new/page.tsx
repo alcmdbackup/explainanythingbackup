@@ -66,10 +66,6 @@ interface IterationRow {
   /** Tightened size-ratio cap for proposer/approver edits (default 1.10). Only
    *  valid when agentType === 'proposer_approver_criteria_generate'. */
   lengthCapRatio?: number;
-  /** Trigram-Jaccard threshold rejecting edits whose newText overlaps too much
-   *  with the rest of the article. Default 0.35. Valid for the 2 new criteria
-   *  agents only. */
-  redundancyJaccardThreshold?: number;
   /** When false, skips the mirror-approver pass and applies forward-accepted
    *  groups directly. Default true (run mirror). Only valid when
    *  agentType === 'proposer_approver_criteria_generate'. */
@@ -199,7 +195,6 @@ interface IterationConfigPayload {
   criteriaIds?: string[];
   weakestK?: number;
   lengthCapRatio?: number;
-  redundancyJaccardThreshold?: number;
   includesMirrorApprover?: boolean;
   debateJudgeReasoningEffort?: 'none' | 'low' | 'medium' | 'high';
   rewritesPerParagraph?: number;
@@ -308,12 +303,6 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
     // Proposer/approver-only fields.
     ...(it.agentType === 'proposer_approver_criteria_generate' && it.lengthCapRatio != null
       ? { lengthCapRatio: it.lengthCapRatio }
-      : {}),
-    // Redundancy threshold valid for the 2 new criteria agents.
-    ...((it.agentType === 'single_pass_evaluate_criteria_and_generate'
-        || it.agentType === 'proposer_approver_criteria_generate')
-        && it.redundancyJaccardThreshold != null
-      ? { redundancyJaccardThreshold: it.redundancyJaccardThreshold }
       : {}),
     // includesMirrorApprover: emit ONLY when explicitly false (default-on stays
     // implicit so the strategy hash doesn't drift on default-config strategies).
@@ -727,7 +716,6 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.criteriaIds;
         delete updated.weakestK;
         delete updated.lengthCapRatio;
-        delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         delete updated.debateJudgeReasoningEffort;
         delete updated.editingProposerSoftCap;
@@ -747,7 +735,6 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.editingCutoffMode;
         delete updated.editingCutoffValue;
         delete updated.lengthCapRatio;
-        delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         delete updated.editingProposerSoftCap;
         delete updated.disableApproverFiltering;
@@ -760,7 +747,6 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.criteriaIds;
         delete updated.weakestK;
         delete updated.lengthCapRatio;
-        delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         // Phase 6: editingProposerSoftCap + disableApproverFiltering are Mode B
         // only. The shared branch covers both Mode A and Mode B, so guard the
@@ -780,7 +766,6 @@ export default function NewStrategyPage(): JSX.Element {
         updated.editingCutoffValue ??= 10;
         // Defaults: 1.10 length cap, 0.35 redundancy threshold, mirror on.
         updated.lengthCapRatio ??= 1.10;
-        updated.redundancyJaccardThreshold ??= 0.35;
         updated.includesMirrorApprover ??= true;
         delete updated.editingProposerSoftCap;
         delete updated.disableApproverFiltering;
@@ -794,7 +779,6 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.includesMirrorApprover;
         updated.criteriaIds ??= [];
         updated.weakestK ??= 1;
-        updated.redundancyJaccardThreshold ??= 0.35;
         delete updated.editingProposerSoftCap;
         delete updated.disableApproverFiltering;
       } else if (updated.agentType === 'reflect_and_generate') {
@@ -804,7 +788,6 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.criteriaIds;
         delete updated.weakestK;
         delete updated.lengthCapRatio;
-        delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         delete updated.debateJudgeReasoningEffort;
         updated.reflectionTopN ??= 3;
@@ -814,7 +797,6 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.tacticGuidance;
         delete updated.reflectionTopN;
         delete updated.lengthCapRatio;
-        delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         delete updated.debateJudgeReasoningEffort;
         updated.criteriaIds ??= [];
@@ -834,7 +816,6 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.criteriaIds;
         delete updated.weakestK;
         delete updated.lengthCapRatio;
-        delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         delete updated.debateJudgeReasoningEffort;
         updated.rewritesPerParagraph ??= PARAGRAPH_RECOMBINE_DEFAULTS.rewritesPerParagraph;
@@ -853,7 +834,6 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.criteriaIds;
         delete updated.weakestK;
         delete updated.lengthCapRatio;
-        delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         delete updated.debateJudgeReasoningEffort;
         delete updated.rewritesPerParagraph;
@@ -1773,56 +1753,36 @@ export default function NewStrategyPage(): JSX.Element {
                         />
                       </div>
                     )}
-                    {(it.agentType === 'single_pass_evaluate_criteria_and_generate'
-                      || it.agentType === 'proposer_approver_criteria_generate') && (
+                    {it.agentType === 'proposer_approver_criteria_generate' && (
                       <div
                         className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
                         data-testid={`iteration-guardrails-controls-${idx}`}
                       >
-                        <span className="text-[var(--text-primary)]">🛡️ Redundancy threshold:</span>
+                        <span className="text-[var(--text-primary)]">📏 Length cap ratio:</span>
                         <input
                           type="number"
-                          min={0}
-                          max={1}
+                          min={1.01}
+                          max={1.50}
                           step={0.05}
-                          value={it.redundancyJaccardThreshold ?? 0.35}
+                          value={it.lengthCapRatio ?? 1.10}
                           onChange={e => {
                             const v = e.target.value === '' ? undefined : Number(e.target.value);
-                            updateIteration(idx, { redundancyJaccardThreshold: v });
+                            updateIteration(idx, { lengthCapRatio: v });
                           }}
                           className="w-16 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
-                          data-testid={`redundancy-threshold-input-${idx}`}
-                          title="Trigram-Jaccard threshold (0-1). Reject edits whose newText shares more than this fraction of trigrams with the rest of the article. Default 0.35."
+                          data-testid={`length-cap-ratio-input-${idx}`}
+                          title="Tightened size-ratio cap. Edits whose newText > this × oldText length get dropped. Default 1.10 (±10%)."
                         />
-                        {it.agentType === 'proposer_approver_criteria_generate' && (
-                          <>
-                            <span className="ml-2 text-[var(--text-primary)]">· Length cap ratio:</span>
-                            <input
-                              type="number"
-                              min={1.01}
-                              max={1.50}
-                              step={0.05}
-                              value={it.lengthCapRatio ?? 1.10}
-                              onChange={e => {
-                                const v = e.target.value === '' ? undefined : Number(e.target.value);
-                                updateIteration(idx, { lengthCapRatio: v });
-                              }}
-                              className="w-16 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
-                              data-testid={`length-cap-ratio-input-${idx}`}
-                              title="Tightened size-ratio cap. Edits whose newText > this × oldText length get dropped. Default 1.10 (±10%)."
-                            />
-                            <label className="ml-2 inline-flex items-center gap-1 cursor-pointer" title="When checked, the approver runs twice (forward + mirror) and applies edits only when forward=ACCEPT and mirror=REJECT. When unchecked, applies forward-accepted edits directly.">
-                              <input
-                                type="checkbox"
-                                checked={it.includesMirrorApprover ?? true}
-                                onChange={e => updateIteration(idx, { includesMirrorApprover: e.target.checked })}
-                                className="cursor-pointer"
-                                data-testid={`includes-mirror-approver-${idx}`}
-                              />
-                              <span className="text-[var(--text-primary)]">Include mirror approver</span>
-                            </label>
-                          </>
-                        )}
+                        <label className="ml-2 inline-flex items-center gap-1 cursor-pointer" title="When checked, the approver runs twice (forward + mirror) and applies edits only when forward=ACCEPT and mirror=REJECT. When unchecked, applies forward-accepted edits directly.">
+                          <input
+                            type="checkbox"
+                            checked={it.includesMirrorApprover ?? true}
+                            onChange={e => updateIteration(idx, { includesMirrorApprover: e.target.checked })}
+                            className="cursor-pointer"
+                            data-testid={`includes-mirror-approver-${idx}`}
+                          />
+                          <span className="text-[var(--text-primary)]">Include mirror approver</span>
+                        </label>
                       </div>
                     )}
                     {criteriaEditorIdx === idx && (

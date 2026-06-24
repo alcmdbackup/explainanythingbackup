@@ -523,6 +523,10 @@ describe('V2 hashStrategyConfig', () => {
     expect(hashStrategyConfig(pr({ sequentialFloorFraction: 0.1 }))).not.toBe(base);
     expect(hashStrategyConfig(pr({ sequentialFloorAgentMultiple: 1.5 }))).not.toBe(base);
 
+    // single_pass_evaluate_criteria_and_generate distinctness used to be exercised via
+    // redundancyJaccardThreshold; that field was removed in Phase 2b of
+    // investigate_paragraph_recombine_coherence_pass_performance_20260623.
+    // weakestK is still hashed and unique-per-iteration, so use it as the distinctness probe.
     const spc = (extra: Record<string, unknown>): StrategyConfig => ({
       ...baseConfig,
       iterationConfigs: [
@@ -530,7 +534,7 @@ describe('V2 hashStrategyConfig', () => {
         { agentType: 'single_pass_evaluate_criteria_and_generate', budgetPercent: 50, criteriaIds: ['11111111-1111-1111-1111-111111111111'], weakestK: 1, ...extra } as StrategyConfig['iterationConfigs'][number],
       ],
     });
-    expect(hashStrategyConfig(spc({ redundancyJaccardThreshold: 0.5 }))).not.toBe(hashStrategyConfig(spc({})));
+    expect(hashStrategyConfig(spc({ weakestK: 2 }))).not.toBe(hashStrategyConfig(spc({})));
   });
 });
 

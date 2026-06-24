@@ -75,8 +75,6 @@ const FIELD_GATES: Partial<Record<keyof IterCfg, (t: AgentType) => boolean>> = {
   criteriaIds: (t) => CRITERIA_BASED.has(t),
   weakestK: (t) => CRITERIA_BASED.has(t),
   lengthCapRatio: (t) => t === 'proposer_approver_criteria_generate',
-  redundancyJaccardThreshold: (t) =>
-    t === 'single_pass_evaluate_criteria_and_generate' || t === 'proposer_approver_criteria_generate',
   includesMirrorApprover: (t) => t === 'proposer_approver_criteria_generate',
   debateJudgeReasoningEffort: (t) => t === 'debate_and_generate',
   rewritesPerParagraph: (t) => PARAGRAPH_RECOMBINE_FAMILY.has(t),

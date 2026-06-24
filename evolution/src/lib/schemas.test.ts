@@ -1705,7 +1705,6 @@ describe('iterationConfigSchema — new criteria-based agents (updated_criteria_
       budgetPercent: 100,
       criteriaIds: validCriteriaIds,
       weakestK: 2,
-      redundancyJaccardThreshold: 0.35,
     })).not.toThrow();
   });
 
@@ -1717,9 +1716,24 @@ describe('iterationConfigSchema — new criteria-based agents (updated_criteria_
       weakestK: 1,
       editingMaxCycles: 1,
       lengthCapRatio: 1.10,
-      redundancyJaccardThreshold: 0.35,
       includesMirrorApprover: true,
     })).not.toThrow();
+  });
+
+  // Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 2b:
+  // legacy strategies in DB may have `redundancyJaccardThreshold` set on the iter config.
+  // Zod's default object behavior strips unknown keys, so the parsed result lacks the
+  // field — config still loads cleanly.
+  it('legacy redundancyJaccardThreshold field is silently dropped on parse (Phase 2b)', () => {
+    const parsed = iterationConfigSchema.parse({
+      agentType: 'single_pass_evaluate_criteria_and_generate',
+      budgetPercent: 100,
+      criteriaIds: validCriteriaIds,
+      weakestK: 2,
+      redundancyJaccardThreshold: 0.35, // legacy field — should strip
+    });
+    expect(parsed).not.toHaveProperty('redundancyJaccardThreshold');
+    expect(parsed.weakestK).toBe(2);
   });
 
   it('requires criteriaIds for single_pass_evaluate_criteria_and_generate', () => {
@@ -1744,16 +1758,6 @@ describe('iterationConfigSchema — new criteria-based agents (updated_criteria_
       weakestK: 1,
       lengthCapRatio: 1.10,
     })).toThrow(/lengthCapRatio only valid when agentType is proposer_approver_criteria_generate/);
-  });
-
-  it('rejects redundancyJaccardThreshold on legacy criteria_and_generate', () => {
-    expect(() => iterationConfigSchema.parse({
-      agentType: 'criteria_and_generate',
-      budgetPercent: 100,
-      criteriaIds: validCriteriaIds,
-      weakestK: 1,
-      redundancyJaccardThreshold: 0.35,
-    })).toThrow(/redundancyJaccardThreshold only valid/);
   });
 
   it('rejects includesMirrorApprover on non-proposer_approver agent type', () => {

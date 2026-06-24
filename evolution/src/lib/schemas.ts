@@ -822,10 +822,6 @@ export const iterationConfigSchema = z.object({
    *  Drops highest-numbered groups until projected article length stays within this ratio.
    *  Range 1.01–1.50. Only valid when agentType === 'proposer_approver_criteria_generate'. */
   lengthCapRatio: z.number().min(1.01).max(1.50).optional(),
-  /** Trigram Jaccard similarity threshold above which an edit is dropped as redundant.
-   *  Range 0–1, default 0.35. Only valid for the 2 new criteria-based agent types
-   *  (single-pass + propose/approve). Higher = more permissive (fewer drops). */
-  redundancyJaccardThreshold: z.number().min(0).max(1).optional(),
   /** Whether the propose/approve agent runs the mirror-approver pass.
    *  Default true at runtime (`?? true`). Only valid when
    *  agentType === 'proposer_approver_criteria_generate'. Hash canonicalization
@@ -970,13 +966,6 @@ export const iterationConfigSchema = z.object({
   // NEW: lengthCapRatio is only valid for proposer_approver_criteria_generate.
   (c) => c.agentType === 'proposer_approver_criteria_generate' || c.lengthCapRatio === undefined,
   { message: 'lengthCapRatio only valid when agentType is proposer_approver_criteria_generate' },
-).refine(
-  // NEW: redundancyJaccardThreshold is only valid for the 2 new criteria-based agent types
-  // (single-pass + propose/approve). Legacy criteria_and_generate doesn't have a redundancy guardrail.
-  (c) => c.agentType === 'single_pass_evaluate_criteria_and_generate'
-    || c.agentType === 'proposer_approver_criteria_generate'
-    || c.redundancyJaccardThreshold === undefined,
-  { message: 'redundancyJaccardThreshold only valid for single_pass_evaluate_criteria_and_generate or proposer_approver_criteria_generate' },
 ).refine(
   // NEW: includesMirrorApprover is only valid for proposer_approver_criteria_generate.
   (c) => c.agentType === 'proposer_approver_criteria_generate' || c.includesMirrorApprover === undefined,

@@ -555,7 +555,6 @@ export async function evolveArticle(
               criteriaIds: iterCfg.criteriaIds ?? [],
               weakestK: iterCfg.weakestK ?? 1,
               lengthCapRatio: iterCfg.lengthCapRatio,
-              redundancyJaccardThreshold: iterCfg.redundancyJaccardThreshold,
               includesMirrorApprover: iterCfg.includesMirrorApprover,
               initialPool: initialPoolSnapshot,
               initialRatings: initialRatingsSnapshot,
