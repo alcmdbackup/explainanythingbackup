@@ -18,9 +18,11 @@ Additionally: the Jaccard redundancy check is bad in general — lexical (catche
 
 ## Phased Execution Plan
 
-### Phase 1: Rewrite the coherence-pass proposer prompt
+### Phase 1: Rewrite the coherence-pass proposer prompt + scaffold the agent test file
 
 **Design intent**: NO caps and NO coalescing for the coherence-pass agent. The only brakes on edit volume are (a) the length cap (`lengthCapRatio`, Phase 3, default 1.10), (b) format validity, (c) byte-equality rules, and (d) the approver LLM's per-group judgment. We accept the resulting approver token cost as the price of letting the pass do real work.
+
+**Test scaffolding (per Testing reviewer #2)**: `evolution/src/lib/core/agents/paragraphRecombineWithCoherencePass/ParagraphRecombineWithCoherencePassAgent.test.ts` does NOT exist today. Phase 1 creates it with shared scaffolding (mock context, mock LLM client, fixture article, `runEditingCycle` jest mock) so Phases 2a/3/4 can layer assertions onto it instead of each inventing setup. Mirror the patterns in `IterativeEditingAgent.test.ts` for the mock-LLM + spy approach; mock `runEditingCycle` at the module boundary (`jest.mock('../editing/runEditingCycle')`) for cycle-level determinism.
 
 - [ ] `evolution/src/lib/core/agents/paragraphRecombineWithCoherencePass/buildCoherencePassProposerPrompt.ts`
   - [ ] Replace `SCOPE_GUIDANCE` with a voice-restoration scope: explicitly authorize whole-paragraph rewrites, structural smoothing, and voice/cadence repair when the recombined article has lost the parent's rhetorical hooks during paragraph-level optimization.
@@ -49,10 +51,15 @@ Rationale: the Jaccard check is lexical (catches verbatim restatement, misses pa
   - [ ] In the `runEditingCycle` call, drop `redundancyJaccardThreshold` and `flowGuardrailEnabled`. (Validator treats `undefined` / `false` as disabled per `validateEditGroups.ts:81` and `:70`.)
 - [ ] `ParagraphRecombineWithCoherencePassAgent.ts:357-364` (`coherencePass.config` snapshot persisted to `execution_detail`)
   - [ ] Stop persisting `redundancyJaccardThreshold` and `flowGuardrailEnabled`. Keep `lengthCapRatio` (Phase 3 wires it dynamic).
-- [ ] `ParagraphRecombineWithCoherencePassAgent.test.ts`
-  - [ ] Update existing assertions on `coherencePass.config` to reflect the new shape.
-  - [ ] Add a test: an edit that would have been dropped by the redundancy check (≥30% Jaccard with surrounding text) is now accepted.
-  - [ ] Add a test: an edit that would have been dropped by the flow guardrail (transition-word substitution) is now accepted.
+- [ ] `evolution/src/lib/schemas.ts:2747-2766` — **`paragraphRecombineWithCoherencePassExecutionDetailSchema.coherencePass.config`** sub-schema
+  - [ ] Drop the required `redundancyJaccardThreshold: z.number()` field at line ~2754 (per Security reviewer: currently required → every successful invocation would fail validation otherwise).
+  - [ ] Drop the required `flowGuardrailEnabled: z.boolean()` field at line ~2755.
+  - [ ] Keep `lengthCapRatio: z.number()` required (Phase 3 wires it dynamic; the agent always emits it).
+  - [ ] For backwards compatibility on READS of legacy detail rows that may still carry the old fields, ensure the parent schema uses default zod object behavior (passes through unknown keys); do NOT add `.strict()`.
+- [ ] `ParagraphRecombineWithCoherencePassAgent.test.ts` (NEW FILE — see Phase 1 scaffolding subtask)
+  - [ ] Update existing assertions on `coherencePass.config` to reflect the new shape (only `lengthCapRatio` present; verify mechanically — spy on the `runEditingCycle` invocation and assert `validateOpts` keys are exactly `{lengthCapRatio}`, no `redundancyJaccardThreshold` or `flowGuardrailEnabled`).
+  - [ ] Add a test: an edit that would have been dropped by the redundancy check (≥30% Jaccard with surrounding text) is now accepted. **Verify via the spy above that the option simply isn't passed**, AND that an end-to-end mock run produces the edit; the mechanism check is the load-bearing assertion (the e2e behavior follows from absence of the option).
+  - [ ] Add a test: an edit that would have been dropped by the flow guardrail (transition-word substitution) is now accepted — same dual-assertion pattern.
 
 **2b. Criteria agents: strip the `redundancyJaccardThreshold` iter-config field + wizard input**
 
@@ -85,7 +92,11 @@ Two agents (`single_pass_evaluate_criteria_and_generate`, `proposer_approver_cri
 
 **2c. Delete the underlying mechanism (commits after 2a + 2b)**
 
-Pre-flight: `grep -rn "redundancyJaccardThreshold\|checkSemanticOverlap" --include='*.ts' --include='*.tsx'` — only this PR's pending diff should hit. If any other code references either symbol, abort and update 2a/2b to cover.
+Pre-flight grep (BOTH file types, code AND docs):
+- [ ] `grep -rn "redundancyJaccardThreshold\|checkSemanticOverlap" --include='*.ts' --include='*.tsx'` — only this PR's pending diff should hit.
+- [ ] `grep -rn "redundancyJaccardThreshold\|checkSemanticOverlap\|Jaccard.*redundancy\|redundancy.*Jaccard" --include='*.md'` — only this PR's pending diff in `docs/planning/<this-project>` should hit. Phase 5 must have already updated all other doc references.
+
+If any other code or doc hits, abort and update Phase 2b / Phase 5 to cover before proceeding.
 
 - [ ] `evolution/src/lib/core/agents/editing/validateEditGroups.ts`
   - [ ] Drop `redundancyJaccardThreshold?: number` from `ValidateEditGroupsOptions` (line ~45).
@@ -94,87 +105,164 @@ Pre-flight: `grep -rn "redundancyJaccardThreshold\|checkSemanticOverlap" --inclu
 - [ ] `evolution/src/lib/core/agents/editing/validateEditGroups.test.ts`
   - [ ] Drop the `describe('validateEditGroups — opts.redundancyJaccardThreshold')` block (lines ~196-237).
 - [ ] Delete `evolution/src/lib/core/agents/editing/checkSemanticOverlap.ts`.
-- [ ] Delete its test file if it exists (`checkSemanticOverlap.test.ts` or `*.property.test.ts` — search to confirm).
+- [ ] Delete its test file if it exists (run `ls evolution/src/lib/core/agents/editing/checkSemanticOverlap*` first).
 
-Post-flight: `grep -rn "redundancyJaccardThreshold\|checkSemanticOverlap" --include='*.ts' --include='*.tsx'` must return 0 hits.
+Post-flight (both greps):
+- [ ] `grep -rn "redundancyJaccardThreshold\|checkSemanticOverlap" --include='*.ts' --include='*.tsx'` must return 0 hits.
+- [ ] `grep -rn "redundancyJaccardThreshold\|checkSemanticOverlap" --include='*.md'` must return 0 hits outside `docs/planning/<this-project>` (closeout notes in this project's own progress doc are fine).
 
 ### Phase 3: Expose `coherencePassLengthCapRatio` (new iter-config field)
+
+> **Convention note** (Architecture reviewer): the existing `coherencePass*` knobs do NOT live in a `COHERENCE_PASS_DEFAULTS` object — they're individual `DEFAULT_COHERENCE_*` constants in `ParagraphRecombineWithCoherencePassAgent.ts:79-83` (consumption site) and gated through the generic `FIELD_GATES` table in `findOrCreateStrategy.ts:88-93`. Follow that pattern, not a fold-entry pattern.
+
 - [ ] `evolution/src/lib/schemas.ts`
   - [ ] Add `coherencePassLengthCapRatio: z.number().min(1.0).max(2.0).optional()` to the iter-config zod schema (next to the existing `coherencePassRewriteTempFloor`/`Ceiling`).
-  - [ ] Add validation refine: only valid when `agentType === 'paragraph_recombine_with_coherence_pass'`.
-  - [ ] Update the `IterationConfig` TypeScript interface to add the field.
-- [ ] `evolution/src/lib/schemas.ts` `COHERENCE_PASS_DEFAULTS`
-  - [ ] Add `coherencePassLengthCapRatio: 1.10` (was hard-coded 1.02; new default is **5× more headroom**).
-- [ ] `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts:355-368` `canonicalizeIterationConfig`
-  - [ ] Add a fold entry: include `coherencePassLengthCapRatio` in the canonical hash when set AND not equal to default. Mirrors the existing pattern for `coherencePassRewriteTempFloor/Ceiling`.
-- [ ] `ParagraphRecombineWithCoherencePassInput` (`ParagraphRecombineWithCoherencePassAgent.ts:89-106`)
-  - [ ] Add `coherencePassLengthCapRatio?: number` field.
-- [ ] `ParagraphRecombineWithCoherencePassAgent.ts` execute()
-  - [ ] Resolve `coherencePassLengthCapRatio ?? DEFAULT_COHERENCE_LENGTH_CAP_RATIO (1.10)` and pass to `validateOpts.lengthCapRatio` in the `runEditingCycle` call.
+  - [ ] Add validation refine: only valid when `agentType === 'paragraph_recombine_with_coherence_pass'`. (No separate `IterationConfig` interface update needed — it's `z.infer<typeof iterationConfigSchema>`.)
+- [ ] `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts`
+  - [ ] Add `coherencePassLengthCapRatio` to `FIELD_GATES` (lines 88-93) mirroring `coherencePassRewriteTempFloor` — emits the field through `canonicalizeIterationConfig` only when set, agentType-gated.
+  - [ ] Add a runtime default in `normalizeIteration` so undefined consumers always resolve to 1.10 (consistent with the agent's resolution).
+- [ ] `ParagraphRecombineWithCoherencePassAgent.ts`
+  - [ ] Add `DEFAULT_COHERENCE_PASS_LENGTH_CAP_RATIO = 1.10` constant next to existing `DEFAULT_COHERENCE_*` constants (line ~79-83).
+  - [ ] Add `coherencePassLengthCapRatio?: number` to `ParagraphRecombineWithCoherencePassInput` (lines 89-106).
+  - [ ] In `execute()`: resolve `const effectiveLengthCapRatio = input.coherencePassLengthCapRatio ?? DEFAULT_COHERENCE_PASS_LENGTH_CAP_RATIO` and pass to `validateOpts.lengthCapRatio` in the `runEditingCycle` call.
+  - [ ] Persist `effectiveLengthCapRatio` in `coherencePass.config.lengthCapRatio` so execution_detail reflects the actual applied cap (not the default).
 - [ ] `evolution/src/lib/pipeline/loop/runIterationLoop.ts`
   - [ ] Thread `iterCfg.coherencePassLengthCapRatio` into the agent input (next to existing `coherencePassEnabled`, `coherencePassProposerModel`, etc).
 - [ ] `src/app/admin/evolution/strategies/new/page.tsx`
   - [ ] Add a numeric input "Coherence pass length cap" (range 1.0–2.0, step 0.01, default 1.10), only visible when `agentType === 'paragraph_recombine_with_coherence_pass'`. Mirror the existing `coherencePassRewriteTempFloor` input UI pattern.
 - [ ] `ParagraphRecombineWithCoherencePassAgent.test.ts`
-  - [ ] New test: when `input.coherencePassLengthCapRatio = 1.20`, the cycle accepts edits totaling 18% article growth (would have been dropped at 1.02).
-  - [ ] New test: when `input.coherencePassLengthCapRatio` undefined, default 1.10 is used.
+  - [ ] New test: when `input.coherencePassLengthCapRatio = 1.20`, the cycle accepts edits totaling 18% article growth (spy on `runEditingCycle`'s `validateOpts.lengthCapRatio` to assert it's 1.20).
+  - [ ] New test: when `input.coherencePassLengthCapRatio` undefined, default 1.10 is used (spy assertion).
 
 ### Phase 4: Multi-cycle coherence pass (`coherencePassMaxCycles`)
 - [ ] `evolution/src/lib/schemas.ts`
   - [ ] Add `coherencePassMaxCycles: z.number().int().min(1).max(5).optional()` to iter-config schema with the same agentType refine.
-  - [ ] Add to `COHERENCE_PASS_DEFAULTS`: `coherencePassMaxCycles: 2`.
-- [ ] `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts:355-368`
-  - [ ] Add canonicalization fold (same pattern as Phase 3).
-- [ ] `ParagraphRecombineWithCoherencePassInput`
-  - [ ] Add `coherencePassMaxCycles?: number` field.
-- [ ] `ParagraphRecombineWithCoherencePassAgent.ts:301-377` (the coherence-pass block)
-  - [ ] Replace the single `runEditingCycle()` call with a bounded for-loop (mirror `IterativeEditingAgent.ts:192-...` pattern). Loop body:
-    - Check pre-cycle budget gate (already done by `runEditingCycle`).
-    - Call `runEditingCycle` with the running `finalText`.
-    - Push the cycle into `coherencePass.cycles[]`.
-    - Update `finalText = cycleResult.newText`.
-    - Break on `stopReason` (any value), `appliedAny === false` (no edits applied this cycle — converged), or budget exhaustion.
-  - [ ] The `silentRejection` metric becomes per-cycle: increment `coherence_pass_silent_rejection_count` once per cycle that has approverGroups > 0 && appliedCount == 0. Optional: also expose a `coherence_pass_silent_rejection_rate` rollup as `silent_count / cycles_with_approver_groups`.
-  - [ ] `paragraph_recombine_coherence_cost` metric write happens AFTER the loop, summing `propose + review` accumulators across all cycles (current pattern already sums per-phase accumulators, so this is automatic).
+- [ ] `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts`
+  - [ ] Add `coherencePassMaxCycles` to `FIELD_GATES` (same pattern as Phase 3 — agentType-gated, emit-when-set).
+  - [ ] Add runtime default in `normalizeIteration` to 2.
+- [ ] `ParagraphRecombineWithCoherencePassAgent.ts`
+  - [ ] Add `DEFAULT_COHERENCE_PASS_MAX_CYCLES = 2` constant next to existing `DEFAULT_COHERENCE_*` constants.
+  - [ ] Add `coherencePassMaxCycles?: number` to `ParagraphRecombineWithCoherencePassInput`.
+- [ ] `ParagraphRecombineWithCoherencePassAgent.ts:301-377` (the coherence-pass block) — multi-cycle refactor
+
+```
+// Pseudocode for the new loop (mirror IterativeEditingAgent.ts:192-225):
+const maxCycles = input.coherencePassMaxCycles ?? DEFAULT_COHERENCE_PASS_MAX_CYCLES;
+const cycles: EditingCycle[] = [];
+let currentText = recombinedText;
+
+for (let cycleNumber = 1; cycleNumber <= maxCycles; cycleNumber++) {
+  // CRITICAL (per Security reviewer #2): rebuild the user prompt from currentText
+  // every iteration — otherwise cycle 2+ would propose CriticMarkup against the
+  // STALE source text, and parseProposedEdits(proposedMarkup, currentText) would
+  // drop almost all groups via RULE-1 outside-markup-fidelity check.
+  const cycleResult = await runEditingCycle({
+    text: currentText,
+    llm,
+    costScope: invocationScope,
+    perInvocationBudgetUsd: effectiveCapUsd,
+    cycleNumber,
+    proposerLabel: 'coherence_pass_propose',
+    approverLabel: 'coherence_pass_review',
+    models: { editing: proposerModel, approver: approverModel },
+    validateOpts: { lengthCapRatio: effectiveLengthCapRatio },
+    driftRecovery: 'skip',
+    proposerSystemPrompt: buildCoherencePassProposerSystemPrompt(),
+    proposerUserPrompt: buildCoherencePassProposerUserPrompt(currentText), // ← per-cycle rebuild
+  });
+
+  cycles.push(cycleResult.cycle);
+
+  // Per-cycle silent-rejection metric (per Architecture/Security reviewer):
+  // increment counter (additive, not max) when this cycle had approverGroups > 0
+  // but appliedCount == 0. Sum across cycles per-run.
+  const silentThisCycle =
+    cycleResult.cycle.approverGroups.length > 0
+    && cycleResult.cycle.appliedGroups.length === 0;
+  if (silentThisCycle) silentRejectionCount += 1;
+
+  currentText = cycleResult.newText;
+
+  // Termination: any stopReason, no edits applied (converged), or budget.
+  if (cycleResult.stopReason || !cycleResult.appliedAny) break;
+}
+
+const finalText = currentText;
+```
+
+  - [ ] **Per-cycle silent-rejection**: tracker uses an additive counter accumulated across cycles, then one `writeMetricMax` of the run-total at the end. (NOT writeMetricMax per-cycle — that would silently cap at 1 even when multiple cycles silent-reject.) Naming: `coherence_pass_silent_rejection_count` stays (run-total) ; consider also adding `coherence_pass_silent_rejection_cycles` as a separate metric if cycle-grain debugging is wanted (defer to follow-up).
+  - [ ] `paragraph_recombine_coherence_cost` metric write happens AFTER the loop. The existing pattern (sum of `coherence_pass_propose` + `coherence_pass_review` accumulators on the slot scope) is automatic since the scope accumulators are run-cumulative — no per-cycle bookkeeping needed. Confirmed against existing code at `ParagraphRecombineWithCoherencePassAgent.ts:368-376`.
 - [ ] `evolution/src/lib/pipeline/loop/runIterationLoop.ts`
   - [ ] Thread `iterCfg.coherencePassMaxCycles` into the agent input.
 - [ ] `src/app/admin/evolution/strategies/new/page.tsx`
   - [ ] Add numeric input "Coherence pass max cycles" (range 1–5, default 2), visibility gated on `agentType === 'paragraph_recombine_with_coherence_pass'`.
 - [ ] `ParagraphRecombineWithCoherencePassAgent.test.ts`
-  - [ ] New test: when `coherencePassMaxCycles=3` and each cycle applies edits, all 3 cycles run and `coherencePass.cycles.length === 3`.
-  - [ ] New test: when cycle 1 returns `stopReason: 'no_edits_proposed'`, loop terminates with `cycles.length === 1`.
+
+  **Mocking strategy (per Testing reviewer #1)**: stub `runEditingCycle` directly with `jest.fn().mockResolvedValueOnce(...)` calls — one resolved value per cycle. This is required because each cycle uses the SAME proposer/approver labels, so a label-keyed `completeFn` mock cannot differentiate cycles. Mocking `runEditingCycle` at the module boundary keeps tests deterministic without re-implementing the editing pipeline.
+
+  - [ ] New test: when `coherencePassMaxCycles=3` and each cycle applies edits, all 3 cycles run and `coherencePass.cycles.length === 3`. Mock: `mockResolvedValueOnce({appliedAny:true, ...}).mockResolvedValueOnce({appliedAny:true, ...}).mockResolvedValueOnce({appliedAny:true, ...})`.
+  - [ ] New test: when cycle 1 returns `stopReason: 'no_edits_proposed'`, loop terminates with `cycles.length === 1`. Mock: `mockResolvedValueOnce({stopReason:'no_edits_proposed', appliedAny:false, ...})`.
   - [ ] New test: when cycle 2 hits the per-cycle budget gate, `cycles.length === 2` with the last cycle's `stopReason: 'invocation_budget_near_exhaustion'`.
+  - [ ] **New test (per Security reviewer #2)**: assert `runEditingCycle` is called with `proposerUserPrompt` rebuilt from each cycle's running text. Mock 2 cycles where cycle 1 modifies text. Assert call 1's `proposerUserPrompt` arg contains the original text and call 2's arg contains the modified text.
+  - [ ] **New test (per Testing reviewer)**: zod-range boundary — `coherencePassMaxCycles: 5` parses, `6` rejects. Mirror for `coherencePassLengthCapRatio` (2.0 parses, 2.01 rejects; 1.0 parses, 0.99 rejects).
 - [ ] **Cost envelope update**: doc + integration sanity check.
   - Per the doc: 1 cycle ≈ $0.0035 typical. 2 cycles ≈ $0.007. Per-invocation cap stays $0.10 (75% headroom over 2 cycles). 3 cycles still fit under $0.105 ≈ $0.10 — but at 3 cycles the pre-coherence gate (0.85× cap) is more likely to fire, which is fine (graceful degradation).
 
 ### Phase 5: Docs + staging validation
 - [ ] `evolution/docs/paragraph_recombine_with_coherence_pass.md`
   - [ ] Update **Algorithm → Phase C**: pass is now multi-cycle (max 2 by default, configurable up to 5) and authorized for voice repair, not just seam smoothing.
-  - [ ] Update **Configuration knobs → Coherence-pass-only**: add `coherencePassLengthCapRatio` (default 1.10) + `coherencePassMaxCycles` (default 2).
-  - [ ] Update **Cost envelope**: 2 cycles ≈ $0.007 typical, $0.014 worst-case; $0.10 cap stays.
-  - [ ] Update **Cost metrics**: silent-rejection metric semantics change (per-cycle counter).
+  - [ ] Update **Configuration knobs → Coherence-pass-only**: add `coherencePassLengthCapRatio` (default 1.10) + `coherencePassMaxCycles` (default 2). Remove `redundancyJaccardThreshold` mentions.
+  - [ ] Update **Cost envelope**: 2 cycles ≈ $0.007 typical, $0.014 worst-case; $0.10 cap stays. Note compounding length cap: 1.10 per cycle × 2 cycles = worst-case 1.21× original length.
+  - [ ] Update **Cost metrics**: silent-rejection metric semantics change (additive across cycles per run, single end-of-loop writeMetricMax of the run-total).
   - [ ] Update **A/B experiment design**: explicit note that the original "isolated rewrites + minor smoothing" hypothesis is invalidated; the agent now tests "isolated rewrites + real editing pass". Acceptance signals updated accordingly.
 - [ ] `evolution/docs/multi_iteration_strategies.md` — add the two new iter-config fields to the agent-specific knob table.
-- [ ] Staging A/B (manual, post-deploy)
-  - [ ] Re-run the same prompt + seed across 5 runs of the NEW config vs 5 runs of the prior config (`coherencePassLengthCapRatio: 1.02`, `coherencePassMaxCycles: 1`).
-  - [ ] Confirm: median `eloAttrDelta:paragraph_recombine_with_coherence_pass:paragraph_recombine_with_coherence_pass` ≥ 0 on the NEW arm; median variant Elo ≥ parent-pool top-3 median.
-  - [ ] If still negative, escalate to Option B (`nextContext` in slot judge) or Option C (custom paragraphJudgeRubric).
+- [ ] **Additional doc updates (per Architecture reviewer #1)**:
+  - [ ] `evolution/docs/curriculum.md` — remove "Redundancy Guardrail" row from the curriculum table.
+  - [ ] `evolution/docs/strategies_and_experiments.md` — remove `redundancyJaccardThreshold` from the iter-config TS comment and field listings.
+  - [ ] `evolution/docs/agents/overview.md` — remove the two references (the propose/approve algorithm line + the coherence-pass-specific validateOpts snippet on line ~601).
+
+**Staging A/B (per Testing reviewer #4)**:
+
+Pre-registration (before kickoff):
+  - [ ] Sample size: **≥ 8 runs/arm** (not 5 — research σ ≈ 3.6 mu makes 5v5 underpowered for the target MDE).
+  - [ ] Minimum detectable effect: **median shift ≥ 5 mu** on the NEW arm vs OLD arm.
+  - [ ] Outlier exclusion rule: drop any run where ALL non-coherence-pass tactic deltas are negative (matches the `04704b6a` outlier pattern documented in `_research.md`). Re-run that seed in the affected arm to maintain n.
+  - [ ] Pin the OLD arm to legacy defaults: `coherencePassLengthCapRatio: 1.02`, `coherencePassMaxCycles: 1`. (Note: the new prompt applies to both arms — this isolates the knob change but NOT the prompt change. The prompt change is forced and intentional; if a third arm is wanted to isolate prompt vs knobs, document but defer.)
+
+Run:
+  - [ ] Same prompt + same seed across all runs of each arm; counterbalance seeds across arms.
+  - [ ] Collect: `eloAttrDelta:paragraph_recombine_with_coherence_pass:paragraph_recombine_with_coherence_pass`, `winner_elo`, `median_elo`, `paragraph_recombine_coherence_cost`, `coherence_pass_silent_rejection_count`, `coherencePass.cycles.length`.
+
+Analysis (report all):
+  - [ ] Median + IQR per arm.
+  - [ ] Mann–Whitney U test of arm medians (non-parametric; tolerant of non-normality and outliers).
+  - [ ] Bootstrap 95% CI on median delta.
+
+Decision rules:
+  - [ ] **PASS** if median tactic-delta on NEW arm ≥ 0 AND median shift ≥ +5 mu AND Mann–Whitney p < 0.10 (one-sided).
+  - [ ] **FAIL** if NEW arm median tactic-delta < OLD arm median. Escalate to Option B (`nextContext` in slot judge) or Option C (custom paragraphJudgeRubric).
+  - [ ] **INCONCLUSIVE** (anything between): add 4 more runs per arm and re-test. If still inconclusive after 12/arm, default to PASS-with-caveats and escalate to staging cohort for longer observation.
+
+**Rollback / kill switch (per Testing reviewer #5)**:
+  - [ ] Add an env-var gate `EVOLUTION_COHERENCE_PASS_DEFAULTS_V2` (default `'true'`) read inside the agent at default-resolution time. When `'false'`, the agent uses the legacy defaults (`lengthCapRatio = 1.02`, `maxCycles = 1`). Explicit iter-config values still override. Operationally: flip to `'false'` in Vercel env to instantly revert all strategies that rely on defaults, without a code deploy.
+  - [ ] The kill switch is a SUPPLEMENT to (not a replacement for) the PR-revert path. PR revert checklist (for the planning doc): identify the 4 commits (Phase 1/2/3/4); revert in reverse-order; the deletion of `checkSemanticOverlap.ts` requires a follow-up commit restoring the file from git history; the wizard surgery requires the same.
+  - [ ] Document the kill switch in `evolution/docs/reference.md` env-var table.
 
 ## Testing
 
 ### Unit Tests
-- [ ] `evolution/src/lib/core/agents/paragraphRecombineWithCoherencePass/buildCoherencePassProposerPrompt.test.ts` — new prompt content assertions (Phase 1)
-- [ ] `evolution/src/lib/core/agents/paragraphRecombineWithCoherencePass/ParagraphRecombineWithCoherencePassAgent.test.ts` — drop-guardrails, lengthCapRatio plumbing, multi-cycle loop (Phases 2a/3/4)
-- [ ] `evolution/src/lib/schemas.test.ts` (or wherever iter-config schema tests live) — new `coherencePassLengthCapRatio` + `coherencePassMaxCycles` validation + agentType refine (Phases 3/4); drop redundancyJaccardThreshold refine; **add legacy-field strip regression test** (Phase 2b)
-- [ ] `evolution/src/lib/pipeline/setup/findOrCreateStrategy.test.ts` — config_hash includes new fields when set (Phases 3/4); drop redundancyJaccardThreshold fold test (Phase 2b)
+- [ ] `evolution/src/lib/core/agents/paragraphRecombineWithCoherencePass/buildCoherencePassProposerPrompt.test.ts` (NEW) — new prompt content assertions (Phase 1); also assert no stale "redundancy"/"Jaccard"/"transition word guardrail" language leaks into the rewritten prompt.
+- [ ] `evolution/src/lib/core/agents/paragraphRecombineWithCoherencePass/ParagraphRecombineWithCoherencePassAgent.test.ts` (**NEW** — does not exist today; Phase 1 scaffolds) — drop-guardrails (mechanism spy + e2e), lengthCapRatio plumbing, multi-cycle loop with per-cycle proposerUserPrompt rebuild verification (Phases 2a/3/4)
+- [ ] `evolution/src/lib/schemas.test.ts` — new `coherencePassLengthCapRatio` + `coherencePassMaxCycles` validation + agentType refine + boundary tests (Phases 3/4); drop redundancyJaccardThreshold refine; **add legacy-field strip regression test** using `iterationConfigSchema.parse({agentType:'paragraph_recombine_with_coherence_pass', redundancyJaccardThreshold: 0.3, ...other valid fields})` → expect parsed result to lack `redundancyJaccardThreshold` (Phase 2b)
+- [ ] `evolution/src/lib/pipeline/setup/findOrCreateStrategy.test.ts` — config_hash includes new fields when set (Phases 3/4); drop redundancyJaccardThreshold FIELD_GATES test (Phase 2b)
 - [ ] `evolution/src/lib/core/agents/editing/validateEditGroups.test.ts` — confirm `lengthCapRatio` + `flowGuardrailEnabled` + no-opts default coverage still complete after redundancy describe block is removed (Phase 2c)
-- [ ] `evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.test.ts` — confirm input shape no longer expects the field; existing tests pass unchanged (Phase 2b)
+- [ ] `evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.invariants.test.ts` (the existing file — NOT a `.test.ts` sibling; Testing reviewer #3 caught the misnaming) — confirm input shape no longer expects the field; existing tests pass unchanged (Phase 2b)
 
 ### Integration Tests
-- [ ] `evolution/src/__tests__/integration/paragraphRecombineWithCoherencePass.integration.test.ts` (if exists; create if not) — end-to-end with mock LLM returning multi-cycle accepts/rejects. Verify final variant content reflects multi-cycle edits.
+- [ ] **REQUIRED** (was optional; promoted per Testing reviewer #4): `evolution/src/__tests__/integration/paragraphRecombineWithCoherencePass.integration.test.ts` (CREATE — does not exist) — end-to-end with deterministic mock LLM returning multi-cycle accepts/rejects. Verify final variant content reflects multi-cycle edits AND verify the proposer is called with a fresh `<source>` payload on cycle 2 (regression guard against the per-cycle prompt-rebuild bug surfaced by Security reviewer).
 
 ### E2E Tests
-- [ ] `src/__tests__/e2e/specs/evolution_strategy_wizard.spec.ts` (if exists; otherwise update closest sibling) — verify the new wizard inputs render only for the coherence-pass agent type and persist correctly into strategy config.
+- [ ] `src/__tests__/e2e/specs/09-evolution-admin/evolution-strategy-wizard-tactics.spec.ts` (the existing closest sibling per Testing reviewer #6) — extend to verify the new wizard inputs (`coherencePassLengthCapRatio`, `coherencePassMaxCycles`) render only for the coherence-pass agent type, persist correctly into strategy config, and that the `redundancyJaccardThreshold` input is GONE for both criteria agents.
 
 ### Manual Verification
 - [ ] Local: create a new strategy via wizard with `coherencePassLengthCapRatio: 1.15`, `coherencePassMaxCycles: 3` — verify config_hash differs from the previous strategy and execution_detail reflects the new settings.
