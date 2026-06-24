@@ -60,3 +60,4 @@
 
 ### Notes
 - The merge ships behind `COST_DASHBOARD_UNIFIED_EVOLUTION` (default OFF). Activation (after the migration deploys to staging): set the env flag to `true`. Full `/admin/costs` render verification is a post-deploy ops step (needs the RPC live + flag on).
+- PR #1277. First CI run failed on confirmed shared-staging-contention flakes (watchdog passes 3/3 locally; E2E FK-races + statement-timeouts) caused by 2 stuck multi-hour zombie E2E runs in worktree_37_4/37_6 — killed. Migration deployed to staging cleanly on the first run (authoritative). Re-triggered CI after clearing contention.
