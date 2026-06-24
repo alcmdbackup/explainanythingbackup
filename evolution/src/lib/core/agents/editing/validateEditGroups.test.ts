@@ -19,12 +19,17 @@ function group(n: number, edits: EditingAtomicEdit[]): EditingGroup {
 }
 
 describe('validateEditGroups — hard rules', () => {
-  it('drops a group whose newText exceeds the length cap (500 chars)', () => {
-    const text = 'foo bar baz';
-    const g = group(1, [edit({ range: { start: 4, end: 7 }, oldText: 'bar', newText: 'x'.repeat(501) })]);
+  it('no longer drops a group whose newText exceeds 500 chars (EDIT_NEWTEXT_LENGTH_CAP removed)', () => {
+    // EDIT_NEWTEXT_LENGTH_CAP was removed by investigate_iterative_editing_runs_stage_20260623
+    // so the new aggressive proposer can ship sentence-order swaps as a single substitution
+    // edit. The per-cycle SIZE_RATIO_HARD_CAP (1.5×) remains as the article-growth safety rail.
+    // To isolate the EDIT_NEWTEXT_LENGTH_CAP removal from the size-ratio guardrail, use a
+    // base text large enough that a 501-char insertion stays within 1.5× growth.
+    const text = 'a'.repeat(2000);
+    const g = group(1, [edit({ range: { start: 100, end: 103 }, oldText: 'aaa', newText: 'x'.repeat(501) })]);
     const r = validateEditGroups([g], text);
-    expect(r.approverGroups).toHaveLength(0);
-    expect(r.droppedPreApprover[0]!.reason).toBe('newText_too_long');
+    expect(r.approverGroups).toHaveLength(1);
+    expect(r.droppedPreApprover).toHaveLength(0);
   });
 
   it('drops a group whose oldText contains a paragraph break', () => {

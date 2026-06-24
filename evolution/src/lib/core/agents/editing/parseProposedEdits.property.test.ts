@@ -117,7 +117,7 @@ describe('parseProposedEdits — property-based', () => {
     );
   });
 
-  it('N adjacent unnumbered insertions (whitespace-only between) → exactly one group with N edits', () => {
+  it('N adjacent unnumbered insertions (whitespace-only between) → N separate groups (per-span granularity)', () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 2, max: 5 }),
@@ -126,8 +126,11 @@ describe('parseProposedEdits — property-based', () => {
           const inserts = Array.from({ length: n }, (_, i) => `{++ ins${i} ++}`).join(' ');
           const markup = `${inserts}rest`;
           const result = parseProposedEdits(markup, 'rest');
-          expect(result.groups).toHaveLength(1);
-          expect(result.groups[0]!.atomicEdits).toHaveLength(n);
+          // Per-span auto-grouping: each unnumbered span gets its own group.
+          expect(result.groups).toHaveLength(n);
+          for (const g of result.groups) {
+            expect(g.atomicEdits).toHaveLength(1);
+          }
         },
       ),
       { numRuns: 30 },

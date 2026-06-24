@@ -2,13 +2,10 @@
 // article verbatim with inline CriticMarkup edits — Mode B (the rewrite-mode
 // counterpart) lives in proposerPromptRewrite.ts.
 
-const SOFT_RULES = [
+const PRESERVATION_RULES = [
   'Preserve quotes, citations, and URLs exactly as they appear in the original.',
   'Do not introduce new headings or modify existing heading lines.',
-  'Prefer one-sentence edits over multi-sentence rewrites.',
   'Do not edit text inside code fences (```).',
-  'Preserve the author\'s voice, tone, and reading level.',
-  'Edit only when the change demonstrably improves clarity, structure, engagement, or grammar — never for its own sake.',
 ];
 
 const HARD_CONSTRAINT = `HARD CONSTRAINT — read twice before writing.
@@ -64,21 +61,30 @@ const WORKED_EXAMPLE = `Worked example (study the structure, not the topic):
   between two source bytes ("grew" and " quickly") with no surrounding
   rewording.`;
 
-const EDIT_BUDGET = `Edit budget: propose AT MOST 3 atomic edits per cycle.
-An "atomic edit" is one CriticMarkup span or one adjacent group of spans
-acting as a single change. Fewer surgical edits ship; sprawling rewrites
-get discarded.`;
-
-const SYNTAX_DOCS = `Use any of these CriticMarkup forms for each atomic edit:
+const SYNTAX_DOCS = `CriticMarkup forms:
 
   Insertion:                     {++ inserted text ++}
   Deletion:                      {-- deleted text --}
   Substitution (inline form):    {~~ old text ~> new text ~~}
   Substitution (paired form):    {~~ old text ~~}{++ new text ++}
 
-Both substitution forms are accepted. The reviewer groups markup spans that are adjacent (separated only by whitespace, no paragraph break between) and accepts or rejects each group as one atomic unit. Place related edits next to each other; separate independent edits with a blank line.
+Each CriticMarkup span is ONE independent edit. The reviewer accepts or
+rejects each span on its own merits. The only exception is the paired
+substitution form \`{~~ old ~~}{++ new ++}\` — an immediately-adjacent
+delete+insert pair with no source characters between them is treated as one
+substitution edit. Do not bundle unrelated edits together: maximize the
+number of independent decisions you give the reviewer.
 
-You may optionally tag a span with [#N] (e.g. {++ [#1] ... ++}) to force grouping across non-adjacent spans, where N is a POSITIVE INTEGER (1, 2, 3, …). Tags like [#0] or [#-1] are silently dropped. Most edits will not need this — the adjacency rule handles common cases.`;
+You may optionally tag a span with [#N] (e.g. {++ [#1] ... ++}) to force grouping across non-adjacent spans, where N is a POSITIVE INTEGER (1, 2, 3, …). Tags like [#0] or [#-1] are silently dropped. Most edits will not need this — each unnumbered span is already its own group by default.`;
+
+const AMBITIOUS_DIRECTIVE = `Propose whatever edits you judge will most improve the article — large
+structural rewrites, sentence-order swaps, many minor polish edits, or any
+mix. Be ambitious. There is no edit budget and no preference for small vs.
+large edits. The reviewer independently vets each edit, so the cost of
+proposing a marginal one is low and the cost of withholding a useful one is
+high. If a paragraph could be substantially better, rewrite the whole
+paragraph in one substitution; if a single word is wrong, fix it. Propose
+both ends of that spectrum freely.`;
 
 const SELF_CHECK = `Self-check before responding (do this literally, not metaphorically):
   1. Mentally delete every {++…++} and the new-side of every {~~old~>new~~}.
@@ -99,10 +105,10 @@ export function buildProposerSystemPrompt(): string {
     '',
     WORKED_EXAMPLE,
     '',
-    EDIT_BUDGET,
+    AMBITIOUS_DIRECTIVE,
     '',
-    'Soft rules — follow these unless the edit demonstrably improves the article:',
-    ...SOFT_RULES.map((r, i) => `  ${i + 1}. ${r}`),
+    'Preservation rules — keep the article structurally intact:',
+    ...PRESERVATION_RULES.map((r, i) => `  ${i + 1}. ${r}`),
     '',
     SELF_CHECK,
     '',

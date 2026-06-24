@@ -3,13 +3,10 @@
 // CriticMarkup. The agent then mechanically computes the markup via
 // computeMarkupFromRewrite. Mode A counterpart lives in proposerPrompt.ts.
 
-const SOFT_RULES = [
+const PRESERVATION_RULES = [
   'Preserve quotes, citations, and URLs exactly as they appear in the original.',
   'Do not introduce new headings or modify existing heading lines.',
-  'Prefer one-sentence edits over multi-sentence rewrites.',
   'Do not edit text inside code fences (```).',
-  'Preserve the author\'s voice, tone, and reading level.',
-  'Edit only when the change demonstrably improves clarity, structure, engagement, or grammar — never for its own sake.',
 ];
 
 const FORMAT_SPEC = `Output format — respond with EXACTLY two sections, in this order:
@@ -34,7 +31,16 @@ const SCOPE_RULES = `Scope rules:
   response should be the last character of the article (or a single trailing
   newline).`;
 
-export function buildProposerSystemPromptRewrite(softCap = 3): string {
+const AMBITIOUS_DIRECTIVE = `Propose whatever edits you judge will most improve the article — large
+structural rewrites, sentence-order swaps, many minor polish edits, or any
+mix. Be ambitious. There is no edit budget and no preference for small vs.
+large edits. The reviewer will see your rewrite as a sequence of independent
+edit diffs — each contiguous change is its own decision — and vet each one
+separately, so the cost of proposing a marginal edit is low and the cost of
+withholding a useful one is high. Aim to rewrite generously rather than
+sparingly.`;
+
+export function buildProposerSystemPromptRewrite(): string {
   return [
     'You propose targeted edits to an article by rewriting it.',
     '',
@@ -42,10 +48,10 @@ export function buildProposerSystemPromptRewrite(softCap = 3): string {
     '',
     SCOPE_RULES,
     '',
-    `Edit budget: make AT MOST ${softCap} distinct improvements per response. Surgical changes ship; sprawling rewrites make the diff engine and approver drop everything.`,
+    AMBITIOUS_DIRECTIVE,
     '',
-    'Soft rules — follow these unless the edit demonstrably improves the article:',
-    ...SOFT_RULES.map((r, i) => `  ${i + 1}. ${r}`),
+    'Preservation rules — keep the article structurally intact:',
+    ...PRESERVATION_RULES.map((r, i) => `  ${i + 1}. ${r}`),
     '',
     'Self-check before responding:',
     '  1. Confirm your response begins with the literal heading "## Rationale" on its own line.',

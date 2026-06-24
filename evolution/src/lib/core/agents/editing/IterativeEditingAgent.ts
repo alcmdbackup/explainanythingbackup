@@ -142,7 +142,7 @@ export class IterativeEditingAgent extends Agent<
       approverModel?: string;
       driftRecoveryModel?: string;
       generationModel?: string;
-      iterationConfigs?: Array<{ agentType?: string; editingMaxCycles?: number; editingProposerSoftCap?: number; disableApproverFiltering?: boolean }>;
+      iterationConfigs?: Array<{ agentType?: string; editingMaxCycles?: number }>;
     };
     const iterIdx = ctx.iteration - 1;
     const iterCfg = cfg.iterationConfigs?.[iterIdx];
@@ -154,7 +154,6 @@ export class IterativeEditingAgent extends Agent<
     const maxCycles = iterCfg?.editingMaxCycles ?? AGENT_DEFAULT_MAX_CYCLES;
     const perInvocationBudgetUsd = input.perInvocationBudgetUsd;
     const isRewriteMode = this.isRewriteMode;
-    const proposerSoftCap = iterCfg?.editingProposerSoftCap ?? 3;
 
     const cycles: EditingCycle[] = [];
     let stopReason: IterativeEditingStopReason = 'all_cycles_completed';
@@ -202,16 +201,18 @@ export class IterativeEditingAgent extends Agent<
           validateOpts: undefined, // legacy IterativeEditingAgent default (SIZE_RATIO_HARD_CAP=1.5)
           driftRecovery: 'snap',
           proposerSystemPrompt: isRewriteMode
-            ? buildProposerSystemPromptRewrite(proposerSoftCap)
+            ? buildProposerSystemPromptRewrite()
             : buildProposerSystemPrompt(),
           proposerUserPrompt: isRewriteMode
             ? buildProposerUserPromptRewrite(current.text)
             : buildProposerUserPrompt(current.text),
+          // Mode B: post-parse coalesceAdjacentGroups + capGroupsByMagnitude is now
+          // DEFAULT-OFF — every diff atomic the rewrite produces is sent to the
+          // approver as its own decision (max approver granularity). The
+          // `iterCfg.disableApproverFiltering` field that used to opt out is gone.
           ...(isRewriteMode && {
             rewriteMode: {
-              proposerSoftCap,
-              coalesceAndCap: !iterCfg?.disableApproverFiltering,
-              capLimit: 10,
+              coalesceAndCap: false,
             },
           }),
         };

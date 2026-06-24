@@ -2,34 +2,45 @@ import { buildProposerSystemPromptRewrite, buildProposerUserPromptRewrite } from
 
 describe('buildProposerSystemPromptRewrite', () => {
   let prompt: string;
-  beforeAll(() => { prompt = buildProposerSystemPromptRewrite(3); });
+  beforeAll(() => { prompt = buildProposerSystemPromptRewrite(); });
+
+  it('is callable with zero arguments (softCap parameter removed)', () => {
+    // Compile-time + runtime guard. Previously took a softCap number argument.
+    expect(buildProposerSystemPromptRewrite.length).toBe(0);
+  });
 
   it('declares the two-section format', () => {
     expect(prompt).toMatch(/## Rationale/);
     expect(prompt).toMatch(/## Rewrite/);
   });
 
-  it('mentions the soft cap from the parameter', () => {
-    expect(prompt).toMatch(/AT MOST 3/);
-    const five = buildProposerSystemPromptRewrite(5);
-    expect(five).toMatch(/AT MOST 5/);
+  it('does NOT contain the removed AT-MOST-N edit-budget language', () => {
+    expect(prompt.toLowerCase()).not.toMatch(/at most \d+ distinct improvements/);
+    expect(prompt.toLowerCase()).not.toMatch(/surgical changes ship/);
+    expect(prompt.toLowerCase()).not.toMatch(/sprawling rewrites make the diff engine/);
   });
 
-  // meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6:
-  // soft-cap Zod range widened from 1-5 → 1-10 so the A/B can run softCap=8.
-  // The prompt template must render the requested value verbatim. A future
-  // refactor that clamps the rendered value to 5 would silently null the
-  // experiment.
-  it.each([1, 3, 5, 8, 10])('renders "AT MOST N" verbatim for softCap=%i', (n) => {
-    const p = buildProposerSystemPromptRewrite(n);
-    expect(p).toMatch(new RegExp(`AT MOST ${n}`));
+  it('contains the ambitious-proposal directive (no edit budget, no preference for size)', () => {
+    expect(prompt.toLowerCase()).toMatch(/be ambitious/);
+    expect(prompt.toLowerCase()).toMatch(/no edit budget/);
+    expect(prompt.toLowerCase()).toMatch(/rewrite\s+generously\s+rather\s+than\s+sparingly/);
   });
 
-  it('preserves the soft rules (citations, headings, code fences, voice)', () => {
+  it('contains the granularity directive (each contiguous change is its own decision)', () => {
+    expect(prompt.toLowerCase()).toMatch(/each contiguous change is its own decision/);
+  });
+
+  it('preserves the structural-protection rules (citations, headings, code fences)', () => {
+    expect(prompt.toLowerCase()).toMatch(/preservation rules/);
     expect(prompt).toMatch(/citations/i);
     expect(prompt).toMatch(/heading/i);
     expect(prompt).toMatch(/code fence/i);
-    expect(prompt).toMatch(/voice/i);
+  });
+
+  it('does NOT contain the removed bias-down soft rules', () => {
+    expect(prompt.toLowerCase()).not.toMatch(/prefer one-sentence edits/);
+    expect(prompt.toLowerCase()).not.toMatch(/voice, tone, and reading level/);
+    expect(prompt.toLowerCase()).not.toMatch(/edit only when the change demonstrably improves/);
   });
 
   it('forbids preamble/commentary outside the article body', () => {

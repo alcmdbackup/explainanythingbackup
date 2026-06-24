@@ -791,24 +791,14 @@ export const iterationConfigSchema = z.object({
   editingMaxCycles: z.number().int().min(1).max(5).optional(),
   /** Caps how many of the top-Elo variants are eligible for editing per iteration. Defaults to `{ mode: 'topN', value: 10 }` at consumption time (resolveEditingDispatch* helpers). Only valid for editing agent types. Reuses qualityCutoffSchema's value-validation refines. */
   editingEligibilityCutoff: qualityCutoffSchema.optional(),
-  /** Mode B (iterative_editing_rewrite) only: soft-cap on the number of edits the
-   *  proposer is asked to suggest per cycle. Surfaces in the prompt as a phrase
-   *  ("at most N changes") — not enforced at parse time. Default 3.
-   *  Range widened to 10 (was 5) by the disableApproverFiltering A/B experiment
-   *  (meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6 A3):
-   *  the experiment runs both arms at softCap=8 so the K=10 magnitude cap in the
-   *  Control arm actually fires. */
-  editingProposerSoftCap: z.number().int().min(1).max(10).optional(),
-  /** Mode B (iterative_editing_rewrite) only: when true, IterativeEditingAgent
-   *  skips the post-parse coalesceAdjacentGroups + capGroupsByMagnitude steps,
-   *  so the approver sees every diff atomic as its own singleton group instead
-   *  of bundled groups capped at K=10. Hard validation rules (no heading mods,
-   *  no quote edits, code-fence guards, AGENT_MAX_ATOMIC_EDITS_PER_CYCLE=30,
-   *  EDIT_NEWTEXT_LENGTH_CAP=500) still run via validateEditGroups.
-   *  Default false (production behavior unchanged). Added by the
-   *  meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6
-   *  bundle-split A/B experiment. */
-  disableApproverFiltering: z.boolean().optional(),
+  // editingProposerSoftCap (Mode B per-iteration soft cap on proposed-edit count) was
+  // removed by investigate_iterative_editing_runs_stage_20260623 — see _planning.md.
+  // disableApproverFiltering (Mode B opt-out of post-parse coalesce+cap) was removed
+  // in the same project; the post-parse coalesce/cap is now DEFAULT-OFF (max approver
+  // granularity per the new prompt's "each contiguous change is its own decision" line).
+  // Zod default behavior strips unknown keys, so existing strategy JSONB rows that
+  // still carry these fields parse cleanly with the fields silently dropped — no
+  // migration required.
   /** Criteria UUIDs evaluated by the EvaluateCriteriaThenGenerateFromPreviousArticleAgent.
    *  Required + non-empty when agentType === 'criteria_and_generate'. Mutually exclusive
    *  with generationGuidance (criteria drive the prompt directly). */
@@ -932,16 +922,8 @@ export const iterationConfigSchema = z.object({
   // editingEligibilityCutoff is shared between editing modes AND proposer_approver_criteria_generate.
   (c) => isEditingAgentType(c.agentType) || c.agentType === 'proposer_approver_criteria_generate' || c.editingEligibilityCutoff === undefined,
   { message: 'editingEligibilityCutoff only valid for editing agent types or proposer_approver_criteria_generate' },
-).refine(
-  // editingProposerSoftCap is exclusive to Mode B (iterative_editing_rewrite).
-  (c) => c.agentType === 'iterative_editing_rewrite' || c.editingProposerSoftCap === undefined,
-  { message: 'editingProposerSoftCap only valid when agentType is iterative_editing_rewrite' },
-).refine(
-  // disableApproverFiltering is exclusive to Mode B (iterative_editing_rewrite).
-  // Mode A (iterative_editing) uses a different proposer/diff architecture; bypassing
-  // its filters is out of scope for the bundle-split experiment that introduces this field.
-  (c) => c.agentType === 'iterative_editing_rewrite' || c.disableApproverFiltering === undefined,
-  { message: 'disableApproverFiltering only valid when agentType is iterative_editing_rewrite', path: ['disableApproverFiltering'] },
+// (editingProposerSoftCap + disableApproverFiltering Zod refines removed by
+//  investigate_iterative_editing_runs_stage_20260623 — see _planning.md.)
 ).refine(
   // proposer_approver_criteria_generate is single-cycle by definition: editingMaxCycles must be 1 if present.
   (c) => c.agentType !== 'proposer_approver_criteria_generate' || c.editingMaxCycles === undefined || c.editingMaxCycles === 1,

@@ -26,5 +26,9 @@ export const CONTEXT_LEN = 30;
  *  PER_INVOCATION_BUDGET_ABORT_FRACTION of perInvocationBudgetUsd. */
 export const PER_INVOCATION_BUDGET_ABORT_FRACTION = 0.9;
 
-/** Soft per-edit length caps. */
-export const EDIT_NEWTEXT_LENGTH_CAP = 500;
+// EDIT_NEWTEXT_LENGTH_CAP (the 500-char per-atomic-edit length soft cap that
+// silently dropped any single edit whose newText exceeded 500 chars) was removed
+// by investigate_iterative_editing_runs_stage_20260623 so the new aggressive
+// proposer can issue multi-sentence sentence-order swaps as a single
+// substitution edit. The per-cycle SIZE_RATIO_HARD_CAP (1.5×) above remains as
+// the article-growth safety rail.
