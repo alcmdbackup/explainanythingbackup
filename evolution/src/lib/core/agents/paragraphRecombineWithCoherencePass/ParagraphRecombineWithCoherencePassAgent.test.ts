@@ -210,8 +210,66 @@ describe('ParagraphRecombineWithCoherencePassAgent', () => {
     }
   });
 
-  // Tests for Phase 2a (drop guardrails), Phase 3 (lengthCapRatio plumbing),
-  // and Phase 4 (multi-cycle loop + per-cycle proposerUserPrompt rebuild +
-  // cycle-2-throws + zod range boundaries + kill switch env-var) are added
-  // in those phases of investigate_paragraph_recombine_coherence_pass_performance_20260623.
+  describe('Phase 2a — guardrails dropped at the runEditingCycle call site', () => {
+    it('runEditingCycle is called WITHOUT redundancyJaccardThreshold or flowGuardrailEnabled in validateOpts', async () => {
+      mockedRunEditingCycle.mockResolvedValueOnce(makeCycleResult({
+        newText: FIXTURE_ARTICLE,
+        appliedAny: false,
+        stopReason: 'no_edits_proposed',
+      }));
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      await agent.execute(makeInput(), makeCtx());
+
+      if (mockedRunEditingCycle.mock.calls.length > 0) {
+        const args = mockedRunEditingCycle.mock.calls[0]![0];
+        // Only lengthCapRatio should be present in validateOpts.
+        expect(args.validateOpts).toBeDefined();
+        expect(args.validateOpts!).toHaveProperty('lengthCapRatio');
+        expect(args.validateOpts!).not.toHaveProperty('redundancyJaccardThreshold');
+        expect(args.validateOpts!).not.toHaveProperty('flowGuardrailEnabled');
+      }
+    });
+
+    it('emitted coherencePass.config snapshot has only lengthCapRatio (no Jaccard/flow keys)', async () => {
+      mockedRunEditingCycle.mockResolvedValueOnce(makeCycleResult({
+        newText: FIXTURE_ARTICLE,
+        appliedAny: true,
+        cycle: {
+          cycleNumber: 1,
+          proposedMarkup: '',
+          proposedGroupsRaw: [],
+          droppedPreApprover: [],
+          approverGroups: [{ groupNumber: 1, atomicEdits: [] } as never],
+          reviewDecisions: [],
+          droppedPostApprover: [],
+          appliedGroups: [{ groupNumber: 1, atomicEdits: [] } as never],
+          acceptedCount: 1,
+          rejectedCount: 0,
+          appliedCount: 1,
+          formatValid: true,
+          parentText: FIXTURE_ARTICLE,
+          proposeCostUsd: 0.0001,
+          approveCostUsd: 0.0001,
+          sizeRatio: 1.0,
+        },
+      }));
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      const result = await agent.execute(makeInput(), makeCtx());
+
+      if (result.detail.coherencePass && 'config' in result.detail.coherencePass) {
+        const config = result.detail.coherencePass.config;
+        expect(config).toHaveProperty('proposerModel');
+        expect(config).toHaveProperty('approverModel');
+        expect(config).toHaveProperty('lengthCapRatio');
+        // The two dropped keys must be ABSENT (not just falsy).
+        expect(config).not.toHaveProperty('redundancyJaccardThreshold');
+        expect(config).not.toHaveProperty('flowGuardrailEnabled');
+      }
+    });
+  });
+
+  // Tests for Phase 3 (lengthCapRatio plumbing) and Phase 4 (multi-cycle loop
+  // + per-cycle proposerUserPrompt rebuild + cycle-2-throws + zod range boundaries
+  // + kill switch env-var) are added in those phases of
+  // investigate_paragraph_recombine_coherence_pass_performance_20260623.
 });

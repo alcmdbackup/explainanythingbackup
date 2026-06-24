@@ -320,6 +320,12 @@ export class ParagraphRecombineWithCoherencePassAgent extends Agent<
       const proposerModel = input.coherencePassProposerModel ?? rewriteModel;
       const approverModel = input.coherencePassApproverModel ?? judgeModel;
       const coherenceLogger = ctx.logger.child?.('coherence_pass') ?? ctx.logger;
+      // Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 2a:
+      // - redundancyJaccardThreshold dropped (lexical, blocks intentional repetition like
+      //   rhetorical callbacks; pre-approver filter that kills edits the LLM never sees).
+      // - flowGuardrailEnabled dropped (transition-word preservation gets in the way of
+      //   voice repair; approver LLM is the actual quality gate).
+      // lengthCapRatio stays as the only validator-side constraint (Phase 3 wires it dynamic).
       const cycleResult = await runEditingCycle({
         text: recombinedText,
         llm,
@@ -331,8 +337,6 @@ export class ParagraphRecombineWithCoherencePassAgent extends Agent<
         models: { editing: proposerModel, approver: approverModel },
         validateOpts: {
           lengthCapRatio: 1.02,
-          redundancyJaccardThreshold: 0.30,
-          flowGuardrailEnabled: true,
         },
         driftRecovery: 'skip',
         proposerSystemPrompt: buildCoherencePassProposerSystemPrompt(),
@@ -359,8 +363,6 @@ export class ParagraphRecombineWithCoherencePassAgent extends Agent<
           proposerModel,
           approverModel,
           lengthCapRatio: 1.02,
-          redundancyJaccardThreshold: 0.30,
-          flowGuardrailEnabled: true,
         },
         ...(silentRejection && { silentRejection }),
       };

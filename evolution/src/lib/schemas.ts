@@ -2747,13 +2747,15 @@ export const paragraphRecombineWithCoherencePassExecutionDetailSchema = executio
   coherencePass: z.union([
     z.object({
       cycles: z.array(editingCycleSchema),
-      /** Coherence-pass-specific config snapshot for the invocation detail UI. */
+      /** Coherence-pass-specific config snapshot for the invocation detail UI.
+       *  Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 2a:
+       *  redundancyJaccardThreshold + flowGuardrailEnabled removed (the agent no longer
+       *  applies those guardrails). Legacy detail rows with those keys still parse
+       *  cleanly because zod's default object behavior ignores unknown keys. */
       config: z.object({
         proposerModel: z.string(),
         approverModel: z.string(),
         lengthCapRatio: z.number(),
-        redundancyJaccardThreshold: z.number(),
-        flowGuardrailEnabled: z.boolean(),
       }),
       /** Silent-rejection observability: approver returned > 0 groups but apply count == 0. */
       silentRejection: z.boolean().optional(),
