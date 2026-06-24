@@ -532,6 +532,12 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
 
+      # Build in a dedicated step so the Next build time does not compete with the
+      # Playwright webServer start timeout (S1 — playwright.config webServer is now
+      # start-only). Removes the recurring `Timed out waiting from config.webServer` flake.
+      - name: Build app for E2E
+        run: npm run build
+
       - name: Run Critical E2E Tests
         run: npm run test:e2e:critical
 
@@ -624,6 +630,10 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps ${{ matrix.browser }}
 
+      # Dedicated build step (S1) — keeps build time out of the webServer start budget.
+      - name: Build app for E2E
+        run: npm run build
+
       - name: Run Evolution E2E Tests (${{ matrix.browser }})
         run: npx playwright test --project=chromium --grep=@evolution --grep-invert='@skip-prod'
 
@@ -710,6 +720,10 @@ jobs:
       - name: Install Playwright deps (if cached)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
+
+      # Dedicated build step (S1) — keeps build time out of the webServer start budget.
+      - name: Build app for E2E
+        run: npm run build
 
       - name: Run Non-Evolution E2E Tests
         run: npm run test:e2e:non-evolution -- --shard=${{ matrix.shard }}/3

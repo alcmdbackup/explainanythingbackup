@@ -50,15 +50,18 @@ adminTest.describe('Prompt Registry CRUD', { tag: '@evolution' }, () => {
     await adminPage.getByRole('textbox', { name: /prompt/i }).first().fill('Explain photosynthesis to a 10-year-old');
     await adminPage.getByRole('button', { name: /save|submit|create/i }).click();
 
-    // Uncheck "Hide test content" to see [E2E] prefixed prompts
-    const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
-    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
-    if (await hideTestCheckbox.isChecked()) {
-      await hideTestCheckbox.click();
-    }
+    // Uncheck "Hide test content" to see [E2E] prefixed prompts.
+    // setChecked(false) is auto-waiting + idempotent — it replaces the prior
+    // point-in-time isChecked()-then-click pattern (which raced the create
+    // round-trip and the list refresh).
+    await adminPage
+      .locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]')
+      .setChecked(false);
 
-    // Verify prompt appears in table
-    await expect(adminPage.getByText(testPromptTitle)).toBeVisible({ timeout: 10000 });
+    // Verify prompt appears in table. No hardcoded timeout — rely on the env-scaled
+    // expect default (20s in CI) so the create round-trip + list refresh has the full
+    // budget to land (the prior { timeout: 10000 } shrank CI's budget and flaked).
+    await expect(adminPage.getByText(testPromptTitle)).toBeVisible();
 
     // Edit prompt
     const row = adminPage.locator('tr', { hasText: testPromptTitle });
@@ -69,8 +72,8 @@ adminTest.describe('Prompt Registry CRUD', { tag: '@evolution' }, () => {
     await editDialog.getByRole('textbox', { name: /name/i }).first().fill(`${testPromptTitle} (edited)`);
     await editDialog.getByRole('button', { name: /save|submit/i }).click();
 
-    // Verify edit
-    await expect(adminPage.getByText(`${testPromptTitle} (edited)`)).toBeVisible({ timeout: 10000 });
+    // Verify edit (env-scaled expect default, not a sub-default literal)
+    await expect(adminPage.getByText(`${testPromptTitle} (edited)`)).toBeVisible();
 
     // Delete prompt
     const editedRow = adminPage.locator('tr', { hasText: `${testPromptTitle} (edited)` });

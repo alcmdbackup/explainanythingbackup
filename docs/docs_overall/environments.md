@@ -86,6 +86,8 @@ Both `e2e-nightly.yml` and `post-deploy-smoke.yml` post failure alerts to the ch
 
 **Auto-filed release-health GitHub issues** (added 2026-05-30): `e2e-nightly.yml` now auto-files a `[release-health] Nightly E2E failed — YYYY-MM-DD` GitHub issue on any nightly failure via the `notify-release-health` job. Same-day recurrences comment on the existing issue rather than duplicating. This provides an inbox-style surface beyond Slack — designed for the recurring "channel unread" failure mode that produced the 5-night nightly-failure streak in May 2026. See `docs/planning/nightly_e2e_still_failing_20260530/` for the design.
 
+> **Issue body now embeds failing/flaky test names** (added 2026-06-23): the matrix rows upload `test-results/results.json` artifacts and `notify-release-health` runs `scripts/summarize-test-results.ts` to list the actual **failed** + **flaky** (passed-on-retry) test names in the issue body/comment (tagging likely `transient-AI?` real-AI/quota failures). This makes triage survive GitHub Actions log expiry — previously the issue carried only a run URL whose logs had often expired before anyone looked. See testing_overview.md "Surfacing nightly failures". Note: `e2e-nightly.yml` builds locally only when its job does not set `BASE_URL`; the standard nightly sets `BASE_URL` and tests the deployed app, so it is unaffected by the CI build-step decoupling (testing_overview Rule 21), which applies to the local-webServer E2E jobs in `ci.yml`.
+
 **`/mainToProd` nightly-red precheck** (added 2026-05-30): the skill now queries the latest nightly run as Step 0 and fail-CLOSES (refuses to promote) when nightly conclusion is not `success`. Override via `PROMOTE_DESPITE_NIGHTLY_RED=true` + `NIGHTLY_OVERRIDE_REASON="<why>"`; the override writes `.claude/nightly-red-override.json` (schema matches `.claude/ci-gate-override.json`) committed to the deploy branch for `git log`-discoverable audit.
 
 **CI Flow (PRs)**: When a PR contains migration files, the CI `deploy-migrations` job applies them to staging before tests run. This eliminates the migration/test deadlock where tests fail because the schema hasn't been applied yet. Types are then regenerated from the updated staging schema and auto-committed to the PR branch.
@@ -280,6 +282,8 @@ detect-changes → typecheck + lint (parallel)
 
 **Trigger:** Push to the `production` branch (Vercel deploys prod on this push) + `workflow_dispatch`. The original `deployment_status` trigger is retained only as an inert secondary — GitHub anti-recursion drops the `GITHUB_TOKEN`-created Vercel deployment status, so it never fired a workflow run (this was the cause of zero post-deploy smoke coverage). The job's Health Check now polls the apex `/api/health` (~5 min) to wait for the Vercel deploy to go live before running the smoke specs.
 
+> **`skipped` post-deploy-smoke runs are EXPECTED, not a failure.** Preview/non-production `deployment_status` events still arrive and start a workflow run, but the job `if:` (`state==success && environment==Production && target_url contains vercel.app`) filters them out → the run shows `skipped`. Real coverage comes from the `push:[production]` trigger (every prod release), which all succeed. Don't treat the stream of `skipped` deployment_status runs as broken coverage — confirm health by checking the most recent `push`-event run instead.
+
 **Behavior:**
 - Runs `@smoke` tagged E2E tests against the live production URL
 - Uses **Production environment secrets** (separate from repository secrets)
@@ -298,7 +302,7 @@ detect-changes → typecheck + lint (parallel)
 | **Secrets** | Staging environment | Staging environment | Production environment |
 | **Browsers** | Chromium | Chromium | Chromium |
 
-> **Note:** CI and Nightly workflows build and run the app locally on the GitHub runner (`npm run build && npm start`). They do NOT test against any deployed environment. Only the Post-Deploy Smoke workflow tests against a live deployment.
+> **Note:** CI builds and runs the app locally on the GitHub runner. As of 2026-06-23 the build is a **dedicated `npm run build` step** before Playwright, and the `playwright.config.ts` webServer is start-only (`npm start`) — not `npm run build && npm start` under one timeout (testing_overview Rule 21). The Nightly workflow sets `BASE_URL` and tests the **deployed** app (no local build). Only Post-Deploy Smoke and Nightly test against a live deployment; CI uses the local build.
 
 ### GitHub Secrets
 

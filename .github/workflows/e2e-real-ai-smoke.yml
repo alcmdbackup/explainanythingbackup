@@ -73,6 +73,12 @@ jobs:
         if: steps.preflight.outputs.skipped != 'true'
         run: npx playwright install --with-deps chromium
 
+      # Dedicated build step (S1) — the prod-ai (3010) webServer is now start-only,
+      # so the app must be built before Playwright launches it.
+      - name: Build app for @prod-ai smoke
+        if: steps.preflight.outputs.skipped != 'true'
+        run: npm run build
+
       - name: Run @prod-ai smoke (real AI, cheap model, local build)
         if: steps.preflight.outputs.skipped != 'true'
         run: npx playwright test --project=prod-ai

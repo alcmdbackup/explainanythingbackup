@@ -195,7 +195,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-${{ matrix.site.name }}-${{ matrix.browser }}
-          path: playwright-report/
+          # Include test-results/ so notify-release-health can parse results.json
+          # and embed the failing/flaky test names into the issue (survives log expiry).
+          path: |
+            playwright-report/
+            test-results/
           retention-days: 30
 
       - name: Notify Slack on failure
@@ -247,6 +251,32 @@ jobs:
         # Idempotent — first run creates, subsequent runs no-op
         run: gh label create release-health --color FFA500 --description "Nightly/post-deploy health alerts" --repo "${{ github.repository }}" 2>/dev/null || true
 
+      # Embed the actual failing + flaky test names into the issue so triage
+      # survives GitHub Actions log expiry (the original issue body was a run-URL
+      # only). The summarizer also tags likely transient real-AI/quota failures.
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+
+      - name: Download test result artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: playwright-report-*
+          path: nightly-artifacts
+
+      - name: Summarize failing/flaky tests
+        run: |
+          set -uo pipefail
+          FILES=$(find nightly-artifacts -name results.json 2>/dev/null | tr '\n' ' ')
+          : > nightly-test-summary.md
+          if [ -n "$FILES" ]; then
+            npx tsx scripts/summarize-test-results.ts $FILES > nightly-test-summary.md || true
+          fi
+          echo "Summary preview:"; cat nightly-test-summary.md || true
+
       - name: Find or create release-health issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -269,15 +299,21 @@ jobs:
             --search "created:${TODAY}" \
             --json number,title \
             --jq "[.[] | select(.title == \"${TITLE}\")][0].number // empty")
+          # Failing/flaky test names parsed from the matrix artifacts (may be empty
+          # if artifacts were unavailable — fall back to the run-page pointer).
+          SUMMARY=$(cat nightly-test-summary.md 2>/dev/null || true)
+          [ -n "${SUMMARY}" ] || SUMMARY="Failing matrix rows visible in the run page."
           BODY=$(cat <<EOF
           Run: ${RUN_URL}
           Workflow: ${WORKFLOW_NAME} on ${REF_NAME}
 
-          Failing matrix rows visible in the run page. Triage steps: docs/docs_overall/debugging.md
+          ${SUMMARY}
+
+          Triage steps: docs/docs_overall/debugging.md
           EOF
           )
           if [ -n "${EXISTING}" ]; then
-            gh issue comment "${EXISTING}" --repo "$REPO" --body "Failure recurred: ${RUN_URL}"
+            gh issue comment "${EXISTING}" --repo "$REPO" --body "$(printf 'Failure recurred: %s\n\n%s' "${RUN_URL}" "${SUMMARY}")"
           else
             gh issue create --repo "$REPO" --title "${TITLE}" --body "${BODY}" --label release-health
           fi

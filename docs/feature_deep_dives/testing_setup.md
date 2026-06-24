@@ -512,6 +512,12 @@ Unit Tests + ESM ─┘
 - **PRs to `main`**: Critical tests only (`@critical` tagged via `{ tag: '@critical' }`), no sharding
 - **PRs to `production`**: Full suite, 4 shards with `fail-fast: true`
 
+**Dedicated build step (start-only webServer).** Every E2E job (and `e2e-real-ai-smoke.yml`) runs a `npm run build` step **before** Playwright; the `playwright.config.ts` CI `webServer.command` is start-only (`npm start`, ~120s start budget) — NOT `npm run build && npm start`. This keeps Next build time out of the webServer start timeout, removing the `Timed out waiting from config.webServer` whole-job flake (testing_overview Rule 21). Jobs that set `BASE_URL` (nightly, post-deploy-smoke) disable the webServer entirely and need no build step.
+
+### Playwright JSON reporter + nightly flaky surfacer
+
+`playwright.config.ts` includes a `['json', { outputFile: 'test-results/results.json' }]` reporter. That JSON records each test's `status` (`expected`/`unexpected`/`flaky`/`skipped`) and per-retry results, so it captures **flaky** (passed-on-retry) tests that the console output hides. `scripts/summarize-test-results.ts` (unit-tested in `scripts/summarize-test-results.test.ts`) parses one or more `results.json` files, lists failed + flaky test names de-duped across matrix shards, and tags likely transient real-AI/quota failures (`transient-AI?`). `e2e-nightly.yml`'s `notify-release-health` job uses it to embed those names into the `[release-health]` issue (see testing_overview "Surfacing nightly failures").
+
 ### e2e-nightly.yml
 
 - **Schedule**: 6 AM UTC daily

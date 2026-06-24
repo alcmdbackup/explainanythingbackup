@@ -58,6 +58,10 @@ const eslintConfig = [
       "flakiness/no-duplicate-describe-name": "error",
       "flakiness/require-serial-with-beforeall": "error",
       "flakiness/warn-slow-with-retries": "warn",
+      // `warn` while the existing backlog of sub-default literals is burned down
+      // (155 repo-wide at introduction). Promote to `error` once clean. See
+      // testing_overview.md Rule 20.
+      "flakiness/no-subdefault-expect-timeout": "warn",
     },
   },
   // Admin-only rule: require resetFilters() in specs that seed [TEST] data.
