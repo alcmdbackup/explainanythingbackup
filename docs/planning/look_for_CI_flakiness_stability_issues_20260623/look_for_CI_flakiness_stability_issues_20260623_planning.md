@@ -118,5 +118,24 @@ The following docs were identified as relevant and may need updates:
 - [x] `docs/feature_deep_dives/error_handling.md` — only if S4's 429/503 handling adds backoff/transient classification worth documenting.
 - [x] `docs/feature_deep_dives/request_tracing_observability.md` — likely no change (not leveraged in this scope).
 
+## Follow-ups (post-merge, deferred from PR #1275)
+
+These were identified during execution but deferred to keep PR #1275 scoped. Added to the plan for tracking.
+
+### F1 — Promote `flakiness/no-subdefault-expect-timeout` from `warn` → `error`
+- [ ] Burn down the existing sub-default-timeout offenders (≈122 repo-wide at introduction; `npm run lint 2>&1 | grep -c no-subdefault-expect-timeout` to recount). Replace each hardcoded `{ timeout: N<=10000 }` on a web-first assertion/`waitFor` with the env-scaled config default (drop the option) or a deliberate `>10000` value.
+- [ ] Once the count reaches 0, flip the severity to `error` in `eslint.config.mjs` and update the Rule 20 note + the rule header comment in `eslint-rules/no-subdefault-expect-timeout.js`.
+- [ ] *Why deferred:* a hard `error` at introduction would have forced a risky 122-site bulk rewrite of assertion timeouts across unrelated suites in one PR.
+
+### F2 — Wire the custom ESLint RuleTester tests into CI (Option A)
+**Gap (verified 2026-06-24):** there are **28** `eslint-rules/*.test.js` files, but the hand-maintained `test:eslint-rules` npm script references only **16** — the other 12 run *nowhere* (incl. `max-test-timeout`, `no-silent-catch`, `no-wait-for-timeout`, `no-networkidle`, `no-hardcoded-base-url`, `no-hardcoded-tmpdir`, `no-point-in-time-checks`, `no-test-skip`, `require-hydration-wait`, `require-serial-with-beforeall`, `require-test-cleanup`, `warn-slow-with-retries`). And **no CI workflow invokes `test:eslint-rules` at all** (`npm test`/Jest only matches `*.test.ts(x)`, so these `.test.js` files are skipped). The rules ARE enforced in CI via `next lint`, so a rule that *over*-fires or fails to load is caught — but a rule whose logic silently regresses into a **false negative** (stops catching real violations) leaves CI green and the flakiness rule dead. See [[reference_eslint_rules_tests_not_in_ci]].
+
+**Chosen approach — Option A (Jest glob):**
+- [ ] Add `eslint-rules/**/*.test.js` to a Jest config (node env) — either extend `testMatch` or add a dedicated Jest project — so the RuleTester suites run under `npm test` and therefore in CI's existing **Unit Tests** job, with auto-discovery of new rule tests.
+- [ ] Verify all 28 RuleTester suites bind cleanly to Jest's `describe`/`it` (ESLint 9 `RuleTester` auto-detects the framework; spot-check that the suites register and pass). Fix any that assumed the standalone-`node` runner (e.g. trailing `console.log('...passed')` is harmless; a top-level throw on failure still surfaces).
+- [ ] Once covered by Jest, delete the hand-maintained `test:eslint-rules` `&&`-chain (or keep it as a thin local alias) so the orphaned-12 maintenance trap is gone.
+- [ ] Unit-test/CI verification: `npm test` runs the rule suites locally; confirm the Unit Tests CI job count increases and stays green.
+- [ ] *Alternatives considered (rejected):* **B** — fix the script to cover all 28 + add a dedicated CI step (keeps the per-rule registration maintenance trap); **C** — a glob runner script wired into CI (bespoke runner to maintain). Option A folds protection into the suite that already runs in CI and auto-discovers new tests.
+
 ## Review & Discussion
 [This section is populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration]
