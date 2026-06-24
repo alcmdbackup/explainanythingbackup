@@ -8,6 +8,7 @@ import {
   type ErrorResponse
 } from './errorHandling';
 import { logger } from '@/lib/server_utilities';
+import { z } from 'zod';
 
 // Mock logger
 jest.mock('@/lib/server_utilities', () => ({
@@ -94,6 +95,38 @@ describe('errorHandling', () => {
         message: 'Request timed out!',
         details: 'OpenAI API request timeout'
       });
+    });
+
+    it('should surface ZodError issue messages as a human string (not raw JSON)', () => {
+      // Regression guard for T1: a ZodError instanceof Error, but its .message is the
+      // serialized issues array. Without the dedicated branch it leaked raw JSON like
+      // `[{"code":"custom","message":"max_rating must exceed min_rating",...}]` into admin
+      // dialogs. Mirrors the criteria create schema's Min>Max .refine().
+      const schema = z
+        .object({ min_rating: z.number(), max_rating: z.number() })
+        .refine((d) => d.max_rating > d.min_rating, {
+          message: 'max_rating must exceed min_rating',
+          path: ['max_rating'],
+        });
+      const parsed = schema.safeParse({ min_rating: 10, max_rating: 1 });
+      expect(parsed.success).toBe(false);
+      const zodError = (parsed as { success: false; error: z.ZodError }).error;
+
+      const result = handleError(zodError, 'create_criteria');
+
+      expect(result.code).toBe(ERROR_CODES.VALIDATION_ERROR);
+      expect(result.message).toBe('max_rating must exceed min_rating');
+      // The raw serialized JSON must NOT be the user-facing message.
+      expect(result.message).not.toContain('"code"');
+    });
+
+    it('joins multiple ZodError issues with "; "', () => {
+      const schema = z.object({ name: z.string().min(1, 'Name is required'), n: z.number().min(0, 'n must be >= 0') });
+      const parsed = schema.safeParse({ name: '', n: -1 });
+      const zodError = (parsed as { success: false; error: z.ZodError }).error;
+      const result = handleError(zodError, 'ctx');
+      expect(result.code).toBe(ERROR_CODES.VALIDATION_ERROR);
+      expect(result.message).toBe('Name is required; n must be >= 0');
     });
 
     it('should handle database errors', () => {

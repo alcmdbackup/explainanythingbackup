@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { logger } from '@/lib/server_utilities';
 import * as Sentry from '@sentry/nextjs';
+import { ZodError } from 'zod';
 import { RequestIdContext } from './requestIdContext';
 
 export const ERROR_CODES = {
@@ -61,6 +62,20 @@ function categorizeError(error: unknown): ErrorResponse {
     return {
       code: ERROR_CODES.UNKNOWN_ERROR,
       message: 'An unexpected error occurred'
+    };
+  }
+
+  // ZodError MUST be handled first: it `instanceof Error`, but its `.message` is the
+  // serialized issues-array JSON. Without this branch it fell through to UNKNOWN_ERROR
+  // and leaked raw JSON into admin dialogs (e.g. "[{\"code\":\"custom\",...}]"). Placed
+  // before the message.toLowerCase() substring ladder so an issue message that happens to
+  // contain "schema"/"api"/etc. can't be mis-bucketed.
+  if (error instanceof ZodError) {
+    const human = error.issues.map((i) => i.message).join('; ');
+    return {
+      code: ERROR_CODES.VALIDATION_ERROR,
+      message: human || 'Data validation failed',
+      details: error.message,
     };
   }
 

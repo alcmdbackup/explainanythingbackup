@@ -1,5 +1,6 @@
 // Tests for RubricEditor: empty state, add/remove, range validation, sort order, callback shape.
 
+import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { RubricEditor, type RubricAnchor } from './RubricEditor';
 
@@ -96,6 +97,29 @@ describe('RubricEditor', () => {
     const desc = screen.getByDisplayValue('low');
     fireEvent.change(desc, { target: { value: 'awful' } });
     expect(onChange).toHaveBeenCalledWith([{ score: 1, description: 'awful' }]);
+  });
+
+  it('does not trigger a setState-in-render warning when the parent updates state in onChange (T4)', () => {
+    // Composition (parent's onChange does a real setState) is REQUIRED to reproduce this —
+    // an isolated jest.fn() onChange never updates a parent, so the warning can't fire.
+    // The "Cannot update a component while rendering a different component" warning fires
+    // whenever a parent setState runs during the child's render — which the old code did by
+    // calling onChange INSIDE the setAnchors updater (no StrictMode needed).
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    function Parent(): JSX.Element {
+      const [val, setVal] = useState<RubricAnchor[]>([]);
+      return <RubricEditor value={val} onChange={setVal} minRating={1} maxRating={5} />;
+    }
+    render(<Parent />);
+    fireEvent.click(screen.getByTestId('rubric-add-anchor'));
+    const warned = errorSpy.mock.calls.some((args) =>
+      String(args[0]).includes('Cannot update a component') ||
+      String(args[0]).includes('while rendering a different component'),
+    );
+    errorSpy.mockRestore();
+    expect(warned).toBe(false);
+    // sanity: the add actually took effect through the parent round-trip
+    expect(screen.getByPlaceholderText('What does this score mean?')).toBeInTheDocument();
   });
 
   it('syncs internal state when value prop changes (dialog reopen with different row)', () => {

@@ -4,7 +4,7 @@
 
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { toast } from 'sonner';
 import {
   listRewriteSourcesAction,
@@ -18,6 +18,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { getModelOptions, getModelMaxTemperature } from '@/config/modelRegistry';
 import { getTacticDef, GENERATE_TACTIC_NAMES } from '@evolution/lib/core/tactics';
+import { nextConfigId } from './configId';
 import { PARAGRAPH_REWRITE_DIRECTIVES } from '@evolution/lib/core/agents/paragraphRecombine/buildParagraphRewritePrompt';
 import type { RewriteUnit, PromptEditorRunResult, PromptEditorConfigResult, PromptEditorConfigStatus } from '@evolution/lib/promptEditor/types';
 
@@ -75,7 +76,6 @@ export default function PromptEditorPage(): JSX.Element {
   const [unit, setUnit] = useState<RewriteUnit>('article');
   const [sourceText, setSourceText] = useState('');
   const [title, setTitle] = useState('');
-  const nextId = useRef(2);
   const [configs, setConfigs] = useState<ConfigState[]>([newConfig(1, 'article')]);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<PromptEditorRunResult | null>(null);
@@ -117,13 +117,14 @@ export default function PromptEditorPage(): JSX.Element {
 
   const switchUnit = useCallback((u: RewriteUnit) => {
     setUnit(u);
-    nextId.current = 2;
     setConfigs([newConfig(1, u)]);
     setResult(null);
   }, []);
 
   const addConfig = useCallback(() => {
-    setConfigs((cs) => (cs.length >= MAX_CONFIGS ? cs : [...cs, newConfig(nextId.current++, unit)]));
+    // T16: derive the next id purely from the current list INSIDE the updater (no mutable
+    // ref) so React StrictMode's double-invoke can't skip numbers (config 1, 3, 5…).
+    setConfigs((cs) => (cs.length >= MAX_CONFIGS ? cs : [...cs, newConfig(nextConfigId(cs), unit)]));
   }, [unit]);
 
   const removeConfig = useCallback((id: number) => {

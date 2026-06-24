@@ -79,7 +79,11 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
     key: 'elo_score',
     header: 'Rating',
     align: 'right',
-    sortable: true,
+    // NOTE: not sortable — the variants list is server-paginated and listVariantsAction
+    // always orders by created_at desc with no sort param. Marking this `sortable: true`
+    // rendered a clickable ▲ affordance whose onClick was never wired (EntityTable only
+    // attaches the handler when both `sortable` AND `onSort` are present), so clicking did
+    // nothing. Removed the false affordance until server-side sort is wired through.
     render: (v) => {
       const u = v.mu != null && v.sigma != null ? dbToRating(v.mu, v.sigma).uncertainty : null;
       const label = u != null ? formatEloWithUncertainty(v.elo_score, u) : null;

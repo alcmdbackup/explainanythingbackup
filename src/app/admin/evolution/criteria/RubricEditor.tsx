@@ -33,32 +33,30 @@ export function RubricEditor({ value, onChange, minRating, maxRating }: RubricEd
 
   const sorted = [...anchors].sort((a, b) => a.score - b.score);
 
+  // T4: compute `next` from current state and call BOTH setAnchors and onChange in the
+  // handler body — NOT inside a setState updater. Calling onChange (a parent setState) from
+  // within the updater triggered "Cannot update a component (FormDialog) while rendering a
+  // different component (RubricEditor)" because React StrictMode double-invokes updaters.
   const updateAnchor = useCallback((index: number, patch: Partial<RubricAnchor>) => {
-    setAnchors((curr) => {
-      const next = [...curr];
-      const existing = next[index];
-      if (!existing) return curr;
-      next[index] = { score: existing.score, description: existing.description, ...patch };
-      onChange(next);
-      return next;
-    });
-  }, [onChange]);
+    const existing = anchors[index];
+    if (!existing) return;
+    const next = [...anchors];
+    next[index] = { score: existing.score, description: existing.description, ...patch };
+    setAnchors(next);
+    onChange(next);
+  }, [anchors, onChange]);
 
   const addAnchor = useCallback(() => {
-    setAnchors((curr) => {
-      const next = [...curr, { score: minRating, description: '' }];
-      onChange(next);
-      return next;
-    });
-  }, [onChange, minRating]);
+    const next = [...anchors, { score: minRating, description: '' }];
+    setAnchors(next);
+    onChange(next);
+  }, [anchors, minRating, onChange]);
 
   const removeAnchor = useCallback((indexToRemove: number) => {
-    setAnchors((curr) => {
-      const next = curr.filter((_, i) => i !== indexToRemove);
-      onChange(next);
-      return next;
-    });
-  }, [onChange]);
+    const next = anchors.filter((_, i) => i !== indexToRemove);
+    setAnchors(next);
+    onChange(next);
+  }, [anchors, onChange]);
 
   return (
     <div className="space-y-2" data-testid="rubric-editor">

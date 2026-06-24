@@ -21,7 +21,13 @@ export function validateUuid(id: string, strict = false): boolean {
   return strict ? UUID_V4_REGEX.test(id) : UUID_REGEX.test(id);
 }
 
-/** Timestamp pattern for auto-generated test names (e.g., "nav2-1774498767678-strat"). */
+/** Timestamp pattern for auto-generated test names: a 10-13 digit epoch HYPHEN-delimited
+ *  on both sides (e.g. `nav2-1774498767678-strat`, `e2e-nav-1775877428914-strategy`).
+ *  Deliberately NOT broadened to space/underscore/trailing delimiters: a space-delimited
+ *  epoch like `Gate verify real 1782140234529_7fe0bd` is structurally identical to a
+ *  legitimate auto-suffixed name like `Real Prompt 1781926024392_a9sxoe`, so matching it
+ *  over-flags real content. The `[TESTEVO]` canary names (the actual high-volume leak) are
+ *  caught by the bracket rule below regardless of their timestamp. */
 const TIMESTAMP_NAME_PATTERN = /^.*-\d{10,13}-.*$/;
 
 /** Check if a name matches test content patterns (display-only echo of the DB-side
@@ -35,13 +41,14 @@ export function isTestContentName(name: string | null | undefined): boolean {
     lower.includes('[test]') ||
     lower.includes('[e2e]') ||
     lower.includes('[test_evo]') ||
+    lower.includes('[testevo]') ||
     TIMESTAMP_NAME_PATTERN.test(name)
   );
 }
 
 /** Shared anti-drift fixtures for the TS helper + Postgres function.
- *  Integration test at src/__tests__/integration/evolution_is_test_name.integration.test.ts
- *  verifies both code paths match this table exactly. */
+ *  Integration test at src/__tests__/integration/evolution-is-test-content-backfill.integration.test.ts
+ *  verifies both code paths (TS + the `evolution_is_test_name` Postgres function) match this table. */
 export const TEST_NAME_FIXTURES: Array<{ name: string; isTest: boolean; reason: string }> = [
   { name: 'test', isTest: true, reason: 'exact lowercase' },
   { name: 'TEST', isTest: true, reason: 'exact uppercase' },
@@ -49,12 +56,20 @@ export const TEST_NAME_FIXTURES: Array<{ name: string; isTest: boolean; reason: 
   { name: '[TEST] Budget Run Strategy 1776204667937', isTest: true, reason: 'bracketed TEST' },
   { name: '[E2E] Anchor Strategy 1775049144246', isTest: true, reason: 'bracketed E2E' },
   { name: '[TEST_EVO] Buffer Display Test', isTest: true, reason: 'bracketed TEST_EVO' },
-  { name: 'e2e-nav-1775877428914-strategy', isTest: true, reason: 'timestamp pattern' },
+  { name: '[TESTEVO]-FR3-canary-B2-4d-fixed-1781925811184', isTest: true, reason: 'bracketed TESTEVO (no underscore)' },
+  { name: '[TESTEVO] no timestamp', isTest: true, reason: 'bracketed TESTEVO without trailing timestamp' },
+  { name: 'e2e-nav-1775877428914-strategy', isTest: true, reason: 'timestamp pattern (hyphen-delimited)' },
   { name: 'my-app-1234567890-prod', isTest: true, reason: 'timestamp pattern 10 digits' },
   { name: 'my-app-1234567890123-prod', isTest: true, reason: 'timestamp pattern 13 digits' },
+  // Space/underscore-delimited and trailing epochs are intentionally NOT matched (only
+  // [TESTEVO] bracketed names are), to avoid over-flagging legitimate auto-suffixed names:
+  { name: 'Real Prompt 1781926024392_a9sxoe', isTest: false, reason: 'space-before epoch in a real name — NOT test content' },
+  { name: 'Gate verify real 1782140234529_7fe0bd', isTest: false, reason: 'space-before epoch — structurally identical to a real name, not flagged' },
   { name: 'Cheap judge, aggressive budget floor', isTest: false, reason: 'normal name' },
   { name: 'Qwen 2.5 7b judge', isTest: false, reason: 'normal name with version numbers' },
   { name: 'Renamed Strategy', isTest: false, reason: 'normal name' },
+  { name: 'Federal Reserve 2', isTest: false, reason: 'normal name with a short trailing number' },
+  { name: 'Nightly smoke fixture', isTest: false, reason: 'operational fixture, intentionally visible (no timestamp/marker)' },
   { name: '', isTest: false, reason: 'empty string' },
   { name: 'contestant', isTest: false, reason: 'contains test substring but not exact' },
 ];

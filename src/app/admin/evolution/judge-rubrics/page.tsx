@@ -18,26 +18,16 @@ import {
   type JudgeRubricListItem,
 } from '@evolution/services/judgeRubricActions';
 import { listCriteriaAction, type CriteriaListItem } from '@evolution/services/criteriaActions';
+import { evenSplit, hydrateDimensionWeights, type WeightedDim as DraftDim } from './rubricWeights';
 
 const CARD = 'rounded-book border border-[var(--border-default)] bg-[var(--surface-secondary)] p-5';
 const INPUT =
   'border border-[var(--border-default)] rounded-page px-2 py-1 text-sm bg-[var(--surface-input)] text-[var(--text-primary)] font-ui';
 const WEIGHT_TOLERANCE = 0.01;
 
-interface DraftDim { criteria_id: string; weight: number }
 interface Draft { id?: string; name: string; label: string; description: string; dims: DraftDim[] }
 
 const EMPTY_DRAFT: Draft = { name: '', label: '', description: '', dims: [] };
-
-/** Distribute 100 evenly across n dimensions; the remainder lands on the first so the
- *  displayed weights always sum to exactly 100. */
-function evenSplit(dims: DraftDim[]): DraftDim[] {
-  const n = dims.length;
-  if (n === 0) return dims;
-  const base = Math.floor(100 / n);
-  const remainder = 100 - base * n;
-  return dims.map((d, i) => ({ ...d, weight: base + (i === 0 ? remainder : 0) }));
-}
 
 export default function JudgeRubricsPage(): JSX.Element {
   const [rubrics, setRubrics] = useState<JudgeRubricListItem[]>([]);
@@ -49,6 +39,10 @@ export default function JudgeRubricsPage(): JSX.Element {
     setLoading(true);
     const [r, c] = await Promise.all([
       listJudgeRubricsAction({ filterTestContent: false }),
+      // The dimension picker intentionally shows ALL active criteria (including test-named
+      // ones): the rubric builder + its E2E spec build rubrics from factory-created test
+      // criteria, and admins may legitimately compose test rubrics. (Finding T8 proposed
+      // filtering test criteria here, but that breaks the builder workflow — won't fix.)
       listCriteriaAction({ status: 'active', filterTestContent: false, limit: 200 }),
     ]);
     if (r.success && r.data) setRubrics(r.data.items);
@@ -67,7 +61,7 @@ export default function JudgeRubricsPage(): JSX.Element {
       name: d.name,
       label: d.label,
       description: d.description ?? '',
-      dims: d.dimensions.map((x) => ({ criteria_id: x.criteria_id, weight: x.weight })),
+      dims: hydrateDimensionWeights(d.dimensions.map((x) => ({ criteria_id: x.criteria_id, weight: x.weight }))),
     });
   };
 

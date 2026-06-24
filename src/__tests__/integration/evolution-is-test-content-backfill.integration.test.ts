@@ -1,16 +1,19 @@
 // Integration test for the is_test_content backfill on evolution_strategies
-// (migration 20260415000001) and evolution_prompts/evolution_experiments
-// (migration 20260423000001).
+// (migration 20260415000001), evolution_prompts/evolution_experiments
+// (migration 20260423000001), and the [TESTEVO] predicate + 7-table backfill
+// (migration 20260623000001 then 20260623000002 — adds [testevo] and re-flags
+// criteria/judge_rubrics/style_fingerprints/weight_inference_sessions; 000002 reverted
+// 000001's space/underscore/trailing timestamp broadening, which over-flagged real names).
 //
-// Three steps per the planning doc Phase 1 verification:
-//   Step 1 — trigger path: createTestStrategyConfig() goes through the BEFORE
-//            trigger; verify is_test_content matches evolution_is_test_name.
-//   Step 2 — trigger-bypass + backfill: raw INSERT setting is_test_content
-//            DEFAULT (false) on a test-named row, then run the backfill UPDATE
-//            and assert it set is_test_content=true.
-//   Step 3 — global invariant: SELECT COUNT(*) WHERE is_test_content IS
-//            DISTINCT FROM evolution_is_test_name(name) returns 0 across
-//            evolution_strategies, evolution_prompts, evolution_experiments.
+// Steps:
+//   Step 1  — trigger path: createTestStrategyConfig() goes through the BEFORE
+//             trigger; verify is_test_content matches evolution_is_test_name.
+//   Step 2  — trigger-bypass + backfill: clear is_test_content without a name change,
+//             then run the backfill UPDATE and assert it set is_test_content=true.
+//   Step 2b — broadened predicate: insert [TESTEVO] + trailing/underscore-timestamp
+//             names and assert the trigger (= SQL function) flags them true.
+//   Step 3  — global invariant: no row exists where is_test_content IS DISTINCT FROM
+//             evolution_is_test_name(name), across all 7 tables.
 
 import { createTestSupabaseClient } from '@/testing/utils/integration-helpers';
 import {
@@ -133,12 +136,55 @@ describe('is_test_content backfill (Phase 1 — plan B17 / migrations 2026041500
     expect(postData?.is_test_content).toBe(true);
   });
 
-  // ─── Step 3 — global invariant across all three tables ──────────────────
+  // ─── Step 2b — broadened predicate (migration 20260623000001) ───────────
+
+  it('Step 2b: [TESTEVO] bracket names are flagged true; space-delimited epochs are NOT (via trigger)', async () => {
+    if (!tablesExist) return;
+
+    const stamp = `${Date.now()}`; // 13-digit epoch
+    const rand = () => Math.random().toString(36).slice(2, 8);
+    const cases: Array<{ name: string; expected: boolean }> = [
+      { name: `[TESTEVO]-FR3-canary-${stamp}`, expected: true },          // bracket (canary) — the actual fix
+      { name: `[TESTEVO] no timestamp ${rand()}`, expected: true },        // bracket only
+      { name: `e2e-nav-${stamp}-strategy`, expected: true },               // hyphen-delimited epoch (original rule)
+      // Reverted (20260623000002): space/underscore-delimited epochs are NOT flagged, so a
+      // real auto-suffixed name is not over-flagged. (Mirrors the over-match that broke the
+      // prompt-filter + weight-inference integration tests.)
+      { name: `Real Prompt ${stamp}_${rand()}`, expected: false },
+      { name: `Gate verify real ${stamp}_${rand()}`, expected: false },
+    ];
+
+    for (const { name, expected } of cases) {
+      const { data, error } = await supabase
+        .from('evolution_strategies')
+        .insert({
+          name,
+          config_hash: `broadened-${name}`,
+          config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }] },
+        })
+        .select('id, is_test_content')
+        .single();
+      expect(error).toBeNull();
+      triggerPathStrategyIds.push(data!.id as string);
+      expect(data?.is_test_content).toBe(expected);
+    }
+  });
+
+  // ─── Step 3 — global invariant across all seven tables ──────────────────
 
   it('Step 3: global invariant — no rows exist where is_test_content disagrees with evolution_is_test_name(name)', async () => {
     if (!tablesExist) return;
 
-    for (const table of ['evolution_strategies', 'evolution_prompts', 'evolution_experiments'] as const) {
+    // All 7 tables carrying is_test_content (migration 20260623000001 backfills every one).
+    for (const table of [
+      'evolution_strategies',
+      'evolution_prompts',
+      'evolution_experiments',
+      'evolution_criteria',
+      'evolution_judge_rubrics',
+      'evolution_style_fingerprints',
+      'evolution_weight_inference_sessions',
+    ] as const) {
       // Use PostgREST: fetch all rows' (id, name, is_test_content), then check
       // each in JS using the same predicate the function applies. We can't run
       // arbitrary SQL via REST, so we replicate the predicate client-side. The
@@ -154,7 +200,6 @@ describe('is_test_content backfill (Phase 1 — plan B17 / migrations 2026041500
         return row.is_test_content !== expected;
       });
       if (mismatches.length > 0) {
-        // eslint-disable-next-line no-console -- deliberate: aid debugging when invariant fails
         console.error(`is_test_content invariant violated for ${table}:`, mismatches.slice(0, 5));
       }
       expect(mismatches).toHaveLength(0);
@@ -164,7 +209,10 @@ describe('is_test_content backfill (Phase 1 — plan B17 / migrations 2026041500
 
 // Mirror of evolution_is_test_name(text). Kept locally so a bug in the
 // shared.ts isTestContentName helper (which echoes the same predicate) cannot
-// silently mask a server-side mismatch.
+// silently mask a server-side mismatch. Tracks the predicate after migration
+// 20260623000002: adds `[testevo]` (no underscore) and KEEPS the original
+// HYPHEN-delimited epoch regex (the space/underscore broadening from
+// 20260623000001 was reverted because it over-flagged real auto-suffixed names).
 function isTestNameMirror(name: string | null): boolean {
   if (!name) return false;
   const lower = name.toLowerCase();
@@ -173,6 +221,7 @@ function isTestNameMirror(name: string | null): boolean {
     lower.includes('[test]') ||
     lower.includes('[e2e]') ||
     lower.includes('[test_evo]') ||
+    lower.includes('[testevo]') ||
     /^.*-\d{10,13}-.*$/.test(name)
   );
 }

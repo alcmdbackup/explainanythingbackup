@@ -88,6 +88,20 @@ describe('isTestContentName', () => {
     expect(isTestContentName('nav2-1774498767678-exp')).toBe(true);
   });
 
+  it('matches [TESTEVO] prefix (no underscore) regardless of timestamp', () => {
+    expect(isTestContentName('[TESTEVO]-FR3-canary-B2-4d-fixed-1781925811184')).toBe(true);
+    expect(isTestContentName('[testevo] lowercase no timestamp')).toBe(true);
+  });
+
+  it('does NOT match space/underscore-delimited or trailing epochs (avoids over-flagging real names)', () => {
+    // A space-before epoch is structurally identical between a gate run and a real name —
+    // matching it would over-flag legitimate auto-suffixed names, so it's left unmatched.
+    expect(isTestContentName('Gate verify real 1782140234529_7fe0bd')).toBe(false);
+    expect(isTestContentName('Real Prompt 1781926024392_a9sxoe')).toBe(false);
+    // trailing-only epoch (no hyphen after) is not matched by the hyphen-delimited rule
+    expect(isTestContentName('gate-canary-1781925811184')).toBe(false);
+  });
+
   it('does NOT match legitimate content starting with "test"', () => {
     expect(isTestContentName('Testing strategies for climate change')).toBe(false);
     expect(isTestContentName('Testimonial page')).toBe(false);
@@ -96,6 +110,11 @@ describe('isTestContentName', () => {
   it('does NOT match regular names', () => {
     expect(isTestContentName('Federal reserve')).toBe(false);
     expect(isTestContentName('March 26, 2026 - B')).toBe(false);
+    // operational fixture intentionally left visible (no timestamp/marker)
+    expect(isTestContentName('Nightly smoke fixture')).toBe(false);
+    // short numbers (years, version digits) must not trip the 10-13 digit timestamp rule
+    expect(isTestContentName('Federal Reserve 2')).toBe(false);
+    expect(isTestContentName('Qwen 2.5 7b judge')).toBe(false);
   });
 
   it('handles null/undefined/empty', () => {
@@ -105,8 +124,8 @@ describe('isTestContentName', () => {
   });
 
   // Anti-drift: every fixture must agree with the TS helper. The integration test
-  // (src/__tests__/integration/evolution_is_test_name.integration.test.ts) asserts
-  // the same fixtures against the Postgres function — together they prevent the TS
+  // (src/__tests__/integration/evolution-is-test-content-backfill.integration.test.ts) asserts
+  // the same predicate against the Postgres function — together they prevent the TS
   // and SQL implementations from drifting apart.
   describe('TEST_NAME_FIXTURES match isTestContentName', () => {
     it.each(TEST_NAME_FIXTURES)('$name ($reason) → isTest=$isTest', ({ name, isTest }) => {
