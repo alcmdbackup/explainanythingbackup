@@ -11,18 +11,16 @@ import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import OpenAI from 'openai';
-import Anthropic from '@anthropic-ai/sdk';
 
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
-import { calculateLLMCost } from '../../src/config/llmPricing';
 import {
   evolveArticle,
   generateSeedArticle,
   createEntityLogger,
   upsertStrategy,
 } from '../src/lib/pipeline';
+import { createTrackedEvolutionProvider } from '../src/lib/pipeline/infra/trackedEvolutionProvider';
 import type { EvolutionConfig, EvolutionResult, EntityLogger } from '../src/lib/pipeline';
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -32,6 +30,8 @@ interface CLIArgs {
   prompt: string | null;
   seedModel: string | null;
   mock: boolean;
+  /** Acknowledge that real spend flows through the global spending gate (caps must be high). */
+  ungated: boolean;
   iterations: number;
   budget: number;
   output: string;
@@ -62,7 +62,8 @@ Options:
   --file <path>              Markdown file to evolve (required unless --prompt)
   --prompt <text>            Topic prompt — generates seed article then evolves (required unless --file)
   --seed-model <name>        Model for seed article generation (default: same as --model)
-  --mock                     Use mock LLM (no API keys needed)
+  --mock                     Use mock LLM (no API keys needed; DB-less)
+  --ungated                  Acknowledge real spend flows through the global spending gate
   --iterations <n>           Number of iterations (default: 3)
   --budget <n>               Budget cap in USD (default: 5.00)
   --output <path>            Output JSON path (default: auto-generated)
@@ -107,6 +108,7 @@ Options:
     prompt: prompt ?? null,
     seedModel: getValue('seed-model') ?? null,
     mock: getFlag('mock'),
+    ungated: getFlag('ungated'),
     iterations,
     budget: parseFloat(getValue('budget') ?? '5.00'),
     output: getValue('output') ?? defaultOutput,
@@ -187,133 +189,11 @@ function createMockLLMProvider(): { complete(prompt: string, label: string, opts
   };
 }
 
-function createDirectLLMProvider(
-  model: string,
-  logger: EntityLogger,
-  supabase: SupabaseClient | null = null,
-): { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> } {
-  const isLocal = model.startsWith('LOCAL_');
-  const apiModel = isLocal ? model.replace(/^LOCAL_/, '') : model;
-  const isDeepSeek = model.startsWith('deepseek-');
-  const isAnthropic = model.startsWith('claude-');
-
-  if (isAnthropic) {
-    const key = process.env.ANTHROPIC_API_KEY;
-    if (!key) throw new Error('ANTHROPIC_API_KEY required for Claude models');
-    const anthropicClient = new Anthropic({ apiKey: key, maxRetries: 3, timeout: 60000 });
-
-    return {
-      async complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> {
-        const useModel = opts?.model ?? model;
-        logger.debug(`LLM call (Anthropic)`, { phaseName: label, iteration: undefined });
-
-        const message = await anthropicClient.messages.create({
-          model: useModel,
-          max_tokens: 8192,
-          messages: [{ role: 'user', content: prompt }],
-        });
-
-        const content = message.content[0]?.type === 'text' ? message.content[0].text : '';
-        if (!content || content.trim() === '') {
-          throw new Error(`Empty response from Anthropic (label=${label})`);
-        }
-
-        const promptTokens = message.usage.input_tokens;
-        const completionTokens = message.usage.output_tokens;
-        const cost = calculateLLMCost(useModel, promptTokens, completionTokens, 0);
-
-        if (supabase) {
-          void Promise.resolve(
-            supabase.from('llmCallTracking').insert({
-              userid: '00000000-0000-0000-0000-000000000000',
-              prompt,
-              content,
-              call_source: `evolution_v2_${label}`,
-              raw_api_response: JSON.stringify({ provider: 'anthropic', model: useModel, usage: message.usage }),
-              model: useModel,
-              prompt_tokens: promptTokens,
-              completion_tokens: completionTokens,
-              total_tokens: promptTokens + completionTokens,
-              reasoning_tokens: 0,
-              finish_reason: message.stop_reason ?? 'end_turn',
-              estimated_cost_usd: cost,
-            }),
-          ).then(({ error: trackErr }) => {
-            if (trackErr) logger.warn('llmCallTracking insert failed', { phaseName: label });
-          }).catch(() => { /* non-critical tracking */ });
-        }
-
-        return content;
-      },
-    };
-  }
-
-  // OpenAI / DeepSeek / Local path (OpenAI-compatible API)
-  const client = (() => {
-    if (isLocal) {
-      return new OpenAI({
-        apiKey: 'local',
-        baseURL: process.env.LOCAL_LLM_BASE_URL || 'http://localhost:11434/v1',
-        maxRetries: 3,
-        timeout: 300000,
-      });
-    }
-    if (isDeepSeek) {
-      const key = process.env.DEEPSEEK_API_KEY;
-      if (!key) throw new Error('DEEPSEEK_API_KEY required for deepseek models');
-      return new OpenAI({ apiKey: key, baseURL: 'https://api.deepseek.com', maxRetries: 3, timeout: 60000 });
-    }
-    const key = process.env.OPENAI_API_KEY;
-    if (!key) throw new Error('OPENAI_API_KEY required for OpenAI models');
-    return new OpenAI({ apiKey: key, maxRetries: 3, timeout: 60000 });
-  })();
-
-  return {
-    async complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> {
-      const useModel = opts?.model ?? apiModel;
-      logger.debug(`LLM call`, { phaseName: label, iteration: undefined });
-
-      const response = await client.chat.completions.create({
-        model: useModel,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
-      });
-
-      const content = response.choices[0]?.message?.content;
-      if (!content || content.trim() === '') {
-        throw new Error(`Empty response from LLM (label=${label})`);
-      }
-
-      const usage = response.usage;
-      const promptTokens = usage?.prompt_tokens ?? 0;
-      const completionTokens = usage?.completion_tokens ?? 0;
-      const cost = calculateLLMCost(opts?.model ?? model, promptTokens, completionTokens, 0);
-
-      if (supabase) {
-        void Promise.resolve(
-          supabase.from('llmCallTracking').insert({
-            userid: '00000000-0000-0000-0000-000000000000',
-            prompt,
-            content,
-            call_source: `evolution_v2_${label}`,
-            raw_api_response: JSON.stringify(response.choices[0] ?? {}),
-            model: opts?.model ?? model,
-            prompt_tokens: promptTokens,
-            completion_tokens: completionTokens,
-            total_tokens: usage?.total_tokens ?? 0,
-            reasoning_tokens: 0,
-            finish_reason: response.choices[0]?.finish_reason ?? 'unknown',
-            estimated_cost_usd: cost,
-          }),
-        ).then(({ error: trackErr }) => {
-          if (trackErr) logger.warn('llmCallTracking insert failed', { phaseName: label });
-        }).catch(() => { /* non-critical tracking */ });
-      }
-
-      return content;
-    },
-  };
-}
+// NOTE: the former createDirectLLMProvider (a direct OpenAI/Anthropic SDK provider that
+// hand-wrote unjoinable llmCallTracking rows) was removed (llm_costs_too_low_in_dash_20260623).
+// Real-LLM runs now use createTrackedEvolutionProvider, which routes through the shared callLLM
+// chokepoint with fail-closed tracking (joinable rows, EVOLUTION_SYSTEM_USERID, evolution_* source,
+// global spending gate). Use --mock for DB-less local iteration.
 
 // ─── Supabase Client ─────────────────────────────────────────────
 
@@ -429,9 +309,24 @@ async function main() {
     logger.info('Supabase not configured — file output only');
   }
 
+  // Real-LLM runs route through the shared tracked provider (callLLM + fail-closed tracking +
+  // the global spending gate), which needs a real DB. --mock is the DB-less path.
+  if (!args.mock && !supabase) {
+    throw new Error(
+      'Real-LLM runs require NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (tracking + the ' +
+      'spending gate need a DB). Use --mock for DB-less local iteration.',
+    );
+  }
+  if (args.ungated) {
+    logger.warn(
+      'ungated: real spend still flows through the global LLMSpendingGate (per-call skip is not ' +
+      'possible). Ensure the target DB\'s llm_cost_config caps are high enough for this experiment.',
+      {},
+    );
+  }
   const llmProvider = args.mock
     ? createMockLLMProvider()
-    : createDirectLLMProvider(args.model, logger, supabase);
+    : createTrackedEvolutionProvider({ db: supabase!, defaultModel: args.model });
 
   let originalText: string;
   let title: string;
@@ -440,7 +335,7 @@ async function main() {
     const seedModel = args.seedModel ?? args.model;
     const seedProvider = (args.mock || seedModel === args.model)
       ? llmProvider
-      : createDirectLLMProvider(seedModel, logger, supabase);
+      : createTrackedEvolutionProvider({ db: supabase!, defaultModel: seedModel });
 
     logger.info('Generating seed article...', { seedModel });
     const seed = await generateSeedArticle(args.prompt, seedProvider);
