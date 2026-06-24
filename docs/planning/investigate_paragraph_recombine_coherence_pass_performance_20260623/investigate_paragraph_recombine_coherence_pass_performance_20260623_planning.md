@@ -19,15 +19,23 @@ Additionally: the Jaccard redundancy check is bad in general — lexical (catche
 ## Phased Execution Plan
 
 ### Phase 1: Rewrite the coherence-pass proposer prompt
+
+**Design intent**: NO caps and NO coalescing for the coherence-pass agent. The only brakes on edit volume are (a) the length cap (`lengthCapRatio`, Phase 3, default 1.10), (b) format validity, (c) byte-equality rules, and (d) the approver LLM's per-group judgment. We accept the resulting approver token cost as the price of letting the pass do real work.
+
 - [ ] `evolution/src/lib/core/agents/paragraphRecombineWithCoherencePass/buildCoherencePassProposerPrompt.ts`
   - [ ] Replace `SCOPE_GUIDANCE` with a voice-restoration scope: explicitly authorize whole-paragraph rewrites, structural smoothing, and voice/cadence repair when the recombined article has lost the parent's rhetorical hooks during paragraph-level optimization.
-  - [ ] Replace `EDIT_BUDGET`: lift the "AT MOST 5 atomic edits" cap to "as many edits as the length cap allows", remove "edits should be MINOR".
+  - [ ] **Delete `EDIT_BUDGET` constant entirely** from the prompt assembly. No "AT MOST N edits" cap, no "1-3 edits per adjacent group" cap, no "edits should be MINOR" framing. Replace with a single LENGTH_HINT line ("You may grow the article up to ~10% in length; edits beyond that get trimmed downstream") so the LLM knows the only hard ceiling.
   - [ ] Update `COHERENCE_SOFT_RULES`: remove the *"Edit ONLY for inter-paragraph smoothing — do NOT improve individual paragraphs in isolation"* line. Keep the byte-equality and don't-edit-headings/codefences/URLs rules.
   - [ ] Update `HARD_CONSTRAINT` block: keep verbatim (byte-equality + CriticMarkup syntax is non-negotiable for any proposer).
+- [ ] **No coalescing** (`ParagraphRecombineWithCoherencePassAgent.ts`): the agent continues to call `runEditingCycle` WITHOUT a `rewriteMode` argument (Mode A path), which means `coalesceAdjacentGroups` and `capGroupsByMagnitude` are both skipped. Add a comment at the call site stating this is intentional ("coherence-pass agent runs Mode A only; no Mode B coalesce/cap"). Verify in test (below).
 - [ ] `evolution/src/lib/core/agents/paragraphRecombineWithCoherencePass/buildCoherencePassProposerPrompt.test.ts` (NEW)
   - [ ] Assert presence of voice-restoration language.
   - [ ] Assert absence of the "do NOT improve individual paragraphs" sentence.
   - [ ] Assert `HARD_CONSTRAINT` byte-equality rules still present.
+  - [ ] **Assert NO "AT MOST" / "atomic edits" / "edit budget" count language remains** in the assembled prompt.
+  - [ ] Assert the LENGTH_HINT line is present.
+- [ ] `ParagraphRecombineWithCoherencePassAgent.test.ts`
+  - [ ] **Assert the `runEditingCycle` call does NOT pass `rewriteMode`** (regression guard against accidentally enabling Mode B coalesceAndCap on this agent).
 
 ### Phase 2: Remove Jaccard redundancy check globally + drop flow guardrail at coherence-pass site
 
@@ -199,6 +207,7 @@ The following docs were identified as relevant and may need updates:
 ## Risks & Open Questions
 
 - **Risk**: aggressive coherence-pass rewrites may introduce within-paragraph errors that the slot judge already ranked away (defeating the per-slot Elo work). Mitigation: the new prompt still preserves the byte-equality + soft rules (no headings, no codefences, preserve quotes/citations/URLs). The article-level judge sees the result regardless — if voice repair hurts, the article variant will rank low and the run terminates.
+- **Risk**: with NO edit-count cap in the prompt and NO post-parse coalesceAndCap (Mode B not used), the LLM could propose 30+ small edits in one cycle, inflating approver-side token cost and slowing the cycle. Accepted as intentional per the design intent above. The pre-coherence budget gate (0.85× perInvocationCap) and per-cycle budget gate (0.9× perInvocationBudget) provide a backstop if a runaway cycle would actually blow the cap.
 - **Risk**: changing defaults (1.02 → 1.10, 1 → 2 cycles) silently changes behavior for already-saved strategies that don't set these fields. **Intentional** — those strategies are the ones underperforming. Existing test_evo/canary strategies pinned to specific configs are unaffected only if they explicitly set the fields.
 - **Open**: should `coherencePassMaxCycles` default to 2 or 3? IterativeEditingAgent's default is 3. Starting at 2 minimizes cost blowout risk; can raise to 3 in a follow-up if staging shows headroom.
 - **Open**: should we add a "voice-restoration" criterion to the slot rubric (Option C above) in PARALLEL with this change? It would attack the same root cause from the other end (slot picks fewer voice-degrading rewrites in the first place). Defer to follow-up unless staging A/B shows Option A alone is insufficient.
