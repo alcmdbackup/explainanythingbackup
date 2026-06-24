@@ -89,6 +89,9 @@ const FIELD_GATES: Partial<Record<keyof IterCfg, (t: AgentType) => boolean>> = {
   coherencePassApproverModel: (t) => t === 'paragraph_recombine_with_coherence_pass',
   coherencePassRewriteTempFloor: (t) => t === 'paragraph_recombine_with_coherence_pass',
   coherencePassRewriteTempCeiling: (t) => t === 'paragraph_recombine_with_coherence_pass',
+  // investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3 + Phase 4.
+  coherencePassLengthCapRatio: (t) => t === 'paragraph_recombine_with_coherence_pass',
+  coherencePassMaxCycles: (t) => t === 'paragraph_recombine_with_coherence_pass',
 };
 
 /** Sort generationGuidance by tactic — it is an unordered weighted SET

@@ -84,6 +84,38 @@ const DEFAULT_COHERENCE_PASS_ENABLED = true;
 const PRE_COHERENCE_GATE_FRACTION = 0.85;
 const SLOT_SELF_ABORT_FRACTION = 0.9;
 
+// Per investigate_paragraph_recombine_coherence_pass_performance_20260623.
+// New (aggressive) defaults: 10% growth headroom, 2 cycles.
+// Legacy (kill-switched) defaults: 2% growth headroom, 1 cycle.
+const DEFAULT_COHERENCE_PASS_LENGTH_CAP_RATIO = 1.10;
+const DEFAULT_COHERENCE_PASS_MAX_CYCLES = 2;
+const LEGACY_COHERENCE_PASS_LENGTH_CAP_RATIO = 1.02;
+const LEGACY_COHERENCE_PASS_MAX_CYCLES = 1;
+
+/** Resolve coherence-pass defaults with kill-switch support.
+ *
+ * Reads `process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2` PER INVOCATION
+ * (not at module load) so an ops flip in Vercel env takes effect on the next
+ * invocation without a deploy. Default behavior (env unset or 'true') uses
+ * the new aggressive defaults. Set to 'false' to revert to legacy behavior
+ * for all strategies that rely on defaults.
+ *
+ * Explicit per-strategy input fields ALWAYS override this — the helper only
+ * decides what the DEFAULT is when input is undefined.
+ */
+export function resolveCoherencePassDefaults(): { lengthCapRatio: number; maxCycles: number } {
+  if (process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2 === 'false') {
+    return {
+      lengthCapRatio: LEGACY_COHERENCE_PASS_LENGTH_CAP_RATIO,
+      maxCycles: LEGACY_COHERENCE_PASS_MAX_CYCLES,
+    };
+  }
+  return {
+    lengthCapRatio: DEFAULT_COHERENCE_PASS_LENGTH_CAP_RATIO,
+    maxCycles: DEFAULT_COHERENCE_PASS_MAX_CYCLES,
+  };
+}
+
 // ─── Types ────────────────────────────────────────────────────────
 
 export interface ParagraphRecombineWithCoherencePassInput {
@@ -98,6 +130,14 @@ export interface ParagraphRecombineWithCoherencePassInput {
   coherencePassApproverModel?: string;
   coherencePassRewriteTempFloor?: number;
   coherencePassRewriteTempCeiling?: number;
+  /** Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3.
+   *  Per-cycle length cap for the coherence-pass propose/approve cycle. Range 1.0–2.0.
+   *  Default resolved via resolveCoherencePassDefaults() (kill-switch aware). */
+  coherencePassLengthCapRatio?: number;
+  /** Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 4.
+   *  Maximum number of propose-approve-apply cycles in the coherence pass. Range 1–5.
+   *  Default resolved via resolveCoherencePassDefaults() (kill-switch aware). */
+  coherencePassMaxCycles?: number;
   initialPool?: Variant[];
   initialRatings?: Map<string, Rating>;
   initialMatchCounts?: Map<string, number>;
@@ -313,59 +353,89 @@ export class ParagraphRecombineWithCoherencePassAgent extends Agent<
         capUsd: effectiveCapUsd,
       };
     } else {
-      // Phase 4: real coherence-pass implementation via runEditingCycle (extracted from
-      // IterativeEditingAgent). Single cycle, tight validateOpts (no >2% growth, transition
-      // smoothing allowed, redundancy guard at 30% Jaccard), driftRecovery: 'skip' (the
-      // recombined article is the source of truth — nothing to drift from).
+      // Per investigate_paragraph_recombine_coherence_pass_performance_20260623:
+      // - Phase 1: proposer prompt rewritten for voice-restoration scope.
+      // - Phase 2a: redundancyJaccardThreshold + flowGuardrailEnabled dropped from
+      //   validateOpts; lengthCapRatio is the only validator-side constraint.
+      // - Phase 3: lengthCapRatio is now an iter-config field (input.coherencePassLengthCapRatio)
+      //   with kill-switch-aware default via resolveCoherencePassDefaults().
+      // - Phase 4: single cycle replaced with a bounded loop (input.coherencePassMaxCycles,
+      //   default via the same kill switch). Per-cycle proposerUserPrompt is rebuilt from
+      //   the running text — cycle 2+ MUST see the post-cycle-1 article as <source>,
+      //   otherwise parseProposedEdits' RULE-1 outside-markup-fidelity check drops every
+      //   group. driftRecovery: 'skip' (the assembled article is the source of truth).
+      //   Mode A only — no rewriteMode passed, so coalesceAdjacentGroups +
+      //   capGroupsByMagnitude are skipped (intentional: no edit-count cap).
       const proposerModel = input.coherencePassProposerModel ?? rewriteModel;
       const approverModel = input.coherencePassApproverModel ?? judgeModel;
       const coherenceLogger = ctx.logger.child?.('coherence_pass') ?? ctx.logger;
-      // Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 2a:
-      // - redundancyJaccardThreshold dropped (lexical, blocks intentional repetition like
-      //   rhetorical callbacks; pre-approver filter that kills edits the LLM never sees).
-      // - flowGuardrailEnabled dropped (transition-word preservation gets in the way of
-      //   voice repair; approver LLM is the actual quality gate).
-      // lengthCapRatio stays as the only validator-side constraint (Phase 3 wires it dynamic).
-      const cycleResult = await runEditingCycle({
-        text: recombinedText,
-        llm,
-        costScope: invocationScope,
-        perInvocationBudgetUsd: effectiveCapUsd,
-        cycleNumber: 1,
-        proposerLabel: 'coherence_pass_propose',
-        approverLabel: 'coherence_pass_review',
-        models: { editing: proposerModel, approver: approverModel },
-        validateOpts: {
-          lengthCapRatio: 1.02,
-        },
-        driftRecovery: 'skip',
-        proposerSystemPrompt: buildCoherencePassProposerSystemPrompt(),
-        proposerUserPrompt: buildCoherencePassProposerUserPrompt(recombinedText),
-      });
-      finalText = cycleResult.newText;
-      // Silent-rejection observability: approver returned > 0 groups but apply count == 0.
-      const silentRejection =
-        cycleResult.cycle.approverGroups.length > 0 && cycleResult.cycle.appliedGroups.length === 0;
-      if (silentRejection) {
-        coherenceLogger.warn?.('coherence pass produced approverGroups but appliedCount=0 — silent-rejection signal', {
+      const killSwitchDefaults = resolveCoherencePassDefaults();
+      const effectiveLengthCapRatio = input.coherencePassLengthCapRatio ?? killSwitchDefaults.lengthCapRatio;
+      const maxCycles = input.coherencePassMaxCycles ?? killSwitchDefaults.maxCycles;
+
+      const cycles = [];
+      let currentText = recombinedText;
+      let silentRejectionCount = 0;
+
+      for (let cycleNumber = 1; cycleNumber <= maxCycles; cycleNumber++) {
+        const cycleResult = await runEditingCycle({
+          text: currentText,
+          llm,
+          costScope: invocationScope,
+          perInvocationBudgetUsd: effectiveCapUsd,
+          cycleNumber,
+          proposerLabel: 'coherence_pass_propose',
+          approverLabel: 'coherence_pass_review',
+          models: { editing: proposerModel, approver: approverModel },
+          validateOpts: { lengthCapRatio: effectiveLengthCapRatio },
+          driftRecovery: 'skip',
+          proposerSystemPrompt: buildCoherencePassProposerSystemPrompt(),
+          // CRITICAL: rebuild the user prompt from currentText each iteration.
+          // If we pinned the cycle-1 recombined text, cycle 2's proposer would
+          // emit CriticMarkup against the STALE <source> and parseProposedEdits
+          // (which validates against currentText) would drop most groups via
+          // RULE 1 (outside-markup fidelity).
+          proposerUserPrompt: buildCoherencePassProposerUserPrompt(currentText),
+        });
+
+        cycles.push(cycleResult.cycle);
+
+        // Per-cycle silent-rejection: accumulated count, single writeMetricMax at end.
+        const silentThisCycle =
+          cycleResult.cycle.approverGroups.length > 0
+          && cycleResult.cycle.appliedGroups.length === 0;
+        if (silentThisCycle) silentRejectionCount += 1;
+
+        currentText = cycleResult.newText;
+
+        // Per runEditingCycle.ts:549, every appliedAny:false path sets a stopReason.
+        // So stopReason subsumes appliedAny; this is the tighter termination check.
+        if (cycleResult.stopReason) break;
+      }
+      finalText = currentText;
+
+      if (silentRejectionCount > 0) {
+        coherenceLogger.warn?.('coherence pass had silent-rejection cycles', {
           phaseName: 'paragraph_recombine_with_coherence_pass',
-          approverGroupCount: cycleResult.cycle.approverGroups.length,
+          silentRejectionCount,
         });
         if (ctx.db && ctx.runId) {
           try {
-            await writeMetricMax(ctx.db, 'run', ctx.runId, 'coherence_pass_silent_rejection_count' as MetricName, 1, 'during_execution');
+            await writeMetricMax(ctx.db, 'run', ctx.runId, 'coherence_pass_silent_rejection_count' as MetricName, silentRejectionCount, 'during_execution');
           } catch { /* non-fatal */ }
         }
       }
+
       coherencePass = {
-        cycles: [cycleResult.cycle],
+        cycles,
         config: {
           proposerModel,
           approverModel,
-          lengthCapRatio: 1.02,
+          lengthCapRatio: effectiveLengthCapRatio,
         },
-        ...(silentRejection && { silentRejection }),
+        ...(silentRejectionCount > 0 && { silentRejection: true }),
       };
+
       // Run-level cost rollup for the coherence-pass umbrella.
       if (ctx.db && ctx.runId) {
         const phases = invocationScope.getPhaseCosts();

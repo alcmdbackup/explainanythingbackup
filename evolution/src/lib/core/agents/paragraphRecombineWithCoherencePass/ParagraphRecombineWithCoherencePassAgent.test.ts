@@ -64,21 +64,22 @@ const mockedRunEditingCycle = runEditingCycle as jest.MockedFunction<typeof runE
 
 // ─── Test scaffolding ──────────────────────────────────────────────
 
-/** Fixture article — enough paragraphs to exercise the slot pipeline. */
+/** Fixture article — enough paragraphs to exercise the slot pipeline.
+ *  Each paragraph has ≥2 sentences to satisfy validateFormat's paragraph-density rule. */
 export const FIXTURE_ARTICLE = [
   '# The Federal Reserve',
   '',
   '## How the Fed Came to Be',
   '',
-  'Before 1913, sudden bank runs could cripple livelihoods overnight. The Panic of 1907 revealed the fragility of the system.',
+  'Before 1913, sudden bank runs could cripple livelihoods overnight. The Panic of 1907 revealed the fragility of the system. Banks could collapse without warning.',
   '',
-  'President Wilson signed the Federal Reserve Act in 1913, creating a decentralized central bank.',
+  'President Wilson signed the Federal Reserve Act in 1913, creating a decentralized central bank. The goal was to weave a stronger financial fabric for the country. Twelve regional banks were established under a national board.',
   '',
   '## How the Fed Operates',
   '',
-  'The Fed has a dual mandate: maximum employment and stable prices.',
+  'The Fed has a dual mandate: maximum employment and stable prices. These goals sometimes pull against each other. Balancing them requires careful judgment from the FOMC.',
   '',
-  'Its primary tools are interest rates, reserve requirements, and open-market operations.',
+  'Its primary tools are interest rates, reserve requirements, and open-market operations. Together these levers shape the cost of credit across the economy. Each tool has trade-offs that policymakers weigh carefully.',
 ].join('\n');
 
 /** Default cycle result the runEditingCycle mock returns when not overridden. */
@@ -268,8 +269,217 @@ describe('ParagraphRecombineWithCoherencePassAgent', () => {
     });
   });
 
-  // Tests for Phase 3 (lengthCapRatio plumbing) and Phase 4 (multi-cycle loop
-  // + per-cycle proposerUserPrompt rebuild + cycle-2-throws + zod range boundaries
-  // + kill switch env-var) are added in those phases of
-  // investigate_paragraph_recombine_coherence_pass_performance_20260623.
+  describe('Phase 3 — coherencePassLengthCapRatio plumbing + kill switch', () => {
+    it('validateOpts.lengthCapRatio uses input.coherencePassLengthCapRatio when set', async () => {
+      mockedRunEditingCycle.mockResolvedValueOnce(makeCycleResult({
+        newText: FIXTURE_ARTICLE,
+        appliedAny: false,
+        stopReason: 'no_edits_proposed',
+      }));
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      await agent.execute(makeInput({ coherencePassLengthCapRatio: 1.20 }), makeCtx());
+
+      if (mockedRunEditingCycle.mock.calls.length > 0) {
+        const args = mockedRunEditingCycle.mock.calls[0]![0];
+        expect(args.validateOpts!.lengthCapRatio).toBe(1.20);
+      }
+    });
+
+    it('validateOpts.lengthCapRatio defaults to 1.10 (new default) when input undefined', async () => {
+      // Ensure kill switch is in V2 (default) mode for this test.
+      const original = process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2;
+      delete process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2;
+      try {
+        mockedRunEditingCycle.mockResolvedValueOnce(makeCycleResult({
+          newText: FIXTURE_ARTICLE,
+          appliedAny: false,
+          stopReason: 'no_edits_proposed',
+        }));
+        const agent = new ParagraphRecombineWithCoherencePassAgent();
+        await agent.execute(makeInput(), makeCtx());
+
+        if (mockedRunEditingCycle.mock.calls.length > 0) {
+          const args = mockedRunEditingCycle.mock.calls[0]![0];
+          expect(args.validateOpts!.lengthCapRatio).toBe(1.10);
+        }
+      } finally {
+        if (original === undefined) delete process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2;
+        else process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2 = original;
+      }
+    });
+
+    it('kill switch: EVOLUTION_COHERENCE_PASS_DEFAULTS_V2=false flips defaults to legacy (1.02, 1)', async () => {
+      // Pattern mirrors IterativeEditingAgent.test.ts:143-163 (save + restore in finally).
+      const original = process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2;
+      process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2 = 'false';
+      try {
+        mockedRunEditingCycle.mockResolvedValueOnce(makeCycleResult({
+          newText: FIXTURE_ARTICLE,
+          appliedAny: false,
+          stopReason: 'no_edits_proposed',
+        }));
+        const agent = new ParagraphRecombineWithCoherencePassAgent();
+        await agent.execute(makeInput(), makeCtx());
+
+        if (mockedRunEditingCycle.mock.calls.length > 0) {
+          const args = mockedRunEditingCycle.mock.calls[0]![0];
+          expect(args.validateOpts!.lengthCapRatio).toBe(1.02);
+        }
+        // Only 1 cycle when kill switch flips maxCycles default to 1.
+        expect(mockedRunEditingCycle).toHaveBeenCalledTimes(1);
+      } finally {
+        if (original === undefined) delete process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2;
+        else process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2 = original;
+      }
+    });
+  });
+
+  describe('Phase 4 — multi-cycle loop', () => {
+    it('runs N cycles when each applies edits and maxCycles=3', async () => {
+      const acceptedCycle = makeCycleResult({
+        newText: FIXTURE_ARTICLE.replace('Federal Reserve', 'Fed'),
+        appliedAny: true,
+        cycle: {
+          cycleNumber: 1,
+          proposedMarkup: '',
+          proposedGroupsRaw: [],
+          droppedPreApprover: [],
+          approverGroups: [{ groupNumber: 1, atomicEdits: [] } as never],
+          reviewDecisions: [],
+          droppedPostApprover: [],
+          appliedGroups: [{ groupNumber: 1, atomicEdits: [] } as never],
+          acceptedCount: 1,
+          rejectedCount: 0,
+          appliedCount: 1,
+          formatValid: true,
+          parentText: FIXTURE_ARTICLE,
+          proposeCostUsd: 0.0001,
+          approveCostUsd: 0.0001,
+          sizeRatio: 1.0,
+        },
+      });
+      mockedRunEditingCycle
+        .mockResolvedValueOnce(acceptedCycle)
+        .mockResolvedValueOnce(acceptedCycle)
+        .mockResolvedValueOnce(acceptedCycle);
+
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      const result = await agent.execute(makeInput({ coherencePassMaxCycles: 3 }), makeCtx());
+
+      expect(mockedRunEditingCycle).toHaveBeenCalledTimes(3);
+      if (result.detail.coherencePass && 'cycles' in result.detail.coherencePass) {
+        expect(result.detail.coherencePass.cycles.length).toBe(3);
+      }
+    });
+
+    it('exits early on stopReason (no_edits_proposed in cycle 1)', async () => {
+      mockedRunEditingCycle.mockResolvedValueOnce(makeCycleResult({
+        newText: FIXTURE_ARTICLE,
+        appliedAny: false,
+        stopReason: 'no_edits_proposed',
+      }));
+
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      const result = await agent.execute(makeInput({ coherencePassMaxCycles: 3 }), makeCtx());
+
+      expect(mockedRunEditingCycle).toHaveBeenCalledTimes(1);
+      if (result.detail.coherencePass && 'cycles' in result.detail.coherencePass) {
+        expect(result.detail.coherencePass.cycles.length).toBe(1);
+      }
+    });
+
+    it('per-cycle proposerUserPrompt is rebuilt from running text (Security reviewer fix)', async () => {
+      const cycle1Out = FIXTURE_ARTICLE.replace('1913', '1914');
+      mockedRunEditingCycle
+        .mockResolvedValueOnce(makeCycleResult({
+          newText: cycle1Out,
+          appliedAny: true,
+          cycle: {
+            cycleNumber: 1,
+            proposedMarkup: '',
+            proposedGroupsRaw: [],
+            droppedPreApprover: [],
+            approverGroups: [{ groupNumber: 1, atomicEdits: [] } as never],
+            reviewDecisions: [],
+            droppedPostApprover: [],
+            appliedGroups: [{ groupNumber: 1, atomicEdits: [] } as never],
+            acceptedCount: 1,
+            rejectedCount: 0,
+            appliedCount: 1,
+            formatValid: true,
+            parentText: FIXTURE_ARTICLE,
+            proposeCostUsd: 0.0001,
+            approveCostUsd: 0.0001,
+            sizeRatio: 1.0,
+          },
+        }))
+        .mockResolvedValueOnce(makeCycleResult({
+          newText: cycle1Out,
+          appliedAny: false,
+          stopReason: 'no_edits_proposed',
+        }));
+
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      await agent.execute(makeInput({ coherencePassMaxCycles: 2 }), makeCtx());
+
+      expect(mockedRunEditingCycle).toHaveBeenCalledTimes(2);
+      const call1Prompt = mockedRunEditingCycle.mock.calls[0]![0].proposerUserPrompt;
+      const call2Prompt = mockedRunEditingCycle.mock.calls[1]![0].proposerUserPrompt;
+      // Cycle 1's source was the original recombined text (which here equals the parent
+      // since slots all fall back to original under mocks).
+      // Cycle 2's source must be cycle 1's modified output (1914), not the original (1913).
+      expect(call1Prompt).toContain('1913');
+      expect(call2Prompt).toContain('1914');
+    });
+
+    it('cycle-2 throws → cycle 1 survives in cycles[], throw propagates', async () => {
+      const acceptedCycle = makeCycleResult({
+        newText: FIXTURE_ARTICLE,
+        appliedAny: true,
+        cycle: {
+          cycleNumber: 1,
+          proposedMarkup: '',
+          proposedGroupsRaw: [],
+          droppedPreApprover: [],
+          approverGroups: [{ groupNumber: 1, atomicEdits: [] } as never],
+          reviewDecisions: [],
+          droppedPostApprover: [],
+          appliedGroups: [{ groupNumber: 1, atomicEdits: [] } as never],
+          acceptedCount: 1,
+          rejectedCount: 0,
+          appliedCount: 1,
+          formatValid: true,
+          parentText: FIXTURE_ARTICLE,
+          proposeCostUsd: 0.0001,
+          approveCostUsd: 0.0001,
+          sizeRatio: 1.0,
+        },
+      });
+      mockedRunEditingCycle
+        .mockResolvedValueOnce(acceptedCycle)
+        .mockRejectedValueOnce(new Error('parser crash'));
+
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      await expect(agent.execute(makeInput({ coherencePassMaxCycles: 3 }), makeCtx()))
+        .rejects.toThrow('parser crash');
+      expect(mockedRunEditingCycle).toHaveBeenCalledTimes(2);
+    });
+
+    it('Mode A invariant — runEditingCycle is NEVER called with rewriteMode (no Mode B coalesce/cap)', async () => {
+      mockedRunEditingCycle.mockResolvedValueOnce(makeCycleResult({
+        newText: FIXTURE_ARTICLE,
+        appliedAny: false,
+        stopReason: 'no_edits_proposed',
+      }));
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      await agent.execute(makeInput(), makeCtx());
+
+      if (mockedRunEditingCycle.mock.calls.length > 0) {
+        const args = mockedRunEditingCycle.mock.calls[0]![0];
+        // Mode A: no rewriteMode option means coalesceAdjacentGroups + capGroupsByMagnitude
+        // are both skipped by runEditingCycle. This is the "no caps, no coalescing" invariant.
+        expect(args.rewriteMode).toBeUndefined();
+      }
+    });
+  });
 });

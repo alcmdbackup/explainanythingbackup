@@ -104,6 +104,10 @@ interface IterationRow {
   coherencePassApproverModel?: string;
   coherencePassRewriteTempFloor?: number;
   coherencePassRewriteTempCeiling?: number;
+  /** investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3. */
+  coherencePassLengthCapRatio?: number;
+  /** investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 4. */
+  coherencePassMaxCycles?: number;
 }
 
 // Paragraph_recombine wizard defaults — match agent constants.
@@ -130,6 +134,11 @@ const COHERENCE_PASS_DEFAULTS = {
   // $0.05 when false (same as plain paragraph_recombine).
   perInvocationCapUsdWithCoherence: 0.10,
   perInvocationCapUsdWithoutCoherence: 0.05,
+  // investigate_paragraph_recombine_coherence_pass_performance_20260623 — new defaults.
+  // These mirror the agent's runtime defaults from resolveCoherencePassDefaults() when
+  // EVOLUTION_COHERENCE_PASS_DEFAULTS_V2 is unset or 'true'.
+  coherencePassLengthCapRatio: 1.10,
+  coherencePassMaxCycles: 2,
 } as const;
 
 // Default cutoff applied when user switches a generate iteration to sourceMode='pool'.
@@ -355,6 +364,13 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
       : {}),
     ...(it.agentType === 'paragraph_recombine_with_coherence_pass' && it.coherencePassRewriteTempCeiling != null && it.coherencePassRewriteTempCeiling !== COHERENCE_PASS_DEFAULTS.coherencePassRewriteTempCeiling
       ? { coherencePassRewriteTempCeiling: it.coherencePassRewriteTempCeiling }
+      : {}),
+    // investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3 + Phase 4.
+    ...(it.agentType === 'paragraph_recombine_with_coherence_pass' && it.coherencePassLengthCapRatio != null && it.coherencePassLengthCapRatio !== COHERENCE_PASS_DEFAULTS.coherencePassLengthCapRatio
+      ? { coherencePassLengthCapRatio: it.coherencePassLengthCapRatio }
+      : {}),
+    ...(it.agentType === 'paragraph_recombine_with_coherence_pass' && it.coherencePassMaxCycles != null && it.coherencePassMaxCycles !== COHERENCE_PASS_DEFAULTS.coherencePassMaxCycles
+      ? { coherencePassMaxCycles: it.coherencePassMaxCycles }
       : {}),
     // meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6:
     // Mode B (iterative_editing_rewrite) only. Both fields are stripped pre-hash
@@ -1999,6 +2015,39 @@ export default function NewStrategyPage(): JSX.Element {
                           className="w-16 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none disabled:opacity-50"
                           data-testid={`coherence-pass-rewrite-temp-ceiling-${idx}`}
                           title="Upper bound of the per-rewrite temperature ladder (RESTRUCTURE directive). Default 1.0. Must be >= floor."
+                        />
+                        {/* investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3 + Phase 4 */}
+                        <span className={`ml-2 ${it.coherencePassEnabled === false ? 'opacity-50' : ''} text-[var(--text-primary)]`}>· Length cap:</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min={1.0}
+                          max={2.0}
+                          value={it.coherencePassLengthCapRatio ?? COHERENCE_PASS_DEFAULTS.coherencePassLengthCapRatio}
+                          disabled={it.coherencePassEnabled === false}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Math.max(1.0, Math.min(2.0, Number(e.target.value)));
+                            updateIteration(idx, { coherencePassLengthCapRatio: v });
+                          }}
+                          className="w-16 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none disabled:opacity-50"
+                          data-testid={`coherence-pass-length-cap-ratio-${idx}`}
+                          title="Per-cycle article-growth ceiling for the coherence pass. Default 1.10 (10%). Range 1.0–2.0. NOTE: with maxCycles > 1 the cap COMPOUNDS — e.g. 1.10 × 2 cycles = up to 1.21× original length."
+                        />
+                        <span className={`ml-2 ${it.coherencePassEnabled === false ? 'opacity-50' : ''} text-[var(--text-primary)]`}>· Max cycles:</span>
+                        <input
+                          type="number"
+                          step="1"
+                          min={1}
+                          max={5}
+                          value={it.coherencePassMaxCycles ?? COHERENCE_PASS_DEFAULTS.coherencePassMaxCycles}
+                          disabled={it.coherencePassEnabled === false}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Math.max(1, Math.min(5, Math.round(Number(e.target.value))));
+                            updateIteration(idx, { coherencePassMaxCycles: v });
+                          }}
+                          className="w-16 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none disabled:opacity-50"
+                          data-testid={`coherence-pass-max-cycles-${idx}`}
+                          title="Maximum number of propose-approve-apply cycles in the coherence pass. Default 2. Range 1–5. Each cycle rebuilds the proposer prompt from the running text; loop exits early on no-more-edits or budget."
                         />
                       </div>
                     )}

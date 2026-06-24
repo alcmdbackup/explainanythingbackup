@@ -891,6 +891,16 @@ export const iterationConfigSchema = z.object({
   coherencePassRewriteTempFloor: z.number().min(0).max(2).optional(),
   /** Upper bound of the per-rewrite temperature ladder. Default 1.0. Refine: ceiling >= floor. */
   coherencePassRewriteTempCeiling: z.number().min(0).max(2).optional(),
+  /** Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3.
+   *  Maximum article-growth ratio the coherence-pass propose/approve cycle is allowed.
+   *  Default 1.10 (10%). Range 1.0–2.0. Only valid when
+   *  agentType === 'paragraph_recombine_with_coherence_pass'. */
+  coherencePassLengthCapRatio: z.number().min(1.0).max(2.0).optional(),
+  /** Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 4.
+   *  Maximum number of propose-approve-apply cycles in the coherence pass.
+   *  Default 2. Range 1–5. Only valid when
+   *  agentType === 'paragraph_recombine_with_coherence_pass'. */
+  coherencePassMaxCycles: z.number().int().min(1).max(5).optional(),
 }).refine(
   // sourceMode is for parent-article selection in variant-producing iterations.
   // Debate selects parents internally (top-2 from pool snapshot per Decision §16) so
@@ -1025,6 +1035,14 @@ export const iterationConfigSchema = z.object({
     || c.coherencePassRewriteTempFloor === undefined
     || c.coherencePassRewriteTempCeiling >= c.coherencePassRewriteTempFloor,
   { message: 'coherencePassRewriteTempCeiling must be >= coherencePassRewriteTempFloor', path: ['coherencePassRewriteTempCeiling'] },
+).refine(
+  // investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3.
+  (c) => c.agentType === 'paragraph_recombine_with_coherence_pass' || c.coherencePassLengthCapRatio === undefined,
+  { message: 'coherencePassLengthCapRatio only valid when agentType is paragraph_recombine_with_coherence_pass' },
+).refine(
+  // investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 4.
+  (c) => c.agentType === 'paragraph_recombine_with_coherence_pass' || c.coherencePassMaxCycles === undefined,
+  { message: 'coherencePassMaxCycles only valid when agentType is paragraph_recombine_with_coherence_pass' },
 );
 
 export type IterationConfig = z.infer<typeof iterationConfigSchema>;

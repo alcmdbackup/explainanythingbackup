@@ -1760,6 +1760,94 @@ describe('iterationConfigSchema — new criteria-based agents (updated_criteria_
     })).toThrow(/lengthCapRatio only valid when agentType is proposer_approver_criteria_generate/);
   });
 
+  // Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3.
+  it('accepts coherencePassLengthCapRatio at the range boundaries (1.0 and 2.0)', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassLengthCapRatio: 1.0,
+    })).not.toThrow();
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassLengthCapRatio: 2.0,
+    })).not.toThrow();
+  });
+
+  it('rejects coherencePassLengthCapRatio outside [1.0, 2.0]', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassLengthCapRatio: 0.99,
+    })).toThrow();
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassLengthCapRatio: 2.01,
+    })).toThrow();
+  });
+
+  it('rejects coherencePassLengthCapRatio on non-coherence-pass agent type', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine',
+      budgetPercent: 100,
+      sourceMode: 'seed',
+      coherencePassLengthCapRatio: 1.10,
+    })).toThrow(/coherencePassLengthCapRatio only valid/);
+  });
+
+  // Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 4.
+  it('accepts coherencePassMaxCycles at the range boundaries (1 and 5)', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassMaxCycles: 1,
+    })).not.toThrow();
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassMaxCycles: 5,
+    })).not.toThrow();
+  });
+
+  it('rejects coherencePassMaxCycles outside [1, 5]', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassMaxCycles: 0,
+    })).toThrow();
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassMaxCycles: 6,
+    })).toThrow();
+  });
+
+  it('rejects coherencePassMaxCycles on non-coherence-pass agent type', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine',
+      budgetPercent: 100,
+      sourceMode: 'seed',
+      coherencePassMaxCycles: 2,
+    })).toThrow(/coherencePassMaxCycles only valid/);
+  });
+
   it('rejects includesMirrorApprover on non-proposer_approver agent type', () => {
     expect(() => iterationConfigSchema.parse({
       agentType: 'single_pass_evaluate_criteria_and_generate',
