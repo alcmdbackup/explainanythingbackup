@@ -250,14 +250,25 @@ async function globalTeardown() {
     const testExperimentIds = (testExperiments.data ?? []).map(e => e.id as string);
     const testPromptIds = (testPrompts.data ?? []).map(p => p.id as string);
 
-    // Find test run IDs by strategy_id or experiment_id
+    // Find test run IDs by strategy_id or experiment_id.
+    // ACTIVE-RUN-AWARE (fix_test_isolation_issues_20260622): exclude runs still in flight
+    // (pending/claimed/running). Deleting a run whose pipeline is mid-persist on a PARALLEL worker
+    // caused the intermittent `evolution_variants_run_id_fkey` violation (the FK is RESTRICT). This
+    // exclusion is best-effort (a TOCTOU window remains); the seed-persist guard in
+    // claimAndExecuteRun.ts is the authoritative backstop. Applied at the id-collection step so the
+    // single id list used for BOTH child and run deletes already omits active runs.
+    const ACTIVE_RUN_STATUSES = '(pending,claimed,running)';
     const testRunIds: string[] = [];
     if (testStrategyIds.length > 0) {
-      const { data: runs } = await supabase.from('evolution_runs').select('id').in('strategy_id', testStrategyIds);
+      const { data: runs } = await supabase
+        .from('evolution_runs').select('id').in('strategy_id', testStrategyIds)
+        .not('status', 'in', ACTIVE_RUN_STATUSES);
       testRunIds.push(...(runs ?? []).map(r => r.id as string));
     }
     if (testExperimentIds.length > 0) {
-      const { data: runs } = await supabase.from('evolution_runs').select('id').in('experiment_id', testExperimentIds);
+      const { data: runs } = await supabase
+        .from('evolution_runs').select('id').in('experiment_id', testExperimentIds)
+        .not('status', 'in', ACTIVE_RUN_STATUSES);
       for (const r of runs ?? []) {
         if (!testRunIds.includes(r.id as string)) testRunIds.push(r.id as string);
       }

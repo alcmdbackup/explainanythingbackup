@@ -1,0 +1,14 @@
+{
+  "branch": "feat/fix_test_isolation_issues_20260622",
+  "created_at": "2026-06-23T01:00:00Z",
+  "prerequisites": {
+    "testing_overview_read": "2026-06-23T03:38:29Z",
+    "todos_created": "2026-06-23T04:01:28Z"
+  },
+  "relevantDocs": [
+    "docs/feature_deep_dives/testing_pipeline.md",
+    "evolution/docs/architecture.md",
+    "evolution/docs/data_model.md"
+  ],
+  "analyses": []
+}

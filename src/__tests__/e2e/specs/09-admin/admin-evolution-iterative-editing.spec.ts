@@ -56,11 +56,15 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
           editingModel: 'deepseek-v4-flash',
           approverModel: 'deepseek-v4-flash',
           driftRecoveryModel: 'deepseek-v4-flash',
+          // Budget split favors the editing iteration so its inline ranking reliably ranks every
+          // editing-born variant (mu != 25). A generate-heavy split over-produced variants and let the
+          // editing-rank exhaust its budget under shared-DB CI concurrency, leaving editing variants
+          // unranked (the :262 flake). See fix_test_isolation_issues_20260622.
           iterationConfigs: [
-            { agentType: 'generate', budgetPercent: 50 },
+            { agentType: 'generate', budgetPercent: 20 },
             {
               agentType: 'iterative_editing',
-              budgetPercent: 30,
+              budgetPercent: 60,
               editingMaxCycles: 1,
               editingEligibilityCutoff: { mode: 'topN', value: 3 },
             },

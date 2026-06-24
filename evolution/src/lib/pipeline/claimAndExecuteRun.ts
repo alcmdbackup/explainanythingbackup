@@ -16,6 +16,8 @@ import { CreateSeedArticleAgent } from '../core/agents/createSeedArticle';
 import { deepCloneRatings } from '../core/agents/generateFromPreviousArticle';
 import { createCostTracker } from './infra/trackBudget';
 import { createEvolutionLLMClient } from './infra/createEvolutionLLMClient';
+import { persistSeedVariantRow } from './persistSeedVariant';
+import { evolutionE2EMockResponse } from './infra/e2eTestLlm';
 import { hydrateCalibrationCache, isCalibrationEnabled } from './infra/costCalibrationLoader';
 import { deriveSeed } from '../shared/seededRandom';
 import { createRating, ratingToDb } from '../shared/computeRatings';
@@ -200,6 +202,17 @@ export async function claimAndExecuteRun(
         label: AgentName,
         opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high'; invocationId?: string },
       ): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number; cachedPromptTokens?: number } }> {
+        // E2E_TEST_MODE (fix_test_isolation_issues_20260622): return a deterministic, LLM-free
+        // response so evolution E2E/integration specs run the real pipeline with zero real-AI.
+        // Synthetic non-zero usage keeps createEvolutionLLMClient's cost tracking (and the
+        // iterative_edit_cost / ranking.cost metrics) > 0. Disabled (returns null) outside E2E mode.
+        const e2eMock = evolutionE2EMockResponse(prompt, label);
+        if (e2eMock !== null) {
+          return {
+            text: e2eMock,
+            usage: { promptTokens: Math.max(1, Math.ceil(prompt.length / 4)), completionTokens: Math.max(1, Math.ceil(e2eMock.length / 4)) },
+          };
+        }
         let capturedUsage: { promptTokens: number; completionTokens: number; reasoningTokens?: number; cachedPromptTokens?: number } | null = null;
         const text = await callLLM(
           prompt,
@@ -404,33 +417,13 @@ async function executePipeline(
       prompt_id: claimedRun.prompt_id ?? null,
       persisted: true,
     });
-    // B008: retry the seed variant upsert with exponential backoff. Downstream code
-    // (syncToArena, subsequent-run seed-reuse) assumes the seed row exists in DB; a
-    // silently-failed upsert caused the next run for the same prompt to regenerate a
-    // fresh seed instead of reusing this one. On permanent failure, fail the run.
-    let seedInsertError: { message: string } | null = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const { error } = await db
-        .from('evolution_variants')
-        .upsert({ ...seedRow, synced_to_arena: true, generation_method: 'seed' }, { onConflict: 'id' });
-      if (!error) { seedInsertError = null; break; }
-      seedInsertError = error;
-      runLogger.warn('Seed variant persist failed (will retry)', {
-        phaseName: 'seed_generation', attempt, error: error.message.slice(0, 500),
-      });
-      // Exponential backoff: 200ms, 800ms.
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 200 * Math.pow(4, attempt)));
-    }
-    if (seedInsertError) {
-      runLogger.error('Seed variant persist failed after 3 attempts — marking run failed', {
-        phaseName: 'seed_generation', error: seedInsertError.message.slice(0, 500),
-      });
-      await db.from('evolution_runs').update({
-        status: 'failed',
-        error_message: `seed_variant_persist_failed: ${seedInsertError.message.slice(0, 500)}`,
-      }).eq('id', runId);
-      throw new Error(`Seed variant persist failed after retries: ${seedInsertError.message}`);
-    }
+    // B008: persist the seed variant with bounded retry — downstream code (syncToArena,
+    // subsequent-run seed-reuse) assumes the seed row exists in DB. On permanent failure,
+    // persistSeedVariantRow distinguishes a benign concurrent run-deletion (a parallel test's
+    // teardown deleting the run mid-persist → RunDeletedDuringExecutionError, graceful abort) from a
+    // real fault (run still exists → rethrow). Either throw is caught by the outer catch, which
+    // classifies it and marks the run via markRunFailed (a no-op if the run is already gone).
+    await persistSeedVariantRow(db, runId, seedRow as Record<string, unknown>, runLogger);
 
     runLogger.info('Seed variant generated and persisted in pre-iteration setup', {
       seedVariantId: seedVariant.id, textLength: seedVariant.text.length,

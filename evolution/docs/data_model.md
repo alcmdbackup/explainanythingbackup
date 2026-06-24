@@ -850,3 +850,17 @@ Threads each surfaced/discarded variant back to the agent invocation that produc
 The Postgres RPC `get_variant_full_chain(variant_id UUID)` (migration `20260418000002_variants_get_full_chain_rpc.sql`) walks `parent_variant_id` up to the root. Uses `WITH RECURSIVE` + array-path cycle detection + 20-hop cap (matches `iterationConfigs.max`). Returns rows ordered root-first.
 
 An index on `evolution_variants(parent_variant_id)` (migration `20260418000001`) keeps the walk fast.
+
+## FK + RPC contracts (test-isolation notes)
+
+`evolution_variants.run_id` references `evolution_runs(id)` with **RESTRICT** (NO ACTION) — there is no
+`ON DELETE CASCADE`. Deleting a run while its pipeline is still persisting variants therefore throws
+`evolution_variants_run_id_fkey`; the seed-variant persist guard (`persistSeedVariant.ts`) treats a
+vanished run as a benign concurrent deletion (graceful `RunDeletedDuringExecutionError`) and a still-present
+run as a real fault (rethrow). Changing the FK to CASCADE is intentionally out of scope.
+
+`get_llm_spend_buckets(p_granularity, p_start, p_end, p_include_test)` aggregates `llmCallTracking` over a
+window. **Bounded-range contract:** callers MUST pass a narrow `[p_start, p_end)`. An unbounded range over
+the shared DB returns thousands of grouped rows and is silently truncated by the PostgREST row cap (the RPC
+has no `ORDER BY` to make truncation deterministic, and `ORDER BY` would not prevent it). The admin
+dashboard and the `evolution-llm-cost-attribution` test both query narrow windows (#1258).

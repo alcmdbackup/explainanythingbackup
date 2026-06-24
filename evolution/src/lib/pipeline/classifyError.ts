@@ -3,6 +3,7 @@
 // evolution_runs.error_code column for admin-UI filtering and incident triage.
 
 import { BudgetExceededError, BudgetExceededWithPartialResults } from '../types';
+import { RunDeletedDuringExecutionError } from './persistSeedVariant';
 
 export type RunErrorCode =
   // Setup failures (before any work)
@@ -27,6 +28,9 @@ export type RunErrorCode =
   | 'invocation_row_write_failed'
   | 'llm_tracking_write_failed'
   | 'dispatcher_unhandled_error'
+  | 'seed_variant_persist_failed'
+  // Benign concurrency: the run row was deleted (e.g. a parallel test's teardown) mid-persist.
+  | 'run_deleted_during_execution'
 
   // External / infrastructure
   | 'killed_externally'
@@ -44,6 +48,9 @@ export function classifyError(
   error: unknown,
   phase?: 'setup' | 'generate' | 'swiss' | 'merge' | 'finalize',
 ): RunErrorCode {
+  // Benign concurrent run-deletion (typed) — check before the generic Error branch.
+  if (error instanceof RunDeletedDuringExecutionError) return 'run_deleted_during_execution';
+
   // BudgetExceededWithPartialResults extends BudgetExceededError — check first.
   if (error instanceof BudgetExceededWithPartialResults || error instanceof BudgetExceededError) {
     if (phase === 'generate') return 'budget_exceeded_during_generate';
@@ -71,6 +78,12 @@ export function classifyError(
     }
     if (msg.includes('seed article') || msg.includes('missing seed')) {
       return 'missing_seed_article';
+    }
+    if (msg.includes('run deleted during execution')) {
+      return 'run_deleted_during_execution';
+    }
+    if (msg.includes('seed variant persist failed')) {
+      return 'seed_variant_persist_failed';
     }
     if (msg.includes('invalid') && msg.includes('config')) {
       return 'invalid_config';

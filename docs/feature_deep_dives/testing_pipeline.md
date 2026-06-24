@@ -167,3 +167,21 @@ All functions are wrapped with `withLogging` for automatic:
 - Entry/exit logging with timing
 - Error capture and logging
 - Debug visibility in server logs
+
+## Evolution test isolation (shared dev DB)
+
+CI runs `integration-evolution` and `e2e-evolution` in parallel against the SAME dev Supabase, so
+evolution tests must not assume exclusive ownership of rows they read or clean up
+(`fix_test_isolation_issues_20260622`):
+
+- **Cleanup must not delete active runs.** `global-teardown.ts` deletes evolution rows by
+  `%[TEST]%`/`%[E2E]%` name pattern, but EXCLUDES runs still `pending`/`claimed`/`running` — deleting a
+  run whose pipeline is mid-persist on a parallel worker caused the intermittent
+  `evolution_variants_run_id_fkey` violation (the FK is RESTRICT). Prefer `trackEvolutionId` so the
+  tracked-id sweep covers your rows; the name-pattern delete is the defensive fallback.
+- **Don't depend on a live real-AI generation.** Set `E2E_TEST_MODE=true` and the evolution pipeline
+  runs deterministically with no provider calls (`evolution/src/lib/pipeline/infra/e2eTestLlm.ts`):
+  generation → format-valid article with a `# [E2E] Variant N` score; proposer → CriticMarkup echo of
+  the working source + one insert; approver → JSONL accept; ranking → winner by variant score. The
+  `evolution-e2e-test-llm-pipeline.integration.test.ts` drives the real `claimAndExecuteRun` this way as
+  a CI-independent proxy for the iterative-editing E2E spec.
