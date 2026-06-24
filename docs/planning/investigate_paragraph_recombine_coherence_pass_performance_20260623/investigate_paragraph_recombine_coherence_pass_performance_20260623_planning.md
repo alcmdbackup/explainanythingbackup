@@ -120,7 +120,7 @@ Post-flight (both greps):
   - [ ] Add validation refine: only valid when `agentType === 'paragraph_recombine_with_coherence_pass'`. (No separate `IterationConfig` interface update needed — it's `z.infer<typeof iterationConfigSchema>`.)
 - [ ] `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts`
   - [ ] Add `coherencePassLengthCapRatio` to `FIELD_GATES` (lines 88-93) mirroring `coherencePassRewriteTempFloor` — emits the field through `canonicalizeIterationConfig` only when set, agentType-gated.
-  - [ ] Add a runtime default in `normalizeIteration` so undefined consumers always resolve to 1.10 (consistent with the agent's resolution).
+  - [ ] **No** runtime default added in `normalizeIteration`. The FIELD_GATE emits the field ONLY when explicitly set, so existing strategies (config omits the field) keep their existing `config_hash`. Default resolution happens at the agent (`DEFAULT_COHERENCE_PASS_LENGTH_CAP_RATIO ?? input.coherencePassLengthCapRatio`) — same pattern as the existing `coherencePassRewriteTempFloor/Ceiling` handling. This means an existing strategy that ran with the agent's old hard-coded `1.02` now silently runs with `1.10` (intentional, same as the original Phase 3 default-change risk noted in Risks). Strategies that want to pin the old behavior must add `coherencePassLengthCapRatio: 1.02` explicitly.
 - [ ] `ParagraphRecombineWithCoherencePassAgent.ts`
   - [ ] Add `DEFAULT_COHERENCE_PASS_LENGTH_CAP_RATIO = 1.10` constant next to existing `DEFAULT_COHERENCE_*` constants (line ~79-83).
   - [ ] Add `coherencePassLengthCapRatio?: number` to `ParagraphRecombineWithCoherencePassInput` (lines 89-106).
@@ -139,43 +139,68 @@ Post-flight (both greps):
   - [ ] Add `coherencePassMaxCycles: z.number().int().min(1).max(5).optional()` to iter-config schema with the same agentType refine.
 - [ ] `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts`
   - [ ] Add `coherencePassMaxCycles` to `FIELD_GATES` (same pattern as Phase 3 — agentType-gated, emit-when-set).
-  - [ ] Add runtime default in `normalizeIteration` to 2.
+  - [ ] **No** runtime default in `normalizeIteration` (same rationale as Phase 3 above — preserves existing strategies' `config_hash`).
 - [ ] `ParagraphRecombineWithCoherencePassAgent.ts`
   - [ ] Add `DEFAULT_COHERENCE_PASS_MAX_CYCLES = 2` constant next to existing `DEFAULT_COHERENCE_*` constants.
   - [ ] Add `coherencePassMaxCycles?: number` to `ParagraphRecombineWithCoherencePassInput`.
 - [ ] `ParagraphRecombineWithCoherencePassAgent.ts:301-377` (the coherence-pass block) — multi-cycle refactor
 
 ```
-// Pseudocode for the new loop (mirror IterativeEditingAgent.ts:192-225):
+// Pseudocode for the new loop (mirror IterativeEditingAgent.ts:192-244).
+// Assumes pre-loop block (lines 250-300 of current agent) has already initialized:
+//   invocationScope, effectiveCapUsd, effectiveLengthCapRatio, proposerModel, approverModel
+// Per agent invariant I3 (lines 17-21): on runEditingCycle throw, push partialCycleOnThrow
+// before re-throwing so cycle 1's completed cycle survives in execution_detail.cycles[].
 const maxCycles = input.coherencePassMaxCycles ?? DEFAULT_COHERENCE_PASS_MAX_CYCLES;
 const cycles: EditingCycle[] = [];
 let currentText = recombinedText;
+let silentRejectionCount = 0;
 
 for (let cycleNumber = 1; cycleNumber <= maxCycles; cycleNumber++) {
-  // CRITICAL (per Security reviewer #2): rebuild the user prompt from currentText
-  // every iteration — otherwise cycle 2+ would propose CriticMarkup against the
-  // STALE source text, and parseProposedEdits(proposedMarkup, currentText) would
-  // drop almost all groups via RULE-1 outside-markup-fidelity check.
-  const cycleResult = await runEditingCycle({
-    text: currentText,
-    llm,
-    costScope: invocationScope,
-    perInvocationBudgetUsd: effectiveCapUsd,
-    cycleNumber,
-    proposerLabel: 'coherence_pass_propose',
-    approverLabel: 'coherence_pass_review',
-    models: { editing: proposerModel, approver: approverModel },
-    validateOpts: { lengthCapRatio: effectiveLengthCapRatio },
-    driftRecovery: 'skip',
-    proposerSystemPrompt: buildCoherencePassProposerSystemPrompt(),
-    proposerUserPrompt: buildCoherencePassProposerUserPrompt(currentText), // ← per-cycle rebuild
-  });
+  // driftRecovery: 'skip' (NOT 'snap'): the recombined article is the source of truth —
+  // there is no parent to drift from. With multi-cycle, this means any minor drift in
+  // cycle 2+ aborts via stopReason cleanly (rather than attempting snap recovery against
+  // a moving source). This is intentional; documented in Phase 5 cost-envelope notes.
+  let cycleResult: RunEditingCycleResult;
+  try {
+    cycleResult = await runEditingCycle({
+      text: currentText,
+      llm,
+      costScope: invocationScope,
+      perInvocationBudgetUsd: effectiveCapUsd,
+      cycleNumber,
+      proposerLabel: 'coherence_pass_propose',
+      approverLabel: 'coherence_pass_review',
+      models: { editing: proposerModel, approver: approverModel },
+      validateOpts: { lengthCapRatio: effectiveLengthCapRatio },
+      driftRecovery: 'skip',
+      proposerSystemPrompt: buildCoherencePassProposerSystemPrompt(),
+      // CRITICAL (per Security reviewer #2): rebuild the user prompt from currentText
+      // every iteration — otherwise cycle 2+ would propose CriticMarkup against the
+      // STALE source text, and parseProposedEdits(proposedMarkup, currentText) would
+      // drop almost all groups via RULE-1 outside-markup-fidelity check.
+      proposerUserPrompt: buildCoherencePassProposerUserPrompt(currentText),
+    });
+  } catch (err) {
+    // I3 partial-cycle persistence: if runEditingCycle throws unexpectedly
+    // (e.g. unhandled parser bug), push a partial cycle marker before re-throwing
+    // so cycles[] reflects what completed. Mirrors the existing pattern at
+    // IterativeEditingAgent.ts catch block.
+    cycles.push({
+      cycleNumber,
+      partialCycleOnThrow: true,
+      errorMessage: err instanceof Error ? err.message : String(err),
+      parentText: currentText,
+      proposeCostUsd: 0,
+      approveCostUsd: 0,
+      sizeRatio: 1.0,
+    } as Partial<EditingCycle> as EditingCycle);
+    throw err;
+  }
 
   cycles.push(cycleResult.cycle);
 
-  // Per-cycle silent-rejection metric (per Architecture/Security reviewer):
-  // increment counter (additive, not max) when this cycle had approverGroups > 0
-  // but appliedCount == 0. Sum across cycles per-run.
+  // Per-cycle silent-rejection metric: additive count, single MAX-write at loop end.
   const silentThisCycle =
     cycleResult.cycle.approverGroups.length > 0
     && cycleResult.cycle.appliedGroups.length === 0;
@@ -183,11 +208,26 @@ for (let cycleNumber = 1; cycleNumber <= maxCycles; cycleNumber++) {
 
   currentText = cycleResult.newText;
 
-  // Termination: any stopReason, no edits applied (converged), or budget.
-  if (cycleResult.stopReason || !cycleResult.appliedAny) break;
+  // Tighter termination per Security reviewer: per runEditingCycle.ts:549, every
+  // appliedAny:false path sets a stopReason. So stopReason subsumes appliedAny.
+  if (cycleResult.stopReason) break;
 }
 
 const finalText = currentText;
+
+// End-of-loop run-level metric writes (mirror existing single-cycle writes at
+// ParagraphRecombineWithCoherencePassAgent.ts:352, 370-374):
+if (ctx.db && ctx.runId) {
+  if (silentRejectionCount > 0) {
+    try {
+      await writeMetricMax(ctx.db, 'run', ctx.runId,
+        'coherence_pass_silent_rejection_count' as MetricName,
+        silentRejectionCount, 'during_execution');
+    } catch { /* non-fatal */ }
+  }
+  // paragraph_recombine_coherence_cost write is unchanged from existing code —
+  // sums propose + review accumulators which are run-cumulative across cycles.
+}
 ```
 
   - [ ] **Per-cycle silent-rejection**: tracker uses an additive counter accumulated across cycles, then one `writeMetricMax` of the run-total at the end. (NOT writeMetricMax per-cycle — that would silently cap at 1 even when multiple cycles silent-reject.) Naming: `coherence_pass_silent_rejection_count` stays (run-total) ; consider also adding `coherence_pass_silent_rejection_cycles` as a separate metric if cycle-grain debugging is wanted (defer to follow-up).
@@ -243,10 +283,19 @@ Decision rules:
   - [ ] **FAIL** if NEW arm median tactic-delta < OLD arm median. Escalate to Option B (`nextContext` in slot judge) or Option C (custom paragraphJudgeRubric).
   - [ ] **INCONCLUSIVE** (anything between): add 4 more runs per arm and re-test. If still inconclusive after 12/arm, default to PASS-with-caveats and escalate to staging cohort for longer observation.
 
-**Rollback / kill switch (per Testing reviewer #5)**:
-  - [ ] Add an env-var gate `EVOLUTION_COHERENCE_PASS_DEFAULTS_V2` (default `'true'`) read inside the agent at default-resolution time. When `'false'`, the agent uses the legacy defaults (`lengthCapRatio = 1.02`, `maxCycles = 1`). Explicit iter-config values still override. Operationally: flip to `'false'` in Vercel env to instantly revert all strategies that rely on defaults, without a code deploy.
-  - [ ] The kill switch is a SUPPLEMENT to (not a replacement for) the PR-revert path. PR revert checklist (for the planning doc): identify the 4 commits (Phase 1/2/3/4); revert in reverse-order; the deletion of `checkSemanticOverlap.ts` requires a follow-up commit restoring the file from git history; the wizard surgery requires the same.
+**Rollback / kill switch (per Testing reviewer #5 + Architecture reviewer #1 clarification)**:
+  - [ ] Implementation site: add a small helper `resolveCoherencePassDefaults()` in `ParagraphRecombineWithCoherencePassAgent.ts` next to the `DEFAULT_COHERENCE_*` constants. Reads `process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2` PER INVOCATION (not at process boot — instant rollback without restart). Returns `{lengthCapRatio: 1.10, maxCycles: 2}` when `'true'` (or unset — default), `{lengthCapRatio: 1.02, maxCycles: 1}` when `'false'`. Agent calls this in execute() to resolve defaults; explicit input fields still override.
+  - [ ] **Naming clarification**: the existing `coherencePass.skipped` enum at `schemas.ts:2762` includes `'kill_switch'` as a value — that's an OLDER feature unrelated to this env var. This env var swaps DEFAULTS, it does not skip the pass. The pre-existing `'kill_switch'` enum value remains valid for whatever existing code path uses it.
+  - [ ] Unit test (in the new `ParagraphRecombineWithCoherencePassAgent.test.ts`): toggle the env var across two test runs, assert the resolved `validateOpts.lengthCapRatio` and the loop's `maxCycles` flip accordingly.
   - [ ] Document the kill switch in `evolution/docs/reference.md` env-var table.
+
+**PR-revert checklist** (the kill switch handles default-only rollback; this is needed if the prompt or guardrail removal itself misbehaves):
+  - [ ] Identify the 4-5 commits comprising Phases 1/2a/2b/2c/3/4 (record PR# + commit SHAs at merge time).
+  - [ ] Revert order: Phase 4 → Phase 3 → Phase 2c → Phase 2b → Phase 2a → Phase 1.
+  - [ ] Special handling — Phase 2c deletes `checkSemanticOverlap.ts`; reverting requires `git show <commit>:evolution/src/lib/core/agents/editing/checkSemanticOverlap.ts > <path>` then re-commit, since plain `git revert` of a delete leaves an empty path.
+  - [ ] Special handling — Phase 2b deletes wizard UI; revert restores the deleted blocks from the original commit.
+  - [ ] Post-revert sanity: `npm run tsc && npm run test:unit -- evolution && npm run test:unit -- src/app/admin/evolution`.
+  - [ ] Post-revert staging smoke: run one coherence-pass strategy run, confirm `coherencePass.cycles.length === 1` and `coherencePass.config` shape matches pre-Phase-1.
 
 ## Testing
 
@@ -278,8 +327,8 @@ Decision rules:
 - [ ] `npm run test:unit -- evolution/src/lib/core/agents/paragraphRecombineWithCoherencePass`
 - [ ] `npm run test:unit -- evolution/src/lib/schemas`
 - [ ] `npm run test:unit -- evolution/src/lib/pipeline/setup/findOrCreateStrategy`
-- [ ] `npm run test:integration -- evolution` (if integration test added)
-- [ ] `npx playwright test src/__tests__/e2e/specs/evolution_strategy_wizard.spec.ts` (if exists)
+- [ ] `npm run test:integration -- evolution` (integration test is required per Testing section)
+- [ ] `npx playwright test src/__tests__/e2e/specs/09-evolution-admin/evolution-strategy-wizard-tactics.spec.ts` (real path, per Testing reviewer #1 in iter2)
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
