@@ -179,7 +179,6 @@ const dispatchPreviewInputSchema = z.object({
       criteriaIds: z.array(z.string().uuid()).optional(),
       weakestK: z.number().int().min(1).max(5).optional(),
       lengthCapRatio: z.number().min(1.01).max(1.50).optional(),
-      redundancyJaccardThreshold: z.number().min(0).max(1).optional(),
       includesMirrorApprover: z.boolean().optional(),
       // Phase 7 fix (analyze_effectiveness_paragraph_recombine_20260530): paragraph_recombine
       // knobs were silently stripped by the schema, so maxDispatches/qualityCutoff never reached

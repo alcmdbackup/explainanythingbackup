@@ -75,8 +75,6 @@ const FIELD_GATES: Partial<Record<keyof IterCfg, (t: AgentType) => boolean>> = {
   criteriaIds: (t) => CRITERIA_BASED.has(t),
   weakestK: (t) => CRITERIA_BASED.has(t),
   lengthCapRatio: (t) => t === 'proposer_approver_criteria_generate',
-  redundancyJaccardThreshold: (t) =>
-    t === 'single_pass_evaluate_criteria_and_generate' || t === 'proposer_approver_criteria_generate',
   includesMirrorApprover: (t) => t === 'proposer_approver_criteria_generate',
   debateJudgeReasoningEffort: (t) => t === 'debate_and_generate',
   rewritesPerParagraph: (t) => PARAGRAPH_RECOMBINE_FAMILY.has(t),
@@ -91,6 +89,9 @@ const FIELD_GATES: Partial<Record<keyof IterCfg, (t: AgentType) => boolean>> = {
   coherencePassApproverModel: (t) => t === 'paragraph_recombine_with_coherence_pass',
   coherencePassRewriteTempFloor: (t) => t === 'paragraph_recombine_with_coherence_pass',
   coherencePassRewriteTempCeiling: (t) => t === 'paragraph_recombine_with_coherence_pass',
+  // investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3 + Phase 4.
+  coherencePassLengthCapRatio: (t) => t === 'paragraph_recombine_with_coherence_pass',
+  coherencePassMaxCycles: (t) => t === 'paragraph_recombine_with_coherence_pass',
 };
 
 /** Sort generationGuidance by tactic — it is an unordered weighted SET

@@ -1,30 +1,25 @@
 // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 Phase 4.
 //
-// Coherence-pass proposer prompt. Fork of editing/proposerPrompt.ts with inter-paragraph-seam
-// focus instead of generic article editing.
+// Coherence-pass proposer prompt. Authorizes voice-restoration and structural
+// repair on the recombined article whose paragraphs were rewritten in isolation.
 //
-// The coherence pass operates on the RECOMBINED article (winners of M parallel paragraph
-// rewrites that were judged in isolation, with no cross-paragraph signal). The seams between
-// paragraphs may be rough: transitions broken, pronouns referring to the wrong antecedent,
-// duplicate phrasing repeated across paragraphs, voice/tone discontinuities. The pass's
-// JOB is to smooth those seams with MINOR edits.
+// Updated by investigate_paragraph_recombine_coherence_pass_performance_20260623:
+// - SCOPE rewritten to authorize voice / cadence / structural repair (not just seams).
+// - EDIT_BUDGET removed entirely. No edit-count cap, no per-group cap, no "MINOR"
+//   framing. Only ceilings are the length cap (validateOpts.lengthCapRatio) + format
+//   validity + byte-equality + the approver LLM's per-group judgment.
+// - "Edit ONLY for inter-paragraph smoothing" soft rule removed.
+// - LENGTH_HINT line added so the LLM knows the only hard ceiling without being
+//   given a count budget that pre-filters its thinking.
 //
-// Differences from the generic editing/proposerPrompt.ts:
-//   - Scope guidance directs the proposer at inter-paragraph seams specifically
-//   - Edit budget is tighter (1-3 edits per group max — conservative smoothing only)
-//   - Hard size-ratio reminder (the per-iteration validateOpts caps growth at 1.02×;
-//     the prompt nudges the proposer to stay well inside that cap)
-//
-// The byte-equality contracts (RULE 1 outside-markup fidelity, RULE 2 old-side fidelity)
-// are preserved verbatim from the parent prompt — they are non-negotiable for any
+// The byte-equality contracts (RULE 1 outside-markup fidelity, RULE 2 old-side
+// fidelity) are preserved verbatim — they are non-negotiable for any
 // CriticMarkup-emitting proposer.
 
 const COHERENCE_SOFT_RULES = [
   'Preserve quotes, citations, and URLs exactly as they appear.',
   'Do not introduce new headings or modify existing heading lines.',
   'Do not edit text inside code fences (```).',
-  'Preserve the author\'s voice, tone, and reading level.',
-  'Edit ONLY for inter-paragraph smoothing — transitions between paragraphs, pronoun resolution across paragraph boundaries, deduping phrases repeated across paragraphs. Do NOT improve individual paragraphs in isolation (they were already judged on quality).',
 ];
 
 const HARD_CONSTRAINT = `HARD CONSTRAINT — read twice before writing.
@@ -47,31 +42,25 @@ causes ALL your edits to be discarded:
   or "clean up" the old side. If you wouldn't quote it that way under oath, don't
   put it in old.`;
 
-const SCOPE_GUIDANCE = `SCOPE — you are smoothing the SEAMS between paragraphs.
+const SCOPE_GUIDANCE = `SCOPE — restore the article's voice after paragraph-level optimization.
 
-The article you are reviewing was assembled by combining paragraphs that were
-rewritten INDEPENDENTLY in parallel. Each individual paragraph has already been
-judged for quality; do NOT try to improve them on their own merits. Focus
-EXCLUSIVELY on inter-paragraph issues:
+This article was assembled from paragraphs that were rewritten INDEPENDENTLY
+in parallel. Each per-paragraph rewriter optimized for paragraph-local quality
+without seeing the others, so cumulatively the article may have lost the
+original's rhetorical voice, cadence, distinctive openings, callbacks,
+metaphors, or structural rhythm.
 
-  - TRANSITIONS — does each paragraph flow naturally from the previous one? If
-    a transition phrase ("However," "Therefore," "In contrast,") would help
-    bridge two paragraphs, add it. If a paragraph starts abruptly without
-    referring back to what came before, smooth the opening sentence.
+You are AUTHORIZED to make substantive edits to restore those qualities. This
+includes — but is not limited to — whole-paragraph rewrites, restoring deleted
+rhetorical hooks, reinstating callbacks across paragraphs, smoothing voice/tone
+discontinuities at paragraph boundaries, fixing pronoun antecedents that broke
+across the seams, deduplicating ideas that two independent rewriters both
+explained, and adjusting cadence so adjacent paragraphs feel like one author
+wrote them.
 
-  - PRONOUN RESOLUTION — does a pronoun in paragraph N+1 refer clearly to
-    something named in paragraph N? If "it" or "they" or "this" is ambiguous
-    across the seam, replace it with the named referent.
-
-  - DEDUPLICATION — do two adjacent paragraphs explain the same idea twice
-    (because each independent rewriter included the same context)? If so, cut
-    the redundant explanation from the SECOND paragraph (keep the first occurrence).
-
-  - VOICE/TONE CONTINUITY — if paragraph N+1 abruptly shifts register (formal
-    vs. casual, technical vs. accessible), gently adjust the opening to bridge.
-
-NOT YOUR JOB: rewriting whole paragraphs, fixing within-paragraph clarity,
-adding new examples or analogies, improving the article's overall structure.`;
+There is no per-edit count cap. Make whatever edits the article actually needs.
+The downstream approver LLM will review each edit and reject any that hurt
+quality.`;
 
 const SYNTAX_DOCS = `Use any of these CriticMarkup forms for each atomic edit:
 
@@ -82,10 +71,10 @@ const SYNTAX_DOCS = `Use any of these CriticMarkup forms for each atomic edit:
 
 Both substitution forms are accepted.`;
 
-const EDIT_BUDGET = `Edit budget: propose AT MOST 5 atomic edits total, with 1-3 edits per
-adjacent group. Coherence-pass edits should be MINOR — a transition word here,
-a pronoun replacement there. Sprawling rewrites get discarded by the downstream
-size-ratio validator (cap: +2% article length).`;
+const LENGTH_HINT = `LENGTH — you may grow the article up to ~10% in total length.
+Edits beyond that ceiling get trimmed downstream by the size-ratio validator,
+so aim to stay inside it. Within that ceiling, do as much repair as the article
+needs.`;
 
 const SELF_CHECK = `Self-check before responding:
   1. Mentally delete every {++…++} and the new-side of every {~~old~>new~~}.
@@ -95,7 +84,7 @@ const SELF_CHECK = `Self-check before responding:
 
 export function buildCoherencePassProposerSystemPrompt(): string {
   return [
-    'You smooth the inter-paragraph seams of an article whose paragraphs were rewritten independently and recombined. Your output is the FULL ARTICLE BODY VERBATIM with inline CriticMarkup edits.',
+    'You repair the voice, cadence, and structural rhythm of an article whose paragraphs were rewritten independently and recombined. Your output is the FULL ARTICLE BODY VERBATIM with inline CriticMarkup edits.',
     '',
     HARD_CONSTRAINT,
     '',
@@ -103,9 +92,9 @@ export function buildCoherencePassProposerSystemPrompt(): string {
     '',
     SYNTAX_DOCS,
     '',
-    EDIT_BUDGET,
+    LENGTH_HINT,
     '',
-    'Soft rules — follow these unless the edit demonstrably improves inter-paragraph flow:',
+    'Soft rules — follow these unless the edit demonstrably improves the article:',
     ...COHERENCE_SOFT_RULES.map((r, i) => `  ${i + 1}. ${r}`),
     '',
     SELF_CHECK,
@@ -115,5 +104,5 @@ export function buildCoherencePassProposerSystemPrompt(): string {
 }
 
 export function buildCoherencePassProposerUserPrompt(recombinedArticle: string): string {
-  return `<source>\n${recombinedArticle}\n</source>\n\nReturn the article inside <output>…</output> with inter-paragraph-seam smoothing edits in CriticMarkup.`;
+  return `<source>\n${recombinedArticle}\n</source>\n\nReturn the article inside <output>…</output> with voice-restoration and structural-repair edits in CriticMarkup.`;
 }

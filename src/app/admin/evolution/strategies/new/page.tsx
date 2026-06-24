@@ -66,10 +66,6 @@ interface IterationRow {
   /** Tightened size-ratio cap for proposer/approver edits (default 1.10). Only
    *  valid when agentType === 'proposer_approver_criteria_generate'. */
   lengthCapRatio?: number;
-  /** Trigram-Jaccard threshold rejecting edits whose newText overlaps too much
-   *  with the rest of the article. Default 0.35. Valid for the 2 new criteria
-   *  agents only. */
-  redundancyJaccardThreshold?: number;
   /** When false, skips the mirror-approver pass and applies forward-accepted
    *  groups directly. Default true (run mirror). Only valid when
    *  agentType === 'proposer_approver_criteria_generate'. */
@@ -108,6 +104,10 @@ interface IterationRow {
   coherencePassApproverModel?: string;
   coherencePassRewriteTempFloor?: number;
   coherencePassRewriteTempCeiling?: number;
+  /** investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3. */
+  coherencePassLengthCapRatio?: number;
+  /** investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 4. */
+  coherencePassMaxCycles?: number;
 }
 
 // Paragraph_recombine wizard defaults — match agent constants.
@@ -134,6 +134,11 @@ const COHERENCE_PASS_DEFAULTS = {
   // $0.05 when false (same as plain paragraph_recombine).
   perInvocationCapUsdWithCoherence: 0.10,
   perInvocationCapUsdWithoutCoherence: 0.05,
+  // investigate_paragraph_recombine_coherence_pass_performance_20260623 — new defaults.
+  // These mirror the agent's runtime defaults from resolveCoherencePassDefaults() when
+  // EVOLUTION_COHERENCE_PASS_DEFAULTS_V2 is unset or 'true'.
+  coherencePassLengthCapRatio: 1.10,
+  coherencePassMaxCycles: 2,
 } as const;
 
 // Default cutoff applied when user switches a generate iteration to sourceMode='pool'.
@@ -199,7 +204,6 @@ interface IterationConfigPayload {
   criteriaIds?: string[];
   weakestK?: number;
   lengthCapRatio?: number;
-  redundancyJaccardThreshold?: number;
   includesMirrorApprover?: boolean;
   debateJudgeReasoningEffort?: 'none' | 'low' | 'medium' | 'high';
   rewritesPerParagraph?: number;
@@ -309,12 +313,6 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
     ...(it.agentType === 'proposer_approver_criteria_generate' && it.lengthCapRatio != null
       ? { lengthCapRatio: it.lengthCapRatio }
       : {}),
-    // Redundancy threshold valid for the 2 new criteria agents.
-    ...((it.agentType === 'single_pass_evaluate_criteria_and_generate'
-        || it.agentType === 'proposer_approver_criteria_generate')
-        && it.redundancyJaccardThreshold != null
-      ? { redundancyJaccardThreshold: it.redundancyJaccardThreshold }
-      : {}),
     // includesMirrorApprover: emit ONLY when explicitly false (default-on stays
     // implicit so the strategy hash doesn't drift on default-config strategies).
     ...(it.agentType === 'proposer_approver_criteria_generate' && it.includesMirrorApprover === false
@@ -366,6 +364,13 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
       : {}),
     ...(it.agentType === 'paragraph_recombine_with_coherence_pass' && it.coherencePassRewriteTempCeiling != null && it.coherencePassRewriteTempCeiling !== COHERENCE_PASS_DEFAULTS.coherencePassRewriteTempCeiling
       ? { coherencePassRewriteTempCeiling: it.coherencePassRewriteTempCeiling }
+      : {}),
+    // investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3 + Phase 4.
+    ...(it.agentType === 'paragraph_recombine_with_coherence_pass' && it.coherencePassLengthCapRatio != null && it.coherencePassLengthCapRatio !== COHERENCE_PASS_DEFAULTS.coherencePassLengthCapRatio
+      ? { coherencePassLengthCapRatio: it.coherencePassLengthCapRatio }
+      : {}),
+    ...(it.agentType === 'paragraph_recombine_with_coherence_pass' && it.coherencePassMaxCycles != null && it.coherencePassMaxCycles !== COHERENCE_PASS_DEFAULTS.coherencePassMaxCycles
+      ? { coherencePassMaxCycles: it.coherencePassMaxCycles }
       : {}),
     // meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6:
     // Mode B (iterative_editing_rewrite) only. Both fields are stripped pre-hash
@@ -727,7 +732,6 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.criteriaIds;
         delete updated.weakestK;
         delete updated.lengthCapRatio;
-        delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         delete updated.debateJudgeReasoningEffort;
         delete updated.editingProposerSoftCap;
@@ -747,7 +751,6 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.editingCutoffMode;
         delete updated.editingCutoffValue;
         delete updated.lengthCapRatio;
-        delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         delete updated.editingProposerSoftCap;
         delete updated.disableApproverFiltering;
@@ -760,7 +763,6 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.criteriaIds;
         delete updated.weakestK;
         delete updated.lengthCapRatio;
-        delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         // Phase 6: editingProposerSoftCap + disableApproverFiltering are Mode B
         // only. The shared branch covers both Mode A and Mode B, so guard the
@@ -780,7 +782,6 @@ export default function NewStrategyPage(): JSX.Element {
         updated.editingCutoffValue ??= 10;
         // Defaults: 1.10 length cap, 0.35 redundancy threshold, mirror on.
         updated.lengthCapRatio ??= 1.10;
-        updated.redundancyJaccardThreshold ??= 0.35;
         updated.includesMirrorApprover ??= true;
         delete updated.editingProposerSoftCap;
         delete updated.disableApproverFiltering;
@@ -794,7 +795,6 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.includesMirrorApprover;
         updated.criteriaIds ??= [];
         updated.weakestK ??= 1;
-        updated.redundancyJaccardThreshold ??= 0.35;
         delete updated.editingProposerSoftCap;
         delete updated.disableApproverFiltering;
       } else if (updated.agentType === 'reflect_and_generate') {
@@ -804,7 +804,6 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.criteriaIds;
         delete updated.weakestK;
         delete updated.lengthCapRatio;
-        delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         delete updated.debateJudgeReasoningEffort;
         updated.reflectionTopN ??= 3;
@@ -814,7 +813,6 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.tacticGuidance;
         delete updated.reflectionTopN;
         delete updated.lengthCapRatio;
-        delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         delete updated.debateJudgeReasoningEffort;
         updated.criteriaIds ??= [];
@@ -834,7 +832,6 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.criteriaIds;
         delete updated.weakestK;
         delete updated.lengthCapRatio;
-        delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         delete updated.debateJudgeReasoningEffort;
         updated.rewritesPerParagraph ??= PARAGRAPH_RECOMBINE_DEFAULTS.rewritesPerParagraph;
@@ -853,7 +850,6 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.criteriaIds;
         delete updated.weakestK;
         delete updated.lengthCapRatio;
-        delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         delete updated.debateJudgeReasoningEffort;
         delete updated.rewritesPerParagraph;
@@ -1773,56 +1769,36 @@ export default function NewStrategyPage(): JSX.Element {
                         />
                       </div>
                     )}
-                    {(it.agentType === 'single_pass_evaluate_criteria_and_generate'
-                      || it.agentType === 'proposer_approver_criteria_generate') && (
+                    {it.agentType === 'proposer_approver_criteria_generate' && (
                       <div
                         className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
                         data-testid={`iteration-guardrails-controls-${idx}`}
                       >
-                        <span className="text-[var(--text-primary)]">🛡️ Redundancy threshold:</span>
+                        <span className="text-[var(--text-primary)]">📏 Length cap ratio:</span>
                         <input
                           type="number"
-                          min={0}
-                          max={1}
+                          min={1.01}
+                          max={1.50}
                           step={0.05}
-                          value={it.redundancyJaccardThreshold ?? 0.35}
+                          value={it.lengthCapRatio ?? 1.10}
                           onChange={e => {
                             const v = e.target.value === '' ? undefined : Number(e.target.value);
-                            updateIteration(idx, { redundancyJaccardThreshold: v });
+                            updateIteration(idx, { lengthCapRatio: v });
                           }}
                           className="w-16 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
-                          data-testid={`redundancy-threshold-input-${idx}`}
-                          title="Trigram-Jaccard threshold (0-1). Reject edits whose newText shares more than this fraction of trigrams with the rest of the article. Default 0.35."
+                          data-testid={`length-cap-ratio-input-${idx}`}
+                          title="Tightened size-ratio cap. Edits whose newText > this × oldText length get dropped. Default 1.10 (±10%)."
                         />
-                        {it.agentType === 'proposer_approver_criteria_generate' && (
-                          <>
-                            <span className="ml-2 text-[var(--text-primary)]">· Length cap ratio:</span>
-                            <input
-                              type="number"
-                              min={1.01}
-                              max={1.50}
-                              step={0.05}
-                              value={it.lengthCapRatio ?? 1.10}
-                              onChange={e => {
-                                const v = e.target.value === '' ? undefined : Number(e.target.value);
-                                updateIteration(idx, { lengthCapRatio: v });
-                              }}
-                              className="w-16 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
-                              data-testid={`length-cap-ratio-input-${idx}`}
-                              title="Tightened size-ratio cap. Edits whose newText > this × oldText length get dropped. Default 1.10 (±10%)."
-                            />
-                            <label className="ml-2 inline-flex items-center gap-1 cursor-pointer" title="When checked, the approver runs twice (forward + mirror) and applies edits only when forward=ACCEPT and mirror=REJECT. When unchecked, applies forward-accepted edits directly.">
-                              <input
-                                type="checkbox"
-                                checked={it.includesMirrorApprover ?? true}
-                                onChange={e => updateIteration(idx, { includesMirrorApprover: e.target.checked })}
-                                className="cursor-pointer"
-                                data-testid={`includes-mirror-approver-${idx}`}
-                              />
-                              <span className="text-[var(--text-primary)]">Include mirror approver</span>
-                            </label>
-                          </>
-                        )}
+                        <label className="ml-2 inline-flex items-center gap-1 cursor-pointer" title="When checked, the approver runs twice (forward + mirror) and applies edits only when forward=ACCEPT and mirror=REJECT. When unchecked, applies forward-accepted edits directly.">
+                          <input
+                            type="checkbox"
+                            checked={it.includesMirrorApprover ?? true}
+                            onChange={e => updateIteration(idx, { includesMirrorApprover: e.target.checked })}
+                            className="cursor-pointer"
+                            data-testid={`includes-mirror-approver-${idx}`}
+                          />
+                          <span className="text-[var(--text-primary)]">Include mirror approver</span>
+                        </label>
                       </div>
                     )}
                     {criteriaEditorIdx === idx && (
@@ -2039,6 +2015,39 @@ export default function NewStrategyPage(): JSX.Element {
                           className="w-16 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none disabled:opacity-50"
                           data-testid={`coherence-pass-rewrite-temp-ceiling-${idx}`}
                           title="Upper bound of the per-rewrite temperature ladder (RESTRUCTURE directive). Default 1.0. Must be >= floor."
+                        />
+                        {/* investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3 + Phase 4 */}
+                        <span className={`ml-2 ${it.coherencePassEnabled === false ? 'opacity-50' : ''} text-[var(--text-primary)]`}>· Length cap:</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min={1.0}
+                          max={2.0}
+                          value={it.coherencePassLengthCapRatio ?? COHERENCE_PASS_DEFAULTS.coherencePassLengthCapRatio}
+                          disabled={it.coherencePassEnabled === false}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Math.max(1.0, Math.min(2.0, Number(e.target.value)));
+                            updateIteration(idx, { coherencePassLengthCapRatio: v });
+                          }}
+                          className="w-16 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none disabled:opacity-50"
+                          data-testid={`coherence-pass-length-cap-ratio-${idx}`}
+                          title="Per-cycle article-growth ceiling for the coherence pass. Default 1.10 (10%). Range 1.0–2.0. NOTE: with maxCycles > 1 the cap COMPOUNDS — e.g. 1.10 × 2 cycles = up to 1.21× original length."
+                        />
+                        <span className={`ml-2 ${it.coherencePassEnabled === false ? 'opacity-50' : ''} text-[var(--text-primary)]`}>· Max cycles:</span>
+                        <input
+                          type="number"
+                          step="1"
+                          min={1}
+                          max={5}
+                          value={it.coherencePassMaxCycles ?? COHERENCE_PASS_DEFAULTS.coherencePassMaxCycles}
+                          disabled={it.coherencePassEnabled === false}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Math.max(1, Math.min(5, Math.round(Number(e.target.value))));
+                            updateIteration(idx, { coherencePassMaxCycles: v });
+                          }}
+                          className="w-16 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none disabled:opacity-50"
+                          data-testid={`coherence-pass-max-cycles-${idx}`}
+                          title="Maximum number of propose-approve-apply cycles in the coherence pass. Default 2. Range 1–5. Each cycle rebuilds the proposer prompt from the running text; loop exits early on no-more-edits or budget."
                         />
                       </div>
                     )}
