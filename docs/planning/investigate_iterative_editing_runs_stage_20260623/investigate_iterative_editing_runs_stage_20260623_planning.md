@@ -5,7 +5,7 @@
 ## Background
 Understand and improve the behavior of the iterative-editing-class agents on staging — specifically how many edits each propose vs. how many the approver accepts — and then change the system so both flavors of these agents (the multi-cycle `IterativeEditingAgent` and the single-cycle `ProposerApproverCriteriaGenerateAgent`) propose more edits per cycle.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1280)
 - Understand how many edits are proposed vs. accepted in logging
 - Encourage both types of agents to propose more edits
 
