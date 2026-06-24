@@ -607,6 +607,7 @@ describe('CostAnalytics Service', () => {
       // 0.50 non-evo + 5 + 20 evo = 25.50
       expect(result.data?.totalCost).toBeCloseTo(25.5, 5);
       expect(result.data?.totalCalls).toBe(1 + 2 + 3);
+      expect(result.data?.evolutionMerged).toBe(true);
       // Dedup: evolution rows excluded from the tracking query.
       expect(mockSupabase.not).toHaveBeenCalledWith('call_source', 'like', 'evolution_%');
     });

@@ -59,6 +59,9 @@ export interface CostSummary {
   periodStart: string;
   periodEnd: string;
   nullCostCount: number;  // Records with NULL estimated_cost_usd
+  /** True when the total includes evolution spend from the invocation source of truth
+   *  (COST_DASHBOARD_UNIFIED_EVOLUTION). The UI uses this to drop the "under-counted" banner. */
+  evolutionMerged: boolean;
 }
 
 export interface DailyCost {
@@ -295,7 +298,8 @@ const _getCostSummaryAction = withLogging(async (
         avgCostPerCall: totalCalls > 0 ? totalCost / totalCalls : 0,
         periodStart: startDate,
         periodEnd: endDate,
-        nullCostCount: nullCount || 0
+        nullCostCount: nullCount || 0,
+        evolutionMerged: unifiedEvolutionEnabled(),
       },
       error: null
     };

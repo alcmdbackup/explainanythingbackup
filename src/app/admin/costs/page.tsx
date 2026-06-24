@@ -283,15 +283,27 @@ export default function AdminCostsPage(): React.ReactElement {
         </div>
       </div>
 
-      {/* Evolution audit-gap banner: tracking under-counts evolution spend since 2026-02-23. */}
+      {/* Evolution spend reconciliation banner. When the canonical merge is ON (summary.evolutionMerged),
+          the totals already include the invocation-based evolution spend, so this is informational
+          ("now included") rather than an under-count warning. When OFF, it warns about the audit gap. */}
       {reconciliation && reconciliation.invocationCost > reconciliation.trackingCost * 1.5 && (
-        <div data-testid="admin-costs-audit-gap" className="p-3 bg-amber-500/10 border border-amber-500/50 rounded-md text-sm">
-          <span className="text-amber-500 font-medium">Evolution spend under-counted.</span>{' '}
-          <span className="text-[var(--text-secondary)]">
-            Per-call tracking shows {formatCost(reconciliation.trackingCost)} but agent invocations
-            record {formatCost(reconciliation.invocationCost)} for this range (audit gap since 2026-02-23).
-          </span>
-        </div>
+        summary?.evolutionMerged ? (
+          <div data-testid="admin-costs-evolution-included" className="p-3 bg-emerald-500/10 border border-emerald-500/40 rounded-md text-sm">
+            <span className="text-emerald-500 font-medium">Evolution spend included.</span>{' '}
+            <span className="text-[var(--text-secondary)]">
+              Totals use the invocation source of truth ({formatCost(reconciliation.invocationCost)} this range);
+              per-call tracking alone shows only {formatCost(reconciliation.trackingCost)} (audit gap since 2026-02-23).
+            </span>
+          </div>
+        ) : (
+          <div data-testid="admin-costs-audit-gap" className="p-3 bg-amber-500/10 border border-amber-500/50 rounded-md text-sm">
+            <span className="text-amber-500 font-medium">Evolution spend under-counted.</span>{' '}
+            <span className="text-[var(--text-secondary)]">
+              Per-call tracking shows {formatCost(reconciliation.trackingCost)} but agent invocations
+              record {formatCost(reconciliation.invocationCost)} for this range (audit gap since 2026-02-23).
+            </span>
+          </div>
+        )
       )}
 
       {/* Tab bar */}
