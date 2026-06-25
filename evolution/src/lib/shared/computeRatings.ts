@@ -419,9 +419,24 @@ export function buildComparisonPrompt(
    *  permanent reference in every paragraph-mode comparison. Sanitized at the call
    *  site (mirror priorPicks/nextContext convention). */
   originalParagraph?: string,
+  /** evalute_implied_rubric_results_and_experimentally_validate_20260623 Phase 1:
+   *  When customPromptOverride is set AND strictVerdictTail=true, emit the strict
+   *  "Respond with ONLY one of A/B/TIE" tail instead of the rejudge-sandbox's
+   *  reasoning-tolerant "Your answer:" tail. Auto-mode weight-inference passes this
+   *  because judgePairOnce uses parseWinner (start-anchored) — the reasoning-tolerant
+   *  tail's verbose output would mis-route the parser. The rejudge sandbox leaves this
+   *  undefined / false so its existing reasoning-tolerant contract is preserved. */
+  strictVerdictTail?: boolean,
 ): string {
   if (customPromptOverride !== undefined || explainReasoning) {
-    return buildSandboxComparisonPrompt(textA, textB, mode, customPromptOverride, explainReasoning);
+    return buildSandboxComparisonPrompt(
+      textA,
+      textB,
+      mode,
+      customPromptOverride,
+      explainReasoning,
+      strictVerdictTail ?? false,
+    );
   }
   if (mode === 'paragraph') {
     // Paragraph-level rubric. Static framing/criteria/instructions come FIRST and the
@@ -539,6 +554,13 @@ function buildSandboxComparisonPrompt(
   mode: ComparisonMode,
   customPromptOverride: string | undefined,
   explainReasoning: boolean,
+  /** evalute_implied_rubric_results_and_experimentally_validate_20260623 Phase 1:
+   *  When true AND we have an operator override AND explainReasoning is false, emit the
+   *  strict "Respond with ONLY one of A/B/TIE" verdict tail (the same one the default
+   *  hardcoded path uses) so callers using `parseWinner` (start-anchored, single-token-friendly)
+   *  resolve the response correctly. When false (rejudge sandbox default), the reasoning-tolerant
+   *  "Your answer:" tail is emitted instead, intended for `parseVerdictFromReasoning`. */
+  strictVerdictTail: boolean = false,
 ): string {
   const override = customPromptOverride?.trim();
   const rubric = override
@@ -548,16 +570,21 @@ function buildSandboxComparisonPrompt(
       : ARTICLE_SANDBOX_RUBRIC;
   // Verdict instruction:
   //  - explainReasoning → ask for a rationale, then a strict final verdict line.
-  //  - custom override (without the reasoning toggle) → the operator's prompt controls behavior
-  //    (it may ask for an explanation), so we must NOT force verdict-only; just require a
-  //    parseable trailing line. Paired with the reasoning-tolerant parser in the caller.
+  //  - custom override + strictVerdictTail → strict verdict-only (auto-mode weight-inference path,
+  //    uses parseWinner which is start-anchored).
+  //  - custom override (no strictVerdictTail) → the operator's prompt controls behavior (it may
+  //    ask for an explanation), so we must NOT force verdict-only; just require a parseable
+  //    trailing line. Paired with the reasoning-tolerant parser in the caller (rejudge sandbox).
   //  - default (preset rubric, no reasoning) → cheap verdict-only.
   const verdict = explainReasoning
     ? 'First, briefly explain your reasoning in 2-4 sentences. Then, on a final separate line, ' +
       'respond with exactly one of: "Your answer: A", "Your answer: B", or "Your answer: TIE".'
     : override
-      ? 'You may include reasoning. End your response with a final line containing exactly one ' +
-        'of: "Your answer: A", "Your answer: B", or "Your answer: TIE".'
+      ? strictVerdictTail
+        ? 'Respond with ONLY one of these exact answers: "A" if Text A is better, "B" if Text B ' +
+          'is better, or "TIE" if they are equally good.'
+        : 'You may include reasoning. End your response with a final line containing exactly one ' +
+          'of: "Your answer: A", "Your answer: B", or "Your answer: TIE".'
       : 'Respond with ONLY one of these exact answers: "A" if Text A is better, "B" if Text B is ' +
         'better, or "TIE" if they are equally good.';
   return `${rubric}

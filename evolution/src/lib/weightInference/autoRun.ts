@@ -37,6 +37,14 @@ interface SessionRow {
   judge_temperature: number | null;
   judge_reasoning_effort: string | null;
   auto_repeats: number;
+  holistic_prompt_override: string | null;
+}
+
+/** Kill-switch env var (evalute_implied_rubric_results_and_experimentally_validate_20260623
+ *  Phase 1). When set to 'true', the persisted `holistic_prompt_override` is treated as null
+ *  for all auto-mode runs — instant rollback path with no schema revert and no redeploy. */
+function holisticOverrideDisabled(): boolean {
+  return process.env.EVOLUTION_WI_HOLISTIC_OVERRIDE_DISABLED === 'true';
 }
 
 interface CompRow {
@@ -55,7 +63,7 @@ export async function runAutoChunk(
   // 1. session
   const { data: s, error: sErr } = await db
     .from('evolution_weight_inference_sessions')
-    .select('mode, pair_kind, judge_model, judge_temperature, judge_reasoning_effort, auto_repeats')
+    .select('mode, pair_kind, judge_model, judge_temperature, judge_reasoning_effort, auto_repeats, holistic_prompt_override')
     .eq('id', sessionId)
     .is('deleted_at', null)
     .single();
@@ -65,6 +73,24 @@ export async function runAutoChunk(
   if (!session.judge_model) throw new Error('auto-run: session has no judge_model');
   const judgeModel = session.judge_model; // narrowed non-null; closures below lose outer narrowing
   const repeats = Math.max(1, session.auto_repeats);
+
+  // Holistic prompt override (Phase 1). Honored unless the kill-switch env var is set —
+  // EVOLUTION_WI_HOLISTIC_OVERRIDE_DISABLED='true' gives a zero-deploy rollback path.
+  // We log the kill-switch override ONCE per chunk (not per pair) so logs stay clean
+  // when many pairs are processed.
+  let holisticOverride: string | undefined;
+  if (session.holistic_prompt_override && session.holistic_prompt_override.length > 0) {
+    if (holisticOverrideDisabled()) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[weightInference] holistic_prompt_override present on session ${sessionId} but ` +
+          `EVOLUTION_WI_HOLISTIC_OVERRIDE_DISABLED=true — using default hardcoded checklist.`,
+      );
+      holisticOverride = undefined;
+    } else {
+      holisticOverride = session.holistic_prompt_override;
+    }
+  }
 
   // 2. criteria (ordered) -> rubric (equal placeholder weights; verdicts are weight-independent)
   const { data: critJ, error: cjErr } = await db
@@ -150,6 +176,7 @@ export async function runAutoChunk(
     model: judgeModel,
     avgArticleChars,
     criteriaCount: K,
+    holisticOverrideChars: holisticOverride?.length ?? 0,
   });
   assertWithinWeightInferenceAutoCap({ remainingPairs: chunk.length, repeats, estCostPerCall: perCallUsd });
 
@@ -164,7 +191,7 @@ export async function runAutoChunk(
     const judge = judgeFactory(judgeModel, session.judge_temperature, session.judge_reasoning_effort, pairAcc);
     const results = [];
     for (let r = 0; r < repeats; r++) {
-      results.push(await judgePairOnce(judge, textA, textB, rubric, pairAcc, session.pair_kind));
+      results.push(await judgePairOnce(judge, textA, textB, rubric, pairAcc, session.pair_kind, holisticOverride));
     }
     const folded = foldRepeats(results);
     costAcc.usd += pairAcc.usd; // contribute this pair's isolated spend to the chunk total

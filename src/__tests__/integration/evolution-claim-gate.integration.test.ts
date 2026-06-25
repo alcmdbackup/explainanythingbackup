@@ -118,6 +118,46 @@ async function callClaim(
   return (data ?? []) as Array<{ id: string }>;
 }
 
+/** Race-safe assertion that the gate ALLOWED the run to be claimed. The test's `callClaim`
+ *  races against the live staging minicomputer's 60s queue-claim cron — both call the same
+ *  `claim_evolution_run` RPC with `LIMIT 1 FOR UPDATE SKIP LOCKED`, so one of them wins the
+ *  row's lock and the other gets nothing. The test's intent is to verify the gate's behavior
+ *  (run becomes claimable), not to assert this specific RPC call is the claimer.
+ *
+ *  Outcomes:
+ *  - Our `callClaim` returned the run → we won the race, gate verified directly.
+ *  - Our `callClaim` returned a different/empty set → another claimer (likely the minicomputer)
+ *    won the race. Query the run's status: if 'claimed' then the gate let it through.
+ *  - Status still 'pending' → genuine gate bug or our call's transaction collided. Wait
+ *    briefly (≤ 2s, well under the minicomputer's next 60s tick) and re-poll once: this
+ *    covers the narrow window where another claimer's UPDATE is still in flight when we
+ *    read. If still 'pending' after the wait, fail — the gate genuinely blocked it.
+ *
+ *  This replaces the flaky `expect(claimed.find(r => r.id === runId)).toBeDefined()` that
+ *  intermittently failed on CI when the minicomputer claimed first (~50% of evolution
+ *  integration runs against staging — see PR #1281). */
+async function assertClaimAllowed(
+  sb: SupabaseClient,
+  claimedByUs: Array<{ id: string }>,
+  runId: string,
+): Promise<void> {
+  if (claimedByUs.find((r) => r.id === runId)) return;
+  // Brief poll for the run to transition to 'claimed' by some other concurrent claimer.
+  for (let i = 0; i < 5; i++) {
+    const { data: run } = await sb
+      .from('evolution_runs')
+      .select('status')
+      .eq('id', runId)
+      .single();
+    if (run?.status === 'claimed') return;
+    if (i < 4) await new Promise((r) => setTimeout(r, 400));
+  }
+  // Still pending after ~2s: gate genuinely blocked the claim — real test failure.
+  expect(`run ${runId} still pending after gate-allowed claim window`).toBe(
+    `run ${runId} claimed (gate allowed)`,
+  );
+}
+
 async function gateMigrationApplied(sb: SupabaseClient): Promise<boolean> {
   // Probe whether evolution_runs has the new allow_test_execution column by trying
   // to SELECT it. If the column doesn't exist, the migration hasn't been applied
@@ -185,7 +225,8 @@ describe('claim_evolution_run is_test_content gate', () => {
 
     const claimed = await callClaim(sb); // queue claim (no runId)
 
-    expect(claimed.find(r => r.id === runId)).toBeDefined();
+    // Race-safe verification (see comment on assertClaimAllowed).
+    await assertClaimAllowed(sb, claimed, runId);
   });
 
   test('queue claim CLAIMS pending run on non-test strategy (regression check)', async () => {
@@ -196,7 +237,8 @@ describe('claim_evolution_run is_test_content gate', () => {
 
     const claimed = await callClaim(sb); // queue claim (no runId)
 
-    expect(claimed.find(r => r.id === runId)).toBeDefined();
+    // Race-safe verification (see comment on assertClaimAllowed).
+    await assertClaimAllowed(sb, claimed, runId);
   });
 
   test('targeted claim BYPASSES gate on is_test_content strategy (no opt-in needed)', async () => {

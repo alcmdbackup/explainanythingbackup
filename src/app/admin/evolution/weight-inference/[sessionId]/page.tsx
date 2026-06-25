@@ -220,6 +220,19 @@ export default function WeightInferenceSessionPage(): JSX.Element {
         <Card className="rounded-book border border-[var(--border-default)] bg-[var(--surface-secondary)] paper-texture">
           <CardContent className="p-6 space-y-4">
             <h2 className="font-display text-2xl text-[var(--text-primary)]">Auto run (LLM as judge)</h2>
+            {autoProgress?.hasHolisticOverride && (
+              <details
+                className="rounded-page border border-[var(--accent-gold)] bg-[var(--surface-elevated)] p-3"
+                data-testid="wi-custom-prompt-banner"
+              >
+                <summary className="font-ui text-sm text-[var(--accent-gold)] cursor-pointer">
+                  ⚙ Custom holistic prompt in use — click to view
+                </summary>
+                <pre className="mt-2 whitespace-pre-wrap font-mono text-xs text-[var(--text-secondary)]">
+                  {autoProgress.holisticOverride}
+                </pre>
+              </details>
+            )}
             {autoProgress && (
               <div className="font-ui text-sm text-[var(--text-secondary)] space-y-1" data-testid="wi-run-progress">
                 <div>Matches judged {autoProgress.pairsJudged}/{autoProgress.pairsTotal}</div>

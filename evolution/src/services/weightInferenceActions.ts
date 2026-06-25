@@ -73,6 +73,10 @@ export interface WiSessionListItem {
   pairs_total: number;
   pairs_overall_done: number;
   created_at: string;
+  /** True when the session carries a non-null `holistic_prompt_override` — surfaces the
+   *  "custom" badge on the sessions list page so experiment arms are visually identifiable
+   *  (evalute_implied_rubric_results_and_experimentally_validate_20260623 Phase 3). */
+  has_override: boolean;
 }
 
 export interface WiNextPair {
@@ -408,6 +412,7 @@ export const createWeightInferenceSessionAction = adminAction(
         model: parsed.judge_model ?? '',
         avgArticleChars,
         criteriaCount: K,
+        holisticOverrideChars: parsed.holistic_prompt_override?.length ?? 0,
       });
       assertWithinWeightInferenceAutoCap({
         remainingPairs: matches,
@@ -434,6 +439,7 @@ export const createWeightInferenceSessionAction = adminAction(
         judge_temperature: parsed.judge_temperature ?? null,
         judge_reasoning_effort: parsed.judge_reasoning_effort ?? null,
         auto_repeats: parsed.auto_repeats,
+        holistic_prompt_override: parsed.holistic_prompt_override ?? null,
       })
       .select('id')
       .single();
@@ -554,7 +560,7 @@ export const listWeightInferenceSessionsAction = adminAction(
     const { supabase } = ctx;
     let q = supabase
       .from('evolution_weight_inference_sessions')
-      .select('id, name, mode, status, judge_model, created_at')
+      .select('id, name, mode, status, judge_model, created_at, holistic_prompt_override')
       .is('deleted_at', null)
       .order('created_at', { ascending: false })
       .limit(200);
@@ -593,6 +599,8 @@ export const listWeightInferenceSessionsAction = adminAction(
         pairs_total: pairsTotal ?? 0,
         pairs_overall_done: overallDone ?? 0,
         created_at: s.created_at as string,
+        has_override:
+          typeof s.holistic_prompt_override === 'string' && s.holistic_prompt_override.length > 0,
       });
     }
     return { items };
@@ -717,6 +725,11 @@ export interface WiAutoProgress {
   spendUsd: number;
   positionBiasRate: number;
   done: boolean;
+  /** True when this session carries a non-null holistic_prompt_override — surfaces the
+   *  "Custom holistic prompt in use" badge near the Run banner on the session detail page. */
+  hasHolisticOverride: boolean;
+  /** The override text itself (so the badge can click-to-expand). Null when not set. */
+  holisticOverride: string | null;
 }
 
 export const getWeightInferenceProgressAction = adminAction(
@@ -761,6 +774,9 @@ export const getWeightInferenceProgressAction = adminAction(
       spendUsd: spend,
       positionBiasRate: flipDenom > 0 ? flips / flipDenom : 0,
       done: rows.length > 0 && judged >= rows.length,
+      hasHolisticOverride:
+        typeof session.holistic_prompt_override === 'string' && session.holistic_prompt_override.length > 0,
+      holisticOverride: session.holistic_prompt_override ?? null,
     };
   },
 );

@@ -22,6 +22,7 @@ import { getArenaTopicsAction } from '@evolution/services/arenaActions';
 import { listCriteriaAction } from '@evolution/services/criteriaActions';
 import { listTestSetsAction } from '@evolution/services/judgeEvalActions';
 import { estimateAutoRunCost } from '@evolution/lib/weightInference/autoCost';
+import { EXPERIMENT_ARMS, type ArmKey } from '@evolution/lib/weightInference/experimentArms';
 import { getModelOptions, DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
 
 const MODEL_OPTIONS = getModelOptions();
@@ -58,6 +59,12 @@ export default function WeightInferencePage(): JSX.Element {
   const [judgeModel, setJudgeModel] = useState(DEFAULT_JUDGE_MODEL);
   const [judgeTemperature, setJudgeTemperature] = useState(0);
   const [autoRepeats, setAutoRepeats] = useState(1);
+  // evalute_implied_rubric_results_and_experimentally_validate_20260623 Phase 3:
+  // Custom holistic prompt — optional, advanced. The Arm-preset dropdown auto-fills the
+  // textarea verbatim from the canonical EXPERIMENT_ARMS constants so the analysis script's
+  // SHA-256 hash gate stays clean (no operator-paste byte drift).
+  const [holisticPromptOverride, setHolisticPromptOverride] = useState('');
+  const [armPreset, setArmPreset] = useState<'' | Exclude<ArmKey, 'A'>>('');
   const [preview, setPreview] = useState<WiPreviewResult | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -134,7 +141,12 @@ export default function WeightInferencePage(): JSX.Element {
       replication_rate: mode === 'auto' ? 0 : replicationRate,
       criteriaIds: [...selectedCriteria],
       ...(mode === 'auto'
-        ? { judge_model: judgeModel, judge_temperature: judgeTemperature, auto_repeats: autoRepeats }
+        ? {
+            judge_model: judgeModel,
+            judge_temperature: judgeTemperature,
+            auto_repeats: autoRepeats,
+            holistic_prompt_override: holisticPromptOverride.trim() || null,
+          }
         : {}),
     });
     setCreating(false);
@@ -164,6 +176,7 @@ export default function WeightInferencePage(): JSX.Element {
           model: judgeModel,
           avgArticleChars: preview?.avgArticleChars ?? 0,
           criteriaCount,
+          holisticOverrideChars: holisticPromptOverride.trim().length,
         })
       : null;
   const fmtUsd = (x: number): string => (x < 0.01 ? `$${x.toFixed(4)}` : `$${x.toFixed(2)}`);
@@ -290,6 +303,51 @@ export default function WeightInferencePage(): JSX.Element {
                 <label className={labelCls} htmlFor="wi-repeats">Repeats / pair</label>
                 <input id="wi-repeats" type="number" min={1} max={10} className={inputCls} value={autoRepeats} onChange={(e) => setAutoRepeats(Number(e.target.value))} />
               </div>
+              {/* Phase 3 (evalute_implied_rubric_results_and_experimentally_validate_20260623):
+                  optional holistic-prompt override, fronted by an Arm-preset dropdown that
+                  auto-fills the textarea from canonical EXPERIMENT_ARMS constants so the
+                  analysis script's SHA-256 hash gate stays clean. */}
+              <details className="md:col-span-3" data-testid="wi-advanced">
+                <summary className="font-ui text-sm text-[var(--text-secondary)] cursor-pointer">
+                  Advanced — custom holistic prompt (experiments)
+                </summary>
+                <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <div>
+                    <label className={labelCls} htmlFor="wi-arm-preset">Arm preset</label>
+                    <select
+                      id="wi-arm-preset"
+                      data-testid="wi-arm-preset"
+                      className={inputCls}
+                      value={armPreset}
+                      onChange={(e) => {
+                        const arm = e.target.value as '' | 'B' | 'C' | 'D';
+                        setArmPreset(arm);
+                        setHolisticPromptOverride(arm ? (EXPERIMENT_ARMS[arm].prompt ?? '') : '');
+                      }}
+                    >
+                      <option value="">— No preset (free-form) —</option>
+                      <option value="B">{EXPERIMENT_ARMS.B.label}</option>
+                      <option value="C">{EXPERIMENT_ARMS.C.label}</option>
+                      <option value="D">{EXPERIMENT_ARMS.D.label}</option>
+                    </select>
+                  </div>
+                </div>
+                <textarea
+                  id="wi-holistic-override"
+                  data-testid="wi-holistic-override"
+                  className={`${inputCls} mt-2`}
+                  rows={8}
+                  maxLength={8000}
+                  placeholder="Leave blank to use the default holistic prompt."
+                  value={holisticPromptOverride}
+                  onChange={(e) => {
+                    // If operator edits after picking a preset, clear the preset so the
+                    // dropdown can't lie about what's actually in the textarea.
+                    if (armPreset) setArmPreset('');
+                    setHolisticPromptOverride(e.target.value);
+                  }}
+                />
+              </details>
             </div>
           )}
 
@@ -396,6 +454,15 @@ export default function WeightInferencePage(): JSX.Element {
                       <Link href={`/admin/evolution/weight-inference/${s.id}`} className="text-[var(--accent-gold)] gold-underline">
                         {s.name}
                       </Link>
+                      {s.has_override && (
+                        <span
+                          className="ml-2 rounded-page border border-[var(--accent-gold)] px-1.5 py-0.5 text-xs text-[var(--accent-gold)]"
+                          data-testid="wi-custom-badge"
+                          title="Custom holistic prompt in use"
+                        >
+                          custom
+                        </span>
+                      )}
                     </td>
                     <td>{s.mode}{s.judge_model ? ` · ${s.judge_model}` : ''}</td>
                     <td>{s.criteria_count}</td>

@@ -3056,6 +3056,25 @@ export const wiSourceEnum = z.enum(['human', 'llm']);
 export const wiSourceKindEnum = z.enum(['topic', 'test_set']);
 export const wiPairKindEnum = z.enum(['article', 'paragraph']);
 
+/** Reserved markers an operator-supplied holistic-prompt override may not contain. Case-sensitive
+ *  literal substrings. `## Text A`/`## Text B` would let an injected payload pre-position fake
+ *  body text ahead of the real Text A/B sections (parseWinner would mis-route on a "TEXT A"
+ *  phrase match — computeRatings.ts:610-612). `Your answer:` is the rejudge-sandbox's reasoning
+ *  marker — including it would conflict with the strict-tail contract auto-mode emits. `<|`/`|>`
+ *  are common jailbreak delimiters. Operators rarely intend these in a rubric block, and the
+ *  override flows directly into an LLM prompt so the deny-list is fail-loud at insert time. */
+export const WI_HOLISTIC_OVERRIDE_RESERVED_MARKERS = ['## Text A', '## Text B', 'Your answer:', '<|', '|>'] as const;
+
+const holisticPromptOverrideSchema = z
+  .string()
+  .max(8000, 'holistic_prompt_override must be ≤ 8000 characters (the DB CHECK constraint).')
+  .refine(
+    (s) => !WI_HOLISTIC_OVERRIDE_RESERVED_MARKERS.some((m) => s.includes(m)),
+    {
+      message: `holistic_prompt_override may not contain reserved markers (${WI_HOLISTIC_OVERRIDE_RESERVED_MARKERS.join(', ')}).`,
+    },
+  );
+
 export const evolutionWiSessionInsertSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().nullable().optional(),
@@ -3071,6 +3090,9 @@ export const evolutionWiSessionInsertSchema = z.object({
   judge_temperature: z.number().nullable().optional(),
   judge_reasoning_effort: z.string().nullable().optional(),
   auto_repeats: z.number().int().min(1).max(10).optional().default(1),
+  /** Optional override for the holistic comparison prompt body (auto-mode only). NULL/undefined =
+   *  use the hardcoded checklist in buildComparisonPrompt. See migration 20260623000003. */
+  holistic_prompt_override: holisticPromptOverrideSchema.nullable().optional(),
 });
 
 export const evolutionWiSessionRowSchema = z.object({
@@ -3095,6 +3117,7 @@ export const evolutionWiSessionRowSchema = z.object({
   deleted_at: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
+  holistic_prompt_override: z.string().nullable(),
 });
 
 export const evolutionWiArticleRowSchema = z.object({

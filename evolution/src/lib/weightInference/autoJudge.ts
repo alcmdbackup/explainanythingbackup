@@ -65,6 +65,15 @@ export interface SinglePairResult {
  * the position-bias audit) + per-criterion (rubric 2-pass via compareWithBiasMitigation;
  * per-dimension verdicts are weight-independent). textA/textB are the canonical A/B — the
  * 2-pass reversal yields real-frame verdicts, so NO shown_swapped flip is needed.
+ *
+ * `holisticOverride` (evalute_implied_rubric_results_and_experimentally_validate_20260623
+ * Phase 1): when non-empty, replaces the hardcoded checklist in the holistic prompt. Passed
+ * through `buildComparisonPrompt(customPromptOverride=..., strictVerdictTail=true)` so the
+ * strict A/B/TIE verdict tail is emitted (compatible with `parseWinner` — start-anchored).
+ * The per-criterion path (`compareWithBiasMitigation` → `buildRubricComparisonPrompt`) is
+ * unaffected — it has no override, by design. The Zod schema layer enforces a deny-list
+ * (`## Text A`, `## Text B`, `Your answer:`, `<|`, `|>`) so the operator-supplied override
+ * cannot pre-position fake body markers.
  */
 export async function judgePairOnce(
   judge: JudgeText,
@@ -73,14 +82,18 @@ export async function judgePairOnce(
   rubric: ResolvedJudgeRubric,
   costAcc: { usd: number },
   mode: ComparisonMode = 'article',
+  holisticOverride?: string,
 ): Promise<SinglePairResult> {
   const start = costAcc.usd;
   const passes: { fwd: string | null; revShown: string | null } = { fwd: null, revShown: null };
 
+  const override = holisticOverride && holisticOverride.length > 0 ? holisticOverride : undefined;
   const overallRes = await run2PassReversal<string | null, ComparisonResult>({
     buildPrompts: () => ({
-      forward: buildComparisonPrompt(textA, textB, mode),
-      reverse: buildComparisonPrompt(textB, textA, mode),
+      // Override is forwarded to BOTH forward and reverse passes — symmetric framing is
+      // essential for 2-pass reversal to be meaningful.
+      forward: buildComparisonPrompt(textA, textB, mode, override, false, undefined, undefined, undefined, true),
+      reverse: buildComparisonPrompt(textB, textA, mode, override, false, undefined, undefined, undefined, true),
     }),
     callLLM: judge,
     parseResponse: (r) => parseWinner(r),

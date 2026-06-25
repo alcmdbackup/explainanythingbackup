@@ -49,7 +49,9 @@ export function plannedCalls(remainingPairs: number, repeats: number): number {
 // (rather than importing calculateCost) so this module stays free of the pipeline graph and
 // remains importable from the client form. Overhead constants mirror estimateCosts.ts.
 
-/** Fixed char overhead of a holistic A/B comparison prompt (instructions + framing). */
+/** Fixed char overhead of the default holistic A/B comparison prompt (instructions + framing
+ *  + hardcoded "clarity / structure / engagement / grammar / overall" checklist). Used as a
+ *  floor when `holisticOverrideChars` is not supplied or smaller than the default. */
 const HOLISTIC_PROMPT_OVERHEAD_CHARS = 700;
 /** Fixed char overhead of a rubric comparison prompt (preamble + structured ask), before criteria. */
 const RUBRIC_PROMPT_OVERHEAD_CHARS = 1200;
@@ -89,6 +91,11 @@ export function estimateAutoRunCost(input: {
   model: string;
   avgArticleChars: number;
   criteriaCount: number;
+  /** evalute_implied_rubric_results_and_experimentally_validate_20260623 Phase 1: when the
+   *  session carries a `holistic_prompt_override`, its character length replaces the default
+   *  HOLISTIC_PROMPT_OVERHEAD_CHARS in the projection — so the operator-facing $ estimate
+   *  matches the bytes that will actually be sent. Pass 0 (or omit) for the default path. */
+  holisticOverrideChars?: number;
 }): AutoRunCostEstimate {
   const matches = Math.max(0, Math.floor(input.matches));
   const repeats = Math.max(1, Math.floor(input.repeats));
@@ -99,8 +106,9 @@ export function estimateAutoRunCost(input: {
   const pricing = getModelPricing(input.model);
   const K = Math.max(0, Math.floor(input.criteriaCount));
   const bothArticles = 2 * input.avgArticleChars;
+  const holisticOverhead = Math.max(HOLISTIC_PROMPT_OVERHEAD_CHARS, Math.max(0, Math.floor(input.holisticOverrideChars ?? 0)));
 
-  const holisticInput = bothArticles + HOLISTIC_PROMPT_OVERHEAD_CHARS;
+  const holisticInput = bothArticles + holisticOverhead;
   const rubricInput = bothArticles + RUBRIC_PROMPT_OVERHEAD_CHARS + K * RUBRIC_CHARS_PER_CRITERION;
   const rubricOutput = RUBRIC_OUTPUT_CHARS_PER_CRITERION * K + HOLISTIC_OUTPUT_CHARS;
 

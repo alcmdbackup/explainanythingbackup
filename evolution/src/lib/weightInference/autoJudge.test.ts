@@ -35,6 +35,78 @@ describe('judgePairOnce', () => {
   });
 });
 
+// ─── Phase 1 (evalute_implied_rubric_results_and_experimentally_validate_20260623) ────────
+// holistic prompt override: tests that the override flows to BOTH forward and reverse passes
+// of the holistic prompt, that the strict A/B/TIE verdict tail is emitted (not the rejudge
+// sandbox's reasoning-tolerant "Your answer:" tail), and that the default (no override)
+// behavior is byte-identical to pre-Phase-1.
+
+describe('judgePairOnce — holistic_prompt_override (Phase 1)', () => {
+  const OVERRIDE = '## Custom Eval\nDecide which version is better overall. Be terse.';
+
+  it('omitting holistic override leaves the default hardcoded checklist intact', async () => {
+    const captured: string[] = [];
+    const judge = async (prompt: string): Promise<string> => {
+      captured.push(prompt);
+      return prompt.indexOf('AAA') < prompt.indexOf('BBB') ? 'A' : 'B';
+    };
+    await judgePairOnce(judge, 'AAA article', 'BBB article', RUBRIC, { usd: 0 });
+    // Expect the default hardcoded checklist in both holistic prompts (forward + reverse).
+    const holisticPrompts = captured.filter((p) => p.includes('Clarity and readability'));
+    expect(holisticPrompts).toHaveLength(2);
+    // No override marker, no reasoning-tolerant tail.
+    expect(holisticPrompts.some((p) => p.includes('## Custom Eval'))).toBe(false);
+    expect(holisticPrompts.some((p) => p.includes('You may include reasoning'))).toBe(false);
+  });
+
+  it('forwards the override into BOTH forward and reverse holistic prompts', async () => {
+    const captured: string[] = [];
+    const judge = async (prompt: string): Promise<string> => {
+      captured.push(prompt);
+      // Detect rubric prompt via dim names so we don't return per-dim verdicts on the holistic call.
+      if (prompt.includes('c1') || prompt.includes('c2')) {
+        return ['c1', 'c2'].map((n) => `${n}: A`).join('\n');
+      }
+      return 'A';
+    };
+    await judgePairOnce(judge, 'AAA article', 'BBB article', RUBRIC, { usd: 0 }, 'article', OVERRIDE);
+    // Two holistic prompts both contain the override — and neither contains the default
+    // hardcoded "Clarity and readability" checklist line.
+    const holisticPrompts = captured.filter((p) => p.includes('## Custom Eval'));
+    expect(holisticPrompts).toHaveLength(2);
+    expect(holisticPrompts.every((p) => !p.includes('Clarity and readability'))).toBe(true);
+  });
+
+  it('emits the STRICT A/B/TIE verdict tail (not the reasoning-tolerant "Your answer:" tail)', async () => {
+    const captured: string[] = [];
+    const judge = async (prompt: string): Promise<string> => {
+      captured.push(prompt);
+      if (prompt.includes('c1') || prompt.includes('c2')) {
+        return ['c1', 'c2'].map((n) => `${n}: A`).join('\n');
+      }
+      return 'A';
+    };
+    await judgePairOnce(judge, 'AAA', 'BBB', RUBRIC, { usd: 0 }, 'article', OVERRIDE);
+    const holisticPrompts = captured.filter((p) => p.includes('## Custom Eval'));
+    // Strict tail: "Respond with ONLY one of these exact answers".
+    expect(holisticPrompts.every((p) => p.includes('Respond with ONLY one of these exact answers'))).toBe(true);
+    // Must NOT contain the reasoning-tolerant phrasing that the rejudge sandbox uses.
+    expect(holisticPrompts.some((p) => p.includes('You may include reasoning'))).toBe(false);
+  });
+
+  it('empty-string override is treated identically to undefined override (no preset replacement)', async () => {
+    const captured: string[] = [];
+    const judge = async (prompt: string): Promise<string> => {
+      captured.push(prompt);
+      return 'A';
+    };
+    await judgePairOnce(judge, 'AAA', 'BBB', RUBRIC, { usd: 0 }, 'article', '');
+    // Default hardcoded checklist is still used on both passes.
+    const defaultPrompts = captured.filter((p) => p.includes('Clarity and readability'));
+    expect(defaultPrompts).toHaveLength(2);
+  });
+});
+
 function r(overall: 'a' | 'b' | 'tie', dimV: 'a' | 'b' | 'tie', cost = 0.01): SinglePairResult {
   return {
     overall,
