@@ -40,10 +40,14 @@ Run all runs CONCURRENTLY, made correct by a root-cause fix to the live merge, w
 - [ ] **Option B2: Equal variants produced per run.** Controls for sample size but lets expensive arms consume far more budget.
 - [ ] **Option B3: Equal wall-clock.** Operationally simplest, statistically muddiest. Rejected.
 
-### Decision C — Primary dependent variable
-- [ ] **Option C1 (Recommended): Best-variant Elo lift over the fixed seed, measured in the fresh arena**, aggregated across replicate runs with bootstrap 95% CI.
-- [ ] **Option C2: `eloAttrDelta` (mean child−parent).** Good secondary/diagnostic; conservative CI per docs.
-- [ ] **Option C3: Fraction of variants beating the seed.** Robust, intuitive secondary.
+### Decision C — Primary dependent variable — RESOLVED → ceiling (max lift over seed), at equal budget (user, 2026-06-26)
+- [x] **PRIMARY: per-run max Elo lift over the seed, at equal budget.** `bestVariantElo(run) − seedElo`, on the common recomputed scale. One value per run → distribution across an arm's runs → mean/median + bootstrap 95% CI → compare arms. Matches how the pipeline is actually used (keep the winner), and "best improvement per fixed budget" is the real decision. Under equal budget, an arm's variant *volume* is a legitimate part of its value, not a confound to scrub.
+  - **Noise guard (required):** pick the run's "best" variant conservatively — by **lower-confidence-bound** `elo − 1.96·sigma` (or require `arena_match_count ≥ threshold`) — so a high-variance, few-match fluke can't be crowned. Pre-register the exact rule.
+- [x] **SECONDARY (decompose *why* an arm wins):**
+  - mean lift / `eloAttrDelta` (already persisted) — per-attempt quality, count-robust; separates "wins via volume" from "wins because each attempt is strong".
+  - P(beat seed) — fraction of variants above the seed (reliability).
+  - Elo-lift-per-$ — explicit cost efficiency (≈ primary at equal budget; matters if budgets ever differ).
+  - variant_count — context/diagnostic.
 
 ### Decision D — Arm set — RESOLVED → clean 9-arm single-iteration-from-seed block (user, 2026-06-26)
 - [x] **CHOSEN: all 9 seed-capable agents, each as a single iteration off the seed.** After modifying the two editing agents (Phase 1b), every arm has the **identical structure** — one iteration, `sourceMode='seed'`, 100% budget — differing only in `agentType`. This is the cleanest possible comparison (no warm-up confound). The 9 arms:
