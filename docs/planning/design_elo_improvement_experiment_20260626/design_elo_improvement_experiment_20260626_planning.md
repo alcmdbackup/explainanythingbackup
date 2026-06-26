@@ -28,6 +28,11 @@ We want to know which evolution agent/strategy best improves a *specific, alread
   - **Flow:** queue all runs → wait for queue drain → run recompute → `/analysis`.
   - **Caveat (benign):** concurrency may make per-run *matchmaking* slightly less efficient (stale ratings → suboptimal pairings) but never changes match *outcomes* (LLM judges actual text); the replay corrects all final ratings. Supersedes the "serialize runs" note in Decision A / research KF2.
 
+### Decision G — Pool-accumulation policy — RESOLVED → accumulate, compare at the end (user, 2026-06-26)
+- [x] **CHOSEN: let the shared arena accumulate (no archiving between runs); derive the single common Elo scale at the very end via the Decision F recompute.** Accumulation keeps all arms on one densely-anchored Elo scale (the seed + every variant act as shared anchors); archiving would sever cross-run/cross-arm comparability, leaving the seed as the only thin link. Keeping all match data also preserves optionality — the final recompute can produce any rating *view* (full arena, or each arm's top-K + seed). 
+  - **Risk + mitigation:** run-order/sparsity (late variants face a bigger pool) → interleave arm execution (round-robin) + a **pilot connectivity check** (confirm the rating graph is well-connected across arms; add a fixed anchor set only if thin).
+  - **Operational watch (non-blocking):** each run loads all synced variants at start — fine at ~500–1000; revisit if runs scale 10×.
+
 ### Decision B — Budget normalization (what "effectiveness" means)
 - [ ] **Option B1 (Recommended): Equal $ budget per run, report BOTH absolute lift and cost-normalized lift (Elo per $).** Fairest single framing; lets cheap arms shine on efficiency and expensive arms on absolute ceiling.
 - [ ] **Option B2: Equal variants produced per run.** Controls for sample size but lets expensive arms consume far more budget.
