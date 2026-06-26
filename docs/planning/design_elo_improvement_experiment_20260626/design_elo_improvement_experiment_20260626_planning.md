@@ -1,0 +1,101 @@
+# Design Elo Improvement Experiment Plan
+
+<!-- Implementation plan for designing + running a rigorous, budget-aware staging experiment that
+     ranks evolution agent types/strategies by their effectiveness at improving a single ~1325-Elo
+     seed article from "Federal Reserve 2", with proper confidence intervals and per-agent QA. -->
+
+## Background
+Help design a robust experiment to measure which type of agent/strategy is the most effective at improving Elo for a 1325-Elo seed article from "Federal Reserve 2". The experiment must account for budget and confidence intervals, create a new Arena Topic seeded with just this single article, and be rigorous enough that we can both (a) confirm each agent worked as intended and (b) draw statistically valid conclusions about relative effectiveness.
+
+## Requirements (from GH Issue #NNN)
+Design a robust experiment accounting for budget & confidence intervals that can help assess which strategies and agent types are the most effective at improving up on a 1325 elo variant from Federal Reserve 2 on stage. We should create a new Arena Topic with just this single seed and make sure our design is very rigorous. Plan on doing careful analysis to make sure each of our agents are working as intended and that we are drawing the right conclusions.
+
+## Problem
+We want to know which evolution agent/strategy best improves a *specific, already-good* (≈1325 Elo) article. Three things make a naive A/B insufficient: (1) the historical 1325 rating is noisy — it rests on only 3–6 matches (sigma 5–6 ≈ ±80–96 Elo), so it cannot be the precise baseline; (2) at this high-Elo regime documented agent lift is small and sometimes negative, so effect sizes are near the noise floor and require replicates + bootstrap CIs; (3) cost varies ~70× across arms, so "effectiveness" must be defined against an explicit budget normalization or we'll just reward expensive arms. The design must control all of this and gate on per-agent health so a 402-wipeout or cost-tracking gap can't masquerade as "this agent is bad".
+
+## Options Considered
+
+### Decision A — Arena / baseline construction
+- [ ] **Option A1 (Recommended): New Arena Topic + copied seed as a fixed anchor variant.** New `evolution_prompts` row; insert one variant = exact copy of the chosen 1325 text, registered so it participates in ranking as a fixed reference. All arms' outputs compared head-to-head against the same seed in a clean arena (no contamination from FR2's 2675 variants). Re-rates the seed fresh → kills the noisy-1325 problem. **Cost:** must resolve how to make the seed an in-pool anchor (docs say seed is excluded from pool since 2026-04-15).
+- [ ] **Option A2: Reuse existing Federal Reserve 2 arena.** Cheapest, but 2675 existing variants (max 1442) dominate matchmaking; new variants get compared against unrelated lineages, not the seed → confounds the "improve THIS article" question. Rejected unless A1 mechanics prove infeasible.
+- [ ] **Option A3: New arena, seed only as generation source (not a competitor).** Measure each arm's variants' Elo within the new arena and compare arms to each other; infer seed baseline by also generating a "null/identity" arm. More moving parts; weaker direct "beat the seed" readout.
+
+### Decision B — Budget normalization (what "effectiveness" means)
+- [ ] **Option B1 (Recommended): Equal $ budget per run, report BOTH absolute lift and cost-normalized lift (Elo per $).** Fairest single framing; lets cheap arms shine on efficiency and expensive arms on absolute ceiling.
+- [ ] **Option B2: Equal variants produced per run.** Controls for sample size but lets expensive arms consume far more budget.
+- [ ] **Option B3: Equal wall-clock.** Operationally simplest, statistically muddiest. Rejected.
+
+### Decision C — Primary dependent variable
+- [ ] **Option C1 (Recommended): Best-variant Elo lift over the fixed seed, measured in the fresh arena**, aggregated across replicate runs with bootstrap 95% CI.
+- [ ] **Option C2: `eloAttrDelta` (mean child−parent).** Good secondary/diagnostic; conservative CI per docs.
+- [ ] **Option C3: Fraction of variants beating the seed.** Robust, intuitive secondary.
+
+### Decision D — Arm set (given budget)
+- [ ] **Option D1 (Recommended): 4–5 arms** — GFPA baseline (1), criteria single-pass (4), proposer-approver (5), paragraph-recombine (7), + one of iterative-editing (6) / paragraph+coherence (8). Covers cheap/moderate/expensive and the documented H1/H2 hypotheses.
+- [ ] **Option D2: All 8 arms.** Most complete but multiplies cost and multiple-comparison burden.
+- [ ] **Option D3: 2 arms (baseline vs one challenger).** Highest power per dollar, narrowest insight.
+
+### Decision E — Sample size / power
+- [ ] **Option E1 (Recommended): pilot first (2–3 runs/arm) to estimate cross-run SD, then size the full run count for ~80% power at a pre-registered minimal effect (e.g. ≥ +30 Elo) with multiplicity correction.**
+- [ ] **Option E2: Fixed N=8 runs/arm** (rule-of-thumb from docs) without pilot. Simpler, riskier on power.
+
+## Phased Execution Plan
+
+### Phase 0: Deep research / mechanics confirmation (code-level)
+- [ ] Confirm the **seed-as-fixed-anchor** mechanism in code: can a copied seed variant participate in ranking as a pinned reference in a new prompt? Read `claimAndExecuteRun.ts`, `runIterationLoop.ts`, `loadArenaEntries`, arena sync path. Resolve Decision A.
+- [ ] Confirm how an **experiment** pins one `prompt_id` across multiple strategy arms and how `addRunToExperiment` sets budget/strategy. Read `experimentActionsV2.ts`, `ExperimentEntity.ts`.
+- [ ] Confirm exact **strategy config surface** to hold constant across arms (model, judge, temperature, criteria set, weakestK, `maxComparisonsPerVariant`) and which single field flips `agentType`. Read `findOrCreateStrategy.ts`, pipeline `types.ts`.
+- [ ] Verify minicomputer is on current code + has `EVOLUTION_MAX_OUTPUT_TOKENS` set; confirm OpenRouter/provider credit headroom for the planned spend.
+
+### Phase 1: Finalize design + pre-registration
+- [ ] Pick the single seed variant (from `da03b016` / `538bfbc9` / `93a9ac9d`) and record its text + a content hash.
+- [ ] Lock arms (Decision D), budget normalization (B), primary+secondary DVs (C), and the analysis/decision rule (E) into this doc as a **pre-registered protocol** (hypotheses, primary DV, test, α with correction, minimal effect size, exclusion rules).
+- [ ] Define the **per-agent QA gate** (success rate, variant_count>0, matches recorded, cost within 1.5× projection, no parse failures, manual read of ≥1 variant/arm to confirm the transformation actually happened).
+
+### Phase 2: Build the experiment artifact
+- [ ] Create the new Arena Topic prompt + insert the fixed seed anchor (per Phase 0 resolution).
+- [ ] Author a dated seed script under `evolution/scripts/experiments/seedElo<...>Experiment_20260626.ts` (reuse `manual_run_experiment` skill scaffolding) that creates the experiment, the per-arm strategies (config-hash-distinct only on `agentType`), and queues N runs/arm with equal $ budget. Production cost tracking enforced.
+- [ ] Add a unit test for the seed script's config-builder (arms differ only in the intended field; budgets sum as expected).
+
+### Phase 3: Pilot
+- [ ] Queue 2–3 runs/arm; let the minicomputer execute. Verify QA gate passes for every run; estimate per-arm cross-run SD and actual cost/run.
+- [ ] Size the full run count from pilot SD (Decision E1). Adjust budget if cost diverged > 1.5×.
+
+### Phase 4: Full run + analysis
+- [ ] Queue the sized run counts (interleave arm order to avoid arena-drift confounds). Monitor for wipeouts/cost gaps.
+- [ ] Run `/analysis`: per-arm best-variant Elo lift (bootstrap 95% CI), Elo-per-$, fraction beating seed, decisive_rate, convergence; apply the pre-registered test + multiplicity correction; report winners with CIs and the per-agent QA evidence.
+- [ ] Write the analysis report to `docs/analysis/<name>/` and link from this project's docs (Artifacts section).
+
+## Testing
+
+### Unit Tests
+- [ ] `evolution/scripts/experiments/seedElo<...>Experiment_20260626.test.ts` — config-builder produces arms that differ ONLY in `agentType`; budgets/run-counts correct; config hashes distinct per arm.
+
+### Integration Tests
+- [ ] (If any new helper to insert the fixed seed anchor is added) integration test against staging schema that the seed variant is created + participates in ranking. Otherwise N/A (experiment is data/ops, not new product code).
+
+### E2E Tests
+- [ ] N/A unless new admin UI is added. If the experiment surfaces in `/admin/evolution/experiments`, a smoke check that the experiment + arms render (likely covered by existing `@evolution` specs).
+
+### Manual Verification
+- [ ] Read ≥1 produced variant per arm and confirm the agent's transformation actually occurred (e.g. paragraph-recombine reassembled slots; proposer-approver applied selective edits).
+- [ ] Confirm the seed anchor's fresh-arena Elo is stable across pilot runs (sanity of the baseline).
+
+## Verification
+
+### A) Playwright Verification (required for UI changes)
+- [ ] N/A (no UI change expected). If admin experiment view is used for inspection, manual screenshot of the experiment detail page suffices.
+
+### B) Automated Tests
+- [ ] `npm run test:unit -- seedElo` (seed-script config-builder test).
+- [ ] Read-only staging verification queries (run health, cost reconciliation, Elo extraction) captured in the `/analysis` report.
+
+## Documentation Updates
+The following docs were identified as relevant and may need updates:
+- [ ] `evolution/docs/strategies_and_experiments.md` — add this experiment as a worked example of a single-seed agent comparison (if the pattern is reusable).
+- [ ] `evolution/docs/arena.md` — clarify the seed-as-fixed-anchor mechanism if Phase 0 surfaces under-documented behavior.
+- [ ] `evolution/docs/rating_and_comparison.md` — note the replicate-runs-vs-matches CI guidance if confirmed.
+- [ ] `docs/analysis/<name>/` — new analysis report (created by `/analysis` in Phase 4).
+
+## Review & Discussion
+<!-- Populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration. -->
