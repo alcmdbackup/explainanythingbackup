@@ -1784,6 +1784,43 @@ describe('iterationConfigSchema — new criteria-based agents (updated_criteria_
     })).toThrow(/coherencePassMaxCycles only valid/);
   });
 
+  // Per rebuild_coherence_pass_agent_mode_ab_configurable_20260624.
+  it('accepts coherencePassEditingMode = "mode_a" and "mode_b"', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassEditingMode: 'mode_a',
+    })).not.toThrow();
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassEditingMode: 'mode_b',
+    })).not.toThrow();
+  });
+
+  it('rejects coherencePassEditingMode with an invalid enum value', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine_with_coherence_pass',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+      qualityCutoff: { mode: 'topN', value: 3 },
+      coherencePassEditingMode: 'mode_c',
+    })).toThrow();
+  });
+
+  it('rejects coherencePassEditingMode on non-coherence-pass agent type', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'paragraph_recombine',
+      budgetPercent: 100,
+      sourceMode: 'seed',
+      coherencePassEditingMode: 'mode_b',
+    })).toThrow(/coherencePassEditingMode only valid/);
+  });
+
   it('rejects includesMirrorApprover on non-proposer_approver agent type', () => {
     expect(() => iterationConfigSchema.parse({
       agentType: 'single_pass_evaluate_criteria_and_generate',

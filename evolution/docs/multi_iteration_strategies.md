@@ -115,8 +115,10 @@ const iterationConfigSchema = z.object({
   includesMirrorApprover: z.boolean().optional(),              // proposer_approver only (default true)
   // paragraph_recombine_with_coherence_pass knobs
   // (investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3 + Phase 4)
-  coherencePassLengthCapRatio: z.number().min(1.0).max(2.0).optional(),  // default 1.10 (kill-switch aware)
-  coherencePassMaxCycles: z.number().int().min(1).max(5).optional(),     // default 2 (kill-switch aware)
+  coherencePassLengthCapRatio: z.number().min(1.0).max(2.0).optional(),  // default 1.10
+  coherencePassMaxCycles: z.number().int().min(1).max(5).optional(),     // default 2
+  // rebuild_coherence_pass_agent_mode_ab_configurable_20260624
+  coherencePassEditingMode: z.enum(['mode_a', 'mode_b']).optional(),     // default 'mode_b'
   // paragraph_recombine knobs (rank_individual_paragraphs_evolution_20260525)
   rewritesPerParagraph: z.number().int().min(1).max(6).optional(),
   maxComparisonsPerParagraph: z.number().int().min(1).max(20).optional(),
@@ -143,7 +145,7 @@ With superRefine validations:
 - First iteration must be variant-producing (`generate`, `reflect_and_generate`, `criteria_and_generate`, `single_pass_evaluate_criteria_and_generate`, or `paragraph_recombine`). `paragraph_recombine` as first iteration operates on the seed article for the topic (per D5). `proposer_approver_criteria_generate` cannot be first since it edits an existing parent variant.
 - No swiss iteration may precede all variant-producing iterations.
 - `criteriaIds` / `weakestK` are required for ALL three criteria-based types and rejected on other agent types. `criteriaIds` is sorted (canonicalized) before being included in the strategy `config_hash` so `[a,b]` and `[b,a]` deduplicate.
-- `lengthCapRatio` is rejected on agent types other than `proposer_approver_criteria_generate`. `includesMirrorApprover` is rejected on agent types other than `proposer_approver_criteria_generate`. The `editingMaxCycles === 1` invariant is enforced for `proposer_approver_criteria_generate`. `coherencePassLengthCapRatio` and `coherencePassMaxCycles` are rejected on agent types other than `paragraph_recombine_with_coherence_pass`.
+- `lengthCapRatio` is rejected on agent types other than `proposer_approver_criteria_generate`. `includesMirrorApprover` is rejected on agent types other than `proposer_approver_criteria_generate`. The `editingMaxCycles === 1` invariant is enforced for `proposer_approver_criteria_generate`. `coherencePassLengthCapRatio`, `coherencePassMaxCycles`, and `coherencePassEditingMode` are rejected on agent types other than `paragraph_recombine_with_coherence_pass`.
 - The 4 paragraph knobs (`rewritesPerParagraph`, `maxComparisonsPerParagraph`, `maxParagraphsPerInvocation`, `paragraphRewriteModel`) are rejected on agent types other than `paragraph_recombine`. Same for `perInvocationCapUsd` and `maxDispatches` (added by `investigate_paragraph_rewrite_cost_undershoot_evolution_20260529`). The four `*Floor*` per-iteration override fields are NOT agent-type-gated — they're advisory floors that any iteration can carry, but the runtime currently honors them only for paragraph_recombine (J4); the generate runtime path continues to use strategy-level floors.
 
 ## Paragraph_recombine multi-dispatch (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529)

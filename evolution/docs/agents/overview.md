@@ -601,9 +601,8 @@ Selected per-iteration via `IterationConfig.agentType: 'paragraph_recombine_with
 - `validateOpts: { lengthCapRatio }` — default 1.10 (configurable via `coherencePassLengthCapRatio`). `redundancyJaccardThreshold` + `flowGuardrailEnabled` dropped (Phase 2a).
 - `proposerUserPrompt` REBUILT FROM RUNNING TEXT each cycle (RULE-1 byte-equality requires this).
 - `driftRecovery: 'skip'` (the recombined article is the source of truth)
-- Mode A only — no `rewriteMode`, so no `coalesceAdjacentGroups` / `capGroupsByMagnitude`. No edit-count cap.
+- Editing mode is configurable via `coherencePassEditingMode` (per rebuild_coherence_pass_agent_mode_ab_configurable_20260624): **Mode B** (default, `'mode_b'`) — rewrite-then-diff with `rewriteMode: { coalesceAndCap: false }`; **Mode A** (`'mode_a'`) — legacy CriticMarkup-in path with no `rewriteMode`.
 - Per-invocation budget gate at 0.85× cap; per-cycle budget gate at 0.9×.
-- Kill switch: `EVOLUTION_COHERENCE_PASS_DEFAULTS_V2='false'` reverts defaults to legacy (1.02 / 1 cycle) without a deploy.
 
 **A/B isolation lever**: `coherencePassEnabled: false` skips the coherence pass entirely. The per-invocation cap default flips to $0.05 (vs $0.10 with coherence). Use to isolate the coherence pass's contribution to Elo lift.
 

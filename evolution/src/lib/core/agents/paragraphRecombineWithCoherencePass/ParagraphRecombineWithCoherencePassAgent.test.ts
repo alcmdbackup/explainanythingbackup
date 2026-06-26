@@ -110,6 +110,26 @@ export function makeCycleResult(opts: Partial<RunEditingCycleResult> = {}): RunE
     stopReason: opts.stopReason,
     ...(opts.errorPhase && { errorPhase: opts.errorPhase }),
     ...(opts.errorMessage && { errorMessage: opts.errorMessage }),
+    ...(opts.modeBContext && { modeBContext: opts.modeBContext }),
+  };
+}
+
+/** Mode B cycle result helper — populates all modeBContext fields with sensible
+ *  defaults. Used by the rebuild_coherence_pass_agent_mode_ab_configurable_20260624
+ *  tests that verify Mode B persistence + normalizedSource reassignment between cycles. */
+export function makeModeBCycleResult(opts: Partial<RunEditingCycleResult> & {
+  modeBContext?: NonNullable<RunEditingCycleResult['modeBContext']>;
+} = {}): RunEditingCycleResult {
+  const baseModeBContext = {
+    rationale: 'Restore voice and cadence across the seams.',
+    rewriteText: 'Mock rewritten article body.',
+    computedMarkup: '{++added++}',
+    normalizedSource: 'Mock normalized source text.',
+    ...opts.modeBContext,
+  };
+  return {
+    ...makeCycleResult(opts),
+    modeBContext: baseModeBContext,
   };
 }
 
@@ -206,7 +226,7 @@ describe('ParagraphRecombineWithCoherencePassAgent', () => {
         expect(mockedRunEditingCycle).toHaveBeenCalled();
       } else if ('skipped' in cp) {
         // Skipped for a documented reason — log to surface in test output if needed.
-        expect(['budget', 'disabled', 'kill_switch', 'format_invalid_recombine']).toContain(cp.skipped);
+        expect(['budget', 'disabled', 'format_invalid_recombine']).toContain(cp.skipped);
       }
     }
   });
@@ -269,7 +289,7 @@ describe('ParagraphRecombineWithCoherencePassAgent', () => {
     });
   });
 
-  describe('Phase 3 — coherencePassLengthCapRatio plumbing + kill switch', () => {
+  describe('Phase 3 — coherencePassLengthCapRatio plumbing', () => {
     it('validateOpts.lengthCapRatio uses input.coherencePassLengthCapRatio when set', async () => {
       mockedRunEditingCycle.mockResolvedValueOnce(makeCycleResult({
         newText: FIXTURE_ARTICLE,
@@ -285,51 +305,18 @@ describe('ParagraphRecombineWithCoherencePassAgent', () => {
       }
     });
 
-    it('validateOpts.lengthCapRatio defaults to 1.10 (new default) when input undefined', async () => {
-      // Ensure kill switch is in V2 (default) mode for this test.
-      const original = process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2;
-      delete process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2;
-      try {
-        mockedRunEditingCycle.mockResolvedValueOnce(makeCycleResult({
-          newText: FIXTURE_ARTICLE,
-          appliedAny: false,
-          stopReason: 'no_edits_proposed',
-        }));
-        const agent = new ParagraphRecombineWithCoherencePassAgent();
-        await agent.execute(makeInput(), makeCtx());
+    it('validateOpts.lengthCapRatio defaults to 1.10 when input undefined', async () => {
+      mockedRunEditingCycle.mockResolvedValueOnce(makeCycleResult({
+        newText: FIXTURE_ARTICLE,
+        appliedAny: false,
+        stopReason: 'no_edits_proposed',
+      }));
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      await agent.execute(makeInput(), makeCtx());
 
-        if (mockedRunEditingCycle.mock.calls.length > 0) {
-          const args = mockedRunEditingCycle.mock.calls[0]![0];
-          expect(args.validateOpts!.lengthCapRatio).toBe(1.10);
-        }
-      } finally {
-        if (original === undefined) delete process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2;
-        else process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2 = original;
-      }
-    });
-
-    it('kill switch: EVOLUTION_COHERENCE_PASS_DEFAULTS_V2=false flips defaults to legacy (1.02, 1)', async () => {
-      // Pattern mirrors IterativeEditingAgent.test.ts:143-163 (save + restore in finally).
-      const original = process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2;
-      process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2 = 'false';
-      try {
-        mockedRunEditingCycle.mockResolvedValueOnce(makeCycleResult({
-          newText: FIXTURE_ARTICLE,
-          appliedAny: false,
-          stopReason: 'no_edits_proposed',
-        }));
-        const agent = new ParagraphRecombineWithCoherencePassAgent();
-        await agent.execute(makeInput(), makeCtx());
-
-        if (mockedRunEditingCycle.mock.calls.length > 0) {
-          const args = mockedRunEditingCycle.mock.calls[0]![0];
-          expect(args.validateOpts!.lengthCapRatio).toBe(1.02);
-        }
-        // Only 1 cycle when kill switch flips maxCycles default to 1.
-        expect(mockedRunEditingCycle).toHaveBeenCalledTimes(1);
-      } finally {
-        if (original === undefined) delete process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2;
-        else process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2 = original;
+      if (mockedRunEditingCycle.mock.calls.length > 0) {
+        const args = mockedRunEditingCycle.mock.calls[0]![0];
+        expect(args.validateOpts!.lengthCapRatio).toBe(1.10);
       }
     });
   });
@@ -465,8 +452,69 @@ describe('ParagraphRecombineWithCoherencePassAgent', () => {
       expect(mockedRunEditingCycle).toHaveBeenCalledTimes(2);
     });
 
-    it('Mode A invariant — runEditingCycle is NEVER called with rewriteMode (no Mode B coalesce/cap)', async () => {
+    it('Mode A pinned — runEditingCycle is called WITHOUT rewriteMode', async () => {
       mockedRunEditingCycle.mockResolvedValueOnce(makeCycleResult({
+        newText: FIXTURE_ARTICLE,
+        appliedAny: false,
+        stopReason: 'no_edits_proposed',
+      }));
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      await agent.execute(makeInput({ coherencePassEditingMode: 'mode_a' }), makeCtx());
+
+      if (mockedRunEditingCycle.mock.calls.length > 0) {
+        const args = mockedRunEditingCycle.mock.calls[0]![0];
+        // Mode A: no rewriteMode option means coalesceAdjacentGroups + capGroupsByMagnitude
+        // are both skipped by runEditingCycle. This is the "no caps, no coalescing" invariant
+        // when coherencePassEditingMode === 'mode_a'.
+        expect(args.rewriteMode).toBeUndefined();
+      }
+    });
+  });
+
+  // ─── rebuild_coherence_pass_agent_mode_ab_configurable_20260624 ───────────────────
+  describe('Mode A / Mode B editing-mode branch', () => {
+    it('coherencePassEditingMode = "mode_a" → runEditingCycle called WITHOUT rewriteMode + Mode A prompt builders', async () => {
+      mockedRunEditingCycle.mockResolvedValueOnce(makeCycleResult({
+        newText: FIXTURE_ARTICLE,
+        appliedAny: false,
+        stopReason: 'no_edits_proposed',
+      }));
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      await agent.execute(makeInput({ coherencePassEditingMode: 'mode_a' }), makeCtx());
+
+      if (mockedRunEditingCycle.mock.calls.length > 0) {
+        const args = mockedRunEditingCycle.mock.calls[0]![0];
+        expect(args.rewriteMode).toBeUndefined();
+        // Mode A prompts mention CriticMarkup-in syntax.
+        expect(args.proposerSystemPrompt).toMatch(/CriticMarkup/);
+        expect(args.proposerSystemPrompt).not.toMatch(/## Rewrite/);
+      }
+    });
+
+    it('coherencePassEditingMode = "mode_b" → runEditingCycle called WITH rewriteMode { coalesceAndCap: false } + Mode B prompt builders', async () => {
+      mockedRunEditingCycle.mockResolvedValueOnce(makeModeBCycleResult({
+        newText: FIXTURE_ARTICLE,
+        appliedAny: false,
+        stopReason: 'no_edits_proposed',
+      }));
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      await agent.execute(makeInput({ coherencePassEditingMode: 'mode_b' }), makeCtx());
+
+      if (mockedRunEditingCycle.mock.calls.length > 0) {
+        const args = mockedRunEditingCycle.mock.calls[0]![0];
+        expect(args.rewriteMode).toEqual({ coalesceAndCap: false });
+        // Mode B prompts mention the rewrite-then-diff format.
+        expect(args.proposerSystemPrompt).toMatch(/## Rationale/);
+        expect(args.proposerSystemPrompt).toMatch(/## Rewrite/);
+        // Mode B prompt does NOT contain CriticMarkup syntax tokens (it tells the
+        // proposer to emit plain markdown). Mode A's prompt does contain {++…++} etc.
+        expect(args.proposerSystemPrompt).not.toMatch(/\{\+\+/);
+        expect(args.proposerSystemPrompt).not.toMatch(/\{--/);
+      }
+    });
+
+    it('default (undefined coherencePassEditingMode) → Mode B is used', async () => {
+      mockedRunEditingCycle.mockResolvedValueOnce(makeModeBCycleResult({
         newText: FIXTURE_ARTICLE,
         appliedAny: false,
         stopReason: 'no_edits_proposed',
@@ -476,9 +524,190 @@ describe('ParagraphRecombineWithCoherencePassAgent', () => {
 
       if (mockedRunEditingCycle.mock.calls.length > 0) {
         const args = mockedRunEditingCycle.mock.calls[0]![0];
-        // Mode A: no rewriteMode option means coalesceAdjacentGroups + capGroupsByMagnitude
-        // are both skipped by runEditingCycle. This is the "no caps, no coalescing" invariant.
-        expect(args.rewriteMode).toBeUndefined();
+        expect(args.rewriteMode).toEqual({ coalesceAndCap: false });
+        expect(args.proposerSystemPrompt).toMatch(/## Rationale/);
+      }
+    });
+
+    it('emitted coherencePass.config.editingMode reflects the resolved mode', async () => {
+      mockedRunEditingCycle.mockResolvedValueOnce(makeModeBCycleResult({
+        newText: FIXTURE_ARTICLE,
+        appliedAny: true,
+        cycle: {
+          cycleNumber: 1,
+          proposedMarkup: '',
+          proposedGroupsRaw: [],
+          droppedPreApprover: [],
+          approverGroups: [{ groupNumber: 1, atomicEdits: [] } as never],
+          reviewDecisions: [],
+          droppedPostApprover: [],
+          appliedGroups: [{ groupNumber: 1, atomicEdits: [] } as never],
+          acceptedCount: 1,
+          rejectedCount: 0,
+          appliedCount: 1,
+          formatValid: true,
+          parentText: FIXTURE_ARTICLE,
+          proposeCostUsd: 0.0001,
+          approveCostUsd: 0.0001,
+          sizeRatio: 1.0,
+        },
+      }));
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      const result = await agent.execute(makeInput({ coherencePassEditingMode: 'mode_b' }), makeCtx());
+
+      if (result.detail.coherencePass && 'config' in result.detail.coherencePass) {
+        const config = result.detail.coherencePass.config;
+        expect(config).toHaveProperty('editingMode', 'mode_b');
+        expect(config).toHaveProperty('maxCycles');
+      }
+    });
+
+    it('persisted Mode B cycle includes proposerMode + rationale + rewriteText + computedMarkup', async () => {
+      mockedRunEditingCycle.mockResolvedValueOnce(makeModeBCycleResult({
+        newText: FIXTURE_ARTICLE,
+        appliedAny: true,
+        cycle: {
+          cycleNumber: 1,
+          proposedMarkup: '',
+          proposedGroupsRaw: [],
+          droppedPreApprover: [],
+          approverGroups: [{ groupNumber: 1, atomicEdits: [] } as never],
+          reviewDecisions: [],
+          droppedPostApprover: [],
+          appliedGroups: [{ groupNumber: 1, atomicEdits: [] } as never],
+          acceptedCount: 1,
+          rejectedCount: 0,
+          appliedCount: 1,
+          formatValid: true,
+          parentText: FIXTURE_ARTICLE,
+          proposeCostUsd: 0.0001,
+          approveCostUsd: 0.0001,
+          sizeRatio: 1.0,
+        },
+        modeBContext: {
+          rationale: 'Restoring voice across the seams.',
+          rewriteText: 'The rewritten article.',
+          computedMarkup: '{++voice-restoration edit++}',
+          normalizedSource: 'Normalized source text.',
+        },
+      }));
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      const result = await agent.execute(makeInput({ coherencePassEditingMode: 'mode_b' }), makeCtx());
+
+      if (result.detail.coherencePass && 'cycles' in result.detail.coherencePass) {
+        const cycles = result.detail.coherencePass.cycles;
+        expect(cycles.length).toBeGreaterThan(0);
+        const c0 = cycles[0] as Record<string, unknown>;
+        expect(c0.proposerMode).toBe('rewrite');
+        expect(c0.rationale).toBe('Restoring voice across the seams.');
+        expect(c0.rewriteText).toBe('The rewritten article.');
+        expect(c0.computedMarkup).toBe('{++voice-restoration edit++}');
+      }
+    });
+
+    it('persisted Mode A cycle includes proposerMode: "markup" and NO modeBContext fields', async () => {
+      mockedRunEditingCycle.mockResolvedValueOnce(makeCycleResult({
+        newText: FIXTURE_ARTICLE,
+        appliedAny: true,
+        cycle: {
+          cycleNumber: 1,
+          proposedMarkup: '',
+          proposedGroupsRaw: [],
+          droppedPreApprover: [],
+          approverGroups: [{ groupNumber: 1, atomicEdits: [] } as never],
+          reviewDecisions: [],
+          droppedPostApprover: [],
+          appliedGroups: [{ groupNumber: 1, atomicEdits: [] } as never],
+          acceptedCount: 1,
+          rejectedCount: 0,
+          appliedCount: 1,
+          formatValid: true,
+          parentText: FIXTURE_ARTICLE,
+          proposeCostUsd: 0.0001,
+          approveCostUsd: 0.0001,
+          sizeRatio: 1.0,
+        },
+      }));
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      const result = await agent.execute(makeInput({ coherencePassEditingMode: 'mode_a' }), makeCtx());
+
+      if (result.detail.coherencePass && 'cycles' in result.detail.coherencePass) {
+        const c0 = result.detail.coherencePass.cycles[0] as Record<string, unknown>;
+        expect(c0.proposerMode).toBe('markup');
+        expect(c0.rationale).toBeUndefined();
+        expect(c0.rewriteText).toBeUndefined();
+        expect(c0.computedMarkup).toBeUndefined();
+      }
+    });
+
+    it('per-cycle currentText reassignment — Mode B normalizedSource is fed into cycle 2', async () => {
+      // Cycle 1: Mode B, applies edits, returns normalizedSource = "CANON_TEXT".
+      // Cycle 2: assert it was called with text === "CANON_TEXT" (proves the
+      // normalizedSource reassignment fixes the multi-cycle canonicalization gotcha).
+      mockedRunEditingCycle.mockResolvedValueOnce(makeModeBCycleResult({
+        newText: 'POST_APPLY_TEXT',
+        appliedAny: true,
+        cycle: {
+          cycleNumber: 1,
+          proposedMarkup: '',
+          proposedGroupsRaw: [],
+          droppedPreApprover: [],
+          approverGroups: [{ groupNumber: 1, atomicEdits: [] } as never],
+          reviewDecisions: [],
+          droppedPostApprover: [],
+          appliedGroups: [{ groupNumber: 1, atomicEdits: [] } as never],
+          acceptedCount: 1,
+          rejectedCount: 0,
+          appliedCount: 1,
+          formatValid: true,
+          parentText: FIXTURE_ARTICLE,
+          proposeCostUsd: 0.0001,
+          approveCostUsd: 0.0001,
+          sizeRatio: 1.0,
+        },
+        modeBContext: {
+          rationale: 'r',
+          rewriteText: 'rt',
+          computedMarkup: '{++x++}',
+          normalizedSource: 'CANON_TEXT',
+        },
+      }));
+      mockedRunEditingCycle.mockResolvedValueOnce(makeModeBCycleResult({
+        newText: FIXTURE_ARTICLE,
+        appliedAny: false,
+        stopReason: 'no_edits_proposed',
+      }));
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      await agent.execute(makeInput({ coherencePassEditingMode: 'mode_b', coherencePassMaxCycles: 2 }), makeCtx());
+
+      if (mockedRunEditingCycle.mock.calls.length >= 2) {
+        const cycle2Args = mockedRunEditingCycle.mock.calls[1]![0];
+        // CRITICAL: cycle 2's text MUST equal cycle 1's normalizedSource — NOT newText.
+        // Without the reassignment, cycle 2 would see POST_APPLY_TEXT and the diff
+        // engine would emit spurious normalization-only edits.
+        expect(cycle2Args.text).toBe('CANON_TEXT');
+      }
+    });
+
+    it.each([
+      'proposer_format_violation',
+      'rewrite_too_large',
+      'rewrite_parse_failed',
+      'diff_engine_failed',
+    ] as const)('Mode B failure stopReason %s → loop terminates on cycle 1 + cycle pushed onto cycles[]', async (stopReason) => {
+      mockedRunEditingCycle.mockResolvedValueOnce(makeModeBCycleResult({
+        newText: FIXTURE_ARTICLE,
+        appliedAny: false,
+        stopReason,
+      }));
+      const agent = new ParagraphRecombineWithCoherencePassAgent();
+      const result = await agent.execute(makeInput({ coherencePassEditingMode: 'mode_b', coherencePassMaxCycles: 3 }), makeCtx());
+
+      // Loop exited after cycle 1 even though maxCycles=3.
+      expect(mockedRunEditingCycle).toHaveBeenCalledTimes(1);
+      // Cycle was still recorded (don't lose the failed cycle's data).
+      if (result.detail.coherencePass && 'cycles' in result.detail.coherencePass) {
+        expect(result.detail.coherencePass.cycles.length).toBe(1);
       }
     });
   });

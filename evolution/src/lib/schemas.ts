@@ -891,6 +891,14 @@ export const iterationConfigSchema = z.object({
    *  Default 2. Range 1–5. Only valid when
    *  agentType === 'paragraph_recombine_with_coherence_pass'. */
   coherencePassMaxCycles: z.number().int().min(1).max(5).optional(),
+  /** Per rebuild_coherence_pass_agent_mode_ab_configurable_20260624.
+   *  Editing mode for the coherence pass. 'mode_a' = legacy CriticMarkup-in path
+   *  (proposer emits inline {++…++}/{--…--}/{~~old~>new~~} spans, runEditingCycle
+   *  parses them directly). 'mode_b' = rewrite-then-diff (proposer emits
+   *  ## Rationale + ## Rewrite blocks, runEditingCycle derives CriticMarkup via diff
+   *  with rewriteMode: { coalesceAndCap: false }). Default 'mode_b'. Only valid when
+   *  agentType === 'paragraph_recombine_with_coherence_pass'. */
+  coherencePassEditingMode: z.enum(['mode_a', 'mode_b']).optional(),
 }).refine(
   // sourceMode is for parent-article selection in variant-producing iterations.
   // Debate selects parents internally (top-2 from pool snapshot per Decision §16) so
@@ -1025,6 +1033,10 @@ export const iterationConfigSchema = z.object({
   // investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 4.
   (c) => c.agentType === 'paragraph_recombine_with_coherence_pass' || c.coherencePassMaxCycles === undefined,
   { message: 'coherencePassMaxCycles only valid when agentType is paragraph_recombine_with_coherence_pass' },
+).refine(
+  // rebuild_coherence_pass_agent_mode_ab_configurable_20260624.
+  (c) => c.agentType === 'paragraph_recombine_with_coherence_pass' || c.coherencePassEditingMode === undefined,
+  { message: 'coherencePassEditingMode only valid when agentType is paragraph_recombine_with_coherence_pass' },
 );
 
 export type IterationConfig = z.infer<typeof iterationConfigSchema>;
@@ -2745,12 +2757,19 @@ export const paragraphRecombineWithCoherencePassExecutionDetailSchema = executio
         proposerModel: z.string(),
         approverModel: z.string(),
         lengthCapRatio: z.number(),
+        /** Per rebuild_coherence_pass_agent_mode_ab_configurable_20260624.
+         *  Resolved editing mode for the coherence pass (Mode A = CriticMarkup-in;
+         *  Mode B = rewrite-then-diff). */
+        editingMode: z.enum(['mode_a', 'mode_b']),
+        /** Per rebuild_coherence_pass_agent_mode_ab_configurable_20260624 — opportunistic
+         *  add closing a #1282 observability gap. Resolved per-cycle loop cap. */
+        maxCycles: z.number().int().min(1).max(5),
       }),
       /** Silent-rejection observability: approver returned > 0 groups but apply count == 0. */
       silentRejection: z.boolean().optional(),
     }),
     z.object({
-      skipped: z.enum(['budget', 'disabled', 'kill_switch', 'format_invalid_recombine']),
+      skipped: z.enum(['budget', 'disabled', 'format_invalid_recombine']),
       spentAtSkip: z.number().min(0).optional(),
       capUsd: z.number().min(0).optional(),
     }),

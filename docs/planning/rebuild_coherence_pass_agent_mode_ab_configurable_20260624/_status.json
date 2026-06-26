@@ -1,0 +1,18 @@
+{
+  "branch": "feat/rebuild_coherence_pass_agent_mode_ab_configurable_20260624",
+  "created_at": "2026-06-24T13:46:24Z",
+  "prerequisites": {
+    "todos_created": "2026-06-24T19:48:27Z"
+  },
+  "relevantDocs": [
+    "evolution/docs/paragraph_recombine_with_coherence_pass.md",
+    "evolution/docs/editing_agents.md",
+    "evolution/docs/multi_iteration_strategies.md",
+    "evolution/docs/reference.md",
+    "evolution/docs/architecture.md",
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/metrics.md"
+  ],
+  "siblingProject": "docs/planning/investigate_paragraph_recombine_coherence_pass_performance_20260623/",
+  "sourceAnalysis": "docs/analysis/coherence-pass-perf-ab-results-20260624/"
+}

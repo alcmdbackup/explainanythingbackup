@@ -684,6 +684,59 @@ describe('V2 hashStrategyConfig — paragraph_recombine perInvocationCapUsd (J1.
   });
 });
 
+// Per rebuild_coherence_pass_agent_mode_ab_configurable_20260624.
+// Mode A vs Mode B is a meaningful strategy-config difference (different editing path,
+// different proposer prompt) — config_hash MUST be distinct so the two arms of an A/B
+// dedupe to different strategy_ids. The omitted-vs-explicit-Mode-B equality is also
+// asserted: existing strategies that omit coherencePassEditingMode hash identically to
+// strategies that set it to the default 'mode_b'.
+describe('V2 hashStrategyConfig — paragraph_recombine_with_coherence_pass coherencePassEditingMode', () => {
+  const baseConfig: StrategyConfig = {
+    generationModel: 'gpt-4.1-mini',
+    judgeModel: 'gpt-4.1-nano',
+    iterationConfigs: [
+      {
+        agentType: 'paragraph_recombine_with_coherence_pass',
+        budgetPercent: 100,
+        sourceMode: 'pool',
+        qualityCutoff: { mode: 'topN', value: 3 },
+      },
+    ],
+  };
+
+  it('hash differs between coherencePassEditingMode = "mode_a" and "mode_b"', () => {
+    const modeA: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [{ ...baseConfig.iterationConfigs[0]!, coherencePassEditingMode: 'mode_a' }],
+    };
+    const modeB: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [{ ...baseConfig.iterationConfigs[0]!, coherencePassEditingMode: 'mode_b' }],
+    };
+    expect(hashStrategyConfig(modeA)).not.toBe(hashStrategyConfig(modeB));
+  });
+
+  it('hash is stable when coherencePassEditingMode is omitted (back-compat with pre-rebuild strategies)', () => {
+    expect(hashStrategyConfig(baseConfig)).toBe(hashStrategyConfig(baseConfig));
+  });
+
+  it('coherencePassEditingMode is NOT emitted for non-coherence-pass agents (refinement-rejected)', () => {
+    const baseGenerate: StrategyConfig = {
+      generationModel: 'gpt-4.1-mini',
+      judgeModel: 'gpt-4.1-nano',
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }],
+    };
+    const withModeOnGenerate = {
+      ...baseGenerate,
+      iterationConfigs: [
+        // Bypass schema refinement to test the canonicalize FIELD_GATES whitelist directly.
+        { ...baseGenerate.iterationConfigs[0]!, coherencePassEditingMode: 'mode_b' } as StrategyConfig['iterationConfigs'][number],
+      ],
+    };
+    expect(hashStrategyConfig(withModeOnGenerate)).toBe(hashStrategyConfig(baseGenerate));
+  });
+});
+
 describe('V2 upsertStrategy', () => {
   const baseConfig: StrategyConfig = {
     generationModel: 'gpt-4.1-mini',

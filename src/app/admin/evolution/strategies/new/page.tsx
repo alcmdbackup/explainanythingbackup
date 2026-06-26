@@ -108,6 +108,9 @@ interface IterationRow {
   coherencePassLengthCapRatio?: number;
   /** investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 4. */
   coherencePassMaxCycles?: number;
+  /** rebuild_coherence_pass_agent_mode_ab_configurable_20260624. Mode B (default) =
+   *  rewrite-then-diff; Mode A = legacy CriticMarkup-in. */
+  coherencePassEditingMode?: 'mode_a' | 'mode_b';
 }
 
 // Paragraph_recombine wizard defaults — match agent constants.
@@ -134,11 +137,13 @@ const COHERENCE_PASS_DEFAULTS = {
   // $0.05 when false (same as plain paragraph_recombine).
   perInvocationCapUsdWithCoherence: 0.10,
   perInvocationCapUsdWithoutCoherence: 0.05,
-  // investigate_paragraph_recombine_coherence_pass_performance_20260623 — new defaults.
-  // These mirror the agent's runtime defaults from resolveCoherencePassDefaults() when
-  // EVOLUTION_COHERENCE_PASS_DEFAULTS_V2 is unset or 'true'.
+  // investigate_paragraph_recombine_coherence_pass_performance_20260623 — defaults.
+  // Mirror the agent's runtime DEFAULT_COHERENCE_PASS_* constants.
   coherencePassLengthCapRatio: 1.10,
   coherencePassMaxCycles: 2,
+  // rebuild_coherence_pass_agent_mode_ab_configurable_20260624 — Mode B is the default;
+  // 'mode_a' pins legacy CriticMarkup-in path.
+  coherencePassEditingMode: 'mode_b',
 } as const;
 
 // Default cutoff applied when user switches a generate iteration to sourceMode='pool'.
@@ -216,6 +221,8 @@ interface IterationConfigPayload {
   editingProposerSoftCap?: number;
   /** Phase 6: Mode B only. */
   disableApproverFiltering?: boolean;
+  /** rebuild_coherence_pass_agent_mode_ab_configurable_20260624. */
+  coherencePassEditingMode?: 'mode_a' | 'mode_b';
 }
 
 /** Variant-producing agent types share the same parent-article source machinery
@@ -371,6 +378,12 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
       : {}),
     ...(it.agentType === 'paragraph_recombine_with_coherence_pass' && it.coherencePassMaxCycles != null && it.coherencePassMaxCycles !== COHERENCE_PASS_DEFAULTS.coherencePassMaxCycles
       ? { coherencePassMaxCycles: it.coherencePassMaxCycles }
+      : {}),
+    // rebuild_coherence_pass_agent_mode_ab_configurable_20260624.
+    // Emit only when set AND not equal to default (Mode B) so identical-to-default rows
+    // hash identically (matches the FIELD_GATES emit-when-set, no normalizeIteration fold).
+    ...(it.agentType === 'paragraph_recombine_with_coherence_pass' && it.coherencePassEditingMode != null && it.coherencePassEditingMode !== COHERENCE_PASS_DEFAULTS.coherencePassEditingMode
+      ? { coherencePassEditingMode: it.coherencePassEditingMode }
       : {}),
     // meta_analysis_how_to_get_top_arena_federal_reserve_2_20260616 Phase 6:
     // Mode B (iterative_editing_rewrite) only. Both fields are stripped pre-hash
@@ -2049,6 +2062,21 @@ export default function NewStrategyPage(): JSX.Element {
                           data-testid={`coherence-pass-max-cycles-${idx}`}
                           title="Maximum number of propose-approve-apply cycles in the coherence pass. Default 2. Range 1–5. Each cycle rebuilds the proposer prompt from the running text; loop exits early on no-more-edits or budget."
                         />
+                        <span className={`ml-2 ${it.coherencePassEnabled === false ? 'opacity-50' : ''} text-[var(--text-primary)]`}>· Editing mode:</span>
+                        <select
+                          value={it.coherencePassEditingMode ?? COHERENCE_PASS_DEFAULTS.coherencePassEditingMode}
+                          disabled={it.coherencePassEnabled === false}
+                          onChange={e => {
+                            const v = e.target.value as 'mode_a' | 'mode_b';
+                            updateIteration(idx, { coherencePassEditingMode: v });
+                          }}
+                          className="ml-1 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none disabled:opacity-50"
+                          data-testid={`coherence-pass-editing-mode-${idx}`}
+                          title="Mode B (default) = rewrite-then-diff (proposer emits ## Rationale + ## Rewrite; markup derived via diff). Mode A = legacy CriticMarkup-in (proposer emits inline {++…++}/{--…--}/{~~old~>new~~} spans). Mode B fixes the no-op rate observed in the CoherencePassPerf A/B (docs/analysis/coherence-pass-perf-ab-results-20260624/)."
+                        >
+                          <option value="mode_b">Mode B (rewrite-then-diff)</option>
+                          <option value="mode_a">Mode A (CriticMarkup)</option>
+                        </select>
                       </div>
                     )}
                     </div>

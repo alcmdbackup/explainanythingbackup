@@ -39,12 +39,16 @@ Three phases per invocation:
 
 > **Major rework by `investigate_paragraph_recombine_coherence_pass_performance_20260623`** (2026-06-23). Original hypothesis ("isolated rewrites + minor seam smoothing beats sequential context-aware generation") was invalidated by 4 consecutive staging runs with negative `eloAttrDelta:paragraph_recombine_with_coherence_pass`. The agent is now repositioned as "isolated rewrites + a real editing pass": the proposer prompt authorizes voice repair, the Jaccard redundancy + flow guardrails are dropped from `validateOpts`, the length cap defaults open to 1.10 (vs 1.02), and the single cycle is replaced with a bounded loop (default 2 cycles).
 
+> **Mode A/B configurable by `rebuild_coherence_pass_agent_mode_ab_configurable_20260624`** (2026-06-24). The post-merge A/B from the project above failed; deep-dive analysis (`docs/analysis/coherence-pass-perf-ab-results-20260624/`) found that the default proposer (`gemini-2.5-flash-lite`) emits Mode B-shaped output (clean rewritten articles in `## Rationale` + `## Rewrite` blocks) but the agent was hard-coded to Mode A (CriticMarkup-in parsing) — `parseProposedEdits` no-op'd in ~93% of invocations. The agent now branches on `coherencePassEditingMode` (default `'mode_b'`): Mode B routes through `runEditingCycle`'s `rewriteMode: { coalesceAndCap: false }` rewrite-then-diff path; Mode A is preserved verbatim for opt-in A/B comparisons.
+
 5. Pre-coherence-pass budget gate at **0.85× perInvocationCap** — skipped with `coherencePass: { skipped: 'budget' }` if scope ≥ gate.
 6. When `coherencePassEnabled !== false`: a bounded loop of `runEditingCycle()` calls (the same shared helper extracted from `IterativeEditingAgent`). Each cycle:
    - Rebuilds `proposerUserPrompt` from the running text. Cycle 2+ must see the post-cycle-1 article as `<source>` — otherwise `parseProposedEdits`' RULE-1 byte-equality drops every group.
    - Uses `validateOpts: { lengthCapRatio }` only. `redundancyJaccardThreshold` + `flowGuardrailEnabled` removed (Phase 2a): both blocked legitimate voice-repair edits without catching paraphrased duplication; the approver LLM is the actual quality gate.
    - Loop terminates when `cycleResult.stopReason` is set OR `cycleNumber > maxCycles`.
-   - **Mode A only** — `runEditingCycle` is called WITHOUT a `rewriteMode` argument, so `coalesceAdjacentGroups` + `capGroupsByMagnitude` are skipped. Intentional: no edit-count cap, no per-group cap.
+   - **Editing mode is configurable** (per `rebuild_coherence_pass_agent_mode_ab_configurable_20260624`) via `coherencePassEditingMode`. Default **Mode B** (`'mode_b'`) — `runEditingCycle` is called with `rewriteMode: { coalesceAndCap: false }`; the proposer emits `## Rationale` + `## Rewrite` blocks via `buildCoherencePassProposerSystemPromptModeB` / `…UserPromptModeB`, and CriticMarkup is derived via diff in `computeMarkupFromRewrite`. **Mode A** (`'mode_a'`) — `runEditingCycle` is called WITHOUT `rewriteMode`; the proposer emits inline CriticMarkup via the original `buildCoherencePassProposerSystemPrompt` / `…UserPrompt`. No edit-count cap or per-group cap in either mode.
+   - **Mode B per-cycle canonicalization gotcha**: between cycles, the agent reassigns `currentText = cycleResult.modeBContext?.normalizedSource ?? cycleResult.newText`. Without this, cycle 2+ would diff against the post-apply text (not the canonicalized source the next propose call needs) and produce spurious normalization-only edits. Mode A falls back to `cycleResult.newText` (legacy behavior).
+   - **Mode B cycle persistence**: the agent attaches `proposerMode: 'rewrite'` + `rationale` + `rewriteText` + `computedMarkup` from `cycleResult.modeBContext` to the persisted `EditingCycle`. Mode A attaches `proposerMode: 'markup'` and nothing else. Mirrors `IterativeEditingAgent.ts:222-231`.
    - **`driftRecovery: 'skip'`** — the recombined article is the source of truth; nothing to drift from. With multi-cycle this means minor drift in cycle 2+ aborts via stopReason rather than attempting snap recovery against a moving source.
 7. AgentName labels: `coherence_pass_propose` + `coherence_pass_review` → cost lands in the `paragraph_recombine_coherence_cost` umbrella metric (sums propose + review accumulators across all cycles; the underlying `getPhaseCosts` accumulators are run-cumulative so the sum-write is MAX-safe).
 8. Silent-rejection observability: per-cycle counter accumulated across the loop. If any cycle had `approverGroups.length > 0 && appliedGroups.length === 0`, the agent writes the run-total to `coherence_pass_silent_rejection_count` once at end-of-loop and logs a warn.
@@ -81,7 +85,7 @@ Floor and ceiling are tunable per-iteration via `coherencePassRewriteTempFloor` 
 - `perInvocationCapUsd` (default **conditional**: $0.10 when `coherencePassEnabled !== false`, $0.05 when explicitly false)
 - `maxDispatches` (default 1 — back-compat single-dispatch; opt into multi-dispatch by raising)
 
-**Coherence-pass-only** (7 fields after `investigate_paragraph_recombine_coherence_pass_performance_20260623`):
+**Coherence-pass-only** (8 fields after `rebuild_coherence_pass_agent_mode_ab_configurable_20260624`):
 - `coherencePassEnabled?: boolean` — default true. When false, the coherence pass is skipped and the recombined article is emitted as-is. **This was the original A/B isolation lever**; with the Phase-2a/3/4 changes, the agent's hypothesis has shifted (see Algorithm notes above).
 - `coherencePassProposerModel?: string` — default `generationModel`
 - `coherencePassApproverModel?: string` — default `judgeModel`
@@ -89,8 +93,11 @@ Floor and ceiling are tunable per-iteration via `coherencePassRewriteTempFloor` 
 - `coherencePassRewriteTempCeiling?: number` — default 1.0 (range 0-2; must be ≥ floor)
 - `coherencePassLengthCapRatio?: number` (Phase 3) — default **1.10** (range 1.0-2.0). The per-cycle article-growth ceiling. NOTE: with `coherencePassMaxCycles > 1` the cap COMPOUNDS — at the defaults (1.10 × 2 cycles) worst-case length is 1.21× original.
 - `coherencePassMaxCycles?: number` (Phase 4) — default **2** (range 1-5). Maximum number of propose-approve-apply cycles.
+- `coherencePassEditingMode?: 'mode_a' | 'mode_b'` (per rebuild_coherence_pass_agent_mode_ab_configurable_20260624) — default **`'mode_b'`**. Selects the editing path. **Mode B** (default) routes the proposer through `runEditingCycle`'s rewrite mode (`rewriteMode: { coalesceAndCap: false }`); the proposer emits `## Rationale` + `## Rewrite` blocks and CriticMarkup is derived via diff. **Mode A** is the legacy CriticMarkup-in path — proposer emits inline `{++…++}`/`{--…--}`/`{~~old~>new~~}` spans and `runEditingCycle` parses them directly (no `rewriteMode`). Choose Mode A only for A/B comparisons or when the proposer model is known to emit CriticMarkup reliably; for the default proposer (gemini-2.5-flash-lite) Mode A no-ops in ~93% of invocations per the CoherencePassPerf A/B (`docs/analysis/coherence-pass-perf-ab-results-20260624/`).
 
-**Kill switch** (env-var): `EVOLUTION_COHERENCE_PASS_DEFAULTS_V2`. Default `'true'` (or unset) uses the new aggressive defaults (1.10 / 2 cycles). Setting to `'false'` flips defaults to legacy (1.02 / 1 cycle) WITHOUT a deploy — the agent reads the env var per-invocation via `resolveCoherencePassDefaults()`. Explicit per-strategy values (set via the wizard or iter-config) ALWAYS override; the kill switch only changes what the DEFAULT is.
+**No env-var kill switch.** The legacy `EVOLUTION_COHERENCE_PASS_DEFAULTS_V2` env var was removed by rebuild_coherence_pass_agent_mode_ab_configurable_20260624 — per-strategy iter-config (the three fields above) already cover the "I need legacy behavior" case. A global rollback is a code revert.
+
+**Default-resolution semantics.** Existing strategies that omit `coherencePassEditingMode` auto-upgrade to Mode B (no `normalizeIteration` fold; matches the precedent set by `coherencePassLengthCapRatio` / `coherencePassMaxCycles` in PR #1282). To pin Mode A for an existing strategy, set `coherencePassEditingMode: 'mode_a'` explicitly in the iter-config.
 
 ## Cost envelope
 
@@ -127,6 +134,10 @@ The `slot_provenance_ratio_p25` / `_p50` metrics use sentence-level Levenshtein 
 
 **Low values do NOT necessarily indicate prompt violation.** Use the metric as a directional signal, not a hard compliance check. A true compliance check would need an LLM judge ("does the child contain any factual claim not in parent?"). That's out of scope for the in-pipeline metric; researchers wanting strict compliance verification should run a follow-up judge script post-hoc.
 
+## Mode A / Mode B risk note
+
+**CriticMarkup compliance is no longer load-bearing at the proposer level** (per `rebuild_coherence_pass_agent_mode_ab_configurable_20260624`). Pre-rebuild, the coherence pass was hard-coded to Mode A and depended on the proposer LLM emitting valid `{++…++}` / `{--…--}` / `{~~old~>new~~}` spans against the canonicalized source. `parseProposedEdits`' RULE-1 (outside-markup byte-equality) silently dropped every edit when the proposer drifted even slightly — and the default proposer (`gemini-2.5-flash-lite`) drifted in ~93% of invocations (`docs/analysis/coherence-pass-perf-ab-results-20260624/`). Mode B sidesteps this entirely: the proposer emits plain markdown and `computeMarkupFromRewrite` derives the diff mechanically. Mode A remains for A/B comparisons and for proposer models known to comply (e.g. larger frontier models in dedicated experiments) — pin via `coherencePassEditingMode: 'mode_a'` explicitly.
+
 ## Kill switch
 
 `EVOLUTION_PARAGRAPH_RECOMBINE_COHERENCE_ENABLED='false'` short-circuits the dispatch branch in `runIterationLoop.ts` with an info log. Single-env-flip rollback.
@@ -151,7 +162,8 @@ Use the same prompt + same seed across all 3 arms. 5+ runs per arm for statistic
 |---|---|
 | `evolution/src/lib/core/agents/paragraphRecombineWithCoherencePass/ParagraphRecombineWithCoherencePassAgent.ts` | Agent class + execute() body |
 | `evolution/src/lib/core/agents/paragraphRecombineWithCoherencePass/buildIsolatedParagraphRewritePrompt.ts` | 3-directive isolated rewrite prompt + temperature ladder |
-| `evolution/src/lib/core/agents/paragraphRecombineWithCoherencePass/buildCoherencePassProposerPrompt.ts` | Coherence-pass proposer prompt (inter-paragraph-seam focus) |
+| `evolution/src/lib/core/agents/paragraphRecombineWithCoherencePass/buildCoherencePassProposerPrompt.ts` | Coherence-pass proposer prompt — **Mode A** (CriticMarkup-in) |
+| `evolution/src/lib/core/agents/paragraphRecombineWithCoherencePass/buildCoherencePassProposerPromptModeB.ts` | Coherence-pass proposer prompt — **Mode B** (rewrite-then-diff; voice-restoration scope) |
 | `evolution/src/lib/core/agents/paragraphRecombineWithCoherencePass/slotProvenance.ts` | Slot provenance ratio compute + percentile aggregation |
 | `evolution/src/lib/core/agents/editing/runEditingCycle.ts` | Shared helper extracted from `IterativeEditingAgent`. Both agents call this. |
 | `evolution/src/lib/pipeline/loop/runIterationLoop.ts` | Dispatch branch (sibling to `paragraph_recombine` branch) |

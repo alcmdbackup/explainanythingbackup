@@ -92,6 +92,12 @@ const FIELD_GATES: Partial<Record<keyof IterCfg, (t: AgentType) => boolean>> = {
   // investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3 + Phase 4.
   coherencePassLengthCapRatio: (t) => t === 'paragraph_recombine_with_coherence_pass',
   coherencePassMaxCycles: (t) => t === 'paragraph_recombine_with_coherence_pass',
+  // rebuild_coherence_pass_agent_mode_ab_configurable_20260624.
+  // Per the plan: emit-when-set, NO normalizeIteration default — existing strategies
+  // that omit this auto-upgrade to Mode B at runtime, and the omitted-vs-explicit-Mode-B
+  // hash equality is intentional (matches the precedent for coherencePassLengthCapRatio
+  // and coherencePassMaxCycles in PR #1282).
+  coherencePassEditingMode: (t) => t === 'paragraph_recombine_with_coherence_pass',
 };
 
 /** Sort generationGuidance by tactic — it is an unordered weighted SET

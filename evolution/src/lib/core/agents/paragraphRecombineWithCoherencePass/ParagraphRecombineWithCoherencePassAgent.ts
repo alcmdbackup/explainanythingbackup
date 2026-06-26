@@ -69,6 +69,10 @@ import {
   buildCoherencePassProposerSystemPrompt,
   buildCoherencePassProposerUserPrompt,
 } from './buildCoherencePassProposerPrompt';
+import {
+  buildCoherencePassProposerSystemPromptModeB,
+  buildCoherencePassProposerUserPromptModeB,
+} from './buildCoherencePassProposerPromptModeB';
 import { runEditingCycle } from '../editing/runEditingCycle';
 
 // ─── Defaults (mirroring ParagraphRecombineAgent per D9) ──────────
@@ -85,36 +89,18 @@ const PRE_COHERENCE_GATE_FRACTION = 0.85;
 const SLOT_SELF_ABORT_FRACTION = 0.9;
 
 // Per investigate_paragraph_recombine_coherence_pass_performance_20260623.
-// New (aggressive) defaults: 10% growth headroom, 2 cycles.
-// Legacy (kill-switched) defaults: 2% growth headroom, 1 cycle.
+// Defaults: 10% growth headroom, 2 cycles. The kill switch
+// (EVOLUTION_COHERENCE_PASS_DEFAULTS_V2) was removed by
+// rebuild_coherence_pass_agent_mode_ab_configurable_20260624 — per-strategy
+// iter-config overrides already cover the "I need legacy behavior" case.
 const DEFAULT_COHERENCE_PASS_LENGTH_CAP_RATIO = 1.10;
 const DEFAULT_COHERENCE_PASS_MAX_CYCLES = 2;
-const LEGACY_COHERENCE_PASS_LENGTH_CAP_RATIO = 1.02;
-const LEGACY_COHERENCE_PASS_MAX_CYCLES = 1;
-
-/** Resolve coherence-pass defaults with kill-switch support.
- *
- * Reads `process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2` PER INVOCATION
- * (not at module load) so an ops flip in Vercel env takes effect on the next
- * invocation without a deploy. Default behavior (env unset or 'true') uses
- * the new aggressive defaults. Set to 'false' to revert to legacy behavior
- * for all strategies that rely on defaults.
- *
- * Explicit per-strategy input fields ALWAYS override this — the helper only
- * decides what the DEFAULT is when input is undefined.
- */
-export function resolveCoherencePassDefaults(): { lengthCapRatio: number; maxCycles: number } {
-  if (process.env.EVOLUTION_COHERENCE_PASS_DEFAULTS_V2 === 'false') {
-    return {
-      lengthCapRatio: LEGACY_COHERENCE_PASS_LENGTH_CAP_RATIO,
-      maxCycles: LEGACY_COHERENCE_PASS_MAX_CYCLES,
-    };
-  }
-  return {
-    lengthCapRatio: DEFAULT_COHERENCE_PASS_LENGTH_CAP_RATIO,
-    maxCycles: DEFAULT_COHERENCE_PASS_MAX_CYCLES,
-  };
-}
+/** Per rebuild_coherence_pass_agent_mode_ab_configurable_20260624.
+ *  Mode A (CriticMarkup-in) | Mode B (rewrite-then-diff). Default Mode B —
+ *  the proposer LLM (gemini-2.5-flash-lite at the time of this writing)
+ *  reliably produces rewrite-shaped output, and parsing CriticMarkup spans
+ *  from the same LLM is unreliable (see docs/analysis/coherence-pass-perf-ab-results-20260624/). */
+const DEFAULT_COHERENCE_PASS_EDITING_MODE = 'mode_b' as const;
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -132,12 +118,18 @@ export interface ParagraphRecombineWithCoherencePassInput {
   coherencePassRewriteTempCeiling?: number;
   /** Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 3.
    *  Per-cycle length cap for the coherence-pass propose/approve cycle. Range 1.0–2.0.
-   *  Default resolved via resolveCoherencePassDefaults() (kill-switch aware). */
+   *  Default DEFAULT_COHERENCE_PASS_LENGTH_CAP_RATIO. */
   coherencePassLengthCapRatio?: number;
   /** Per investigate_paragraph_recombine_coherence_pass_performance_20260623 Phase 4.
    *  Maximum number of propose-approve-apply cycles in the coherence pass. Range 1–5.
-   *  Default resolved via resolveCoherencePassDefaults() (kill-switch aware). */
+   *  Default DEFAULT_COHERENCE_PASS_MAX_CYCLES. */
   coherencePassMaxCycles?: number;
+  /** Per rebuild_coherence_pass_agent_mode_ab_configurable_20260624.
+   *  Editing mode for the coherence pass. 'mode_a' = CriticMarkup-in (proposer
+   *  emits inline {++…++}/{--…--}/{~~old~>new~~} spans). 'mode_b' = rewrite-then-diff
+   *  (proposer emits ## Rationale + ## Rewrite blocks; markup derived via diff).
+   *  Default DEFAULT_COHERENCE_PASS_EDITING_MODE ('mode_b'). */
+  coherencePassEditingMode?: 'mode_a' | 'mode_b';
   initialPool?: Variant[];
   initialRatings?: Map<string, Rating>;
   initialMatchCounts?: Map<string, number>;
@@ -353,25 +345,28 @@ export class ParagraphRecombineWithCoherencePassAgent extends Agent<
         capUsd: effectiveCapUsd,
       };
     } else {
-      // Per investigate_paragraph_recombine_coherence_pass_performance_20260623:
-      // - Phase 1: proposer prompt rewritten for voice-restoration scope.
-      // - Phase 2a: redundancyJaccardThreshold + flowGuardrailEnabled dropped from
-      //   validateOpts; lengthCapRatio is the only validator-side constraint.
-      // - Phase 3: lengthCapRatio is now an iter-config field (input.coherencePassLengthCapRatio)
-      //   with kill-switch-aware default via resolveCoherencePassDefaults().
-      // - Phase 4: single cycle replaced with a bounded loop (input.coherencePassMaxCycles,
-      //   default via the same kill switch). Per-cycle proposerUserPrompt is rebuilt from
-      //   the running text — cycle 2+ MUST see the post-cycle-1 article as <source>,
-      //   otherwise parseProposedEdits' RULE-1 outside-markup-fidelity check drops every
-      //   group. driftRecovery: 'skip' (the assembled article is the source of truth).
-      //   Mode A only — no rewriteMode passed, so coalesceAdjacentGroups +
-      //   capGroupsByMagnitude are skipped (intentional: no edit-count cap).
+      // Per investigate_paragraph_recombine_coherence_pass_performance_20260623 +
+      // rebuild_coherence_pass_agent_mode_ab_configurable_20260624:
+      // - lengthCapRatio + maxCycles are iter-config (input.coherencePass*) with module-level
+      //   DEFAULT_* fallbacks. The legacy kill switch was removed (no env-var resolver).
+      // - coherencePassEditingMode selects Mode A (CriticMarkup-in, original) or Mode B
+      //   (rewrite-then-diff via runEditingCycle's rewriteMode arg). Default Mode B.
+      // - Per-cycle proposerUserPrompt is rebuilt from the running text — cycle 2+ MUST
+      //   see the post-cycle-1 article as <source>, otherwise parseProposedEdits' RULE-1
+      //   outside-markup-fidelity check drops every group.
+      // - Mode B: between cycles `currentText = result.modeBContext?.normalizedSource ??
+      //   result.newText` so the next diff engine sees the same canonicalization (see
+      //   runEditingCycle.ts:124-132 contract).
+      // - driftRecovery: 'skip' for both modes (assembled article is the source of truth).
+      // - Mode B passes `rewriteMode: { coalesceAndCap: false }` per PR #1283 convention
+      //   (max approver granularity; every diff atomic is its own approver decision).
       const proposerModel = input.coherencePassProposerModel ?? rewriteModel;
       const approverModel = input.coherencePassApproverModel ?? judgeModel;
       const coherenceLogger = ctx.logger.child?.('coherence_pass') ?? ctx.logger;
-      const killSwitchDefaults = resolveCoherencePassDefaults();
-      const effectiveLengthCapRatio = input.coherencePassLengthCapRatio ?? killSwitchDefaults.lengthCapRatio;
-      const maxCycles = input.coherencePassMaxCycles ?? killSwitchDefaults.maxCycles;
+      const effectiveLengthCapRatio = input.coherencePassLengthCapRatio ?? DEFAULT_COHERENCE_PASS_LENGTH_CAP_RATIO;
+      const maxCycles = input.coherencePassMaxCycles ?? DEFAULT_COHERENCE_PASS_MAX_CYCLES;
+      const effectiveEditingMode = input.coherencePassEditingMode ?? DEFAULT_COHERENCE_PASS_EDITING_MODE;
+      const isRewriteMode = effectiveEditingMode === 'mode_b';
 
       const cycles = [];
       let currentText = recombinedText;
@@ -389,16 +384,31 @@ export class ParagraphRecombineWithCoherencePassAgent extends Agent<
           models: { editing: proposerModel, approver: approverModel },
           validateOpts: { lengthCapRatio: effectiveLengthCapRatio },
           driftRecovery: 'skip',
-          proposerSystemPrompt: buildCoherencePassProposerSystemPrompt(),
-          // CRITICAL: rebuild the user prompt from currentText each iteration.
-          // If we pinned the cycle-1 recombined text, cycle 2's proposer would
-          // emit CriticMarkup against the STALE <source> and parseProposedEdits
-          // (which validates against currentText) would drop most groups via
-          // RULE 1 (outside-markup fidelity).
-          proposerUserPrompt: buildCoherencePassProposerUserPrompt(currentText),
+          proposerSystemPrompt: isRewriteMode
+            ? buildCoherencePassProposerSystemPromptModeB()
+            : buildCoherencePassProposerSystemPrompt(),
+          proposerUserPrompt: isRewriteMode
+            ? buildCoherencePassProposerUserPromptModeB(currentText)
+            : buildCoherencePassProposerUserPrompt(currentText),
+          ...(isRewriteMode && {
+            rewriteMode: {
+              coalesceAndCap: false,
+            },
+          }),
         });
 
-        cycles.push(cycleResult.cycle);
+        // Mirror IterativeEditingAgent.ts:222-231: attach Mode A/B annotations + Mode B
+        // context fields to the persisted cycle.
+        const persistedCycle = isRewriteMode
+          ? {
+              ...cycleResult.cycle,
+              proposerMode: 'rewrite' as const,
+              ...(cycleResult.modeBContext?.rationale !== undefined && { rationale: cycleResult.modeBContext.rationale }),
+              ...(cycleResult.modeBContext?.rewriteText !== undefined && { rewriteText: cycleResult.modeBContext.rewriteText }),
+              ...(cycleResult.modeBContext?.computedMarkup !== undefined && { computedMarkup: cycleResult.modeBContext.computedMarkup }),
+            }
+          : { ...cycleResult.cycle, proposerMode: 'markup' as const };
+        cycles.push(persistedCycle);
 
         // Per-cycle silent-rejection: accumulated count, single writeMetricMax at end.
         const silentThisCycle =
@@ -406,7 +416,11 @@ export class ParagraphRecombineWithCoherencePassAgent extends Agent<
           && cycleResult.cycle.appliedGroups.length === 0;
         if (silentThisCycle) silentRejectionCount += 1;
 
-        currentText = cycleResult.newText;
+        // Mode B canonicalization continuity gotcha (runEditingCycle.ts:129-132):
+        // reassign currentText to normalizedSource so cycle N+1's diff engine sees the
+        // same canonicalization as cycle N. Mode A: normalizedSource is undefined, so
+        // this falls back to newText (the legacy behavior).
+        currentText = cycleResult.modeBContext?.normalizedSource ?? cycleResult.newText;
 
         // Per runEditingCycle.ts:549, every appliedAny:false path sets a stopReason.
         // So stopReason subsumes appliedAny; this is the tighter termination check.
@@ -432,6 +446,8 @@ export class ParagraphRecombineWithCoherencePassAgent extends Agent<
           proposerModel,
           approverModel,
           lengthCapRatio: effectiveLengthCapRatio,
+          maxCycles,
+          editingMode: effectiveEditingMode,
         },
         ...(silentRejectionCount > 0 && { silentRejection: true }),
       };
