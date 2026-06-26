@@ -15,8 +15,8 @@ We want to know which evolution agent/strategy best improves a *specific, alread
 
 ## Options Considered
 
-### Decision A — Arena / baseline construction
-- [ ] **Option A1 (Recommended): New Arena Topic + copied seed as a fixed anchor variant.** New `evolution_prompts` row; insert one variant = exact copy of the chosen 1325 text, registered so it participates in ranking as a fixed reference. All arms' outputs compared head-to-head against the same seed in a clean arena (no contamination from FR2's 2675 variants). Re-rates the seed fresh → kills the noisy-1325 problem. **Cost:** must resolve how to make the seed an in-pool anchor (docs say seed is excluded from pool since 2026-04-15).
+### Decision A — Arena / baseline construction — RESOLVED → A1 (mechanism confirmed in code, research KF1/KF2)
+- [x] **Option A1 (CHOSEN): New Arena Topic + copied seed as a fixed anchor.** New `evolution_prompts` row; pre-insert **two** `evolution_variants` rows for it (research KF1): (a) an **anchor competitor** `generation_method='pipeline'`, `synced_to_arena=true`, `archived_at=NULL`, copied 1325 content, `mu`/`sigma` pinned from the source variant (recommended source `538bfbc9…`: mu 32.834 / sigma 5.010) — loaded by `loadArenaEntries` as a `fromArena` opponent every variant ranks against; (b) a **seed-source** `generation_method='seed'` row (same content) so each run rewrites the identical text instead of LLM-reseeding. Clean arena, `prompt_id`-filtered → zero contamination from FR2's 2675 variants. **Operational rules from KF2:** run the experiment runs **serially** (concurrent runs clobber the anchor's mu/sigma; only match_count is additive), and decide pool-accumulation policy (archive prior-round variants vs measure each variant's own Elo in the shared arena) — see Open Questions 1–2.
 - [ ] **Option A2: Reuse existing Federal Reserve 2 arena.** Cheapest, but 2675 existing variants (max 1442) dominate matchmaking; new variants get compared against unrelated lineages, not the seed → confounds the "improve THIS article" question. Rejected unless A1 mechanics prove infeasible.
 - [ ] **Option A3: New arena, seed only as generation source (not a competitor).** Measure each arm's variants' Elo within the new arena and compare arms to each other; infer seed baseline by also generating a "null/identity" arm. More moving parts; weaker direct "beat the seed" readout.
 
@@ -53,9 +53,10 @@ We want to know which evolution agent/strategy best improves a *specific, alread
 - [ ] Define the **per-agent QA gate** (success rate, variant_count>0, matches recorded, cost within 1.5× projection, no parse failures, manual read of ≥1 variant/arm to confirm the transformation actually happened).
 
 ### Phase 2: Build the experiment artifact
-- [ ] Create the new Arena Topic prompt + insert the fixed seed anchor (per Phase 0 resolution).
-- [ ] Author a dated seed script under `evolution/scripts/experiments/seedElo<...>Experiment_20260626.ts` (reuse `manual_run_experiment` skill scaffolding) that creates the experiment, the per-arm strategies (config-hash-distinct only on `agentType`), and queues N runs/arm with equal $ budget. Production cost tracking enforced.
-- [ ] Add a unit test for the seed script's config-builder (arms differ only in the intended field; budgets sum as expected).
+- [ ] Create the new Arena Topic prompt + insert the **two** seed rows (anchor `generation_method='pipeline'` with pinned mu/sigma + seed-source `generation_method='seed'`), per Decision A / research KF1. (Idempotent script or one-off guarded insert.)
+- [ ] Author a dated seed script under `evolution/scripts/experiments/seedElo<...>Experiment_20260626.ts` cloned from `seedCoherencePassPerformanceExperiment_20260624.ts` (research KF4): generalized `buildConfig` to N arms (config-hash-distinct only on `agentType`; hold-constant set per KF3; criteria arms reuse the existing generic criteria UUIDs from KF7), creates the experiment, queues N runs/arm interleaved at equal `budgetUsd`+`budget_cap_usd`. Cost tracking enforced downstream (do NOT bypass `upsert/create/addRun`). Add README index row.
+- [ ] **Build the missing significance test (research KF5 gap):** a seeded permutation / bootstrap difference-of-means helper (e.g. `evolution/src/lib/metrics/abComparison.ts`) over per-run `max_elo`/`winner_elo` arrays, returning a p-value + effect size + CI, with Holm/Bonferroni multiple-comparison correction across arms. Built on existing `createSeededRng` + resampling pattern. This is the only net-new product code.
+- [ ] Add unit tests: (a) seed-script `buildConfig` — arms differ only in `agentType`, budgets sum, config hashes distinct; (b) the new significance helper — known-input p-values, determinism under fixed seed, correction math.
 
 ### Phase 3: Pilot
 - [ ] Queue 2–3 runs/arm; let the minicomputer execute. Verify QA gate passes for every run; estimate per-arm cross-run SD and actual cost/run.
@@ -69,10 +70,11 @@ We want to know which evolution agent/strategy best improves a *specific, alread
 ## Testing
 
 ### Unit Tests
-- [ ] `evolution/scripts/experiments/seedElo<...>Experiment_20260626.test.ts` — config-builder produces arms that differ ONLY in `agentType`; budgets/run-counts correct; config hashes distinct per arm.
+- [ ] `evolution/scripts/experiments/seedElo<...>Experiment_20260626.test.ts` — config-builder produces arms that differ ONLY in `agentType`; budgets/run-counts correct; config hashes distinct per arm (mirror `seedBundleSplitExperiment.test.ts`). NOTE: confirm the test path is inside the jest glob (recent commit dropped an e2e-tree test jest ignored).
+- [ ] `evolution/src/lib/metrics/abComparison.test.ts` — permutation/bootstrap difference-of-means helper: correct p-value on known inputs, deterministic under fixed `createSeededRng`, Holm/Bonferroni correction across K arms.
 
 ### Integration Tests
-- [ ] (If any new helper to insert the fixed seed anchor is added) integration test against staging schema that the seed variant is created + participates in ranking. Otherwise N/A (experiment is data/ops, not new product code).
+- [ ] (If a helper to insert the two seed rows is added) integration test against staging schema that the anchor row is loaded as a `fromArena` competitor and the seed-source row pins generation text. Otherwise N/A (experiment is data/ops + one stats helper, not broad new product code).
 
 ### E2E Tests
 - [ ] N/A unless new admin UI is added. If the experiment surfaces in `/admin/evolution/experiments`, a smoke check that the experiment + arms render (likely covered by existing `@evolution` specs).

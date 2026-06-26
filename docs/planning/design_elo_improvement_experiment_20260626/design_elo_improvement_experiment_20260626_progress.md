@@ -17,8 +17,24 @@
 - (none yet)
 
 ### Key open question for next phase
-- Decision A: how to insert the copied seed as a **fixed in-pool anchor** in a new arena (docs say the seed is excluded from the pool since 2026-04-15). This is the first /research-deep / Phase 0 code-level task.
+- Decision A: how to insert the copied seed as a **fixed in-pool anchor** in a new arena (docs say the seed is excluded from the pool since 2026-04-15). → **RESOLVED in /research, see below.**
+
+## Phase 0.5: Code-level research (/research)
+### Work Done
+- Fanned out 4 code-reading agents (seed/arena mechanics; config/experiment surface; seed-script template; stats/metrics + QA), then verified specifics on staging.
+- **Resolved Decision A (KF1/KF2):** the seed needs **two** pre-inserted rows — an anchor competitor (`generation_method='pipeline'`, `synced_to_arena=true`, pinned mu/sigma) that `loadArenaEntries` loads as a `fromArena` opponent, plus a `generation_method='seed'` source row to pin generation text. Runs must be **serialized** (concurrent runs clobber anchor mu/sigma); pool accumulates each run (archive-vs-accept decision open).
+- **Config recipe (KF3):** changing only `agentType` yields a distinct strategy hash; ranking is inline (no trailing swiss); editing/debate/swiss can't be iteration 1 → need shared `generate` warm-up; generic criteria already exist (UUIDs captured).
+- **Template (KF4):** clone `seedCoherencePassPerformanceExperiment_20260624.ts`; cost tracking enforced downstream via `trackedEvolutionProvider` (`requireTracking:true`).
+- **Metrics (KF5):** run-level DVs in `evolution_metrics`; `eloAttrDelta` emitted by default; bootstrap CI helpers exist — but **NO two-sample significance test exists** → must build a seeded permutation/bootstrap diff-of-means + Holm correction (the only net-new product code).
+- **QA gates (KF6):** `evolution_agent_invocations.success/cost_usd` + `detectArenaOnlyWipeouts.ts` per arm.
+- Updated research doc (Key Findings KF1–KF7, Open Questions, Code Files Read) and planning doc (Decision A resolved; Phase 2 + tests now include the significance helper).
+
+### Issues Encountered
+- Confirmed uncertainty column on `evolution_metrics` is named `sigma` (not `uncertainty`); seed candidates store rating as `mu`/`sigma` (OpenSkill scale), `elo_score` is the Elo-scale view.
+
+### User Clarifications
+- (none yet)
 
 ## Phase 1: Finalize design + pre-registration
 ### Work Done
-(pending)
+(pending — see research Open Questions 1–7 to resolve before building; good candidate for /plan-review)

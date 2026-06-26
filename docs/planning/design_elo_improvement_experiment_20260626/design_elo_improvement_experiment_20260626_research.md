@@ -97,6 +97,56 @@ For this experiment we want a **NEW prompt** (new Arena Topic) whose only seeded
 
 Per-arm "agent worked as intended" gate before admitting Elo data: `success=true` on all invocations, `variant_count>0`, matches recorded in `evolution_arena_comparisons`, cost within 1.5× projection, no `structured_output_parse_failure`.
 
+## Key Findings (code-level — Phase 0 /research, RESOLVED)
+
+**KF1 — Seed-as-fixed-anchor requires TWO pre-inserted rows in the new prompt (the central mechanic).**
+- For a prompt-based run, `resolveContent` (`buildRunContext.ts:308–335`) looks for an existing arena seed: `evolution_variants WHERE prompt_id=? AND synced_to_arena=true AND generation_method='seed' AND archived_at IS NULL ORDER BY elo_score DESC LIMIT 1`. If present, its `variant_content` becomes the fixed seed source text and **LLM seed generation is skipped**.
+- BUT `loadArenaEntries(promptId, db, seedVariantRow.id)` is called with `excludeId = the seed row` (`buildRunContext.ts:563–575`) → the `generation_method='seed'` row is **excluded from the competitor pool**. So a lone seed row is only generation source, never a ranked opponent.
+- **Therefore, to make the seed a fixed competitor every variant must beat, pre-insert TWO rows for the new prompt:**
+  1. **Anchor competitor** — `generation_method='pipeline'`, `synced_to_arena=true`, `archived_at=NULL`, `variant_content=<copied 1325 article>`, and `mu`/`sigma`/`elo_score` copied from the source variant. `loadArenaEntries` loads it as a `fromArena` rated competitor (ratings via `dbToRating(mu,sigma)`, `buildRunContext.ts:164–180`). Arena entries DO participate in ranking (`runIterationLoop.ts:460–461`); they're excluded only as candidate *parents* in pool-mode.
+  2. **Seed source** — `generation_method='seed'`, same content → pins the generation source so each run rewrites the identical 1325 text instead of an LLM-generated fresh seed.
+- **Ratings are pinned, not reset** — write the source variant's exact `mu`/`sigma` onto the anchor row.
+
+**KF2 — Cross-run accumulation + two operational risks.**
+- `evolution_arena_comparisons` rows (written only by `MergeRatingsAgent`) accumulate across runs; the anchor's `mu`/`sigma` refine in place via the `arenaUpdates` path (`persistRunResults.ts:697–709`) — the anchor is updated, never duplicated (`newEntries` excludes `fromArena`).
+- **RISK A — concurrent runs clobber the anchor's mu/sigma** (`arena_updates` is a plain UPDATE; only `arena_match_count` is additive). → **Serialize runs** (run-per-arm sequentially) for clean progressive refinement, OR don't depend on the anchor's absolute rating and instead read each variant's own Elo.
+- **RISK B — pool grows every run** (each run's variants get `synced_to_arena=true`; article-level load has no topK cap). After many runs, new variants compete against the whole accumulated pool, not just the anchor. To keep a clean head-to-head vs the single anchor, either `archived_at` prior runs' variants between rounds, or (simpler) accept accumulation and measure each variant's Elo within the shared arena. The `prompt_id` filter guarantees no contamination from *other* prompts.
+
+**KF3 — Config surface for "arms differ only in agentType".**
+- `StrategyConfig` (`evolution/src/lib/schemas.ts:1037+`); the whole config is hashed after normalization (`findOrCreateStrategy.ts` `hashStrategyConfig` → `v2:`+sha256). `FIELD_GATES` strips agent-irrelevant fields, so changing only `agentType` yields a distinct strategy. Good.
+- **Ranking is inline/automatic** (`rankNewVariant`/`rankSingleVariant`) — **no trailing `swiss` iteration needed**; depth controlled by `maxComparisonsPerVariant` (default 15).
+- **First-iteration constraint** (`canBeFirstIteration`, `schemas.ts:712`): only `generate`, `reflect_and_generate`, the 3 criteria agents, and the 2 paragraph agents may be iteration 1. **`iterative_editing`/`iterative_editing_rewrite`, `debate_and_generate`, `swiss` CANNOT be first** → those arms need a shared identical `generate` warm-up iteration. ⇒ Clean single-iteration comparison is only literal across the first-iteration-capable agents; editing/debate arms form a **separate comparison block** sharing the same warm-up.
+- **Hold constant across arms:** `generationModel`, `judgeModel`, `generationTemperature`, `budgetUsd` + per-run `budget_cap_usd`, `maxComparisonsPerVariant`, iteration shape (count, budgetPercent, sourceMode). Per-agent required knobs (criteria need `criteriaIds`+`weakestK`; paragraph agents have their own knobs) are set minimally + identically within each agent family.
+- **No agent env kill-switch is default-OFF** in this code (incl. proposer-approver) — leave env at defaults and pin fields explicitly so a toggle can't perturb an arm.
+
+**KF4 — Experiment wiring + seed-script template.**
+- `manageExperiments.ts`: `createExperiment(name, promptId, db)` (one shared `prompt_id`) → `addRunToExperiment(expId, {strategy_id, budget_cap_usd}, db)` × runsPerArm (interleave arms). Auto-completes via RPC `complete_experiment_if_done` when all runs finish.
+- Clone `evolution/scripts/experiments/seedCoherencePassPerformanceExperiment_20260624.ts`: constants (PROMPT_ID, EXPERIMENT_NAME, BUDGET) → `buildConfig(arm)` → `buildDb('staging')` (`.env.local` + service role) → `seedStrategy` (config-hash collision guard → `upsertStrategy`) → `main()` (dry-run default, `--apply` writes). Generalize `buildConfig` to N arms. **Cost tracking is enforced downstream** (`trackedEvolutionProvider.ts:78` `requireTracking:true`, fail-closed) as long as we route through `upsertStrategy/createExperiment/addRunToExperiment` — never raw inserts or mocks. Orchestrated end-to-end by the `manual_run_experiment` skill (scaffold → wait → `/analysis` → PR).
+
+**KF5 — Dependent variables exist; significance test does NOT (the one thing we must build).**
+- Run-level DVs persisted in `evolution_metrics` (entity_type='run', columns `value`/`sigma`/`ci_lower`/`ci_upper`/`n`; uncertainty column is named **`sigma`**): `winner_elo`, `max_elo`, `median_elo`, `p90_elo`, `variant_count`, `total_matches`, `decisive_rate`, `cost`. Per-agent lift: `eloAttrDelta:<agent>:<dim>` = mean(child−parent Elo), persisted at run/strategy/experiment levels — **emitted by default** (kill switch `EVOLUTION_EMIT_ATTRIBUTION_METRICS=false`; 1750 experiment-level rows already exist on staging). Its CI is a deliberately conservative normal-approx (`±1.96·SD/√n`).
+- Reusable stat helpers (`evolution/src/lib/metrics/experimentMetrics.ts`): `bootstrapMeanCI` (mean CI, propagates per-variant rating uncertainty via Box-Muller), `bootstrapPercentileCI` (p90/median CI across runs), `aggregateAvg` (n≥3 SE CI), `createSeededRng` (deterministic).
+- **GAP:** there is **NO two-sample significance test** anywhere (`grep` found no t-test / Mann-Whitney / permutation / bootstrap-difference-of-means / multiplicity correction). A multi-arm "does arm A beat baseline" claim **requires a new helper** — a seeded **permutation / bootstrap difference-of-means** over per-run `winner_elo`/`p90_elo` arrays, built on the existing `createSeededRng` + resampling pattern, with a multiple-comparison correction (Holm/Bonferroni). This is the only net-new code the experiment needs.
+
+**KF6 — Per-agent QA gates (so a broken agent isn't mistaken for an ineffective one).**
+- `evolution_agent_invocations` (`success`, `skipped`, `cost_usd`, `agent_name`, `error_message`, `execution_detail`): admit an arm's data only if every invocation `success=true`, `cost_usd>0`, no `error_message`.
+- `evolution/scripts/detectArenaOnlyWipeouts.ts` `isArenaOnlyWipeout`: fingerprint = generation attempted (>0 generate invocations) AND 0 variants AND 0 cost AND finished "healthy-looking" (402/credit wipeout). Run per arm as a hard gate.
+- Manual: read ≥1 variant/arm to confirm the transformation actually occurred.
+
+**KF7 — Concrete staging facts captured.**
+- Usable generic criteria (UUIDs): clarity `55a7ba56…`, depth `e532ac82…`, engagement `d18c3316…`, point_of_view `226aa0f0…`, sentence_variety `e39adb7e…`, structure `7e646847…`, stylistic_accuracy `a982f02f…`. (Ignore `TESTEVO-*` rows.) No FR-specific criteria needed.
+- Seed candidates (mu/sigma to pin): `538bfbc9…` (mu 32.834, sigma 5.010, elo 1325.3, 5 matches, 9004 chars) — **most-settled, recommended anchor**; `93a9ac9d…` (mu 32.834, sigma 5.490, 8214 chars); `da03b016…` (mu 32.803, sigma 5.392, 7375 chars). All real full articles.
+
+## Open Questions (for /planning + /plan-review)
+
+1. **Serialize vs parallelize runs?** KF2-RISK-A argues for serial runs (clean anchor refinement) but that slows throughput; if we instead measure each variant's own Elo (not the anchor's absolute drift), limited parallelism may be acceptable. Decide and document.
+2. **Pool-accumulation policy** (KF2-RISK-B): archive prior-round variants between rounds for a pure single-anchor head-to-head, vs accept a growing shared arena. Affects how "improvement over the seed" is read.
+3. **Arm partition** (KF3): the first-iteration-capable agents form one clean block; editing/debate need a shared `generate` warm-up. Do we include editing/debate arms (separate block) or restrict v1 to the clean block (generate, reflect, 3 criteria, 2 paragraph)?
+4. **Primary DV**: `max_elo` (best variant) vs `winner_elo` vs per-agent `eloAttrDelta`. Lean `max_elo` lift over the anchor (the experiment asks "which agent best *improves upon* the seed").
+5. **Significance test spec** (KF5 gap): exact test (permutation difference-of-means recommended), α, correction (Holm), and minimal practically-significant effect (e.g. ≥ +25–30 Elo) — pre-registered before the full run.
+6. **Run count / power**: pilot (2–3/arm) to estimate cross-run SD, then size for ~80% power. Total budget ≈ arms × runs × ~$0.10–0.30 × 1.5 margin (well within $25/day staging cap).
+7. **Provider headroom**: confirm OpenRouter/provider credit + `EVOLUTION_MAX_OUTPUT_TOKENS` on the minicomputer before queueing (wipeout guard), and that the minicomputer has pulled current main.
+
 ## Documents Read
 
 ### Core Workflow Docs
@@ -118,8 +168,22 @@ Per-arm "agent worked as intended" gate before admitting Elo data: `success=true
 - evolution/docs/cost_optimization.md, minicomputer_deployment.md, logging.md, reference.md, visualization.md, evolution_metrics.md
 - evolution/docs/planning/multi_iteration_strategy_support_evolution_20260415/...
 
-## Code Files Read
-- (none yet — research phase used docs + read-only staging queries. Code-level confirmation of seed-as-fixed-anchor mechanics is the first /research-deep task; key files: `evolution/src/lib/pipeline/claimAndExecuteRun.ts`, `runIterationLoop.ts`, `findOrCreateStrategy.ts`, `evolution/scripts/processRunQueue.ts`, `evolution/scripts/experiments/`.)
+## Code Files Read (Phase 0 /research, via agents)
+- `evolution/src/lib/pipeline/setup/buildRunContext.ts` — seed resolution (`resolveContent`) + `loadArenaEntries` (`excludeId`, `dbToRating`).
+- `evolution/src/lib/pipeline/claimAndExecuteRun.ts` — orchestration + seed persist.
+- `evolution/src/lib/pipeline/loop/runIterationLoop.ts` — pool/ranking, arena-entry participation, agent-type dispatch + env kill-switches.
+- `evolution/src/lib/pipeline/finalize/persistRunResults.ts` — `syncToArena` (`newEntries`/`arenaUpdates`), `complete_experiment_if_done`, attribution-metric emission.
+- `evolution/src/lib/core/agents/MergeRatingsAgent.ts` — sole writer of `evolution_arena_comparisons`.
+- `evolution/src/lib/schemas.ts` — `StrategyConfig`/`IterationConfig` Zod, `iterationAgentTypeEnum`, `canBeFirstIteration`, `evolution_criteria` schema.
+- `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts` — config hashing, normalization, `FIELD_GATES`, `upsertStrategy`.
+- `evolution/src/lib/pipeline/manageExperiments.ts` — `createExperiment`, `addRunToExperiment`.
+- `evolution/src/lib/metrics/experimentMetrics.ts` — `bootstrapMeanCI`, `bootstrapPercentileCI`, `computeEloAttributionMetrics`, `createSeededRng`.
+- `evolution/src/lib/metrics/computations/{finalization,propagation}.ts` + `core/metricCatalog.ts` — run-level DV computation.
+- `evolution/src/lib/pipeline/infra/trackedEvolutionProvider.ts` — `requireTracking:true` fail-closed cost tracking.
+- `evolution/scripts/experiments/seedCoherencePassPerformanceExperiment_20260624.ts` + `evolution/scripts/seedBundleSplitExperiment.ts` (+ `.test.ts`) — seed-script template.
+- `evolution/scripts/seedSampleCriteria.ts` — generic criteria seeding.
+- `evolution/scripts/detectArenaOnlyWipeouts.ts` — `isArenaOnlyWipeout` QA gate.
+- `.claude/skills/manual_run_experiment/SKILL.md`, `.claude/commands/analysis.md` — experiment + analysis orchestration contracts.
 
 ## Staging Queries Run (read-only)
 - Confirmed `Federal Reserve 2` = `a546b7e9-f066-403d-9589-f5e0d2c9fa4f` (2675 synced variants, max Elo 1442).
