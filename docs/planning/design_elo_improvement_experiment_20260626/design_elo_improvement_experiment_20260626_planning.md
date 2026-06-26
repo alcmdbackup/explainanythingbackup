@@ -22,11 +22,13 @@ We want to know which evolution agent/strategy best improves a *specific, alread
 - [ ] **Option A2: Reuse existing Federal Reserve 2 arena.** Cheapest, but 2675 existing variants (max 1442) dominate matchmaking; new variants get compared against unrelated lineages, not the seed → confounds the "improve THIS article" question. Rejected unless A1 mechanics prove infeasible.
 - [ ] **Option A3: New arena, seed only as generation source (not a competitor).** Measure each arm's variants' Elo within the new arena and compare arms to each other; infer seed baseline by also generating a "null/identity" arm. More moving parts; weaker direct "beat the seed" readout.
 
-### Decision F — Concurrency & correct ratings — RESOLVED → parallel runs + post-hoc recompute (user, 2026-06-26)
-- [x] **CHOSEN: run all runs CONCURRENTLY, then rebuild correct ratings from the durable match log before analysis.** The `sync_to_arena` race only corrupts *cached* mu/sigma/match_count on shared arena rows; the `evolution_arena_comparisons` match log is durable and stores enough (`entry_a`, `entry_b`, `winner`, `confidence`, `created_at`) to replay. Investigation confirmed no replay infra exists today and the rejected alternatives (lock/additive RPC, advisory-lock-the-merge) rewrite the global production rating-write path (high blast radius). 
-  - **New code:** `scripts/recompute-arena-elo.ts` (~80–120 LoC, `--prompt-id`, `--dry-run` before/after diff). Replays comparisons in `ORDER BY created_at, id` through the existing `createRating`/`updateRating`/`updateDraw`/`ratingToDb`; seeds entrants from `evolution_variants` (`synced_to_arena=true AND archived_at IS NULL`); skips `confidence=0`, treats `winner='draw' || confidence<0.3` as draw; recounts `arena_match_count`; idempotent. No migration, no hot-path change.
-  - **Flow:** queue all runs → wait for queue drain → run recompute → `/analysis`.
-  - **Caveat (benign):** concurrency may make per-run *matchmaking* slightly less efficient (stale ratings → suboptimal pairings) but never changes match *outcomes* (LLM judges actual text); the replay corrects all final ratings. Supersedes the "serialize runs" note in Decision A / research KF2.
+### Decision F — Concurrency & correct ratings — RESOLVED → live concurrency-safe merge (idea 1) + retained terminal recompute (user, 2026-06-26)
+Run all runs CONCURRENTLY, made correct by a root-cause fix to the live merge, with the deterministic recompute retained for reproducibility/validation/repair. Two complementary mechanisms:
+- [x] **Idea 1 — concurrency-safe live merge (product code, the primary fix; built in Phase 1c).** Root-cause fix to the `sync_to_arena` write path so concurrent runs produce correct arena-entry ratings **live** — covering our experiment AND fixing the standing production race. Mechanism: at merge time, instead of writing an absolute rating computed from a start-of-run snapshot, **re-read each arena entry's CURRENT rating, re-fold this run's matches onto it, and write under an optimistic CAS guard** (`WHERE mu=$read_mu AND sigma=$read_sigma`; retry on 0-row conflict); make `arena_match_count` **additive** (`= count + delta`). Cheap (only this run's matches → flat as the arena grows), preserves existing online-Elo semantics, lock-free (no `FOR UPDATE`, no advisory lock, no deadlock ordering). Chosen over locking (Options B/C) for elegance + scaling; chosen over per-run full replay (idea 2) which doesn't scale and needs a terminal pass anyway.
+- [x] **Terminal recompute — RETAINED but repurposed (`scripts/recompute-arena-elo.ts`).** No longer the *correctness* mechanism (idea 1 owns that); kept for three things: (a) **reproducible analysis numbers** — idea 1's live ratings are order-dependent (online Elo), so a fixed-order (`created_at,id`) replay through the existing `createRating`/`updateRating`/`updateDraw`/`ratingToDb` gives stable, canonical ratings for the comparison; (b) **validation** — cross-check that idea 1's live ratings agree with a clean replay (same arm ranking within tolerance); a mismatch flags an idea-1 bug; (c) **repair** — prompt-agnostic tool to rebuild existing arenas (e.g. FR2) that predate the fix. Seeds entrants from `evolution_variants (synced_to_arena=true AND archived_at IS NULL)`, skips `confidence=0`, draws on `winner='draw' || confidence<0.3`, recounts `arena_match_count`, idempotent.
+  - **Flow:** queue all runs → run concurrently (live ratings correct via idea 1) → after queue drains, run the terminal recompute for reproducible analysis numbers + idea-1 validation → `/analysis`.
+  - **Tradeoff acknowledged:** idea 1 is a production hot-path change → elevated testing bar (unit + a concurrency integration test + migration-verify if the RPC changes + E2E evolution regression). Worth it: correct-by-construction experiment + fixes a real production bug.
+  - Supersedes the "serialize runs" note in Decision A / research KF2.
 
 ### Decision G — Pool-accumulation policy — RESOLVED → accumulate, compare at the end (user, 2026-06-26)
 - [x] **CHOSEN: let the shared arena accumulate (no archiving between runs); derive the single common Elo scale at the very end via the Decision F recompute.** Accumulation keeps all arms on one densely-anchored Elo scale (the seed + every variant act as shared anchors); archiving would sever cross-run/cross-arm comparability, leaving the seed as the only thin link. Keeping all match data also preserves optionality — the final recompute can produce any rating *view* (full arena, or each arm's top-K + seed). 
@@ -74,6 +76,15 @@ We want to know which evolution agent/strategy best improves a *specific, alread
 - [ ] Keep the change behind the existing `EDITING_AGENTS_ENABLED` switch semantics; do not alter Mode A/B behavior when sourced from the pool (backward compatible).
 - [ ] Run lint + tsc + build + unit tests after the change (per CLAUDE.md).
 
+### Phase 1c: Concurrency-safe arena merge — idea 1 (product code change, Decision F)
+*Goal: make concurrent runs produce correct arena-entry ratings live, so the experiment is correct-by-construction and the standing production race is fixed. Hot-path change → elevated testing bar.*
+- [ ] Extract the rating fold into a **pure function** `(matches, startingRatings) → finalRatings` callable at sync time (refactor from `MergeRatingsAgent.ts`, which currently folds from the start-of-run snapshot).
+- [ ] In `persistRunResults.syncToArena` + the `sync_to_arena` RPC: for arena entries (the contended shared rows), **re-read current `mu`/`sigma` at merge time**, re-fold this run's matches onto them, and write via an **optimistic CAS** predicate (`WHERE mu=$read_mu AND sigma=$read_sigma`); on 0-row conflict, re-read and retry (bounded retries + small backoff). Make `arena_match_count` **additive** (`= arena_match_count + $delta`). New variants remain plain inserts (uncontended).
+- [ ] Backward compatible: single-run / non-overlapping merges behave identically to today; only the concurrent-overlap case changes.
+- [ ] `npm run migration:verify` if the RPC signature/body changes (Docker postgres).
+- [ ] lint + tsc + build + unit + integration after the change (per CLAUDE.md).
+- [ ] **Validation gate:** after Phase 3 pilot, confirm idea-1 live ratings agree with the terminal recompute (same arm ranking within tolerance) before the full run.
+
 ### Phase 2: Build the experiment artifact
 - [ ] Create the new Arena Topic prompt + insert the seed ONCE (`generation_method='seed'`, `synced_to_arena=true`), per Decision A. (Idempotent / guarded insert.) Keep the two-row anchor as a documented fallback if the pilot shows the seed isn't matched enough.
 - [ ] Author a dated seed script under `evolution/scripts/experiments/seedElo<...>Experiment_20260626.ts` cloned from `seedCoherencePassPerformanceExperiment_20260624.ts` (research KF4): generalized `buildConfig` to N arms (config-hash-distinct only on `agentType`; hold-constant set per KF3; criteria arms reuse the existing generic criteria UUIDs from KF7), creates the experiment, queues N runs/arm interleaved at equal `budgetUsd`+`budget_cap_usd`. Cost tracking enforced downstream (do NOT bypass `upsert/create/addRun`). Add README index row.
@@ -87,20 +98,22 @@ We want to know which evolution agent/strategy best improves a *specific, alread
 
 ### Phase 4: Full run + analysis
 - [ ] Queue the sized run counts (interleave arm order). Runs execute **concurrently** (Decision F). Monitor for wipeouts/cost gaps.
-- [ ] After the queue drains, run `scripts/recompute-arena-elo.ts --prompt-id <arena> --dry-run`, review the diff, then apply — so analysis reads correct, race-free final ratings.
+- [ ] After the queue drains, run `scripts/recompute-arena-elo.ts --prompt-id <arena> --dry-run` → review the diff (it should be SMALL now that idea 1 keeps live ratings correct — a large diff signals an idea-1 bug) → apply, giving reproducible order-canonical ratings for analysis.
 - [ ] Run `/analysis`: per-arm best-variant Elo lift (bootstrap 95% CI), Elo-per-$, fraction beating seed, decisive_rate, convergence; apply the pre-registered test + multiplicity correction; report winners with CIs and the per-agent QA evidence.
 - [ ] Write the analysis report to `docs/analysis/<name>/` and link from this project's docs (Artifacts section).
 
 ## Testing
 
 ### Unit Tests
+- [ ] **Idea 1 fold (Phase 1c):** the extracted pure fold fn — folding this run's matches onto an arbitrary starting rating is correct; additive `arena_match_count`; CAS predicate built from the read values. (Colocate with `MergeRatingsAgent`.)
 - [ ] `evolution/src/lib/schemas.test.ts` (or colocated) — `canBeFirstIteration` now true for both editing modes; `sourceMode='seed'` valid on an editing iteration; existing pool-mode editing config still validates (backward compat).
 - [ ] `evolution/src/lib/pipeline/loop/editingDispatch.test.ts` — first-iteration / `sourceMode='seed'` feeds the seed as the single parent; pool-mode dispatch unchanged.
 - [ ] `evolution/scripts/experiments/seedElo<...>Experiment_20260626.test.ts` — config-builder produces arms that differ ONLY in `agentType`; budgets/run-counts correct; config hashes distinct per arm (mirror `seedBundleSplitExperiment.test.ts`). NOTE: confirm the test path is inside the jest glob (recent commit dropped an e2e-tree test jest ignored).
 - [ ] `evolution/src/lib/metrics/abComparison.test.ts` — permutation/bootstrap difference-of-means helper: correct p-value on known inputs, deterministic under fixed `createSeededRng`, Holm/Bonferroni correction across K arms.
 
 ### Integration Tests
-- [ ] (If a helper to insert the two seed rows is added) integration test against staging schema that the anchor row is loaded as a `fromArena` competitor and the seed-source row pins generation text. Otherwise N/A (experiment is data/ops + one stats helper, not broad new product code).
+- [ ] **CRITICAL — idea 1 concurrency (Phase 1c):** simulate two runs updating the SAME arena entry (e.g. the seed) with overlapping merges against a real DB; assert the final entry rating + `arena_match_count` reflect BOTH runs' matches (no lost update), and that idea-1 live ratings match a fixed-order recompute of the same comparison log within tolerance. This is the test that proves the race is closed.
+- [ ] (If a helper to insert the seed row is added) integration test that the seed row is created + participates in ranking on the new prompt.
 
 ### E2E Tests
 - [ ] N/A unless new admin UI is added. If the experiment surfaces in `/admin/evolution/experiments`, a smoke check that the experiment + arms render (likely covered by existing `@evolution` specs).
@@ -120,6 +133,7 @@ We want to know which evolution agent/strategy best improves a *specific, alread
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
+- [ ] `evolution/docs/rating_and_comparison.md` + `evolution/docs/arena.md` — document the concurrency-safe arena merge (idea 1: re-read + re-fold + CAS, additive match_count) and the `recompute-arena-elo.ts` tool; note the prior last-writer-wins race it replaces.
 - [ ] `evolution/docs/editing_agents.md` — document that Mode A/B editing agents can now run as a first iteration off the seed (`sourceMode='seed'`), and the dispatch behavior when the pool is just the seed.
 - [ ] `evolution/docs/strategies_and_experiments.md` — add this experiment as a worked example of a single-seed agent comparison (if the pattern is reusable).
 - [ ] `evolution/docs/arena.md` — clarify the seed-as-fixed-anchor mechanism if Phase 0 surfaces under-documented behavior.

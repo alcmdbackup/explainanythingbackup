@@ -43,6 +43,7 @@
 
 ## Phase 1: Finalize design + pre-registration
 ### Work Done
+- **Concurrency fix decided (user, 2026-06-26):** add **idea 1** (concurrency-safe live merge: re-read current arena rating + re-fold this run's matches + optimistic CAS, additive match_count) as a root-cause fix to `sync_to_arena` — makes the experiment correct-by-construction AND fixes the standing production race (which affects any concurrent same-prompt runs, incl. all past multi-run experiments + FR2's accumulated ratings). Terminal `recompute-arena-elo.ts` retained for reproducible analysis numbers, idea-1 validation, and repairing existing arenas. Added **Phase 1c** + a critical concurrency integration test + migration-verify. Walked through why idea 1 (cheap, scales, self-sufficient, preserves online semantics) beats locking (B/C) and per-run full replay (idea 2).
 - **Arm set decided (user, 2026-06-26):** modify the two editing agents (Mode A & B) to run off the seed → clean **9-arm single-iteration block** (generate, reflect, 3 criteria, 2 editing, 2 paragraph). `debate_and_generate` excluded/untouched; `swiss` out of scope. Confirmed `iterationAgentTypeEnum` (schemas.ts:675–692) has exactly 11 types — all accounted for, no others.
 - Added **Phase 1b** (editing-agent product code change) to the plan with tests + `editing_agents.md` doc update.
 
