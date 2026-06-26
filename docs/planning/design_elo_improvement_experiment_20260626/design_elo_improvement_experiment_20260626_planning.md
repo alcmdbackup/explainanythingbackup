@@ -22,6 +22,12 @@ We want to know which evolution agent/strategy best improves a *specific, alread
 - [ ] **Option A2: Reuse existing Federal Reserve 2 arena.** Cheapest, but 2675 existing variants (max 1442) dominate matchmaking; new variants get compared against unrelated lineages, not the seed → confounds the "improve THIS article" question. Rejected unless A1 mechanics prove infeasible.
 - [ ] **Option A3: New arena, seed only as generation source (not a competitor).** Measure each arm's variants' Elo within the new arena and compare arms to each other; infer seed baseline by also generating a "null/identity" arm. More moving parts; weaker direct "beat the seed" readout.
 
+### Decision F — Concurrency & correct ratings — RESOLVED → parallel runs + post-hoc recompute (user, 2026-06-26)
+- [x] **CHOSEN: run all runs CONCURRENTLY, then rebuild correct ratings from the durable match log before analysis.** The `sync_to_arena` race only corrupts *cached* mu/sigma/match_count on shared arena rows; the `evolution_arena_comparisons` match log is durable and stores enough (`entry_a`, `entry_b`, `winner`, `confidence`, `created_at`) to replay. Investigation confirmed no replay infra exists today and the rejected alternatives (lock/additive RPC, advisory-lock-the-merge) rewrite the global production rating-write path (high blast radius). 
+  - **New code:** `scripts/recompute-arena-elo.ts` (~80–120 LoC, `--prompt-id`, `--dry-run` before/after diff). Replays comparisons in `ORDER BY created_at, id` through the existing `createRating`/`updateRating`/`updateDraw`/`ratingToDb`; seeds entrants from `evolution_variants` (`synced_to_arena=true AND archived_at IS NULL`); skips `confidence=0`, treats `winner='draw' || confidence<0.3` as draw; recounts `arena_match_count`; idempotent. No migration, no hot-path change.
+  - **Flow:** queue all runs → wait for queue drain → run recompute → `/analysis`.
+  - **Caveat (benign):** concurrency may make per-run *matchmaking* slightly less efficient (stale ratings → suboptimal pairings) but never changes match *outcomes* (LLM judges actual text); the replay corrects all final ratings. Supersedes the "serialize runs" note in Decision A / research KF2.
+
 ### Decision B — Budget normalization (what "effectiveness" means)
 - [ ] **Option B1 (Recommended): Equal $ budget per run, report BOTH absolute lift and cost-normalized lift (Elo per $).** Fairest single framing; lets cheap arms shine on efficiency and expensive arms on absolute ceiling.
 - [ ] **Option B2: Equal variants produced per run.** Controls for sample size but lets expensive arms consume far more budget.
@@ -66,6 +72,7 @@ We want to know which evolution agent/strategy best improves a *specific, alread
 ### Phase 2: Build the experiment artifact
 - [ ] Create the new Arena Topic prompt + insert the seed ONCE (`generation_method='seed'`, `synced_to_arena=true`), per Decision A. (Idempotent / guarded insert.) Keep the two-row anchor as a documented fallback if the pilot shows the seed isn't matched enough.
 - [ ] Author a dated seed script under `evolution/scripts/experiments/seedElo<...>Experiment_20260626.ts` cloned from `seedCoherencePassPerformanceExperiment_20260624.ts` (research KF4): generalized `buildConfig` to N arms (config-hash-distinct only on `agentType`; hold-constant set per KF3; criteria arms reuse the existing generic criteria UUIDs from KF7), creates the experiment, queues N runs/arm interleaved at equal `budgetUsd`+`budget_cap_usd`. Cost tracking enforced downstream (do NOT bypass `upsert/create/addRun`). Add README index row.
+- [ ] **Build `scripts/recompute-arena-elo.ts` (Decision F):** replays `evolution_arena_comparisons` for the prompt through the existing OpenSkill wrapper to write correct final `mu`/`sigma`/`elo_score`/`arena_match_count`; `--prompt-id` + `--dry-run` diff; deterministic + idempotent; seeds entrants from `evolution_variants (synced_to_arena=true AND archived_at IS NULL)`, skips `confidence=0`, draws on `winner='draw' || confidence<0.3`. Run after the queue drains, before `/analysis`. + unit test (fixed comparison list → deterministic ratings).
 - [ ] **Add the small difference-of-means CI wrapper (KF5, corrected — NOT a new test):** a ~10-line helper (e.g. `evolution/src/lib/metrics/abComparison.ts`) reusing the existing bootstrap resampler — resample arm A + arm B per iteration, take `meanA−meanB`, read 2.5/97.5 percentiles (CI excluding 0 ⇒ significant), with Holm correction across arms, seeded via `createSeededRng`. Interim zero-code option: compare existing per-arm `bootstrapMeanCI` intervals for overlap. Elo CIs themselves already exist/persist — no new statistical machinery.
 - [ ] Add unit tests: (a) seed-script `buildConfig` — arms differ only in `agentType`, budgets sum, config hashes distinct; (b) the new significance helper — known-input p-values, determinism under fixed seed, correction math.
 
@@ -74,7 +81,8 @@ We want to know which evolution agent/strategy best improves a *specific, alread
 - [ ] Size the full run count from pilot SD (Decision E1). Adjust budget if cost diverged > 1.5×.
 
 ### Phase 4: Full run + analysis
-- [ ] Queue the sized run counts (interleave arm order to avoid arena-drift confounds). Monitor for wipeouts/cost gaps.
+- [ ] Queue the sized run counts (interleave arm order). Runs execute **concurrently** (Decision F). Monitor for wipeouts/cost gaps.
+- [ ] After the queue drains, run `scripts/recompute-arena-elo.ts --prompt-id <arena> --dry-run`, review the diff, then apply — so analysis reads correct, race-free final ratings.
 - [ ] Run `/analysis`: per-arm best-variant Elo lift (bootstrap 95% CI), Elo-per-$, fraction beating seed, decisive_rate, convergence; apply the pre-registered test + multiplicity correction; report winners with CIs and the per-agent QA evidence.
 - [ ] Write the analysis report to `docs/analysis/<name>/` and link from this project's docs (Artifacts section).
 

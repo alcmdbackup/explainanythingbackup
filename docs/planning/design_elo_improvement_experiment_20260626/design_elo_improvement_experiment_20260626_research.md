@@ -148,7 +148,7 @@ Per-arm "agent worked as intended" gate before admitting Elo data: `success=true
 
 ## Open Questions (for /planning + /plan-review)
 
-1. **Serialize vs parallelize runs?** KF2-RISK-A argues for serial runs (clean anchor refinement) but that slows throughput; if we instead measure each variant's own Elo (not the anchor's absolute drift), limited parallelism may be acceptable. Decide and document.
+1. **Serialize vs parallelize runs?** — RESOLVED (user, 2026-06-26): run **concurrently** + a post-hoc `scripts/recompute-arena-elo.ts` that replays the durable `evolution_arena_comparisons` log to rebuild correct final ratings (the race only corrupts cached summaries, never the match log). See planning Decision F. Avoids both the serial slowdown and a global hot-path RPC change.
 2. **Pool-accumulation policy** (KF2-RISK-B): archive prior-round variants between rounds for a pure single-anchor head-to-head, vs accept a growing shared arena. Affects how "improvement over the seed" is read.
 3. **Arm partition** — RESOLVED (user, 2026-06-26): modify the two editing agents to run off the seed (Phase 1b) so all **9** seed-capable agents share one single-iteration structure. `debate_and_generate` excluded (left untouched); `swiss` out of scope. No warm-up confound.
 4. **Primary DV**: `max_elo` (best variant) vs `winner_elo` vs per-agent `eloAttrDelta`. Lean `max_elo` lift over the anchor (the experiment asks "which agent best *improves upon* the seed").
