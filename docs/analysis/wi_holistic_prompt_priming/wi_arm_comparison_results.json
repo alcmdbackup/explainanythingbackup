@@ -1,0 +1,340 @@
+{
+  "arms": [
+    {
+      "acceptedHashesEntries": 1,
+      "arm": "A",
+      "armDescription": "Current hardcoded checklist (existing baseline runs).",
+      "armLabel": "Arm A — Control",
+      "autoRepeats": 1,
+      "degenerate": false,
+      "flags": {
+        "barelyMatters": [],
+        "collinear": [],
+        "disagreesWithOverall": [
+          "e532ac82-02ac-4663-bee5-36904136d0d8",
+          "7e646847-11b4-49ff-8fed-3580d54f691b"
+        ],
+        "nonIdentifiable": []
+      },
+      "heldOutAccuracy": 0.85,
+      "judgeModel": "google/gemini-2.5-flash-lite",
+      "judgeTemperature": "0",
+      "nFitPairs": 20,
+      "nPairs": 30,
+      "pairSetHash": "cb4ffde192971908c40cb9719ed337b9da1680597725ba66da18bc0b3eba425c",
+      "positionBias": {
+        "flips": 9,
+        "n": 30,
+        "rate": 0.3
+      },
+      "sessionId": "20a09cde-883c-4919-8bda-24ae74986ca8",
+      "sessionName": "New test",
+      "trainAccuracy": 0.85,
+      "weights": [
+        {
+          "ciHigh": 0.28240198287180673,
+          "ciLow": 0,
+          "criterion": "sentence_variety",
+          "weight": 0.10470220625877137
+        },
+        {
+          "ciHigh": 0.6818108608406066,
+          "ciLow": 0.3338855769933226,
+          "criterion": "tone",
+          "weight": 0.481249661983899
+        },
+        {
+          "ciHigh": 0,
+          "ciLow": 0,
+          "criterion": "depth",
+          "weight": 0
+        },
+        {
+          "ciHigh": 0,
+          "ciLow": 0,
+          "criterion": "structure",
+          "weight": 0
+        },
+        {
+          "ciHigh": 0.5878013607210449,
+          "ciLow": 0.1322869693654403,
+          "criterion": "clarity",
+          "weight": 0.4140481317573297
+        }
+      ]
+    },
+    {
+      "acceptedHashesEntries": 1,
+      "arm": "B",
+      "armDescription": "No checklist; model picks its own bases for comparison.",
+      "armLabel": "Arm B — Stripped",
+      "autoRepeats": 3,
+      "degenerate": false,
+      "flags": {
+        "barelyMatters": [],
+        "collinear": [
+          [
+            "5fa10fa0-2d00-42ee-aed4-be603e0239bc",
+            "55a7ba56-9eed-4974-bbfd-7fd89f791058"
+          ]
+        ],
+        "disagreesWithOverall": [
+          "e532ac82-02ac-4663-bee5-36904136d0d8",
+          "7e646847-11b4-49ff-8fed-3580d54f691b"
+        ],
+        "nonIdentifiable": []
+      },
+      "heldOutAccuracy": 0.8461538461538461,
+      "judgeModel": "google/gemini-2.5-flash-lite",
+      "judgeTemperature": "0",
+      "nFitPairs": 13,
+      "nPairs": 30,
+      "pairSetHash": "cb4ffde192971908c40cb9719ed337b9da1680597725ba66da18bc0b3eba425c",
+      "positionBias": {
+        "flips": 17,
+        "n": 30,
+        "rate": 0.5666666666666667
+      },
+      "sessionId": "006aea50-dd06-42da-a7b6-70ae3664d0b9",
+      "sessionName": "[ARM-B] Stripped holistic 20260625",
+      "trainAccuracy": 0.8461538461538461,
+      "weights": [
+        {
+          "ciHigh": 0.29508170026981034,
+          "ciLow": 0.12088323771550272,
+          "criterion": "sentence_variety",
+          "weight": 0.2069648525028099
+        },
+        {
+          "ciHigh": 0.4385454120420241,
+          "ciLow": 0.3288073536704948,
+          "criterion": "tone",
+          "weight": 0.3965175737485951
+        },
+        {
+          "ciHigh": 0.04127679786873238,
+          "ciLow": 0,
+          "criterion": "depth",
+          "weight": 0
+        },
+        {
+          "ciHigh": 0.06304676160812078,
+          "ciLow": 0,
+          "criterion": "structure",
+          "weight": 0
+        },
+        {
+          "ciHigh": 0.4385454120420241,
+          "ciLow": 0.3288073536704948,
+          "criterion": "clarity",
+          "weight": 0.3965175737485951
+        }
+      ]
+    },
+    {
+      "acceptedHashesEntries": 1,
+      "arm": "C",
+      "armDescription": "Holistic checklist = the 5 session criteria with descriptions.",
+      "armLabel": "Arm C — Aligned",
+      "autoRepeats": 3,
+      "degenerate": false,
+      "flags": {
+        "barelyMatters": [],
+        "collinear": [],
+        "disagreesWithOverall": [],
+        "nonIdentifiable": []
+      },
+      "heldOutAccuracy": null,
+      "judgeModel": "google/gemini-2.5-flash-lite",
+      "judgeTemperature": "0",
+      "nFitPairs": 9,
+      "nPairs": 30,
+      "pairSetHash": "cb4ffde192971908c40cb9719ed337b9da1680597725ba66da18bc0b3eba425c",
+      "positionBias": {
+        "flips": 20,
+        "n": 30,
+        "rate": 0.6666666666666666
+      },
+      "sessionId": "ec71808d-2833-4f46-83c6-4dd525705112",
+      "sessionName": "[ARM-C] Aligned holistic 20260625",
+      "trainAccuracy": 1,
+      "weights": [
+        {
+          "ciHigh": 0.30229651230774496,
+          "ciLow": 0.13109460815845955,
+          "criterion": "sentence_variety",
+          "weight": 0.23707964928809716
+        },
+        {
+          "ciHigh": 0.36415690145066,
+          "ciLow": 0,
+          "criterion": "tone",
+          "weight": 0.2995245582164451
+        },
+        {
+          "ciHigh": 0.20823358987938714,
+          "ciLow": 0,
+          "criterion": "depth",
+          "weight": 0.08061505925404985
+        },
+        {
+          "ciHigh": 0.20823358987938714,
+          "ciLow": 0.04164735138693394,
+          "criterion": "structure",
+          "weight": 0.12363508043353197
+        },
+        {
+          "ciHigh": 0.3474905021476237,
+          "ciLow": 0,
+          "criterion": "clarity",
+          "weight": 0.2591456528078758
+        }
+      ]
+    },
+    {
+      "acceptedHashesEntries": 1,
+      "arm": "D",
+      "armDescription": "Omits clarity, amplifies depth + structure.",
+      "armLabel": "Arm D — Inverted",
+      "autoRepeats": 3,
+      "degenerate": false,
+      "flags": {
+        "barelyMatters": [],
+        "collinear": [],
+        "disagreesWithOverall": [
+          "5fa10fa0-2d00-42ee-aed4-be603e0239bc"
+        ],
+        "nonIdentifiable": []
+      },
+      "heldOutAccuracy": null,
+      "judgeModel": "google/gemini-2.5-flash-lite",
+      "judgeTemperature": "0",
+      "nFitPairs": 9,
+      "nPairs": 30,
+      "pairSetHash": "cb4ffde192971908c40cb9719ed337b9da1680597725ba66da18bc0b3eba425c",
+      "positionBias": {
+        "flips": 19,
+        "n": 30,
+        "rate": 0.6333333333333333
+      },
+      "sessionId": "b8b36654-6f97-4c89-ad3c-d0295b6fdbd4",
+      "sessionName": "[ARM-D] Inverted holistic 20260625",
+      "trainAccuracy": 0.8888888888888888,
+      "weights": [
+        {
+          "ciHigh": 0.486906779060318,
+          "ciLow": 0.14216385293125805,
+          "criterion": "sentence_variety",
+          "weight": 0.3019820092063388
+        },
+        {
+          "ciHigh": 0.2572950543877842,
+          "ciLow": 0,
+          "criterion": "tone",
+          "weight": 0
+        },
+        {
+          "ciHigh": 0.4262362055084223,
+          "ciLow": 0.09611631166215164,
+          "criterion": "depth",
+          "weight": 0.2633817628858119
+        },
+        {
+          "ciHigh": 0.5120773487847438,
+          "ciLow": 0,
+          "criterion": "structure",
+          "weight": 0.3721985608356706
+        },
+        {
+          "ciHigh": 0.2434744773462883,
+          "ciLow": 0,
+          "criterion": "clarity",
+          "weight": 0.062437667072178835
+        }
+      ]
+    }
+  ],
+  "crossArm": {
+    "A": {
+      "B": {
+        "cosine": 0.9793855335615942,
+        "l1": 0.20452529248807705,
+        "overallFlip": {
+          "flips": 7,
+          "n": 30,
+          "rate": 0.23333333333333334
+        },
+        "spearman": 0.9,
+        "topCriterion_A": "tone",
+        "topCriterion_B": "tone"
+      },
+      "C": {
+        "cosine": 0.8859782742029005,
+        "l1": 0.6732551654338155,
+        "overallFlip": {
+          "flips": 13,
+          "n": 30,
+          "rate": 0.43333333333333335
+        },
+        "spearman": 1,
+        "topCriterion_A": "tone",
+        "topCriterion_B": "tone"
+      },
+      "D": {
+        "cosine": 0.16226601640461977,
+        "l1": 1.6657202533380997,
+        "overallFlip": {
+          "flips": 17,
+          "n": 30,
+          "rate": 0.5666666666666667
+        },
+        "spearman": -0.7,
+        "topCriterion_A": "tone",
+        "topCriterion_B": "structure"
+      }
+    },
+    "B": {
+      "C": {
+        "cosine": 0.9341053016643206,
+        "l1": 0.4687298729457383,
+        "overallFlip": {
+          "flips": 8,
+          "n": 30,
+          "rate": 0.26666666666666666
+        },
+        "spearman": 0.9,
+        "topCriterion_A": "tone",
+        "topCriterion_B": "tone"
+      },
+      "D": {
+        "cosine": 0.2652019523700325,
+        "l1": 1.4611949608500225,
+        "overallFlip": {
+          "flips": 12,
+          "n": 30,
+          "rate": 0.4
+        },
+        "spearman": -0.6,
+        "topCriterion_A": "tone",
+        "topCriterion_B": "structure"
+      }
+    },
+    "C": {
+      "D": {
+        "cosine": 0.5811313139517708,
+        "l1": 0.9924650879042842,
+        "overallFlip": {
+          "flips": 5,
+          "n": 30,
+          "rate": 0.16666666666666666
+        },
+        "spearman": -0.7,
+        "topCriterion_A": "tone",
+        "topCriterion_B": "structure"
+      }
+    }
+  },
+  "generated_at": "pinned-by-runner",
+  "target": "staging",
+  "test_set_id": "9acb42f5-fa9b-4ce8-b053-431fbe01e026"
+}
