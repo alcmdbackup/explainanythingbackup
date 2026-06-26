@@ -43,4 +43,8 @@
 
 ## Phase 1: Finalize design + pre-registration
 ### Work Done
-(pending — remaining Open Questions are now mostly judgment calls: arm set, primary DV, effect size/α, run count/power; good candidate for /plan-review)
+- **Arm set decided (user, 2026-06-26):** modify the two editing agents (Mode A & B) to run off the seed → clean **9-arm single-iteration block** (generate, reflect, 3 criteria, 2 editing, 2 paragraph). `debate_and_generate` excluded/untouched; `swiss` out of scope. Confirmed `iterationAgentTypeEnum` (schemas.ts:675–692) has exactly 11 types — all accounted for, no others.
+- Added **Phase 1b** (editing-agent product code change) to the plan with tests + `editing_agents.md` doc update.
+
+### Remaining (good candidate for /plan-review)
+- Primary DV (lean `max_elo` lift), minimal effect size + α, run count/power (pilot-driven).

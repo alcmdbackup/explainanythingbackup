@@ -32,10 +32,11 @@ We want to know which evolution agent/strategy best improves a *specific, alread
 - [ ] **Option C2: `eloAttrDelta` (mean child−parent).** Good secondary/diagnostic; conservative CI per docs.
 - [ ] **Option C3: Fraction of variants beating the seed.** Robust, intuitive secondary.
 
-### Decision D — Arm set (given budget)
-- [ ] **Option D1 (Recommended): 4–5 arms** — GFPA baseline (1), criteria single-pass (4), proposer-approver (5), paragraph-recombine (7), + one of iterative-editing (6) / paragraph+coherence (8). Covers cheap/moderate/expensive and the documented H1/H2 hypotheses.
-- [ ] **Option D2: All 8 arms.** Most complete but multiplies cost and multiple-comparison burden.
-- [ ] **Option D3: 2 arms (baseline vs one challenger).** Highest power per dollar, narrowest insight.
+### Decision D — Arm set — RESOLVED → clean 9-arm single-iteration-from-seed block (user, 2026-06-26)
+- [x] **CHOSEN: all 9 seed-capable agents, each as a single iteration off the seed.** After modifying the two editing agents (Phase 1b), every arm has the **identical structure** — one iteration, `sourceMode='seed'`, 100% budget — differing only in `agentType`. This is the cleanest possible comparison (no warm-up confound). The 9 arms:
+  1. `generate` (baseline) · 2. `reflect_and_generate` · 3. `criteria_and_generate` · 4. `single_pass_evaluate_criteria_and_generate` · 5. `proposer_approver_criteria_generate` · 6. `iterative_editing` (Mode A, *modified*) · 7. `iterative_editing_rewrite` (Mode B, *modified*) · 8. `paragraph_recombine` · 9. `paragraph_recombine_with_coherence_pass`
+  - **Excluded:** `debate_and_generate` (structurally needs ≥2 pool variants — left untouched per user) and `swiss` (ranking-only, not an improver).
+  - Budget permitting, the pilot may trim to the most informative subset; default is all 9.
 
 ### Decision E — Sample size / power
 - [ ] **Option E1 (Recommended): pilot first (2–3 runs/arm) to estimate cross-run SD, then size the full run count for ~80% power at a pre-registered minimal effect (e.g. ≥ +30 Elo) with multiplicity correction.**
@@ -53,6 +54,14 @@ We want to know which evolution agent/strategy best improves a *specific, alread
 - [ ] Pick the single seed variant (from `da03b016` / `538bfbc9` / `93a9ac9d`) and record its text + a content hash.
 - [ ] Lock arms (Decision D), budget normalization (B), primary+secondary DVs (C), and the analysis/decision rule (E) into this doc as a **pre-registered protocol** (hypotheses, primary DV, test, α with correction, minimal effect size, exclusion rules).
 - [ ] Define the **per-agent QA gate** (success rate, variant_count>0, matches recorded, cost within 1.5× projection, no parse failures, manual read of ≥1 variant/arm to confirm the transformation actually happened).
+
+### Phase 1b: Enable editing agents to run off the seed (product code change)
+*Goal: make `iterative_editing` (Mode A) and `iterative_editing_rewrite` (Mode B) valid as a first iteration sourcing the seed directly, so all 9 arms share one structure. Debate is intentionally NOT touched; swiss out of scope.*
+- [ ] `evolution/src/lib/schemas.ts` — add `iterative_editing` + `iterative_editing_rewrite` to `canBeFirstIteration()` (currently excluded at L712–720). Extend `sourceMode` validity (and its doc comment at L782) to editing iterations so `sourceMode='seed'` is accepted.
+- [ ] `evolution/src/lib/pipeline/loop/editingDispatch.ts` + `runIterationLoop.ts` editing branch — when the editing iteration is first / `sourceMode='seed'`, feed the **seed** as the single parent instead of selecting from the pool via `resolveEditingDispatchRuntime`/`editingEligibilityCutoff`. Confirm the post-edit ranking path works when the pool is just the seed/arena entry (the edited variant ranks against the seed).
+- [ ] Verify the projector/cost-estimation path (`projectDispatchPlan.ts`) handles a first-iteration editing dispatch (pool size 1) without a divide-by-zero / empty-pool gate fail.
+- [ ] Keep the change behind the existing `EDITING_AGENTS_ENABLED` switch semantics; do not alter Mode A/B behavior when sourced from the pool (backward compatible).
+- [ ] Run lint + tsc + build + unit tests after the change (per CLAUDE.md).
 
 ### Phase 2: Build the experiment artifact
 - [ ] Create the new Arena Topic prompt + insert the seed ONCE (`generation_method='seed'`, `synced_to_arena=true`), per Decision A. (Idempotent / guarded insert.) Keep the two-row anchor as a documented fallback if the pilot shows the seed isn't matched enough.
@@ -72,6 +81,8 @@ We want to know which evolution agent/strategy best improves a *specific, alread
 ## Testing
 
 ### Unit Tests
+- [ ] `evolution/src/lib/schemas.test.ts` (or colocated) — `canBeFirstIteration` now true for both editing modes; `sourceMode='seed'` valid on an editing iteration; existing pool-mode editing config still validates (backward compat).
+- [ ] `evolution/src/lib/pipeline/loop/editingDispatch.test.ts` — first-iteration / `sourceMode='seed'` feeds the seed as the single parent; pool-mode dispatch unchanged.
 - [ ] `evolution/scripts/experiments/seedElo<...>Experiment_20260626.test.ts` — config-builder produces arms that differ ONLY in `agentType`; budgets/run-counts correct; config hashes distinct per arm (mirror `seedBundleSplitExperiment.test.ts`). NOTE: confirm the test path is inside the jest glob (recent commit dropped an e2e-tree test jest ignored).
 - [ ] `evolution/src/lib/metrics/abComparison.test.ts` — permutation/bootstrap difference-of-means helper: correct p-value on known inputs, deterministic under fixed `createSeededRng`, Holm/Bonferroni correction across K arms.
 
@@ -96,6 +107,7 @@ We want to know which evolution agent/strategy best improves a *specific, alread
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
+- [ ] `evolution/docs/editing_agents.md` — document that Mode A/B editing agents can now run as a first iteration off the seed (`sourceMode='seed'`), and the dispatch behavior when the pool is just the seed.
 - [ ] `evolution/docs/strategies_and_experiments.md` — add this experiment as a worked example of a single-seed agent comparison (if the pattern is reusable).
 - [ ] `evolution/docs/arena.md` — clarify the seed-as-fixed-anchor mechanism if Phase 0 surfaces under-documented behavior.
 - [ ] `evolution/docs/rating_and_comparison.md` — note the replicate-runs-vs-matches CI guidance if confirmed.
