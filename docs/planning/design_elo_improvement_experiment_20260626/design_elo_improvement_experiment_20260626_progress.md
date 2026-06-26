@@ -32,9 +32,15 @@
 ### Issues Encountered
 - Confirmed uncertainty column on `evolution_metrics` is named `sigma` (not `uncertainty`); seed candidates store rating as `mu`/`sigma` (OpenSkill scale), `elo_score` is the Elo-scale view.
 
-### User Clarifications
-- (none yet)
+### User Clarifications (2026-06-26 review — 3 corrections, verified on staging)
+- **Baseline precision is a non-goal.** Fresh arena is for isolation only; ±Elo on the seed doesn't matter. (Dropped the noisy-1325 framing.)
+- **Seeds DO compete + show on the leaderboard with a real Elo** (FR2 seed `26ab2327…` = 1104.6, sigma 4.61, 21 matches). ⇒ two-row "anchor trick" demoted to a fallback; default = insert seed ONCE.
+- **"Clobber" was imprecise:** match rows never lost; only the entry-row summary rating races under concurrency → mitigate by serial runs or recompute-from-comparisons. Not a blocker.
+- **Elo CIs already exist/persist;** the only missing bit is a ~10-line difference-of-means wrapper (or just compare existing CIs) — downgraded from "must build a significance test".
+- Editing/debate arms: user notes they can be modified to source from the seed (alternative to a shared warm-up).
+- Cost: equal per-run budget across arms AND cost-adjusted analysis (Elo-per-$).
+- Updated research KF1/KF2/KF5 + planning Decision A and Phase 2 accordingly.
 
 ## Phase 1: Finalize design + pre-registration
 ### Work Done
-(pending — see research Open Questions 1–7 to resolve before building; good candidate for /plan-review)
+(pending — remaining Open Questions are now mostly judgment calls: arm set, primary DV, effect size/α, run count/power; good candidate for /plan-review)
