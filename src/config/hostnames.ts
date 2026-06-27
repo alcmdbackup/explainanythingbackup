@@ -55,6 +55,9 @@ export const PUBLIC_PREFIXES: readonly string[] = [
   '/api/runAISuggestionsPipeline',
   '/api/stream-chat',
   '/api/fetchSourceMetadata',
+  // Phase 2 of build_website_for_evolutiOn_20260626: the public /edit surface
+  // (paste-and-run for evolution). Lives on the public hostname; 404s on evolution.
+  '/edit',
 ];
 
 /**

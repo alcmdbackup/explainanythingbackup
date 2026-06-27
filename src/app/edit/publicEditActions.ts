@@ -79,7 +79,7 @@ function buildEditTitle(articleText: string): string {
 /** Rough estimate of /edit run cost from articleText length. Used by the
  *  pre-submission affordability check. We don't have the full strategy projector
  *  call wired here for v1; conservative upper bound = per-run cap. */
-function estimateRunCostUsd(_articleText: string, _strategyId: string): number {
+function estimateRunCostUsd(): number {
   // Conservative: the per-run cap is the upper bound; use it for affordability.
   // Follow-up: invoke projectDispatchPlan(strategy.config, ...).expected for
   // a tighter estimate, but the cap-based estimate is fail-safe.
@@ -141,7 +141,7 @@ export const submitPublicEditAction = publicAction(
     const reqHeaders = await nextHeaders();
     const { ip, country } = getClientGeo(reqHeaders);
     const perIpGate = getPerIpSpendingGate();
-    const estRunCost = estimateRunCostUsd(parsed.articleText, parsed.strategyId);
+    const estRunCost = estimateRunCostUsd();
     const { ipRemaining, regionRemaining } = await perIpGate.remainingForIp(ip, country);
     if (estRunCost > Math.min(ipRemaining, regionRemaining)) {
       logger.info('submitPublicEdit refused — pre-submission affordability check', {
