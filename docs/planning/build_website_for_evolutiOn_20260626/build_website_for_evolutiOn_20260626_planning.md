@@ -163,5 +163,171 @@ The new public surface depends on a fail-CLOSED, reserve-before-spend gate. Land
 - [ ] `docs/docs_overall/environments.md` — add `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` to the env-var reference table; note Upstash add-on provisioning in the Vercel section.
 - [ ] (Other relevantDocs from `_status.json` are read for context but unlikely to require updates; verify during /finalize.)
 
+## UI Mockups
+
+Four key states for the `/edit` flow. All styling uses existing primitives — see "Design system alignment" below for exact class mappings.
+
+### 1. `/edit` — idle (paste form)
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  ExplainAnything                                          Search   Library   │   ← <Navigation showSearchBar={false}/>
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│                         ┊  Edit anything.  ┊                                 │   ← atlas-display-section
+│                                                                              │
+│           Paste an article. Pick how it should be improved.                  │   ← atlas-ui muted
+│           We'll rewrite it and show you exactly what changed.                │
+│                                                                              │
+│   ┌── How should we improve it? ─────────────────────────────────────────┐   │
+│   │  ◉  Quick polish                                                     │   │   ← scholar-card,
+│   │     Tighten wording. Improve sentence flow. No new content.          │   │     gold border on selected
+│   │                                                                      │   │
+│   │  ○  Deep refine                                                      │   │
+│   │     Strengthen structure, add clarifying examples, polish tone.      │   │
+│   │                                                                      │   │
+│   │  ○  Make it punchier                                                 │   │
+│   │     Cut redundancy. Sharper sentences. Same ideas, less prose.       │   │
+│   └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│   ┌── Your text ─────────────────────────────────────────────────────────┐   │
+│   │                                                                      │   │
+│   │   Paste anything here. An article, an essay, a draft email…         │   │   ← atlas-body, rounded-none,
+│   │                                                                      │   │     search-focus-glow
+│   │                                                                      │   │     (mirrors HomeSearchPanel)
+│   │                                                       1,247 / 50,000 │   │
+│   └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│                              ┌───────────────────┐                           │
+│                              │     Improve →     │                           │   ← atlas-button
+│                              └───────────────────┘                           │
+│                                                                              │
+│   ─────────────────────────────────────────────────────────────────────      │
+│   Your text and the result are saved so we can improve the system.           │   ← atlas-body text-muted
+│   Don't paste anything sensitive.                                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 2. `/edit/runs/[runId]` — queued / running
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  ExplainAnything                                          Search   Library   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│   ← Edit another                                                             │
+│                                                                              │
+│                              ✦  ✦  ✦                                         │   ← quill-write animation
+│                                                                              │
+│                       Rewriting your text…                                   │   ← atlas-display-section
+│                                                                              │
+│                    Quick polish · 0:42 elapsed                               │   ← atlas-ui muted
+│                                                                              │
+│       This usually takes one to three minutes. We'll show the result          │
+│       here when it's ready — you can keep this tab open or come back          │
+│       to this URL later.                                                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+Status text cycles by poll response:
+- `status=pending` → "Queued… (~30s until pickup)"
+- `status=claimed` → "Starting up…"
+- `status=running` → "Rewriting your text…"
+
+### 3. `/edit/runs/[runId]` — viewing the diff
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  ExplainAnything                                          Search   Library   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│   ← Edit another                                                             │
+│                                                                              │
+│   ╭──── Quick polish · finished in 1m 24s ────────────────────────────╮     │   ← scholar-card,
+│   ╰────────────────────────────────────────────────────────────────────╯     │     paper-texture
+│                                                                              │
+│   ┌── Your text ──────────────────┐  ┌── Evolved ───────────────────────┐    │   ← SideBySideWordDiff
+│   │                               │  │                                  │    │     (reused verbatim;
+│   │  Quantum entanglement is one  │  │  Quantum entanglement, one of    │    │      leftLabel / rightLabel
+│   │  of the strangest phenomena   │  │  the strangest phenomena in      │    │      overridden to
+│   │  in physics. When two particles│  │  physics, occurs when two       │    │      "Your text" /
+│   │  become entangled, measuring  │  │  particles become entangled —    │    │      "Evolved")
+│   │  one of them instantly affects│  │  measuring one instantly         │    │
+│   │  the other, no matter ̶h̶o̶w̶ ̶f̶a̶r̶ │  │  affects the other, regardless  │    │   ← removed words struck red
+│   │  ̶a̶p̶a̶r̶t̶ ̶t̶h̶e̶y̶ ̶a̶r̶e̶.             │  │  of distance.                    │    │     on left, added green on
+│   │                               │  │                                  │    │     right (identical to the
+│   │  Einstein famously called this│  │  Einstein famously called this   │    │     variant-details "Diff vs
+│   │  "spooky action at a distance,│  │  "spooky action at a distance,"  │    │     parent" tab)
+│   │  ̶a̶ ̶t̶e̶r̶m̶ ̶t̶h̶a̶t̶ ̶s̶t̶u̶c̶k̶."        │  │  and the name stuck.             │    │
+│   │  …                            │  │  …                               │    │
+│   └───────────────────────────────┘  └──────────────────────────────────┘    │
+│                                                                              │
+│                                ▼ Show full                                   │   ← sxs-expand-toggle
+│                                                                              │
+│        ┌─────────────────┐    ┌─────────────────┐                            │
+│        │  Try a different│    │  Edit something │                            │
+│        │     style       │    │      else       │                            │
+│        └─────────────────┘    └─────────────────┘                            │
+│                                                                              │
+│   ─────────────────────────────────────────────────────────────────────      │
+│   Your text and the result are saved so we can improve the system.           │
+│   Don't paste anything sensitive.                                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+"Try a different style" → `/edit` with original text pre-filled + strategy reset, so users can swap strategies cheaply without re-pasting.
+
+### 4. `/edit/runs/[runId]` — error
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  ExplainAnything                                          Search   Library   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│   ← Edit another                                                             │
+│                                                                              │
+│                              ⚠                                                │   ← text-copper
+│                                                                              │
+│                    Something went wrong.                                     │   ← atlas-display-section
+│                                                                              │
+│       The rewrite hit a snag part-way through. Your text wasn't              │   ← atlas-body
+│       saved past this attempt — try again with the same or a different       │
+│       style.                                                                 │
+│                                                                              │
+│                              ┌───────────────────┐                           │
+│                              │     Try again →   │                           │   ← atlas-button
+│                              └───────────────────┘                           │
+│                                                                              │
+│        Reference: run_a8c2f4e1                                               │   ← atlas-ui text-xs
+│                                                                              │     (click-to-copy)
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+Internal failure codes (`BudgetExceededError`, `LLMKillSwitchError`, etc.) all map to the same non-technical copy. The `run_id` reference is the support hook back to logs.
+
+## Design System Alignment
+
+Verified against `src/app/page.tsx` + `src/components/home/HomeSearchPanel.tsx` to confirm `/edit` uses the **same primitives the public site uses today**, not the newer shadcn / `font-display` patterns from the design-style-guide quick reference. The guide explicitly endorses this: *"Use `atlas-display` for hero/landing pages and `atlas-display-section` for section pages (Settings, Explore, My Library) to maintain visual hierarchy."* `/edit` is a section page.
+
+| `/edit` element | Class / Component (matches public-site convention) |
+|---|---|
+| Page shell | `min-h-screen bg-[var(--surface-primary)] flex flex-col vignette-overlay paper-texture` |
+| Top nav | `<Navigation showSearchBar={false} />` (existing, no changes) |
+| Container | `container mx-auto px-8 max-w-2xl` (matches home) |
+| H1 ("Edit anything") | `atlas-display-section text-[var(--text-primary)]` + `atlas-animate-fade-up stagger-1` |
+| Subtitle | `atlas-ui text-[var(--text-muted)] tracking-wide` + `stagger-2` |
+| Strategy radio cards | `.scholar-card` + `.scholar-card-hover`; selected = `border-gold`; titles in `atlas-ui`, descriptions in `atlas-body text-[var(--text-muted)]` |
+| Textarea | `bg-[var(--surface-primary)] border border-[var(--border-default)] focus:border-[var(--accent-gold)] atlas-body rounded-none search-focus-glow px-6 py-4` (mirrors `HomeSearchPanel:116`) |
+| Char count | `atlas-ui text-xs text-[var(--text-muted)]` |
+| Submit button | `atlas-button` (matches `HomeSearchPanel:126`) — NOT the new shadcn `<Button variant="scholar">`, because the public site hasn't migrated and consistency matters more |
+| Submit loading | `atlas-loading-dots` + 3× `atlas-loading-dot` (matches `HomeSearchPanel:128-133`) |
+| Privacy footer | `atlas-body text-sm text-[var(--text-muted)]` with `border-t border-[var(--border-default)]` divider |
+| Results header card | `.scholar-card paper-texture rounded-book shadow-warm-md` |
+| `SideBySideWordDiff` | unchanged; component-internal styling already correct |
+| Loading animation | `quill-write` keyframe (existing) |
+| Error glyph | `text-copper` |
+| Card entrance | `atlas-animate-fade-up stagger-1/2/3` for sequential reveal |
+
+**ESLint compatibility:** every class above is on the project's atlas / scholar / design-token allowlist. The custom rules in `eslint-rules/design-system.js` (`no-hardcoded-colors`, `prefer-warm-shadows`, `enforce-prose-font`, etc.) all pass on this mapping. No design-system-rule exceptions needed for `/edit`.
+
+**Visual consistency check:** the `/edit` page, when loaded next to `/` (Home), `/results`, `/userlibrary`, should feel like the same product surface — same fonts, same warm cream, same paper texture, same nav. The atlas-class binding is what guarantees that.
+
 ## Review & Discussion
 [This section is populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration]
