@@ -26,7 +26,7 @@ While building this surface, the existing `LLMSpendingGate.checkPerUserCap` mech
 | 4 | Strategy whitelist | New `public_visible BOOLEAN` column on `evolution_strategies` (default `false`). Editable from admin UI inline on strategy list page + on strategy detail page. New `listPublicStrategiesAction` for `/edit` picker. |
 | 5 | Rate-limit infra | Upstash Redis KV. Per-IP daily $ spending cap ($0.50/day default) + per-region daily $ spending cap ($5/day default per country), both via `INCRBYFLOAT` with 24h TTL. Layers on top of hardened per-user + global gates. |
 | 6 | Per-run cap | `evolution_runs.budget_cap_usd = $0.10` for /edit submissions. Strategy whitelist eligibility predicate: `strategy.config.budgetUsd <= $0.10`. |
-| 7 | Auth | Fully unauthed. `callLLM` receives `userid='public_edit_anonymous'` sentinel. No middleware change to guest auto-login — `/edit` simply doesn't depend on it. Run-result viewing via `/edit/runs/{runId}` URL (UUID is unguessable; results contain visitor's own text). |
+| 7 | Auth | Fully unauthed. `callLLM` receives `process.env.GUEST_USER_ID` as `userid` (shares the existing guest pool — no custom sentinel; this corrects the iter-1 draft that proposed a separate sentinel which would have silently bypassed the per-user gate). No middleware change to guest auto-login — `/edit` simply doesn't depend on it. Run-result viewing via `/edit/runs/{runId}` URL (UUID is unguessable; results contain visitor's own text). |
 | 8 | Admin gap | Fix `queueEvolutionRunAction` to validate `explanationId` against `explanations` table (currently only validates `promptId`). Share the validator with the new public-side insert helper. |
 | 9 | Picker UX | Name + short description only on the strategy picker. No cost/runtime preview. Curate display names to hint at trade-offs. |
 | 10 | Retention | Keep forever. No UI for deletion. Privacy note in page footer ("Your text + the result are saved so we can improve the system. Don't paste anything sensitive."). |
@@ -50,36 +50,47 @@ The new public surface depends on a fail-CLOSED, reserve-before-spend gate. Land
 - [ ] **Gap 5 — configurable cap**: add `guest_user_daily_cap_usd`, `public_edit_per_ip_daily_usd`, `public_edit_per_region_daily_usd`, `public_edit_daily_cap_usd` keys to `llm_cost_config` table. Default values: $10, $0.50, $5, $15. Add `getPublicEditConfig()` helper using the existing config-read pattern (see `checkMonthlyCap` at `llmSpendingGate.ts:364`).
 - [ ] Replace the hard-coded `10` at `src/lib/services/llms.ts:988` with the config-driven value. Keep the existing `userid === GUEST_USER_ID` gating predicate (only fires for the demo guest; admins skip — unchanged).
 - [ ] **Gap 2+3 — reserve-before-spend** for the per-user gate:
-  - [ ] New migration `<timestamp>_reserve_per_user_daily_cost_rpc.sql`: `reserve_per_user_daily_cost(p_user_id TEXT, p_date DATE, p_estimated_usd NUMERIC, p_cap_usd NUMERIC) RETURNS jsonb` RPC, modeled EXACTLY on `check_and_reserve_llm_budget` at `supabase/migrations/20260228000001_add_llm_cost_security.sql:84-117` (verified). **Atomic check-then-increment via `SELECT … FOR UPDATE` BEFORE incrementing — NOT a single UPSERT** (iter-2 fix: UPSERT-with-RETURNING cannot reject the increment after-the-fact, so concurrent callers at cap boundary would silently over-cap). Shape:
+  - [ ] **Separate `per_user_reservations` table** (iter-3 architecture fix — addresses call_source-scoping mismatch). Earlier draft added `reserved_usd` as a sibling column on `per_user_daily_cost_rollups`, but that table's PK is `(date, user_id, call_source)` and the trigger writes rows per-call_source — so a reservation keyed on `call_source='public_edit'` would never be offset when actual LLM calls land on `call_source='evolution_<agent>'` rows. The reservation, the trigger write, and the cap-check were three different scopings. Fix: store reservations in a **new dedicated table** keyed on `(date, user_id)` only:
     ```sql
-    -- 1. SELECT FOR UPDATE on the current rollup (creates row if missing)
-    INSERT INTO per_user_daily_cost_rollups (date, user_id, call_source, total_cost_usd, reserved_usd)
-      VALUES (p_date, p_user_id, 'public_edit', 0, 0)
-      ON CONFLICT (date, user_id, call_source) DO NOTHING;
-    SELECT total_cost_usd, reserved_usd INTO v_total, v_reserved
-      FROM per_user_daily_cost_rollups
-      WHERE date = p_date AND user_id = p_user_id AND call_source = 'public_edit'
+    CREATE TABLE IF NOT EXISTS per_user_daily_reservations (
+      date DATE NOT NULL,
+      user_id TEXT NOT NULL,
+      reserved_usd NUMERIC(12,6) NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (date, user_id)
+    );
+    -- deny-all RLS + service_role bypass, same pattern as 20260524000003
+    ```
+  - [ ] New migration `<timestamp>_reserve_per_user_daily_cost_rpc.sql`: `reserve_per_user_daily_cost(p_user_id TEXT, p_date DATE, p_estimated_usd NUMERIC, p_cap_usd NUMERIC) RETURNS jsonb` RPC, modeled on `check_and_reserve_llm_budget` at `supabase/migrations/20260228000001_add_llm_cost_security.sql:84-117` (verified). **Atomic check-then-increment via `SELECT … FOR UPDATE`** — UPSERT-with-RETURNING cannot reject after-the-fact, so concurrent callers at cap boundary would silently over-cap.
+    ```sql
+    -- 1. Ensure reservation row exists, then lock it
+    INSERT INTO per_user_daily_reservations (date, user_id, reserved_usd)
+      VALUES (p_date, p_user_id, 0)
+      ON CONFLICT (date, user_id) DO NOTHING;
+    SELECT reserved_usd INTO v_reserved
+      FROM per_user_daily_reservations
+      WHERE date = p_date AND user_id = p_user_id
       FOR UPDATE;
-    -- 2. Reject if increment would exceed cap
+    -- 2. SUM total_cost_usd across ALL call_sources for (user, date) — matches existing checkPerUserCap read pattern
+    SELECT COALESCE(SUM(total_cost_usd), 0) INTO v_total
+      FROM per_user_daily_cost_rollups
+      WHERE date = p_date AND user_id = p_user_id;
+    -- 3. Reject if (existing total + outstanding reservations + this estimate) > cap
     IF v_total + v_reserved + p_estimated_usd > p_cap_usd THEN
       RETURN jsonb_build_object('ok', false, 'dailyTotal', v_total + v_reserved, 'dailyCap', p_cap_usd);
     END IF;
-    -- 3. Otherwise increment reserved_usd (NOT total — that's set on reconcile)
-    UPDATE per_user_daily_cost_rollups
+    -- 4. Increment reservation
+    UPDATE per_user_daily_reservations
       SET reserved_usd = reserved_usd + p_estimated_usd, updated_at = now()
-      WHERE date = p_date AND user_id = p_user_id AND call_source = 'public_edit';
+      WHERE date = p_date AND user_id = p_user_id;
     RETURN jsonb_build_object('ok', true, 'reservedUsd', p_estimated_usd, 'dailyTotal', v_total + v_reserved + p_estimated_usd, 'dailyCap', p_cap_usd);
     ```
-    **Sibling migration** `<timestamp>_add_reserved_usd_to_per_user_rollups.sql` adds `reserved_usd NUMERIC NOT NULL DEFAULT 0` column to the existing `per_user_daily_cost_rollups` table — required because today's table tracks only `total_cost_usd` + `call_count` (no reservation column). Update the existing trigger `update_per_user_daily_cost_rollup()` to DECREMENT `reserved_usd` by `NEW.estimated_cost_usd` when reconciling (so `reserved + total` stays correct). **Idempotency-lint compliance:** `CREATE OR REPLACE FUNCTION`, `SECURITY DEFINER`, `SET search_path = pg_catalog, public`, `ADD COLUMN IF NOT EXISTS`. Validate locally with `npm run lint:migrations` before commit.
+  - [ ] **Reconciliation lives ONLY at app-side `recordActualForUser` / `releaseForUser`** (iter-3 fix: drop the trigger-side reservation update entirely — earlier draft had both the trigger AND app-side decrement, producing double-decrement). `recordActualForUser(userid, actualCents, reservedCents)` calls a new `reconcile_per_user_reservation(p_user_id, p_date, p_reserved_usd) RETURNS void` RPC that `UPDATE per_user_daily_reservations SET reserved_usd = GREATEST(0, reserved_usd - p_reserved_usd)` (the `GREATEST(0, ...)` floor prevents negative reservations from race conditions). The existing `update_per_user_daily_cost_rollup()` trigger continues to write to `per_user_daily_cost_rollups.total_cost_usd` unchanged — so actual spend lands on the per-call_source row, reconciliation lands on the per-user reservation row, and the cap-check sums both. The two tables stay independent + correctly composed. **Idempotency-lint compliance:** `CREATE OR REPLACE FUNCTION`, `SECURITY DEFINER`, `SET search_path = pg_catalog, public`, `CREATE TABLE IF NOT EXISTS`. Validate locally with `npm run lint:migrations`.
   - [ ] Add `reserveForUser(userid, estCost, capUsd)`, `recordActualForUser(userid, actualCents, reservedCents)`, `releaseForUser(userid, reservedCents)` to `LLMSpendingGate`. Mirror existing `reserveViaRpc` / `reconcileAfterCall` pattern at `llmSpendingGate.ts:178-220`.
   - [ ] Replace `checkPerUserCap` call site in `src/lib/services/llms.ts:988` with `reserveForUser`; wire reconcile into the existing `finally` block at `llms.ts:1008`. **Reconciliation invariant:** on synchronous throw, request abort, container kill mid-call, or `reconcileAfterCall.catch()` swallow, reservation is RELEASED via `try/finally` — never silently abandoned. Failure to reconcile invalidates the user-spending cache so the next call gets a fresh DB read; documented in code comment.
   - [ ] Keep `checkPerUserCap` as deprecated read-only wrapper for one release cycle to ease rollback. Add ESLint rule `no-restricted-imports` blocking new callers, pointing to `reserveForUser` instead. Rule lives in `.eslintrc.json` (project-wide) and matches the existing `no-restricted-imports` pattern. Removed in the same follow-up PR that drops the kill switch.
-  - [ ] New migration `<timestamp>_per_user_reservation_cleanup.sql`: `cleanup_orphaned_per_user_reservations(p_stale_minutes INT DEFAULT 15) RETURNS INT` RPC. Releases reservations by `UPDATE per_user_daily_cost_rollups SET reserved_usd = 0, updated_at = now() WHERE updated_at < now() - (p_stale_minutes || ' minutes')::interval AND reserved_usd > 0`. Returns count of rows released. Targets the `reserved_usd` column added in the sibling migration above (resolves iter-2 finding: the column didn't exist before).
-  - [ ] **Scheduling** (iter-2 fix: original "single-line cron entry" was vague — no per-job cron exists in this project). Three concrete options:
-    - **Inline call from `processRunQueue.ts` top-of-loop** (RECOMMENDED) — once per minute when the timer fires, before the claim loop, call `await cleanup_orphaned_per_user_reservations(15)`. Single function call; no new infra; runs at the same cadence as the runner. ~5 LoC change.
-    - GitHub Actions scheduled workflow (`.github/workflows/per-user-rollup-cleanup.yml`, daily): cleaner separation but adds a workflow + needs runner DB creds.
-    - Supabase pg_cron: not used by this project today; would be a new dependency.
-    Pick option 1; document the runner-timer cadence note in `evolution/docs/minicomputer_deployment.md`.
+  - [ ] New migration `<timestamp>_per_user_reservation_cleanup.sql`: `cleanup_orphaned_per_user_reservations(p_stale_minutes INT DEFAULT 15) RETURNS INT` RPC. Releases by `UPDATE per_user_daily_reservations SET reserved_usd = 0, updated_at = now() WHERE updated_at < now() - (p_stale_minutes || ' minutes')::interval AND reserved_usd > 0`. Returns count of rows released. Targets the dedicated `per_user_daily_reservations` table created above.
+  - [ ] **Scheduling** (iter-3 fix: explicit lifecycle + on-boot guarantee). Call `cleanup_orphaned_per_user_reservations(15)` from `processRunQueue.ts` **once at BOOT, BEFORE the `while (processedRuns < MAX_RUNS)` loop** — guarantees one cleanup per systemd-timer firing (~60s cadence) even when the queue is empty and the runner exits immediately at `processRunQueue.ts:222-224` ("No pending runs found, exiting"). Placing it INSIDE the loop would mean cleanup never fires on empty-queue invocations. Document the runner-timer cadence + the on-boot placement in `evolution/docs/minicomputer_deployment.md`. ~5 LoC change.
 - [ ] Honeycomb alert: log structured `gate.fail_closed_rejected` events with fields `{category, userid, errorType}`. Extend `.github/workflows/evolution-run-health.yml` to file a `[release-health]` issue when count > 0 over 1 hour (mirrors the nightly-failure alerting pattern). **Owner: engineering** (this PR includes the YAML edit). Honeycomb-dashboard side (saved query + visual alert) is ops-owned — track in `docs/planning/build_website_for_evolutiOn_20260626/_progress.md` as a manual post-merge step.
 - [ ] Add `LLM_GATE_FAIL_CLOSED_DISABLED` env var as kill-switch reverting to fail-open behavior; **default `'true'` on this PR's merge** (so the new behavior is OFF at first), flipped to `'false'` after the staged-rollout soak per the sequencing above.
 
@@ -92,16 +103,18 @@ The new public surface depends on a fail-CLOSED, reserve-before-spend gate. Land
 - [ ] **Upstash gate** (Q5): new module `src/lib/services/perIpSpendingGate.ts`. Exports `reserveForIp(ip, estCost)`, `recordActualForIp(ip, actualCents, reservedCents)`, `releaseForIp(ip, reservedCents)`, plus equivalent `*ForRegion(country, ...)` family. Uses `@upstash/redis` `incrbyfloat` + `expire 86400`. **Fail-CLOSED on KV error** (consistent with Phase 0 contract) — set the `@upstash/redis` retry option to 0 and throw `PerIpBudgetExceededError` on any non-200; the existing `LLM_GATE_FAIL_CLOSED_DISABLED` env var ALSO disables this gate's fail-closed for the rollout window.
 - [ ] **Test-mode bypass for the per-IP/per-region gate**: when `process.env.E2E_TEST_MODE === 'true'` OR `process.env.PUBLIC_EDIT_RATE_LIMIT_DISABLED === 'true'`, the gate short-circuits and `reserveForIp` returns the estimate without consulting Upstash. CI E2E + nightly + integration tests all share one egress IP and would otherwise trip the cap mid-suite. Documented in environments.md.
 - [ ] **`getClientGeo` helper**: `getClientGeo(request: NextRequest): {ip: string, country: string}`. **Implementation reads headers directly** (Next.js 15 removed `NextRequest.ip` + `.geo` — iter-2 fix): `request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()` for IP (Vercel-set), `request.headers.get('x-vercel-ip-country')` for country (Vercel-set). **Trust assertion:** the helper requires `request.headers.get('x-vercel-id')` to be present (Vercel emits this on every prod request). When absent (off-Vercel route, attacker-crafted request bypassing the edge), returns `{ip: 'unknown', country: 'unknown'}` so the per-IP cap collapses to a single shared bucket — defense in depth against forged `x-forwarded-for`. For tests, the helper honors `x-test-client-ip` + `x-test-client-country` ONLY when `process.env.NODE_ENV === 'test'`. Unit test asserts the trust assertion + bypass paths.
-- [ ] **Bot protection — Vercel BotID** (full integration spec, iter-2 expanded):
-  - [ ] Add `@vercel/botid` to `package.json` (`npm install @vercel/botid`).
-  - [ ] Vercel dashboard: enable BotID for the project (Project Settings → BotID → toggle ON). One-time setup; document as post-merge ops step in `_progress.md`.
-  - [ ] **Server side:** `submitPublicEditAction` first line is `await checkBotId(request)` from `@vercel/botid/server`. On bot detection, throws — handler catches + returns 403 with copy "Submission blocked. If you're a human and seeing this in error, try again."
-  - [ ] **Client side:** `<EditForm>` wraps its submit in `useBotIdToken()` from `@vercel/botid/client` so the invisible challenge token is attached to the form POST. Root layout (`src/app/edit/layout.tsx`) wraps children in `<BotIdClient>` provider so the hook works.
-  - [ ] **Test/local bypass:** new env var `BOT_PROTECTION_DISABLED='true'` short-circuits the server check (mirrors `PUBLIC_EDIT_RATE_LIMIT_DISABLED` pattern). Set in `playwright.config.ts` webServer + integration test setup + local `.env.local`. Without this, E2E tests + integration tests + local dev would always 403 because BotID only runs on Vercel infra.
-  - [ ] E2E: `edit-flow.spec.ts` asserts the happy path works WITH `BOT_PROTECTION_DISABLED='true'`. A separate `edit-botid-bypass-attempt.spec.ts` (UNIT, not E2E) confirms the server check fires when `BOT_PROTECTION_DISABLED` is NOT set + no token attached → 403.
+- [ ] **Bot protection — Vercel BotID** (iter-3 rewrite per real API verified at https://vercel.com/docs/botid/get-started):
+  - [ ] **Package: `botid`** (NOT `@vercel/botid` — earlier draft was wrong). `npm install botid`.
+  - [ ] **`next.config.ts` wrapper:** import `withBotId` from `botid/next/config` and wrap the exported config: `export default withBotId(nextConfig)`. This sets up proxy rewrites against ad-blocker domains — without it, BotID's challenge endpoint is trivially blocked by uBlock/etc. and the feature degrades silently.
+  - [ ] **Client init via `instrumentation-client.ts`** (Next.js 15.3+ pattern): create `src/instrumentation-client.ts` calling `initBotId({ protect: [{ path: '/edit', method: 'POST' }] })` from `botid/client/core`. Auto-attaches challenge token to matching requests; no React hook needed.
+  - [ ] **Server side:** `submitPublicEditAction` first line is `const verdict = await checkBotId();` from `botid/server` (NO `request` argument — `checkBotId()` reads context from the active request). On `verdict.isBot === true`, return 403 with copy "Submission blocked. If you're a human and seeing this in error, try again."
+  - [ ] **Vercel dashboard:** enable BotID for the project (Project Settings → BotID → toggle ON). One-time ops setup; document as post-merge step in `_progress.md`.
+  - [ ] **Test/local bypass:** new env var `BOT_PROTECTION_DISABLED='true'` short-circuits the server check (mirrors `PUBLIC_EDIT_RATE_LIMIT_DISABLED` pattern). Set in `playwright.config.ts` webServer block + integration test setup + local `.env.local`. Without it, E2E + integration + local dev would always 403 because BotID only runs on Vercel infra.
+  - [ ] **`playwright.config.ts` test-mode contract:** the `BOT_PROTECTION_DISABLED='true'` env var is set globally for the E2E suite. A code comment at the env-set site documents this contract: "All E2E tests run with BotID disabled. A future test that needs to exercise the real BotID path must spawn its own webServer with the var unset, or invoke checkBotId directly in a unit test." Mirror in `docs/docs_overall/environments.md` env-var table.
+  - [ ] E2E: `edit-flow.spec.ts` asserts the happy path works WITH `BOT_PROTECTION_DISABLED='true'`. A separate UNIT test `submitPublicEditAction.test.ts` confirms the server check fires when `BOT_PROTECTION_DISABLED` is NOT set + `checkBotId` mock returns `{isBot: true}` → 403.
   - [ ] Why required: a residential-proxy bot ($1/IP) trivially exhausts the per-IP $0.50/day cap by rotating IPs; per-region $5/day caps fall to coordinated regional attacks; BotID is the only defense layer that distinguishes "human visitor" from "automated requester" at scale.
 - [ ] **New action `submitPublicEditAction`** (`publicAction`-wrapped): POST handler. Steps:
-  1. `checkBotId(request)` → 403 if bot-like
+  1. `const verdict = await checkBotId();` from `botid/server` (NO request arg) → if `verdict.isBot === true`, return 403
   2. Validate input: `{articleText: 1-50000 chars, strategyId: uuid}` via Zod
   3. Validate strategy via `listPublicStrategiesAction`; refuse if not public-visible (404)
   4. `getClientGeo(request)` → `{ip, country}`
@@ -165,7 +178,11 @@ The new public surface depends on a fail-CLOSED, reserve-before-spend gate. Land
 - [ ] **Privacy note + opt-out** (Q10): add a Markdown line at the bottom of `/edit` and `/edit/runs/[runId]`. Link to a privacy section in the main site footer. **GDPR / right-to-erasure note:** since `/edit` is unauthed and retention is keep-forever (Q10), there's no UI for the visitor to delete their data. Plan accepts this for v1 — document a "data-deletion request" support email + the SQL to satisfy it in `evolution/docs/architecture.md` so ops can handle requests manually.
 - [ ] **Cleanup gate compatibility:** ensure the existing `claim_evolution_run` test-content gate (`allow_test_execution=false` by default) lets `run_source='public_edit'` rows through. The gate keys on the **strategy's** `is_test_content` (NOT on run_source) — so as long as Phase 3's server-side guard refuses `public_visible=true` on test strategies (which it does), public-edit runs are claim-eligible by default. (Earlier draft wording was misleading and has been clarified.)
 - [ ] **`PUBLIC_EDIT_DISABLED` kill switch** (NEW). New env var. When `'true'`, `submitPublicEditAction` returns `503 Service Unavailable` with copy "Public /edit is temporarily disabled. Try again later." Allows ops to turn off the public surface without a code revert when a separate axis breaks (e.g. Upstash outage, OpenRouter quota dry, abuse spike). Documented in `docs/docs_overall/environments.md`. The `/edit` page also reads this env var server-side and renders a "Temporarily unavailable" page instead of the form.
-- [ ] **CI path classifier update** (load-bearing — iter-2 refined). Edit `.github/workflows/ci.yml`'s `EVOLUTION_ONLY_PATHS` regex to include `src/lib/services/perIpSpendingGate|src/__tests__/e2e/specs/12-edit/`. **NOT** `src/lib/services/llmSpendingGate` (already matched by SHARED_PATHS — would be dead-code addition) and **NOT** `src/app/edit/` (this is a public-host page; routing it to evolution-only would skip `e2e-non-evolution` jobs that cover middleware/host-isolation, which matter for /edit). For `src/app/edit/`, the right home is SHARED_PATHS (forces full run). Verify the regex compiles + matches the new paths via a one-line CI test.
+- [ ] **CI path classifier update** (load-bearing — iter-3 made explicit). Two distinct edits to `.github/workflows/ci.yml`:
+  1. Add `src/lib/services/perIpSpendingGate|src/__tests__/e2e/specs/12-edit/` to the `EVOLUTION_ONLY_PATHS` regex (these are evolution-specific concerns).
+  2. Add `src/app/edit/` to the **SHARED_PATHS** regex (force full-run on any /edit page changes — covers `e2e-non-evolution` middleware/host-isolation jobs that matter for /edit). NOT to `EVOLUTION_ONLY_PATHS` — that would skip non-evolution coverage.
+  3. NOT `src/lib/services/llmSpendingGate` (already matched by SHARED_PATHS — would be dead-code addition).
+  Verify the regex compiles + matches the new paths via a one-line CI test.
 
 ## Testing
 
@@ -219,7 +236,7 @@ The new public surface depends on a fail-CLOSED, reserve-before-spend gate. Land
   - **Reserve-before-spend:** seed rollup at $9.50/cap → 50 parallel `reserveForUser` calls → only the first to cross $10 succeeds, rest reject. Reuse the scaffolding pattern from `evolution-budget-constraint.integration.test.ts`.
   - **Orphan cleanup:** simulate a reservation that never reconciles → `cleanup_orphaned_per_user_reservations()` releases it.
 - [ ] `src/__tests__/integration/per-ip-gate.integration.test.ts` (NEW) — same shape against real Upstash (gated on `UPSTASH_REDIS_REST_URL` being present; silent-skip otherwise). Reserve, reconcile, release; concurrent N callers at cap-boundary.
-- [ ] `src/__tests__/integration/strategy-public-visible.integration.test.ts` (NEW) — admin toggles `public_visible`; verify `listPublicStrategiesAction` reflects; cost-cap guard rejects toggling on a $0.20-budget strategy; carve-out allows seeding the `[E2E_EVO]` strategy.
+- [ ] `src/__tests__/integration/strategy-public-visible.integration.test.ts` (NEW) — admin toggles `public_visible`; verify `listPublicStrategiesAction` reflects; cost-cap guard rejects toggling on a $0.20-budget strategy; seeded `Public Edit Smoke` strategy ($0.001 budget) toggles successfully + appears in `listPublicStrategiesAction` results; lock-in assertion that seeded strategy's `budgetUsd = 0.001` (catches future config drift).
 
 ### E2E Tests
 - [ ] `src/__tests__/e2e/specs/12-edit/edit-form-smoke.spec.ts` (NEW, **`@critical`** + **`@skip-prod`** tagged) — fast smoke (~5s): visit `/edit`, assert form testids visible (`edit-form`, `strategy-picker`, `submit-button`), no console errors. NO submission — pure SSR smoke that catches deployment breakage without burning real $.
@@ -275,9 +292,9 @@ The new public surface depends on a fail-CLOSED, reserve-before-spend gate. Land
 - [ ] `docs/docs_overall/environments.md` — add `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` to the env-var reference table; add `PUBLIC_EDIT_DISABLED`, `PUBLIC_EDIT_RATE_LIMIT_DISABLED`, `LLM_GATE_PANIC_BYPASS`, `LLM_GATE_FAIL_CLOSED_DISABLED`; note Upstash add-on provisioning in the Vercel section + GH Environment secret tables.
 - [ ] `evolution/docs/architecture.md` — add `submitPublicEditAction → claimAndExecuteRun` as a fifth entry point alongside the existing four. Document the `run_source` column + values; document GDPR/data-deletion request handling.
 - [ ] `evolution/docs/data_model.md` — document `evolution_runs.run_source` + `evolution_strategies.public_visible` columns. Note the new `per_user_daily_cost_rollups` reservation semantics (clarify the read-only `checkPerUserCap` vs reserve-before-spend `reserveForUser`). Correct any stale `evolution_runs.evolution_explanation_id` references — that column does NOT exist; the seed-text FK is `explanation_id BIGINT`.
-- [ ] `evolution/docs/strategies_and_experiments.md` — document the public-strategy whitelist mechanism + the admin UI toggle + the `[E2E_EVO]` carve-out for E2E tests.
+- [ ] `evolution/docs/strategies_and_experiments.md` — document the public-strategy whitelist mechanism + the admin UI toggle + the seeded `Public Edit Smoke` strategy used by the E2E suite.
 - [ ] `evolution/docs/visualization.md` — cross-link the new `/edit` public surface from the admin strategy list section; note the `Public visible` column.
-- [ ] `evolution/docs/cost_optimization.md` — document the layered cap stack for public-edit (per-run / per-IP / per-region / per-user / global); document the new `llm_cost_config` keys + their defaults; extend the "Test cost containment" section with the `PUBLIC_EDIT_RATE_LIMIT_DISABLED` + `[E2E_EVO]` carve-out pattern.
+- [ ] `evolution/docs/cost_optimization.md` — document the layered cap stack for public-edit (per-run / per-IP / per-region / per-user / global); document the new `llm_cost_config` keys + their defaults; extend the "Test cost containment" section with the `PUBLIC_EDIT_RATE_LIMIT_DISABLED` + `BOT_PROTECTION_DISABLED` test-mode env vars and the seeded `Public Edit Smoke` strategy.
 - [ ] `evolution/docs/minicomputer_deployment.md` — document the queue-starvation risk under /edit traffic burst + ops lever (`--parallel 3`); priority-lane follow-up TBD.
 - [ ] `evolution/docs/reference.md` — add new files (`perIpSpendingGate.ts`, `submitPublicEditAction`, `publicAction.ts`, etc.) + new env vars to the env-var catalog.
 - [ ] `evolution/docs/reference.md` — add new files (`perIpSpendingGate.ts`, `submitPublicEditAction`, etc.) + new env vars (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `LLM_GATE_PANIC_BYPASS`, `LLM_GATE_FAIL_CLOSED_DISABLED`).
@@ -523,5 +540,34 @@ Minor improvements absorbed:
 - `evolution_runs` insert-site audit acknowledged as incomplete (~20 test fixtures); NOT NULL DEFAULT catches them implicitly with the cost-attribution caveat noted
 
 Ready for iteration 3 re-review.
+
+### Iteration 3 — Security 2/5, Architecture 3/5, Testing 4/5
+
+**4 unique critical gaps (Security + Architecture overlapped on the reservation issue) + resolved:**
+
+1. **`call_source` scoping mismatch in reservation system** (Security #1 + Architecture #1) — UNANIMOUS. The iter-2 fix added `reserved_usd` to `per_user_daily_cost_rollups` keyed on `(date, user_id, call_source='public_edit')`, but the trigger writes rows per-call_source (`evolution_<agent>`) and the cap-check sums across all call_sources. Three-way scoping mismatch meant reservations would accumulate forever without reconciling. **Fix:** new dedicated `per_user_daily_reservations` table keyed only on `(date, user_id)`. Cap-check sums `total_cost_usd` across all call_sources + `reserved_usd` from the new table. Reconcile via app-side `recordActualForUser` calling a new `reconcile_per_user_reservation` RPC. The existing trigger stays unchanged. The two tables are independent + correctly composed.
+
+2. **Double-decrement risk on `reserved_usd`** (Security #3) — same root cause: had both trigger AND app-side decrement. **Fix:** drop the trigger-side decrement entirely; reconciliation happens ONLY via the app-side `reconcile_per_user_reservation` RPC. Mirrors the existing global-gate pattern exactly. `GREATEST(0, ...)` floor on the decrement prevents negative reservations from race conditions.
+
+3. **Vercel BotID spec fabricated against the real API** (Security #2) — agent verified against https://vercel.com/docs/botid/get-started. **Fix:** rewrote entirely:
+   - Package is `botid` (not `@vercel/botid`)
+   - No `useBotIdToken()` hook — client uses `initBotId({protect: [...]})` from `botid/client/core` in `instrumentation-client.ts` (Next 15.3+)
+   - Server `checkBotId()` takes NO arguments; returns `{isBot: boolean}` verdict
+   - REQUIRED `withBotId()` wrapper in `next.config.ts` for ad-blocker proxy rewrites
+   - `BOT_PROTECTION_DISABLED='true'` test bypass + global-default contract documented in playwright.config.ts comment
+
+4. **Orphan-cleanup placement ambiguity** (Architecture #3) — "top-of-loop in processRunQueue.ts" could be interpreted as inside-the-while-loop, where it'd never fire on empty-queue invocations. **Fix:** explicit: call BEFORE the `while (processedRuns < MAX_RUNS)` loop at line 222-224, so cleanup runs once per systemd-timer firing even when the queue is empty.
+
+Minor improvements absorbed:
+- Stale `'public_edit_anonymous'` sentinel reference in Decisions table row 7 → corrected to `GUEST_USER_ID`
+- Stale `[E2E_EVO]` carve-out references in 3 spots (integration test bullet, 2 doc-update bullets) → updated to `Public Edit Smoke`
+- SHARED_PATHS regex edit made explicit (was wording-only); now both edits to `ci.yml` are itemized
+- Cost-config drift lock-in test added (`Public Edit Smoke` strategy's `budgetUsd = $0.001`)
+- BotID test-mode global-default contract documented in playwright.config.ts comment + environments.md
+- `instrumentation-client.ts` introduced as a project-new pattern (Next 15.3+); document in env section
+- `next.config.ts` `withBotId()` wrapper explicitly required
+
+Ready for iteration 4 re-review.
+
 
 
