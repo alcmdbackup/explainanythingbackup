@@ -47,5 +47,14 @@
 - **Arm set decided (user, 2026-06-26):** modify the two editing agents (Mode A & B) to run off the seed → clean **9-arm single-iteration block** (generate, reflect, 3 criteria, 2 editing, 2 paragraph). `debate_and_generate` excluded/untouched; `swiss` out of scope. Confirmed `iterationAgentTypeEnum` (schemas.ts:675–692) has exactly 11 types — all accounted for, no others.
 - Added **Phase 1b** (editing-agent product code change) to the plan with tests + `editing_agents.md` doc update.
 
-### Remaining (good candidate for /plan-review)
-- Primary DV (lean `max_elo` lift), minimal effect size + α, run count/power (pilot-driven).
+### Design decisions — ALL RESOLVED (user walkthrough, 2026-06-26)
+- **#1 Concurrency (Decision F):** concurrent runs + idea-1 live concurrency-safe merge (CAS re-read/re-fold) + retained terminal recompute for reproducibility/validation/repair.
+- **#2 Pool (Decision G):** accumulate; single common Elo scale via end recompute.
+- **#3 Primary DV (Decision C):** ceiling = per-run max over a run's OWN variants' POINT Elos − seed; median headline (mean cross-check); + run-level "% runs improving on seed".
+- **#4 Significance (Decision H):** PRIMARY = bootstrap P(best)/top tier (variant-sigma propagated, sigma sampling retained; no correction). SECONDARY = one-sided vs-`generate` diff-of-medians, α=0.05 + Holm/8, computed once at final N. Minimal effect ~40 Elo + P(within-40-of-best). Noise guard retired (uncertainty handled by inference).
+- **#5 Sample size (Decision E):** adaptive P(best) stopping (min-N≥5/arm + 2-batch stability); **$40 cap**; ~$5 initial validation batch first. Cross-run sigma DROPPED — only "variant sigma" named.
+- **#6 Ops pre-flight (Phase 2.5):** provider credit, MAX_OUTPUT_TOKENS, minicomputer pull+restart, daily-cap pace, wipeout detector.
+- Editing agents (Mode A/B) to run off seed = Phase 1b; idea-1 concurrency fix = Phase 1c. Terminology saved to memory.
+
+### Next
+- Build phases (1b → 1c → 2 → 2.5 → 3 → 4). Strong candidate for `/plan-review` before execution.

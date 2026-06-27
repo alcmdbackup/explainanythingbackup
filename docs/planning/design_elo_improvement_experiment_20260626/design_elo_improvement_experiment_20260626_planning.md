@@ -114,14 +114,20 @@ Run all runs CONCURRENTLY, made correct by a root-cause fix to the live merge, w
 - [ ] **Add the small difference-of-means CI wrapper (KF5, corrected — NOT a new test):** a ~10-line helper (e.g. `evolution/src/lib/metrics/abComparison.ts`) reusing the existing bootstrap resampler — resample arm A + arm B per iteration, take `meanA−meanB`, read 2.5/97.5 percentiles (CI excluding 0 ⇒ significant), with Holm correction across arms, seeded via `createSeededRng`. Interim zero-code option: compare existing per-arm `bootstrapMeanCI` intervals for overlap. Elo CIs themselves already exist/persist — no new statistical machinery.
 - [ ] Add unit tests: (a) seed-script `buildConfig` — arms differ only in `agentType`, budgets sum, config hashes distinct; (b) the new significance helper — known-input p-values, determinism under fixed seed, correction math.
 
-### Phase 3: Pilot
-- [ ] Queue 2–3 runs/arm; let the minicomputer execute. Verify QA gate passes for every run; estimate per-arm cross-run SD and actual cost/run.
-- [ ] Size the full run count from pilot SD (Decision E1). Adjust budget if cost diverged > 1.5×.
+### Phase 2.5: Ops pre-flight gate (must pass before queueing ANY runs) — Decision #6
+- [ ] **Provider credit headroom** — confirm OpenRouter/DeepSeek/OpenAI balances cover ~$40 of evolution spend (prevents the 402 **arena-only wipeout**: runs that "complete" with 0 variants / 0 cost — the #1 known corruptor).
+- [ ] **`EVOLUTION_MAX_OUTPUT_TOKENS` set on the minicomputer** (D5 fix; clears the 402 at low balances).
+- [ ] **Minicomputer on current code** — it does NOT auto-pull; after the Phase 1b/1c merges, `git -C <minicomputer worktree> pull --ff-only origin main && npm ci` and restart the runner, else it rejects the new agent configs / lacks the idea-1 concurrency fix. ([[project_minicomputer_no_auto_pull]])
+- [ ] **Daily LLM cap** ($25/day staging) compatible with pace — the $40 experiment spans ≥2 days, or confirm temporary headroom.
+- [ ] **Wipeout detector armed** — `detectArenaOnlyWipeouts.ts` ready to run during/after.
 
-### Phase 4: Full run + analysis
-- [ ] Queue the sized run counts (interleave arm order). Runs execute **concurrently** (Decision F). Monitor for wipeouts/cost gaps.
-- [ ] After the queue drains, run `scripts/recompute-arena-elo.ts --prompt-id <arena> --dry-run` → review the diff (it should be SMALL now that idea 1 keeps live ratings correct — a large diff signals an idea-1 bug) → apply, giving reproducible order-canonical ratings for analysis.
-- [ ] Run `/analysis`: per-arm best-variant Elo lift (bootstrap 95% CI), Elo-per-$, fraction beating seed, decisive_rate, convergence; apply the pre-registered test + multiplicity correction; report winners with CIs and the per-agent QA evidence.
+### Phase 3: Initial validation batch + adaptive run (Decision E)
+- [ ] **Initial validation batch (~$5, ≈1–2 runs/arm):** queue, let the minicomputer execute concurrently. Verify per-arm QA gate (success=true, cost>0, no wipeout, variants persisted), idea-1 ratings correct (recompute dry-run diff small), and arena connectivity sane. Validation only — NOT stopping-eligible. Fix any issue before scaling.
+- [ ] **Adaptive batches:** continue +3 runs/arm at a time toward the min-N floor (≥5/arm), recomputing P(best) each batch. Apply the Decision E stopping rule (clear winner / stable co-best tier / $40 cap). Interleave arm order.
+
+### Phase 4: Analysis (after adaptive stopping)
+- [ ] When the Decision E stopping rule fires (or $40 cap), drain the queue, then run `scripts/recompute-arena-elo.ts --prompt-id <arena> --dry-run` → review the diff (should be SMALL since idea 1 keeps live ratings correct — a large diff signals an idea-1 bug) → apply, giving reproducible order-canonical ratings.
+- [ ] Run `/analysis` per **Decision C + H**: PRIMARY = per-arm **median** point-max-lift over seed + **P(best)/top tier** and **P(within-40-of-best)** (variant-sigma-propagating bootstrap); SECONDARY = one-sided vs-`generate` diff-of-medians (α=0.05, Holm over 8) computed ONCE at final N, % runs improving on seed, mean cross-check, Elo-per-$, variant_count; report with CIs + per-agent QA evidence; honor the ~40 Elo practical threshold (tied top tier when within it).
 - [ ] Write the analysis report to `docs/analysis/<name>/` and link from this project's docs (Artifacts section).
 
 ## Testing
