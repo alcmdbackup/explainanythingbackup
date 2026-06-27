@@ -56,7 +56,7 @@ Run all runs CONCURRENTLY, made correct by a root-cause fix to the live merge, w
 - [x] **Statistic (sub-decision 2a):** per-arm **median** of per-run maxLift (mean as cross-check). [Decision C]
 - [x] **vs-baseline test direction (sub-decision 2c):** **one-sided**, testing arm **>** `generate` (max power to detect improvement, per user). Still **report the full effect-size CI descriptively** so an arm that *underperforms* the baseline stays visible (estimate + CI direction), even though the formal test only targets "better".
 - [x] **vs-baseline test mechanism (sub-decision 2b):** bootstrap difference-of-medians (same resampler as the P(best) bootstrap), giving effect size + one-sided p-value.
-- [ ] **α + multiple-comparison correction (sub-decision 3):** PENDING.
+- [x] **α + multiple-comparison correction (sub-decision 3):** **α = 0.05**, **Holm-Bonferroni** over the 8 vs-baseline tests (family-wise error control, uniformly more powerful than plain Bonferroni). The **P(best) primary needs no correction** — it's one joint procedure, not a family of tests.
 - [ ] **Minimal meaningful effect size (sub-decision 4):** PENDING.
 
 ### Decision D — Arm set — RESOLVED → clean 9-arm single-iteration-from-seed block (user, 2026-06-26)
