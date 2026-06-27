@@ -77,5 +77,9 @@ Scores: Security 3/5, Architecture 3/5 (↑), Testing 4/5 (↑) — iter-1 fixes
 - **Concurrency test buildability:** specify READ COMMITTED autocommit, catch 0-row AND 40001, structured `{retries}` return surface, read/CAS test seam, flag ON/OFF, BOTH sync-arena backward-compat tests.
 - Editing minors: full-Variant synthetic parent, runtime branch must read sourceMode, editing output-diversity (temp>0 + cache-collision), projector budget-fill math, audit isVariantProducingAgentType. computeRatings path → src/lib/shared/.
 
-### Next
-- Re-review (iteration 3). Then build phases (1b → 1c → 2 → 2.5 → 3 → 4).
+## Plan Review (iteration 3, 2026-06-26) — ✅ CONSENSUS
+Scores: Security 5/5, Architecture 5/5, Testing 5/5 — zero critical gaps, verified line-by-line. iter-2 fixes confirmed correct: mandatory anchor makes the seed measurable + is the arenaUpdates-contended row; xmin OCC is sound (vs NUMERIC equality); delta-only count coupling correct; concurrency test seam + isolation + structured {retries} buildable. Applied the cheap non-blocking nits (anchor routes via arenaUpdates not newEntries; xmin→rating_version fallback; flag gates TS-side, single RPC version; re-fold-consistency tolerance justification).
+
+### Next — plan is execution-ready
+- Build order: Phase 0 (confirm anchor competes) → 1b (editing off-seed + budget-fill) → 1c (idea-1 CAS) → 2 (seed rows + scripts) → 2.5 (ops pre-flight) → 3 (validation batch + adaptive) → 4 (recompute + /analysis).
+- Recommend `/finalize` after each product-code phase (1b, 1c) lands.
