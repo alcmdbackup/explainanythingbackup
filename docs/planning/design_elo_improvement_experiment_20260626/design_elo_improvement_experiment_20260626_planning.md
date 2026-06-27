@@ -51,6 +51,14 @@ Run all runs CONCURRENTLY, made correct by a root-cause fix to the live merge, w
   - Elo-lift-per-$ — explicit cost efficiency (≈ primary at equal budget; matters if budgets ever differ).
   - variant_count — context/diagnostic.
 
+### Decision H — Significance / analysis spec — IN PROGRESS (user, 2026-06-26)
+- [x] **Comparison structure (sub-decision 1):** PRIMARY = bootstrap **P(best) / top tier** across all 9 arms (Option D). SECONDARY = **vs-baseline** — each of the 8 non-`generate` arms tested against `generate` ("is the added complexity worth it vs the default?").
+- [x] **Statistic (sub-decision 2a):** per-arm **median** of per-run maxLift (mean as cross-check). [Decision C]
+- [x] **vs-baseline test direction (sub-decision 2c):** **one-sided**, testing arm **>** `generate` (max power to detect improvement, per user). Still **report the full effect-size CI descriptively** so an arm that *underperforms* the baseline stays visible (estimate + CI direction), even though the formal test only targets "better".
+- [x] **vs-baseline test mechanism (sub-decision 2b):** bootstrap difference-of-medians (same resampler as the P(best) bootstrap), giving effect size + one-sided p-value.
+- [ ] **α + multiple-comparison correction (sub-decision 3):** PENDING.
+- [ ] **Minimal meaningful effect size (sub-decision 4):** PENDING.
+
 ### Decision D — Arm set — RESOLVED → clean 9-arm single-iteration-from-seed block (user, 2026-06-26)
 - [x] **CHOSEN: all 9 seed-capable agents, each as a single iteration off the seed.** After modifying the two editing agents (Phase 1b), every arm has the **identical structure** — one iteration, `sourceMode='seed'`, 100% budget — differing only in `agentType`. This is the cleanest possible comparison (no warm-up confound). The 9 arms:
   1. `generate` (baseline) · 2. `reflect_and_generate` · 3. `criteria_and_generate` · 4. `single_pass_evaluate_criteria_and_generate` · 5. `proposer_approver_criteria_generate` · 6. `iterative_editing` (Mode A, *modified*) · 7. `iterative_editing_rewrite` (Mode B, *modified*) · 8. `paragraph_recombine` · 9. `paragraph_recombine_with_coherence_pass`
