@@ -14,6 +14,9 @@ const FILE_DEBUG = true;
  */
 const TEST_CONTENT_PREFIX = '[TEST]';
 const LEGACY_TEST_PREFIX = 'test-';
+// Phase 1 of build_website_for_evolutiOn_20260626: /edit submissions land in
+// the explanations table with this prefix; filter them out of vector search.
+const PUBLIC_EDIT_PREFIX = '[EDIT]';
 
 /**
  * Filters out test content from match results.
@@ -36,7 +39,9 @@ export function filterTestContent<T extends { current_title?: string }>(
   return matches.filter(m => {
     const title = m.current_title;
     if (!title) return true;
-    return !title.startsWith(TEST_CONTENT_PREFIX) && !title.startsWith(LEGACY_TEST_PREFIX);
+    return !title.startsWith(TEST_CONTENT_PREFIX)
+      && !title.startsWith(LEGACY_TEST_PREFIX)
+      && !title.startsWith(PUBLIC_EDIT_PREFIX);
   });
 }
 

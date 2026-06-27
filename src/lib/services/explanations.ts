@@ -16,6 +16,10 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
  */
 const TEST_CONTENT_PREFIX = '[TEST]';
 const LEGACY_TEST_PREFIX = 'test-';
+// Phase 1 of build_website_for_evolutiOn_20260626: public /edit submissions
+// land in the explanations table with this title prefix. Filter them out of
+// the public Explore + search + related-content surfaces the same way as [TEST].
+const PUBLIC_EDIT_PREFIX = '[EDIT]';
 
 /**
  * Service for interacting with the explanations table in Supabase
@@ -173,6 +177,7 @@ async function getRecentExplanationsImpl(
       .eq('delete_status', 'visible')  // Exclude soft-deleted content
       .not('explanation_title', 'ilike', `${TEST_CONTENT_PREFIX}%`)
       .not('explanation_title', 'ilike', `${LEGACY_TEST_PREFIX}%`)
+      .not('explanation_title', 'ilike', `${PUBLIC_EDIT_PREFIX}%`)
       .order('timestamp', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -207,7 +212,8 @@ async function getRecentExplanationsImpl(
     .eq('status', 'published')
     .eq('delete_status', 'visible')  // Exclude soft-deleted content
     .not('explanation_title', 'ilike', `${TEST_CONTENT_PREFIX}%`)
-    .not('explanation_title', 'ilike', `${LEGACY_TEST_PREFIX}%`);
+    .not('explanation_title', 'ilike', `${LEGACY_TEST_PREFIX}%`)
+    .not('explanation_title', 'ilike', `${PUBLIC_EDIT_PREFIX}%`);
 
   if (expError) throw expError;
 

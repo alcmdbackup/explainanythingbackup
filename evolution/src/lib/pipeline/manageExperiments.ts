@@ -100,9 +100,14 @@ export async function addRunToExperiment(
     budget_cap_usd: config.budget_cap_usd,
     status: 'pending',
   });
+  // Phase 1 of build_website_for_evolutiOn_20260626: explicit run_source.
+  // Admin experiment-wizard inserts → 'admin'. The Zod schema parser doesn't
+  // know about run_source yet (added by migration 20260627000004); attach after
+  // parse, before insert. database.types.ts will regenerate on the next CI types pass.
+  const runPayloadWithSource: Record<string, unknown> = { ...runPayload, run_source: 'admin' };
   const { data: run, error: runError } = await db
     .from('evolution_runs')
-    .insert(runPayload)
+    .insert(runPayloadWithSource)
     .select('id')
     .single();
 

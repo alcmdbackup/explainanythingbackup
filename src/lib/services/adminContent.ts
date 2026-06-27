@@ -96,7 +96,11 @@ const _getAdminExplanationsAction = withLogging(async (
     }
 
     if (filterTestContent) {
-      query = query.not('explanation_title', 'ilike', '%[TEST]%');
+      query = query
+        .not('explanation_title', 'ilike', '%[TEST]%')
+        // Phase 1 of build_website_for_evolutiOn_20260626: also hide /edit submissions
+        // by default (admin can opt back in via a UI filter in a follow-up).
+        .not('explanation_title', 'ilike', '%[EDIT]%');
     }
 
     // Apply sorting

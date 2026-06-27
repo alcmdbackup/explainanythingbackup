@@ -1,5 +1,9 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
+// Phase 1 of build_website_for_evolutiOn_20260626: Vercel BotID proxy-rewrite
+// wrapper for the /edit public surface. Sets up rewrites against ad-blocker
+// domains so the BotID challenge endpoint isn't trivially blocked by uBlock.
+import { withBotId } from "botid/next/config";
 
 // Bundle analyzer - only loaded when ANALYZE=true
 const withBundleAnalyzer = process.env.ANALYZE === 'true'
@@ -95,4 +99,7 @@ const sentryWrappedConfig = process.env.SENTRY_DSN
 // Apply bundle analyzer wrapper (no-op unless ANALYZE=true)
 const config = withBundleAnalyzer(sentryWrappedConfig);
 
-export default config;
+// Wrap with BotID proxy-rewrite (Phase 1). Idempotent if no BotID config exists.
+const finalConfig = withBotId(config);
+
+export default finalConfig;
