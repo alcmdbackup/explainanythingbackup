@@ -40,7 +40,7 @@ Run all runs CONCURRENTLY, made correct by a root-cause fix to the live merge, w
 - [ ] **Option B2: Equal variants produced per run.** Controls for sample size but lets expensive arms consume far more budget.
 - [ ] **Option B3: Equal wall-clock.** Operationally simplest, statistically muddiest. Rejected.
 
-> **Terminology (two distinct "sigmas"):** **variant sigma** = the rating uncertainty on a *single variant's* Elo (the codebase's `Rating.uncertainty`; DB column `sigma`) — used inside the P(best) bootstrap. **cross-run sigma** = the SD of an arm's *per-run max-lift across its runs* ("how reproducible is one deployment") — used to size the number of runs (#5). Literal `mu`/`sigma` below refer to the DB columns.
+> **Terminology:** **variant sigma** = the rating uncertainty on a *single variant's* Elo (the codebase's `Rating.uncertainty`; DB column `sigma`) — used inside the P(best) bootstrap. This is the ONLY named "sigma" in the design. (Run-count sizing is adaptive via P(best) — Decision E — so there is deliberately no separate "cross-run sigma" term; run-to-run consistency, if reported, is described in plain language.) Literal `mu`/`sigma` below refer to DB columns.
 
 ### Decision C — Primary dependent variable — RESOLVED → ceiling (point-max lift over seed) + variant-sigma-propagating P(best) (user, 2026-06-26)
 - [x] **PRIMARY metric (point estimate): per-run max Elo lift over the seed, at equal budget.** `ceiling(R) = max over the variants run R generated of point elo(v)`; `maxLift(R) = ceiling(R) − seedElo`, on the common recomputed scale. **Max is over a run's OWN generated variants only** (filter by `run_id`) — NOT the persisted pooled `max_elo` metric (which includes loaded arena entries from other arms). Plain max over **point** Elos — no sampling, no hard "noise guard" (retired). One value per run → per-arm distribution → **median** headline (mean reported as a cross-check; if they disagree on ranking → skew flag). Matches "keep the winner per fixed budget"; under equal budget an arm's variant *volume* is legitimate value, not a confound.
@@ -68,9 +68,13 @@ Run all runs CONCURRENTLY, made correct by a root-cause fix to the live merge, w
   - **Excluded:** `debate_and_generate` (structurally needs ≥2 pool variants — left untouched per user) and `swiss` (ranking-only, not an improver).
   - Budget permitting, the pilot may trim to the most informative subset; default is all 9.
 
-### Decision E — Sample size / power
-- [ ] **Option E1 (Recommended): pilot first (2–3 runs/arm) to estimate cross-run SD, then size the full run count for ~80% power at a pre-registered minimal effect (e.g. ≥ +30 Elo) with multiplicity correction.**
-- [ ] **Option E2: Fixed N=8 runs/arm** (rule-of-thumb from docs) without pilot. Simpler, riskier on power.
+### Decision E — Sample size — RESOLVED → adaptive P(best) stopping (user, 2026-06-26)
+- [x] **CHOSEN: adaptive sequential sizing driven by P(best); no precomputed cross-run sigma.** Run in batches → recompute P(best) after each → **stop** when the top tier resolves OR the cap is hit. Works because the P(best) bootstrap captures run-to-run variability empirically (resamples real runs) and P(best) is a posterior-like quantity, robust to optional stopping (unlike a p-value).
+  - **Stopping rule (pre-registered):** stop when **any** of — (1) one arm P(best) > 0.9, stable for 2 consecutive batches; (2) the within-40-of-best set is stable for 2 batches and mutually indistinguishable → co-best tier; (3) **cap reached** → report whatever tier formed (possibly "inconclusive — needs more runs").
+  - **Anti-fluke guards:** min-N floor (≥5 runs/arm) before any stop; check every +3 runs/arm (not continuously).
+  - **Frequentist secondary stays clean:** the one-sided vs-`generate` tests (Holm) are computed ONCE at the final stopped N — never used as the stopping signal — so optional-stopping inflation doesn't touch them.
+  - **Trade accepted:** exact run count isn't known upfront (discovered adaptively, bounded by the cap). Run-to-run consistency reported descriptively, not as a named sigma.
+  - **CAP:** `<<to set — total runs or total budget>>` — termination backstop; pre-register "trim arms / report inconclusive if hit".
 
 ## Phased Execution Plan
 
