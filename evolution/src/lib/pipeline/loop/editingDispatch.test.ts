@@ -9,6 +9,7 @@ import {
   applyCutoffToCount,
   resolveEditingDispatchRuntime,
   resolveEditingDispatchPlanner,
+  resolveSeedEditingDispatchCount,
   DEFAULT_EDITING_ELIGIBILITY_CUTOFF,
 } from './editingDispatch';
 import type { Variant } from '../../types';
@@ -211,5 +212,24 @@ describe('runtime / planner cross-mode equivalence', () => {
       const planner = resolveEditingDispatchPlanner({ projectedPoolSize: poolSize, cutoff: undefined }).eligibleCount;
       expect(runtimeCount(poolSize, undefined)).toBe(planner);
     }
+  });
+});
+
+// Phase 1b: seed-sourced editing budget-fill sizing.
+describe('resolveSeedEditingDispatchCount', () => {
+  it('fills the budget: floor(remaining / perInvocation)', () => {
+    expect(resolveSeedEditingDispatchCount({ remainingBudgetUsd: 0.5, perInvocationEstUsd: 0.05, cap: 100 })).toBe(10);
+    expect(resolveSeedEditingDispatchCount({ remainingBudgetUsd: 0.49, perInvocationEstUsd: 0.05, cap: 100 })).toBe(9);
+  });
+  it('clamps to at least 1 even when budget is tiny', () => {
+    expect(resolveSeedEditingDispatchCount({ remainingBudgetUsd: 0.001, perInvocationEstUsd: 0.05, cap: 100 })).toBe(1);
+    expect(resolveSeedEditingDispatchCount({ remainingBudgetUsd: 0, perInvocationEstUsd: 0.05, cap: 100 })).toBe(1);
+  });
+  it('clamps to the safety cap', () => {
+    expect(resolveSeedEditingDispatchCount({ remainingBudgetUsd: 100, perInvocationEstUsd: 0.05, cap: 100 })).toBe(100);
+  });
+  it('degenerate perInvocation<=0 → 1 (avoids div-by-zero / Infinity)', () => {
+    expect(resolveSeedEditingDispatchCount({ remainingBudgetUsd: 1, perInvocationEstUsd: 0, cap: 100 })).toBe(1);
+    expect(resolveSeedEditingDispatchCount({ remainingBudgetUsd: 1, perInvocationEstUsd: -1, cap: 100 })).toBe(1);
   });
 });
