@@ -51,13 +51,14 @@ Run all runs CONCURRENTLY, made correct by a root-cause fix to the live merge, w
   - Elo-lift-per-$ — explicit cost efficiency (≈ primary at equal budget; matters if budgets ever differ).
   - variant_count — context/diagnostic.
 
-### Decision H — Significance / analysis spec — IN PROGRESS (user, 2026-06-26)
+### Decision H — Significance / analysis spec — RESOLVED (user, 2026-06-26)
 - [x] **Comparison structure (sub-decision 1):** PRIMARY = bootstrap **P(best) / top tier** across all 9 arms (Option D). SECONDARY = **vs-baseline** — each of the 8 non-`generate` arms tested against `generate` ("is the added complexity worth it vs the default?").
 - [x] **Statistic (sub-decision 2a):** per-arm **median** of per-run maxLift (mean as cross-check). [Decision C]
 - [x] **vs-baseline test direction (sub-decision 2c):** **one-sided**, testing arm **>** `generate` (max power to detect improvement, per user). Still **report the full effect-size CI descriptively** so an arm that *underperforms* the baseline stays visible (estimate + CI direction), even though the formal test only targets "better".
 - [x] **vs-baseline test mechanism (sub-decision 2b):** bootstrap difference-of-medians (same resampler as the P(best) bootstrap), giving effect size + one-sided p-value.
 - [x] **α + multiple-comparison correction (sub-decision 3):** **α = 0.05**, **Holm-Bonferroni** over the 8 vs-baseline tests (family-wise error control, uniformly more powerful than plain Bonferroni). The **P(best) primary needs no correction** — it's one joint procedure, not a family of tests.
-- [ ] **Minimal meaningful effect size (sub-decision 4):** PENDING.
+- [x] **Minimal meaningful effect size (sub-decision 4):** **~40 Elo (≈ 55% head-to-head win rate), pilot-calibrated.** Used for: (a) "meaningfully improved the seed" (`maxLift ≥ 40`); (b) "meaningfully better than another arm / baseline" (median-lift difference ≥ 40); (c) sizing the #5 power calc. Pre-registered at 40; pilot may adjust given the observed spread (cluster <20 → report "no meaningful differences"; spread 80+ → 40 cleanly separates tiers). Same value for vs-seed and between-arm for now.
+- [x] **Threshold ↔ P(best) integration:** P(best) tracks gap/noise (statistical distinguishability), NOT absolute magnitude — so with enough runs a trivial gap can yield high P(best). Guard against that by reporting, alongside strict P(best): **P(arm within `40` Elo of the best)** (practical top-tier membership) + per-arm median max-lift with CIs (raw magnitudes). A "winner" must be both high-P(best) AND ≥ 40 above the runner-up; otherwise report a tied top tier.
 
 ### Decision D — Arm set — RESOLVED → clean 9-arm single-iteration-from-seed block (user, 2026-06-26)
 - [x] **CHOSEN: all 9 seed-capable agents, each as a single iteration off the seed.** After modifying the two editing agents (Phase 1b), every arm has the **identical structure** — one iteration, `sourceMode='seed'`, 100% budget — differing only in `agentType`. This is the cleanest possible comparison (no warm-up confound). The 9 arms:
