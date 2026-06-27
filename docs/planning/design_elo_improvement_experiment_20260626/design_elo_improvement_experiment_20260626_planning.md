@@ -74,7 +74,8 @@ Run all runs CONCURRENTLY, made correct by a root-cause fix to the live merge, w
   - **Anti-fluke guards:** min-N floor (≥5 runs/arm) before any stop; check every +3 runs/arm (not continuously).
   - **Frequentist secondary stays clean:** the one-sided vs-`generate` tests (Holm) are computed ONCE at the final stopped N — never used as the stopping signal — so optional-stopping inflation doesn't touch them.
   - **Trade accepted:** exact run count isn't known upfront (discovered adaptively, bounded by the cap). Run-to-run consistency reported descriptively, not as a named sigma.
-  - **CAP:** `<<to set — total runs or total budget>>` — termination backstop; pre-register "trim arms / report inconclusive if hit".
+  - **CAP: $40 total budget** (hard termination backstop; if hit without resolution → report the tier as inconclusive / consider trimming arms).
+  - **Initial validation batch (lower budget, ~$5 ≈ 1–2 runs/arm), run FIRST:** confirm end-to-end pipeline health — idea-1 concurrency fix, all 9 agents actually running off the seed, QA gates (success/cost/no-wipeout), recompute + connectivity check — *before* committing spend toward the $40 cap. This batch is below the min-N floor, so it's validation only, NOT stopping-eligible. Adaptive P(best) stopping is evaluated only after ≥5 runs/arm. If the initial batch surfaces problems, fix before scaling.
 
 ## Phased Execution Plan
 
