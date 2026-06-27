@@ -63,6 +63,37 @@ Sentry.init({
       event.tags = { ...event.tags, site: classifyHost(host) };
     }
 
+    // Phase 4 of build_website_for_evolutiOn_20260626: finer-grained `surface=edit`
+    // tag for triage of public /edit issues.
+    const url = event.request?.url ?? '';
+    if (typeof url === 'string' && url.includes('/edit')) {
+      event.tags = { ...event.tags, surface: 'edit' };
+    }
+
+    // Phase 4: strip user-pasted article text from request payloads + breadcrumbs.
+    // Defense against a visitor accidentally pasting an API key/PII into the textarea
+    // and a downstream error landing the raw body in Sentry. Predicate matches the
+    // POST payload field name (`articleText`) anywhere in the body string.
+    try {
+      const body = event.request?.data;
+      if (typeof body === 'string' && body.includes('articleText')) {
+        event.request = { ...event.request, data: '[redacted: edit submission body]' };
+      } else if (body && typeof body === 'object' && Object.prototype.hasOwnProperty.call(body, 'articleText')) {
+        event.request = { ...event.request, data: '[redacted: edit submission body]' };
+      }
+      if (event.breadcrumbs) {
+        event.breadcrumbs = event.breadcrumbs.map((bc) => {
+          const bcBody = bc.data?.body;
+          if (typeof bcBody === 'string' && bcBody.includes('articleText')) {
+            return { ...bc, data: { ...bc.data, body: '[redacted: edit submission body]' } };
+          }
+          return bc;
+        });
+      }
+    } catch {
+      // Defensive: never let the redaction itself crash beforeSend.
+    }
+
     return event;
   },
 });

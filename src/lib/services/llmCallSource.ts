@@ -49,6 +49,11 @@ export const CALL_SOURCES = Object.freeze({
   evolutionWeightInference: brand('evolution_weight_inference'),
   evolutionStyleFingerprintExtraction: brand('evolution_style_fingerprint_extraction'),
   matchViewerRejudge: brand('match_viewer_rejudge'),
+  // Phase 4 of build_website_for_evolutiOn_20260626: public /edit submissions.
+  // Prefixed `evolution_` so LLMSpendingGate.getCallCategory routes to the
+  // 'evolution' daily cap envelope (shared with admin runs; ops can split via
+  // a follow-up if starvation surfaces).
+  evolutionPublicEdit: brand('evolution_public_edit'),
 } as const);
 
 /**

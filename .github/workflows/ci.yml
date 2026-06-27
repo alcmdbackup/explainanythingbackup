@@ -48,8 +48,15 @@ jobs:
             # Classify changes as evolution-only, non-evolution-only, or full
             # 09-admin + 00-host-isolation specs are now @evolution-tagged (post hostname-split,
             # admin runs only on the evolution host), so route admin-spec-only PRs to e2e-evolution.
-            EVOLUTION_ONLY_PATHS="evolution|arena|strategy-resolution|manual-experiment|src/app/admin/quality/optimization/|src/__tests__/e2e/specs/09-admin/|src/__tests__/e2e/specs/00-host-isolation/"
-            SHARED_PATHS="package\\.json|tsconfig|next\\.config|playwright\\.config|jest\\.config|src/lib/|src/utils/|src/types/"
+            # Phase 4 of build_website_for_evolutiOn_20260626 added:
+            #   EVOLUTION_ONLY_PATHS — perIpSpendingGate (Upstash per-IP cap; only consumed by /edit
+            #     today but conceptually evolution-side), 12-edit/ E2E specs
+            #   SHARED_PATHS — src/app/edit/ (public-host surface; full run so non-evolution
+            #     middleware/host-isolation jobs catch any breakage)
+            # NOT EVOLUTION_ONLY_PATHS: src/lib/services/llmSpendingGate (already matched by
+            # SHARED_PATHS src/lib/ — would be a dead-code addition)
+            EVOLUTION_ONLY_PATHS="evolution|arena|strategy-resolution|manual-experiment|src/app/admin/quality/optimization/|src/__tests__/e2e/specs/09-admin/|src/__tests__/e2e/specs/00-host-isolation/|src/lib/services/perIpSpendingGate|src/__tests__/e2e/specs/12-edit/"
+            SHARED_PATHS="package\\.json|tsconfig|next\\.config|playwright\\.config|jest\\.config|src/lib/|src/utils/|src/types/|src/app/edit/"
 
             HAS_SHARED=$(echo "$CODE_CHANGED" | grep -E "$SHARED_PATHS" || true)
             EVOLUTION_FILES=$(echo "$CODE_CHANGED" | grep -E "$EVOLUTION_ONLY_PATHS" || true)
