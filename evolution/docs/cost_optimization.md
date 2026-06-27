@@ -93,6 +93,26 @@ The `evolution_runs.allow_test_execution` column defaults `false`, so safe-by-de
 - **Janitor**: weekly CI job `evolution-test-data-cleanup.yml` deletes `evolution_strategies WHERE is_test_content=true AND last_used_at < now() - interval '14 days'` in FK-safe order (runs first → cascades to children → then strategies). `evolution_runs.strategy_id` FK is `ON DELETE RESTRICT` (per `20260324000001_entity_evolution_phase0.sql`), so the order matters.
 - **Alarm**: daily query — if `SUM(invocation cost) WHERE strategy.is_test_content=true AND created_at > now() - 24h` exceeds **$0.10**, file `[release-health]` issue (same plumbing as `evolution-run-health.yml`). Baseline expected: ~$0.04/day from Pattern A-1 spec executions.
 - **Layer-3 nightly smoke**: new `evolution-nightly-smoke.yml` exercises the runner against the `Nightly smoke fixture` strategy (seeded by migration `20260621000002_evolution_nightly_smoke_fixture.sql`). Expected cost: ~$1.83/year.
+- **Public /edit cost layering** (Phase 0/1 of `build_website_for_evolutiOn_20260626`): the public `/edit` surface adds two layers in front of the existing per-user + global caps — Vercel BotID at the route boundary, then per-IP + per-region $-spending caps via Upstash (`perIpSpendingGate`). The full stack is documented in `docs/feature_deep_dives/llm_spending_gate.md`. Test bypasses: `PUBLIC_EDIT_RATE_LIMIT_DISABLED='true'` + `BOT_PROTECTION_DISABLED='true'` (set by default in `playwright.config.ts` webServer block — see "Test cost containment" caveat).
+
+### New `llm_cost_config` keys (Phase 0)
+
+| Key | Default | Purpose |
+|---|---|---|
+| `guest_user_daily_cap_usd` | `10` | Per-`GUEST_USER_ID` daily pool (replaces the hard-coded `10` at `llms.ts:988`). |
+| `public_edit_per_ip_daily_usd` | `0.50` | Per-IP daily cap on /edit submissions (reserved; current code reads `PUBLIC_EDIT_PER_IP_DAILY_USD_CAP` env). |
+| `public_edit_per_region_daily_usd` | `5` | Per-country daily cap (reserved). |
+| `public_edit_daily_cap_usd` | `15` | Reserved for follow-up split of `evolution_daily_cap_usd`. |
+
+### Seeded `Public Edit Smoke` strategy
+
+The E2E suite at `src/__tests__/e2e/specs/12-edit/edit-flow.spec.ts` exercises the
+`/edit` form against a seeded strategy created by
+`evolution/scripts/seedPublicEditE2EStrategy.ts`. Naming chosen to NOT match the
+`evolution_is_test_name(name)` trigger patterns (`[TEST]`/`[E2E]`/`[TEST_EVO]`/
+timestamp-pattern) so the strategy lands with `is_test_content=false`; budget is
+$0.001 so it passes the `updateStrategyAction` cap-guard (`config.budgetUsd > 0.10`
+refuses `public_visible=true`). Idempotent via `ON CONFLICT (config_hash)`.
 
 ---
 

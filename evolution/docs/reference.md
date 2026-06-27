@@ -200,6 +200,14 @@ Validation throws plain `Error` with a descriptive message on constraint violati
 | `WEIGHT_INFERENCE_AUTO_MAX_CALLS` | `8000` | Auto-mode pre-flight hard ceiling on planned LLM calls (`remainingPairs × repeats × 4`), mirroring `JUDGE_EVAL_MAX_CALLS`. |
 | `WEIGHT_INFERENCE_AUTO_MAX_USD` | `5` | Auto-mode pre-flight hard cost ceiling, mirroring `JUDGE_EVAL_MAX_USD`. |
 | `WEIGHT_INFERENCE_AUTO_CHUNK_PAIRS` | `40` | Pairs judged per resumable auto-run invocation (keeps each request well inside `maxDuration=300`). |
+| `LLM_GATE_FAIL_CLOSED_DISABLED` | unset (= fail-CLOSED) | Phase 0 of `build_website_for_evolutiOn_20260626`. When `'true'`, the gate reverts to today's silent-allow on DB error. Used during the staged rollout window. |
+| `LLM_GATE_PANIC_BYPASS` | unset | Phase 0. When `'true'`, ALL gate checks short-circuit + audit-log to stderr per call. Last-resort. |
+| `PUBLIC_EDIT_RATE_LIMIT_DISABLED` | unset | Phase 1. When `'true'`, `perIpSpendingGate` short-circuits to no-op (E2E + CI bypass). |
+| `PUBLIC_EDIT_PER_IP_DAILY_USD_CAP` | `0.50` | Phase 1. Per-IP daily cap for `/edit`. |
+| `PUBLIC_EDIT_PER_REGION_DAILY_USD_CAP` | `5` | Phase 1. Per-country daily cap for `/edit`. |
+| `BOT_PROTECTION_DISABLED` | unset | Phase 1. When `'true'`, server-side `checkBotId()` is skipped (E2E + local dev bypass). |
+| `PUBLIC_EDIT_DISABLED` | unset | Phase 1. Operational kill switch for the public `/edit` surface (503 + static "temporarily unavailable" page). |
+| `UPSTASH_REDIS_REST_URL` / `_TOKEN` | unset → no-op adapter | Phase 1. Backs `perIpSpendingGate`. Combined with fail-CLOSED, caps reject under load when unset. |
 
 #### `IterationConfig` paragraph_recombine knobs (added by `investigate_paragraph_rewrite_cost_undershoot_evolution_20260529`)
 

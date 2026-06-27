@@ -33,6 +33,34 @@ For the public demo, `src/lib/utils/supabase/middleware.ts` runs auto-guest-logi
 
 **Rollback levers** (no code revert needed): set `E2E_TEST_MODE=true` OR remove `GUEST_PASSWORD` from Vercel env vars; redeploy.
 
+## Public `/edit` surface (Phase 2 of `build_website_for_evolutiOn_20260626`)
+
+The `/edit` paste-and-run page is **fully unauthed** — no Supabase sign-in required.
+Lives in `PUBLIC_PREFIXES`; the evolution host 404s it.
+
+When `callLLM` fires from a `/edit` submission, the `userid` passed is
+`process.env.GUEST_USER_ID` (NOT a custom sentinel; the per-user cap at
+`llms.ts:986-989` only fires when `userid === GUEST_USER_ID`). This means
+all `/edit` traffic shares the same $10/day pool as the existing guest
+auto-login traffic — accepted trade-off documented in the planning doc Q7.
+
+Cost / abuse defense is layered (NOT auth):
+- Vercel BotID (`checkBotId()`) at the top of `submitPublicEditAction`
+- Per-IP + per-region $ caps via `perIpSpendingGate` (Upstash)
+- Per-user $ cap (the shared guest pool above)
+- Per-run `evolution_runs.budget_cap_usd = $0.10`
+- Global `evolution_daily_cap_usd` + `monthly_cap_usd`
+
+See `docs/feature_deep_dives/llm_spending_gate.md` for the full cap stack +
+all the Phase 0/1 kill switches (`LLM_GATE_PANIC_BYPASS`,
+`LLM_GATE_FAIL_CLOSED_DISABLED`, `PUBLIC_EDIT_DISABLED`,
+`PUBLIC_EDIT_RATE_LIMIT_DISABLED`, `BOT_PROTECTION_DISABLED`).
+
+Run-result pages (`/edit/runs/[runId]`) set `<meta robots="noindex,nofollow">`
++ `Referrer-Policy: no-referrer` + `Cache-Control: private, no-store` as
+defense-in-depth against URL leak via browser-history sync to Google/iCloud
+or URL-shortener caches.
+
 ## Implementation
 
 ### Key Files

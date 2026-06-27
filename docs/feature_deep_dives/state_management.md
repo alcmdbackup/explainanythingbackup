@@ -8,6 +8,7 @@ State management uses React's `useReducer` for complex state machines and custom
 
 ### Key Files
 - `src/reducers/pageLifecycleReducer.ts` - Page state machine
+- `src/reducers/editPageLifecycleReducer.ts` - /edit page state machine (Phase 2 of `build_website_for_evolutiOn_20260626`). Separate reducer because /edit's queue-and-poll model uses `queued`/`running` phases that don't fit the existing `streaming`/`editing`/`saving` shape. Transitions: idle → submitting → queued → running → viewing → error.
 - `src/reducers/tagModeReducer.ts` - Tag modification tracking
 - `src/hooks/useExplanationLoader.ts` - Data loading orchestration
 

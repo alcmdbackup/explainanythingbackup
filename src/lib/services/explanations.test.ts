@@ -277,6 +277,20 @@ describe('Explanations Service', () => {
       expect(mockSupabase.order).toHaveBeenCalledWith('timestamp', { ascending: false });
     });
 
+    // Phase 1 of build_website_for_evolutiOn_20260626: [EDIT]-prefixed rows
+    // (public /edit submissions) must be filtered out of Explore + recent.
+    // Lock-in test against future regression.
+    it('filters out both [TEST] and [EDIT] prefixed rows from getRecentExplanations(sort=new)', async () => {
+      mockSupabase.range.mockResolvedValue({ data: [], error: null });
+      await getRecentExplanations(10, 0, { sort: 'new' });
+
+      // Should have called .not(...) three times (once each for [TEST], test-, [EDIT])
+      const notCalls = mockSupabase.not.mock.calls.map((args: unknown[]) => args[2]);
+      expect(notCalls).toEqual(
+        expect.arrayContaining(['[TEST]%', 'test-%', '[EDIT]%']),
+      );
+    });
+
     it('should validate and correct invalid parameters', async () => {
       // Arrange
       mockSupabase.range.mockResolvedValue({
@@ -350,14 +364,16 @@ describe('Explanations Service', () => {
         error: null
       });
 
-      // Mock explanations query with chained filters
+      // Mock explanations query with chained filters (3 .not() calls now — [TEST], test-, [EDIT])
       mockSupabase.eq.mockImplementation(() => {
         return {
           eq: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              not: jest.fn().mockResolvedValue({
-                data: mockExplanations,
-                error: null
+              not: jest.fn().mockReturnValue({
+                not: jest.fn().mockResolvedValue({
+                  data: mockExplanations,
+                  error: null
+                })
               })
             })
           })
@@ -390,14 +406,16 @@ describe('Explanations Service', () => {
         error: null
       });
 
-      // Mock the explanations query
+      // Mock the explanations query (3 .not() calls — [TEST], test-, [EDIT])
       mockSupabase.eq.mockImplementation(() => {
         return {
           eq: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              not: jest.fn().mockResolvedValue({
-                data: [],
-                error: null
+              not: jest.fn().mockReturnValue({
+                not: jest.fn().mockResolvedValue({
+                  data: [],
+                  error: null
+                })
               })
             })
           })
@@ -431,9 +449,11 @@ describe('Explanations Service', () => {
         return {
           eq: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              not: jest.fn().mockResolvedValue({
-                data: [],
-                error: null
+              not: jest.fn().mockReturnValue({
+                not: jest.fn().mockResolvedValue({
+                  data: [],
+                  error: null
+                })
               })
             })
           })
