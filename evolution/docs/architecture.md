@@ -6,8 +6,21 @@ the main application.
 
 ## Entry Points
 
-The Evolution system can be triggered through four entry points, all converging on a
-shared core function.
+The Evolution system can be triggered through **five** entry points (the fifth was
+added by build_website_for_evolutiOn_20260626), all converging on a shared core
+function. Each insert site explicitly sets `evolution_runs.run_source` (NOT NULL
+DEFAULT 'admin'; CHECK constraint enum: `admin | minicomputer | public_edit | test | local`).
+
+### Public `/edit` surface (new in build_website_for_evolutiOn_20260626)
+
+`submitPublicEditAction` (`src/app/edit/publicEditActions.ts`) — unauthed, Vercel
+BotID-gated, layered Upstash + per-user + global cap stack. Inserts a
+`topics` row + `explanations` row + `evolution_runs` row with
+`run_source='public_edit'` + `budget_cap_usd=$0.10`. The minicomputer claims
+the pending row on its next tick (~60s). The client polls
+`getEditRunStatusAction` every 3s until `status='completed'`, then renders the
+result via `SideBySideWordDiff` (same component as the variant-details "Diff vs
+parent" tab). See `docs/feature_deep_dives/llm_spending_gate.md` for the cap stack.
 
 ### API Route
 
@@ -16,7 +29,7 @@ shared core function.
 - Protected by `requireAdmin()`.
 - `maxDuration = 300` seconds (Vercel limit); pipeline gets `maxDurationMs: 240_000`.
 - Accepts optional `{ runId: UUID }` body to target a specific pending run.
-- Delegates to `claimAndExecuteRun()`.
+- Delegates to `claimAndExecuteRun()`. Insert site sets `run_source='admin'`.
 
 ### CLI Batch Runner
 

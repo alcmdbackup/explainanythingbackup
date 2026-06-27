@@ -1,13 +1,12 @@
 // Strategy detail page with tabbed interface for metrics, configuration, and logs.
 // Uses V2 getStrategyDetailAction and shared EntityDetailHeader + EntityDetailTabs.
 
-// Phase 3 of build_website_for_evolutiOn_20260626: PublicVisibleToggle alongside status badge.
-import PublicVisibleToggle from '../PublicVisibleToggle';
-
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+// Phase 3 of build_website_for_evolutiOn_20260626: PublicVisibleToggle alongside status badge.
+import PublicVisibleToggle from '../PublicVisibleToggle';
 import {
   EvolutionBreadcrumb,
   EntityDetailHeader,

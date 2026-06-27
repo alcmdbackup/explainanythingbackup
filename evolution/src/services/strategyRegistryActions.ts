@@ -339,7 +339,7 @@ export const updateStrategyAction = adminAction(
     // the toggle immediately within this serverless instance. Cross-instance
     // staleness is bounded by the 60s TTL.
     if (parsed.publicVisible !== undefined) {
-      invalidatePublicStrategiesCache();
+      await invalidatePublicStrategiesCache();
     }
 
     const stratLogger = createEntityLogger({
@@ -490,8 +490,9 @@ const PUBLIC_STRATEGIES_CACHE_TTL_MS = 60_000;
 let publicStrategiesCache: CacheEntry | null = null;
 
 /** Drop the public-strategies cache. Called from updateStrategyAction whenever
- *  publicVisible changes. Best-effort, per serverless instance. */
-export function invalidatePublicStrategiesCache(): void {
+ *  publicVisible changes. Best-effort, per serverless instance.
+ *  Async by necessity — the file is 'use server', which only allows async exports. */
+export async function invalidatePublicStrategiesCache(): Promise<void> {
   publicStrategiesCache = null;
 }
 
