@@ -80,6 +80,15 @@ Scores: Security 3/5, Architecture 3/5 (↑), Testing 4/5 (↑) — iter-1 fixes
 ## Plan Review (iteration 3, 2026-06-26) — ✅ CONSENSUS
 Scores: Security 5/5, Architecture 5/5, Testing 5/5 — zero critical gaps, verified line-by-line. iter-2 fixes confirmed correct: mandatory anchor makes the seed measurable + is the arenaUpdates-contended row; xmin OCC is sound (vs NUMERIC equality); delta-only count coupling correct; concurrency test seam + isolation + structured {retries} buildable. Applied the cheap non-blocking nits (anchor routes via arenaUpdates not newEntries; xmin→rating_version fallback; flag gates TS-side, single RPC version; re-fold-consistency tolerance justification).
 
+## Execution (2026-06-27)
+- ✅ **Phase 0** verification done. ✅ **Phase 1b** editing-off-seed shipped (committed, tsc clean, 452+4 tests pass).
+- **Reorder decision (autonomous):** **Phase 1c (idea-1) deferred past the validation test.** The validation batch is tiny (~$5, 1–2 runs/arm) → run at **concurrency=1**, which sidesteps the `sync_to_arena` race entirely (Decision F's own "run serially" fallback), with the terminal recompute as canonical-rating backstop. idea-1 (the riskiest production hot-path migration) lands + is concurrency-tested **before the FULL run**, where concurrency matters — not rushed to unblock a low-concurrency smoke test. Build order now: **Phase 2 scripts → merge 1b+scripts → minicomputer pull → validation batch (conc=1) → recompute + QA**, THEN Phase 1c before scaling.
+
+### Build status (2026-06-27) — validation-test code COMPLETE
+- ✅ Phase 1b editing-off-seed (commit) · ✅ recompute-arena-elo + module + 7 tests (commit) · ✅ 9-arm seed script + 5 tests + README (commit). tsc=0, 689 unit tests green.
+- Deferred: Phase 1c idea-1 (run validation at conc=1), abComparison.ts (only needed for /analysis).
+- Remaining to RUN validation: /finalize → PR → CI → merge main → minicomputer pull → seed script --apply (~$1.80) → wait → recompute --apply → verify QA gates (success/cost>0/no wipeout/spend≈cap).
+
 ### Next — plan is execution-ready
 - Build order: Phase 0 (confirm anchor competes) → 1b (editing off-seed + budget-fill) → 1c (idea-1 CAS) → 2 (seed rows + scripts) → 2.5 (ops pre-flight) → 3 (validation batch + adaptive) → 4 (recompute + /analysis).
 - Recommend `/finalize` after each product-code phase (1b, 1c) lands.
