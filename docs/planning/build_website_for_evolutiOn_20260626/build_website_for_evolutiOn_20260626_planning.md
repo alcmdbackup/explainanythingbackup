@@ -37,100 +37,162 @@ While building this surface, the existing `LLMSpendingGate.checkPerUserCap` mech
 ### Phase 0: Harden the LLMSpendingGate (precondition)
 The new public surface depends on a fail-CLOSED, reserve-before-spend gate. Land these fixes first within the PR so subsequent phases build on a correct foundation.
 
-- [ ] **Gap 1 — fail-CLOSED**: replace the 3 silent-return sites in `src/lib/services/llmSpendingGate.ts:117-124, 143-147` with explicit `throw new GlobalBudgetExceededError(...)`. Tag thrown errors with `cause: 'gate_check_failed'` so Honeycomb can distinguish from real over-cap rejections.
-- [ ] Add `LLM_GATE_PANIC_BYPASS` env var (mirror of `SEED_BYPASS_USER_CAP`). When `'true'`, all gate checks short-circuit; logs an audit line to stderr per call. NEVER set in any deployed env by default.
+**Rollout sequencing (load-bearing — addresses cold-start outage risk).** The new behavior MUST default OFF on the first deploy so a transient cold-start (migration applies after code goes live, or RPC missing in a region) does not brick every LLM-using surface. Concrete sequence:
+
+1. Phase 0 lands with `LLM_GATE_FAIL_CLOSED_DISABLED='true'` set in BOTH staging + Production Vercel envs at merge time. New code is no-op-equivalent to old behavior at startup.
+2. CI's `migration-verify` step + the supabase-migrations.yml deploy ensures the new RPC + config keys land in the database before traffic.
+3. After 24h staging soak + post-deploy smoke green, flip `LLM_GATE_FAIL_CLOSED_DISABLED='false'` in staging via Vercel UI (no redeploy). Watch Honeycomb for `gate.fail_closed_rejected` for another 24h.
+4. Flip the same env var to `'false'` on Production. The single env-var flip is a 30-second rollback if anything fires.
+5. After one full release cycle clean, delete the kill-switch + the deprecated `checkPerUserCap` wrapper in a follow-up PR.
+
+- [ ] **Gap 1 — fail-CLOSED**: replace the 3 silent-return sites in `src/lib/services/llmSpendingGate.ts:117-124, 143-147` with explicit `throw new GlobalBudgetExceededError(...)`. Tag thrown errors with `cause: 'gate_check_failed'` so Honeycomb can distinguish from real over-cap rejections. Gated by `LLM_GATE_FAIL_CLOSED_DISABLED !== 'true'` — when the kill switch is set, retain today's silent-return behavior (one-line `if (process.env.LLM_GATE_FAIL_CLOSED_DISABLED === 'true') return;` at each site).
+- [ ] Add `LLM_GATE_PANIC_BYPASS` env var (mirror of `SEED_BYPASS_USER_CAP`). When `'true'`, all gate checks short-circuit; logs an audit line to stderr per call. NEVER set in any deployed env by default. Document in `docs/docs_overall/environments.md`.
 - [ ] **Gap 5 — configurable cap**: add `guest_user_daily_cap_usd`, `public_edit_per_ip_daily_usd`, `public_edit_per_region_daily_usd`, `public_edit_daily_cap_usd` keys to `llm_cost_config` table. Default values: $10, $0.50, $5, $15. Add `getPublicEditConfig()` helper using the existing config-read pattern (see `checkMonthlyCap` at `llmSpendingGate.ts:364`).
-- [ ] Replace the hard-coded `10` at `src/lib/services/llms.ts:988` with the config-driven value.
+- [ ] Replace the hard-coded `10` at `src/lib/services/llms.ts:988` with the config-driven value. Keep the existing `userid === GUEST_USER_ID` gating predicate (only fires for the demo guest; admins skip — unchanged).
 - [ ] **Gap 2+3 — reserve-before-spend** for the per-user gate:
-  - [ ] New migration: `reserve_per_user_daily_cost(p_user_id, p_date, p_estimated_cents) RETURNS jsonb` RPC. Atomic INSERT-ON-CONFLICT-UPDATE returning `{ok, dailyTotal, dailyCap}`. Mirrors `check_and_reserve_llm_budget` shape.
-  - [ ] Add `reserveForUser(userid, estCost, capUsd)`, `recordActualForUser(userid, actualCents, reservedCents)`, `releaseForUser(userid, reservedCents)` to `LLMSpendingGate`. Mirror existing `reserveViaRpc` / `reconcileAfterCall` pattern.
-  - [ ] Replace `checkPerUserCap` call site in `src/lib/services/llms.ts:988` with `reserveForUser`; wire reconcile into the existing `finally` block at `llms.ts:1008`.
-  - [ ] Keep `checkPerUserCap` as deprecated read-only wrapper for one release cycle to ease rollback.
-- [ ] Honeycomb alert: log structured `gate.fail_closed_rejected` events; wire to existing release-health alerting pattern (see `evolution-run-health.yml`).
-- [ ] Add `LLM_GATE_FAIL_CLOSED_DISABLED` env var as kill-switch reverting to fail-open behavior; default `'false'` so the new behavior is on. Provides single-flip rollback without a code revert.
+  - [ ] New migration `<timestamp>_reserve_per_user_daily_cost_rpc.sql`: `reserve_per_user_daily_cost(p_user_id TEXT, p_date DATE, p_estimated_cents BIGINT, p_cap_cents BIGINT) RETURNS jsonb` RPC, modeled on the existing `check_and_reserve_llm_budget` RPC (find via `grep -l 'check_and_reserve_llm_budget' supabase/migrations/`). The RPC uses a single statement `INSERT … ON CONFLICT (date, user_id, call_source) DO UPDATE SET total_cost_usd = total_cost_usd + EXCLUDED.total_cost_usd, call_count = call_count + 1 RETURNING jsonb_build_object('ok', ..., 'dailyTotal', total_cost_usd, 'dailyCap', p_cap_cents)`. Atomic via UPSERT; no `FOR UPDATE` needed at this isolation level. **Idempotency-lint compliance:** use `CREATE OR REPLACE FUNCTION`, `SECURITY DEFINER`, explicit `SET search_path = pg_catalog, public`. Validate locally with `npm run lint:migrations` before commit.
+  - [ ] Add `reserveForUser(userid, estCost, capUsd)`, `recordActualForUser(userid, actualCents, reservedCents)`, `releaseForUser(userid, reservedCents)` to `LLMSpendingGate`. Mirror existing `reserveViaRpc` / `reconcileAfterCall` pattern at `llmSpendingGate.ts:178-220`.
+  - [ ] Replace `checkPerUserCap` call site in `src/lib/services/llms.ts:988` with `reserveForUser`; wire reconcile into the existing `finally` block at `llms.ts:1008`. **Reconciliation invariant:** on synchronous throw, request abort, container kill mid-call, or `reconcileAfterCall.catch()` swallow, reservation is RELEASED via `try/finally` — never silently abandoned. Failure to reconcile invalidates the user-spending cache so the next call gets a fresh DB read; documented in code comment.
+  - [ ] Keep `checkPerUserCap` as deprecated read-only wrapper for one release cycle to ease rollback. Add ESLint rule `no-restricted-imports` blocking new callers, pointing to `reserveForUser` instead. Rule lives in `.eslintrc.json` (project-wide) and matches the existing `no-restricted-imports` pattern. Removed in the same follow-up PR that drops the kill switch.
+  - [ ] New migration `<timestamp>_per_user_reservation_cleanup.sql`: `cleanup_orphaned_per_user_reservations()` RPC that releases reservations older than `(now() - interval '15 minutes')` whose corresponding `llmCallTracking` row never landed. Mirror of `reset_orphaned_reservations` at `llmSpendingGate.ts:266-272`. Add a daily cron in `evolution-runner.timer` (or extend an existing cron) to invoke this — single-line cron entry.
+- [ ] Honeycomb alert: log structured `gate.fail_closed_rejected` events with fields `{category, userid, errorType}`. Extend `.github/workflows/evolution-run-health.yml` to file a `[release-health]` issue when count > 0 over 1 hour (mirrors the nightly-failure alerting pattern). **Owner: engineering** (this PR includes the YAML edit). Honeycomb-dashboard side (saved query + visual alert) is ops-owned — track in `docs/planning/build_website_for_evolutiOn_20260626/_progress.md` as a manual post-merge step.
+- [ ] Add `LLM_GATE_FAIL_CLOSED_DISABLED` env var as kill-switch reverting to fail-open behavior; **default `'true'` on this PR's merge** (so the new behavior is OFF at first), flipped to `'false'` after the staged-rollout soak per the sequencing above.
 
 ### Phase 1: Backend plumbing
-- [ ] **Admin gap** (Q8): in `evolution/src/services/evolutionActions.ts:178-189`, add symmetric `explanationId` validation against `explanations` table. Extract to shared validator `validateRunContentRefs({explanationId?, promptId?})` and reuse from both admin path and new public action.
-- [ ] **Strategy whitelist column** (Q4): migration adds `evolution_strategies.public_visible BOOLEAN NOT NULL DEFAULT false`. Add `idx_strategies_public_visible` partial index `WHERE public_visible = true`.
-- [ ] Extend `updateStrategyAction` in `evolution/src/services/strategyRegistryActionsV2.ts` to accept `publicVisible` field. Server-side guard: refuse to set `public_visible=true` if `config.budgetUsd > 0.10` (matches per-run cap). Return a structured error so the admin UI can render a hint.
-- [ ] New server action `listPublicStrategiesAction` in `evolution/src/services/strategyRegistryActionsV2.ts`. NOT admin-gated. Returns only `{id, label, description, generationModel, judgeModel, iterationCount}` for rows with `public_visible=true AND status='active' AND is_test_content=false`. Cache 60s in-memory.
-- [ ] **Upstash gate** (Q5): new module `src/lib/services/perIpSpendingGate.ts`. Exports `reserveForIp(ip, estCost)`, `recordActualForIp(ip, actualCents, reservedCents)`, `releaseForIp(ip, reservedCents)`, plus equivalent `*ForRegion(country, ...)` family. Mirrors `LLMSpendingGate` shape; uses `@upstash/redis` `incrbyfloat` + `expire 86400`. Same fail-closed semantics as Phase 0.
-- [ ] Helper to extract IP + region from request: `getClientGeo(request: NextRequest): {ip: string, country: string}`. Uses `request.ip` + `request.geo` (Vercel-populated); falls back to `'unknown'` outside Vercel.
-- [ ] **New action `submitPublicEditAction`**: POST handler. Steps:
-  1. Validate input: `{articleText: 1-50000 chars, strategyId: uuid}`
-  2. Look up strategy via `listPublicStrategiesAction`; refuse if not public-visible
-  3. `getClientGeo(request)` → `{ip, country}`
-  4. `estRunCost = projectDispatchPlan(strategy.config, ...).expectedTotalCost` (already exists)
-  5. Pre-submission affordability check (Gap 4): refuse with 429 if `estRunCost > min(remainingUserBudget, remainingIpBudget, remainingRegionBudget)`. Returns `Retry-After` derived from earliest cap reset.
-  6. Reserve $est against per-IP + per-region gates (eager, not reconciled — over-projection is a feature for defense)
-  7. Insert `evolution_explanations` row (`source='explanation'`, `title='[edit] <truncated>'`, `content=articleText`)
-  8. Insert `evolution_runs` row: `{evolution_explanation_id, strategy_id, budget_cap_usd: 0.10, status: 'pending'}` plus a new column to mark its provenance (see next bullet)
-  9. Return `{runId}`
-- [ ] New `evolution_runs.run_source TEXT` column with allowed values `'admin' | 'minicomputer' | 'public_edit'`. Set explicitly at every existing insert site. Useful for: distinguishing public-edit traffic in cost-dashboards, filtering admin UI lists, future per-source policy (e.g. cleanup TTL if Q10 changes).
-- [ ] **New action `getEditRunStatusAction({runId})`**: NOT admin-gated. Returns `{status, winnerVariantContent?, originalContent, errorMessage?, costSpent, etaSeconds?}`. Used by /edit results page polling. Looks up the run row + winning variant if `status='completed'`. No ownership check — anyone with a run-id UUID can read.
-- [ ] **Wire `userid='public_edit_anonymous'` sentinel** through the public-edit code path. Since this is a constant string (not a UUID), confirm `LLMSpendingGate.checkPerUserCap` (now `reserveForUser`) and the `llmCallTracking` trigger handle non-UUID `userid` correctly. The trigger already does — `per_user_daily_cost_rollups.user_id` is `TEXT NOT NULL`, see migration 20260524000003 — so the sentinel collapses into a single shared rollup row, which is exactly what we want.
-- [ ] Add `'public_edit_anonymous'` to the `is_test_content` filter exclusion list so the rollup doesn't get auto-cleaned by future test-data scripts.
+- [ ] **Admin gap** (Q8): in `evolution/src/services/evolutionActions.ts:178-189` (admin `queueEvolutionRunAction`), add symmetric `explanationId` validation against the `explanations` table — currently only `promptId` is validated. Extract to shared validator `validateRunContentRefs({explanationId?, promptId?}, supabase)` in `evolution/src/services/shared.ts` and reuse from both admin path and new public action. Returns typed error matching admin convention.
+- [ ] **`publicAction` factory** (NEW, load-bearing): add `evolution/src/services/publicAction.ts` — mirror of `adminAction.ts` but WITHOUT `requireAdmin()`. Wraps handler with `withLogging` + `serverReadRequestId` + a service-role Supabase client (since unauthed callers have no user session). Returns the same `ActionResult<T>` envelope. All three new unauthed actions below use this factory.
+- [ ] **Strategy whitelist column** (Q4): migration adds `evolution_strategies.public_visible BOOLEAN NOT NULL DEFAULT false`. Add `idx_strategies_public_visible` partial index `WHERE public_visible = true AND status = 'active'` (composite to match `listPublicStrategiesAction` filter). Idempotency: `ALTER TABLE … ADD COLUMN IF NOT EXISTS`.
+- [ ] Extend `updateStrategyAction` in **`evolution/src/services/strategyRegistryActions.ts`** (file is NOT `V2` — corrected from earlier draft) to accept `publicVisible` field. Server-side guard reads the existing row first to access `config` JSONB → parses `StrategyConfig` → asserts `config.budgetUsd <= 0.10` before allowing `public_visible=true`. Refusal returns `{success:false, error:{code:'PUBLIC_VISIBLE_BUDGET_TOO_HIGH', message, budgetUsd, cap}}` so the admin UI can render a specific tooltip.
+- [ ] New `publicAction`-wrapped `listPublicStrategiesAction` in `evolution/src/services/strategyRegistryActions.ts`. Returns only `{id, label, description, generationModel, judgeModel, iterationCount}` for rows with `public_visible=true AND status='active' AND is_test_content=false`. Cache 60s in-memory (module-scope Map keyed `'all'` with `Date.now()` expiry).
+- [ ] **Upstash gate** (Q5): new module `src/lib/services/perIpSpendingGate.ts`. Exports `reserveForIp(ip, estCost)`, `recordActualForIp(ip, actualCents, reservedCents)`, `releaseForIp(ip, reservedCents)`, plus equivalent `*ForRegion(country, ...)` family. Uses `@upstash/redis` `incrbyfloat` + `expire 86400`. **Fail-CLOSED on KV error** (consistent with Phase 0 contract) — set the `@upstash/redis` retry option to 0 and throw `PerIpBudgetExceededError` on any non-200; the existing `LLM_GATE_FAIL_CLOSED_DISABLED` env var ALSO disables this gate's fail-closed for the rollout window.
+- [ ] **Test-mode bypass for the per-IP/per-region gate**: when `process.env.E2E_TEST_MODE === 'true'` OR `process.env.PUBLIC_EDIT_RATE_LIMIT_DISABLED === 'true'`, the gate short-circuits and `reserveForIp` returns the estimate without consulting Upstash. CI E2E + nightly + integration tests all share one egress IP and would otherwise trip the cap mid-suite. Documented in environments.md.
+- [ ] **`getClientGeo` helper**: `getClientGeo(request: NextRequest): {ip: string, country: string}`. Uses `request.ip` + `request.geo.country` (Vercel-populated). **Trust note:** `request.ip` reads `x-forwarded-for` set by Vercel's edge; an off-Vercel route or a request not threading the edge would carry an attacker-controlled value. The helper asserts `request.headers.get('x-vercel-id')` is present (Vercel-only) — when absent, returns `'unknown'` so the per-IP cap collapses to a single bucket (defense in depth: an attack from outside Vercel sees a single shared cap). For tests, the helper honors `x-test-client-ip` ONLY when `NODE_ENV === 'test'`.
+- [ ] **Bot protection** (NEW — Vercel BotID integration): wrap `submitPublicEditAction` POST with Vercel BotID's `@vercel/botid` middleware. Invisible challenge (`@vercel/botid/server` `checkBotId(request)`) blocks scripted/automated submissions before they reach the cost-gate layer. Free on Vercel's BotID GA tier; zero-config. Without this, a residential-proxy bot ($1/IP) trivially exhausts the per-IP cap by rotating IPs. Documented as a hard requirement in the planning doc; covered by an E2E that sends a request with no BotID token and asserts 403.
+- [ ] **New action `submitPublicEditAction`** (`publicAction`-wrapped): POST handler. Steps:
+  1. `checkBotId(request)` → 403 if bot-like
+  2. Validate input: `{articleText: 1-50000 chars, strategyId: uuid}` via Zod
+  3. Validate strategy via `listPublicStrategiesAction`; refuse if not public-visible (404)
+  4. `getClientGeo(request)` → `{ip, country}`
+  5. `estRunCost = projectDispatchPlan(strategy.config, ...).expected` (use the projector's `expected`, not `upperBound` — fairness matters more than over-rejection at the submission boundary)
+  6. Pre-submission affordability check (Gap 4): refuse with 429 if `estRunCost > min(remainingUserBudget, remainingIpBudget, remainingRegionBudget)`. Returns `Retry-After` derived from earliest cap reset. **TOCTOU note:** accepted — max overage is one per-run cap ($0.10) per concurrent submit; the per-call gate at `callLLM` is the airtight backstop.
+  7. Reserve $est against per-IP + per-region gates (eager, not reconciled at this layer — over-projection is intentional for defense)
+  8. **Insert into the existing `explanations` table** (the main-app content table — NOT `evolution_explanations`, which is for arena-prompt seed text). Payload: `{explanation_title: '[EDIT] <first 80 chars of articleText>...', content: articleText, status: 'private', explanation_text_type: 'paste'}` (use the existing `[TEST]`-prefix filter pattern so `[EDIT]`-titled rows are excluded from the public Explore / vector search by the existing discovery filters — confirm with `grep -n '\[TEST\]' src/lib/services/explanations.ts`; if the existing filter only matches `[TEST]`, extend it to include `[EDIT]` in the same PR). Returns BIGINT `id`.
+  9. Insert `evolution_runs` row: `{explanation_id: <BIGINT from step 8>, strategy_id, budget_cap_usd: 0.10, run_source: 'public_edit', status: 'pending'}`. **Note:** `evolution_runs.evolution_explanation_id` does NOT exist — the only seed-text FK is `explanation_id BIGINT` (migration `20260409000002`). Earlier draft was wrong.
+  10. Return `{runId}`
+- [ ] **New `evolution_runs.run_source TEXT NOT NULL DEFAULT 'admin'` column.** Migration `<timestamp>_add_evolution_runs_run_source.sql`. Add CHECK constraint `run_source IN ('admin','minicomputer','public_edit','test','local')`. Backfill via same migration: `UPDATE evolution_runs SET run_source = 'minicomputer' WHERE runner_id LIKE 'mini-%' OR runner_id LIKE 'v2-%'; UPDATE … SET run_source = 'admin' WHERE runner_id LIKE 'api-%';` (matches the runner-id prefix conventions in `processRunQueue.ts` + `route.ts`). All NEW insert sites must explicitly set the column.
+- [ ] **`run_source` insert-site audit (load-bearing — addresses agent finding).** Update EVERY existing insert into `evolution_runs` to explicitly set `run_source`:
+  - [ ] `evolution/src/services/evolutionActions.ts:queueEvolutionRunAction` → `'admin'`
+  - [ ] `evolution/src/services/experimentActionsV2.ts:addRunToExperimentAction` → `'admin'` (the admin "Add run" path in the experiment wizard)
+  - [ ] `evolution/src/lib/pipeline/manageExperiments.ts:addRunToExperiment` → `'admin'`
+  - [ ] `evolution/scripts/run-evolution-local.ts` insert at lines 223-230 → `'local'`
+  - [ ] `evolution/scripts/debugLineageChain.ts`, `debugLineageChain2.ts` → `'local'` (if they insert)
+  - [ ] Test fixtures: `src/__tests__/e2e/helpers/evolution-test-data-factory.ts:createTestRun` and integration fixtures → `'test'`
+  - [ ] Grep audit at PR time: `grep -rn "from('evolution_runs')" --include='*.ts' --include='*.tsx'` should return zero un-annotated inserts. Add to PR checklist.
+- [ ] **New action `getEditRunStatusAction({runId})`** (`publicAction`-wrapped): Returns `{status, winnerVariantContent?, originalContent, errorMessage?, costSpent, etaSeconds?}`. Used by /edit results page polling. Looks up the run row + winning variant if `status='completed'`. No ownership check — anyone with the run-id UUID can read. Adds `Cache-Control: private, no-store` + `Referrer-Policy: no-referrer` response headers (defense-in-depth against URL leak to third parties via referrer / browser-history sync).
+- [ ] **Per-user gate wiring — `userid = GUEST_USER_ID` not a custom sentinel (load-bearing — fixes silent-bypass bug).** Earlier draft used `'public_edit_anonymous'` sentinel, but `src/lib/services/llms.ts:986-989` only invokes the per-user cap when `userid === process.env.GUEST_USER_ID` — a custom sentinel would silently SKIP the cap. Fix: `submitPublicEditAction` passes `process.env.GUEST_USER_ID` as `userid` to `callLLM` for every LLM call in the run (via the existing claim/execute path). This means /edit traffic shares the same $10/day pool as the existing public-site guest auto-login traffic — desired by Q7's "fully unauthed" decision (per the research doc trade-off table: "all guest visitors collectively share one $10/day pool"). The `llmCallTracking` trigger and `per_user_daily_cost_rollups` table already handle the GUEST_USER_ID correctly. **NO sentinel introduced.** If a future per-/edit-only cap is needed, it goes in `llm_cost_config` as a separate key + a new condition in `llms.ts`.
 
 ### Phase 2: Frontend
-- [ ] Page route: `src/app/edit/page.tsx`. Server component. Three subcomponents:
-  - `EditForm` (client): textarea + strategy select + Submit button. Fetches strategies via `listPublicStrategiesAction` on mount.
-  - `EditFormStrategyPicker`: renders `{label, description}` per strategy. No cost/runtime preview (Q9).
+- [ ] Page route: `src/app/edit/page.tsx`. **Server component** (matches existing public-site pattern at `src/app/page.tsx`). Server-side fetches strategies via `listPublicStrategiesAction()` and passes the result as initial props to the client child — avoids loading flash + one extra round-trip. Two subcomponents:
+  - `<EditForm initialStrategies={...}/>` (client): textarea + strategy radio cards + Submit button. Owns the form state + `editPageLifecycleReducer`. Submits via `submitPublicEditAction` (Next.js server-action), then `router.push('/edit/runs/' + runId)`.
   - Privacy footer (Q10): "Your text + the result are saved. Don't paste anything sensitive."
-- [ ] Page route: `src/app/edit/runs/[runId]/page.tsx`. Server component. Polls `getEditRunStatusAction(runId)` every 3s while `status ∈ {pending, claimed, running}`; renders `<SideBySideWordDiff parent={originalContent} variant={winnerVariantContent} leftLabel="Your text" rightLabel="Evolved" />` once `status='completed'`. Errors render with a friendly message + Retry link.
-- [ ] Page state machine: new `editPageLifecycleReducer` mirroring the `pageLifecycleReducer` pattern (`src/reducers/pageLifecycleReducer.ts`). States: `idle → submitting → queued → running → viewing → error`. Selectors mirror existing convention (`isQueued`, `isRunning`, `getError`, etc.).
+- [ ] Page route: `src/app/edit/runs/[runId]/page.tsx`. Server component. **Polling pattern (explicit choice, SSE deferred):** client child uses `setInterval` to call `getEditRunStatusAction(runId)` every 3s while `status ∈ {pending, claimed, running}`. Hard timeout at 10 minutes (200 polls) — past that, renders the error state with "this is taking longer than expected." SSE upgrade is a follow-up: would replace the polling loop with a `EventSource` connected to a new `/api/edit/runs/[runId]/stream` route that watches `evolution_runs` via Supabase Realtime row subscription. SSE deferred because (a) Polling MVP is ~30 LoC vs SSE's ~120 LoC, (b) polling gives identical UX at this cadence (3s perceived as real-time), (c) most runs complete in under 60s = ~20 polls. Document the upgrade path in a code comment so a future contributor knows to make the swap if poll volume becomes a Vercel function-invocation cost concern.
+- [ ] **Run-result page response headers** (defense-in-depth against URL leak to third parties): page sets `<meta name="robots" content="noindex,nofollow">` + `Referrer-Policy: no-referrer` + `Cache-Control: private, no-store` via Next.js `generateMetadata` + route-level headers. UUID URLs are unguessable, but browser history sync to Google/iCloud + URL-shortener caches + share-sheet integrations would otherwise persist the URL beyond the visitor's session. (Plan dismissed one-time tokens at Q7 — these headers + UUID unpredictability are the alternative.)
+- [ ] Render the diff via `<SideBySideWordDiff parent={originalContent} variant={winnerVariantContent} leftLabel="Your text" rightLabel="Evolved" />` once `status='completed'`. Component wrapper named `PublicEditDiffPanel` to keep the public-edit surface clearly distinct from the admin `VariantParentDiffTab`.
+- [ ] Page state machine: new `editPageLifecycleReducer`. States: `idle → submitting → queued → running → viewing → error`. **Rationale for a new reducer** (not extending `pageLifecycleReducer`): the existing reducer carries `streaming/editing/saving` phases tied to the explanation lifecycle. /edit has `queued/running` (queue-and-poll model) which doesn't fit those phases. A separate small reducer is clearer than overloading the existing one. Selectors mirror existing convention (`isQueued`, `isRunning`, `getError`, etc.).
+- [ ] **Queue starvation note** (load-bearing — addresses async-queue agent finding). The minicomputer's `processRunQueue.ts` claims runs in FIFO order with `PARALLEL=1` by default. A burst of /edit traffic could block admin runs / experiments behind the queue. **Accepted for v1**, with two mitigations: (a) Document the risk in `evolution/docs/minicomputer_deployment.md`. (b) Add a Honeycomb dashboard query for "queue depth by run_source" so ops can spot starvation. (c) Operational lever: ops can bump `--parallel 3` on the minicomputer systemd unit when /edit traffic warrants. Follow-up project would split into priority lanes (admin runs claim ahead of `run_source='public_edit'`) — out of scope for this PR but documented.
 - [ ] **Middleware allowlist** (Q1): add `/edit` to `PUBLIC_PREFIXES` in `src/config/hostnames.ts:49-58`. Add a unit test in `src/middleware.test.ts` that hits the public host with path `/edit` and expects pass-through, hits the evolution host with `/edit` and expects 404.
 
 ### Phase 3: Admin UI for `public_visible`
-- [ ] Strategy list page `src/app/admin/evolution/strategies/page.tsx`: add `Public visible` column with an inline toggle (`Checkbox` component). Toggle calls `updateStrategyAction({id, publicVisible})`. Disable toggle when `config.budgetUsd > 0.10` and show a tooltip ("Per-run budget exceeds $0.10 public cap"). Optimistic UI; revert on server error.
-- [ ] Strategy detail page `src/app/admin/evolution/strategies/[id]/page.tsx`: add the same toggle in the strategy header card.
+- [ ] Strategy list page `src/app/admin/evolution/strategies/page.tsx`: add `Public visible` column with an inline toggle (`Checkbox` component). Toggle calls `updateStrategyAction({id, publicVisible})`. Disable toggle when `config.budgetUsd > 0.10` (read locally from the row's `config` JSONB the list page already fetches — `parseStrategyConfig(row.config).budgetUsd`) with tooltip "Per-run budget exceeds $0.10 public cap". **Optimistic UI flow:** toggle flips immediately in local state → server action fires → on success, no-op; on failure, revert local state + render a Toast (`sonner`) with the structured error's message (e.g. `PUBLIC_VISIBLE_BUDGET_TOO_HIGH` → "This strategy's per-run budget exceeds the $0.10 public cap. Lower the budget first or unset publicly visible."). The server-side guard reads + parses `config` independently (defense-in-depth against stale client-side read).
+- [ ] Strategy detail page `src/app/admin/evolution/strategies/[strategyId]/page.tsx` (route param is `[strategyId]`, NOT `[id]` — corrected from earlier draft, verified against existing route structure at `src/app/admin/evolution/strategies/[strategyId]/`): add the same toggle in the strategy header card. Reuses the list-page toggle component.
 - [ ] List page filter chip "Public only" alongside the existing status/hide-test-content filters.
-- [ ] Column is sortable; data-testid `strategy-public-visible-toggle` for E2E.
+- [ ] Column is sortable; data-testids `strategy-public-visible-toggle` + `strategy-public-visible-cell` for E2E.
 
 ### Phase 4: Cost / safety polish
-- [ ] Surface `run_source='public_edit'` filter in `/admin/costs` dashboard so ops can monitor public-edit spend separately. Reuse existing `getCostByEntityAction` pattern.
-- [ ] Sentry `beforeSend` already tags every event with `site=public|evolution|preview|local|unknown`; add finer-grained `surface=edit` tag when path matches `/edit`. Helps triage public-edit issues vs the existing public flows.
-- [ ] Honeycomb spans: confirm `'evolution_public_edit'` cost-source flows through the existing `evolution_*` tracing path (it does by prefix match).
-- [ ] Privacy note + opt-out (Q10): add a Markdown line at the bottom of `/edit` and `/edit/runs/[runId]`. Link to a privacy section in the main site footer.
-- [ ] Cleanup: ensure the existing `claim_evolution_run` test-content gate (`allow_test_execution=false` by default) lets `run_source='public_edit'` rows through — public-edit is real work, not test fixtures. The gate keys on strategy `is_test_content` so this should be automatic if we never set `public_visible=true` on a test strategy (enforced by the Phase 3 server-side guard).
+- [ ] **`attributeCallSource` update** (load-bearing — addresses testing-agent finding). Add `'evolution_public_edit'` (or whatever final call_source string is chosen) to `CALL_SOURCES` in `src/lib/services/llmCallSource.ts` AND to `ENTITY_BY_SOURCE` in `src/lib/services/llmCostAttribution.ts`. Without this, the cost dashboard groups public-edit spend under "unknown" and the exhaustiveness test fails CI.
+- [ ] **Surface `run_source='public_edit'` filter** in `/admin/costs` dashboard so ops can monitor public-edit spend separately. Reuse existing `getCostByEntityAction` pattern. Add a dedicated tile for "Public /edit (7-day)" showing `SUM(cost_usd) WHERE run_source='public_edit'`.
+- [ ] **Sentry `beforeSend` adjustments:** (a) add `surface=edit` tag when path matches `/edit*` for finer triage than the existing `site=public|evolution|preview|local|unknown` tag; (b) **strip user-pasted text from breadcrumbs + tags** — `beforeSend` removes any breadcrumb with `data.body.articleText` and clears any tag whose value matches the article content. Defense against the user pasting an API key / password / PII into the textarea and Sentry capturing it on an unrelated client-side error.
+- [ ] **Honeycomb spans:** confirm `'evolution_public_edit'` cost-source flows through the existing `evolution_*` tracing path (it does by prefix match). Add a dashboard saved query for `service_name=evolution AND call_source LIKE 'evolution_public_edit%'`.
+- [ ] **Privacy note + opt-out** (Q10): add a Markdown line at the bottom of `/edit` and `/edit/runs/[runId]`. Link to a privacy section in the main site footer. **GDPR / right-to-erasure note:** since `/edit` is unauthed and retention is keep-forever (Q10), there's no UI for the visitor to delete their data. Plan accepts this for v1 — document a "data-deletion request" support email + the SQL to satisfy it in `evolution/docs/architecture.md` so ops can handle requests manually.
+- [ ] **Cleanup gate compatibility:** ensure the existing `claim_evolution_run` test-content gate (`allow_test_execution=false` by default) lets `run_source='public_edit'` rows through. The gate keys on the **strategy's** `is_test_content` (NOT on run_source) — so as long as Phase 3's server-side guard refuses `public_visible=true` on test strategies (which it does), public-edit runs are claim-eligible by default. (Earlier draft wording was misleading and has been clarified.)
+- [ ] **`PUBLIC_EDIT_DISABLED` kill switch** (NEW). New env var. When `'true'`, `submitPublicEditAction` returns `503 Service Unavailable` with copy "Public /edit is temporarily disabled. Try again later." Allows ops to turn off the public surface without a code revert when a separate axis breaks (e.g. Upstash outage, OpenRouter quota dry, abuse spike). Documented in `docs/docs_overall/environments.md`. The `/edit` page also reads this env var server-side and renders a "Temporarily unavailable" page instead of the form.
+- [ ] **CI path classifier update** (load-bearing — addresses testing-agent finding). Edit `.github/workflows/ci.yml`'s `EVOLUTION_ONLY_PATHS` regex to include `src/lib/services/perIpSpendingGate|src/lib/services/llmSpendingGate|src/app/edit/|src/__tests__/e2e/specs/12-edit/`. Without this, a PR touching only these files would route to `non-evolution-only` and the `@evolution` E2E suite would NOT pick up changes that absolutely affect evolution runs. Verify the regex compiles + matches the new paths via a one-line CI test.
 
 ## Testing
 
+### Test Environment & Secrets (load-bearing — addresses testing-agent findings)
+
+- [ ] **GitHub Environment secrets to provision** (NEW). Document + add via Repo Settings → Environments:
+  - **Staging environment** (used by `ci.yml` + `e2e-nightly.yml` + integration tests): `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` pointing to a dedicated Upstash dev database.
+  - **Production environment** (used by `post-deploy-smoke.yml`): same two secrets pointing to the prod Upstash database.
+  - **Repository secrets** (shared): none — Upstash is per-environment.
+  - Update the table in `docs/docs_overall/environments.md` lines 290-410.
+- [ ] **Test-mode bypass for per-IP gate** (NEW): `perIpSpendingGate.ts` checks `process.env.E2E_TEST_MODE === 'true'` OR `process.env.PUBLIC_EDIT_RATE_LIMIT_DISABLED === 'true'` and returns a no-op `reserveForIp`. CI E2E + nightly + integration tests all share one egress IP and would otherwise trip the cap mid-suite. Also: `getClientGeo` honors `x-test-client-ip` header ONLY when `NODE_ENV === 'test'` (unit + integration tests can supply unique synthetic IPs).
+- [ ] **Seeded E2E strategy carve-out** (NEW). E2E spec `edit-flow.spec.ts` needs a strategy that is simultaneously (a) `public_visible=true`, (b) NOT auto-filtered by `claim_evolution_run` test-content gate, (c) cheap enough to mock. Solution: add a seeded `[E2E_EVO] public-edit smoke` strategy via `evolution/scripts/seedPublicEditE2EStrategy.ts` with: `budgetUsd=$0.001`, `is_test_content=false` (so claim_evolution_run accepts it), `public_visible=true`, model `'mock'` (E2E uses route-mocked LLM so the model field is decorative). Server-side `updateStrategyAction` guard carves out this strategy by name pattern (`name LIKE '[E2E_EVO]%'` AND `is_test_content=false`) only when `E2E_TEST_MODE='true'`. Documented in `evolution/docs/cost_optimization.md` "Test cost containment" section alongside the existing `allow_test_execution` mechanism.
+
 ### Unit Tests
-- [ ] `src/lib/services/llmSpendingGate.test.ts` — extend existing tests: fail-closed behavior (all 3 error sites throw), `LLM_GATE_PANIC_BYPASS` honors, reserve-before-spend (`reserveForUser`/`recordActualForUser`/`releaseForUser`) cycle with simulated concurrent calls, configurable cap reads from `llm_cost_config`.
-- [ ] `src/lib/services/perIpSpendingGate.test.ts` (NEW) — Upstash mock (use `@upstash/ratelimit`'s in-memory primitive). Tests: `reserveForIp` returns reservation, exceeds cap throws, TTL expiry, `recordActualForIp` reconciles, `releaseForIp` frees, `getClientGeo` falls back to `'unknown'` outside Vercel.
-- [ ] `evolution/src/services/strategyRegistryActionsV2.test.ts` — `listPublicStrategiesAction` filters correctly (returns only `public_visible=true AND status='active' AND is_test_content=false`); `updateStrategyAction` refuses `publicVisible=true` when `budgetUsd > 0.10`.
-- [ ] `evolution/src/services/evolutionActions.test.ts` — admin-path `validateRunContentRefs` rejects unknown explanation_id (Q8 gap).
-- [ ] `src/app/edit/publicEditAction.test.ts` (NEW) — `submitPublicEditAction` validates input, reserves IP+region gates, refuses if strategy not public, inserts both rows, returns runId. `getEditRunStatusAction` returns correct shape across pending/running/completed/failed states.
-- [ ] `src/reducers/editPageLifecycleReducer.test.ts` (NEW) — state-machine transitions for idle → submitting → queued → running → viewing → error.
+- [ ] `src/lib/services/llmSpendingGate.test.ts` — extend existing tests:
+  - Fail-closed behavior: all 3 error sites throw `GlobalBudgetExceededError` with `cause: 'gate_check_failed'` when `LLM_GATE_FAIL_CLOSED_DISABLED !== 'true'`
+  - Fail-closed-DISABLED (kill switch): when `LLM_GATE_FAIL_CLOSED_DISABLED === 'true'`, all 3 error sites silent-return (today's behavior). **Critical:** rollback path must work on Day 1.
+  - `LLM_GATE_PANIC_BYPASS='true'` short-circuits the entire gate; logs stderr audit line.
+  - Reserve-before-spend cycle: `reserveForUser` → simulated success → `recordActualForUser` reconciles; `reserveForUser` → simulated failure → `releaseForUser` frees.
+  - Concurrent reservation reference pattern: reuse the same scaffolding as `src/__tests__/integration/evolution-budget-constraint.integration.test.ts` (existing pattern for the global gate).
+  - Configurable cap reads from `llm_cost_config` keys (mocked DB read).
+- [ ] `src/lib/services/perIpSpendingGate.test.ts` (NEW) — testability via a `KvAdapter` interface injected at construction:
+  - In-memory test adapter (Map-backed) for unit tests — no Upstash dependency at unit-test level
+  - `reserveForIp` returns reservation, exceeds cap throws `PerIpBudgetExceededError`, TTL respected, `recordActualForIp` reconciles, `releaseForIp` frees
+  - **Upstash unreachable test:** mock adapter returns rejection → expect throw (fail-CLOSED on KV error). Mock adapter returns rejection AND `LLM_GATE_FAIL_CLOSED_DISABLED='true'` → expect silent-allow (kill-switch path)
+  - `getClientGeo` falls back to `'unknown'` outside Vercel; honors `x-test-client-ip` only when `NODE_ENV === 'test'`
+  - `E2E_TEST_MODE='true'` AND `PUBLIC_EDIT_RATE_LIMIT_DISABLED='true'` both trigger no-op path
+- [ ] **`src/lib/services/llmCostAttribution.test.ts`** (extend existing) — assert `'evolution_public_edit'` is in `CALL_SOURCES` and `ENTITY_BY_SOURCE`; exhaustiveness test passes.
+- [ ] `evolution/src/services/strategyRegistryActions.test.ts` (corrected from `*V2*` to `strategyRegistryActions.test.ts`) — `listPublicStrategiesAction` filters correctly; `updateStrategyAction` refuses `publicVisible=true` when `budgetUsd > 0.10` AND returns the structured error code `PUBLIC_VISIBLE_BUDGET_TOO_HIGH`; carve-out for `[E2E_EVO]`-prefixed strategies when `E2E_TEST_MODE='true'`.
+- [ ] `evolution/src/services/evolutionActions.test.ts` — admin-path `validateRunContentRefs` rejects unknown `explanationId` (Q8 gap fix). Shared validator returns the same error envelope across admin + public paths.
+- [ ] `evolution/src/services/publicAction.test.ts` (NEW) — `publicAction` factory wraps handlers with `withLogging` + `serverReadRequestId` + service-role Supabase client; rejects callers attempting to pass admin-only fields.
+- [ ] `src/app/edit/submitPublicEditAction.test.ts` (NEW) — happy path returns `{runId}`; non-public-visible strategy → 404; `articleText > 50000 chars` → 400; missing `BotID` token → 403; `PUBLIC_EDIT_DISABLED='true'` → 503; concurrent affordability-check race (TOCTOU bound: max one extra run per concurrent submit).
+- [ ] `src/app/edit/getEditRunStatusAction.test.ts` (NEW) — correct shape across pending/claimed/running/completed/failed/cancelled states; response headers include `Cache-Control: private, no-store` + `Referrer-Policy: no-referrer`.
+- [ ] `src/reducers/editPageLifecycleReducer.test.ts` (NEW) — state-machine transitions for idle → submitting → queued → running → viewing → error; selectors return correct values per state.
+- [ ] `src/middleware.test.ts` (extend) — `/edit` pass-through on public host, 404 on evolution host; `/edit/runs/<uuid>` same.
 
 ### Integration Tests
 - [ ] `src/__tests__/integration/public-edit.integration.test.ts` (NEW) — end-to-end against staging DB with mocked LLM:
-  - Submit a [TEST] strategy run via `submitPublicEditAction` with `allow_test_execution=true` flag
-  - Verify `evolution_explanations` + `evolution_runs` rows created
+  - Submit using the seeded `[E2E_EVO] public-edit smoke` strategy via `submitPublicEditAction`
+  - Verify `explanations` row created with `[EDIT]` prefix + `evolution_runs` row created with `run_source='public_edit'`
   - Trigger `claimAndExecuteRun` directly (bypassing minicomputer)
   - Verify run completes, winner variant exists
   - `getEditRunStatusAction` returns the winner's content
-- [ ] `src/__tests__/integration/llm-spending-gate-hardened.integration.test.ts` (NEW) — fail-closed: simulate missing rollup table → expect throw, NOT silent allow. Reserve-before-spend: 50 parallel calls at $9.50/cap, only the first one to bring total ≥ $10 should succeed and the rest reject.
-- [ ] `src/__tests__/integration/strategy-public-visible.integration.test.ts` (NEW) — admin toggles `public_visible`; verify `listPublicStrategiesAction` reflects the change; verify cost-cap guard rejects toggling on a $0.20-budget strategy.
+  - `afterAll` cleanup: delete the `evolution_runs` + `explanations` rows
+- [ ] `src/__tests__/integration/llm-spending-gate-hardened.integration.test.ts` (NEW):
+  - **Fail-closed:** simulate missing RPC (rename in test) → expect `GlobalBudgetExceededError`, NOT silent allow
+  - **Cold-start path:** `LLM_GATE_FAIL_CLOSED_DISABLED='true'` AND missing RPC → expect silent-allow (rollback path works)
+  - **Reserve-before-spend:** seed rollup at $9.50/cap → 50 parallel `reserveForUser` calls → only the first to cross $10 succeeds, rest reject. Reuse the scaffolding pattern from `evolution-budget-constraint.integration.test.ts`.
+  - **Orphan cleanup:** simulate a reservation that never reconciles → `cleanup_orphaned_per_user_reservations()` releases it.
+- [ ] `src/__tests__/integration/per-ip-gate.integration.test.ts` (NEW) — same shape against real Upstash (gated on `UPSTASH_REDIS_REST_URL` being present; silent-skip otherwise). Reserve, reconcile, release; concurrent N callers at cap-boundary.
+- [ ] `src/__tests__/integration/strategy-public-visible.integration.test.ts` (NEW) — admin toggles `public_visible`; verify `listPublicStrategiesAction` reflects; cost-cap guard rejects toggling on a $0.20-budget strategy; carve-out allows seeding the `[E2E_EVO]` strategy.
 
 ### E2E Tests
-- [ ] `src/__tests__/e2e/specs/12-edit/edit-flow.spec.ts` (NEW, `@critical` tagged) — Playwright:
+- [ ] `src/__tests__/e2e/specs/12-edit/edit-form-smoke.spec.ts` (NEW, **`@critical`** + **`@skip-prod`** tagged) — fast smoke (~5s): visit `/edit`, assert form testids visible (`edit-form`, `strategy-picker`, `submit-button`), no console errors. NO submission — pure SSR smoke that catches deployment breakage without burning real $.
+- [ ] `src/__tests__/e2e/specs/12-edit/edit-flow.spec.ts` (NEW, **`@evolution`** + **`@skip-prod`** tagged; downgraded from `@critical` per testing-agent finding — full happy path is ~30s with mocked SSE which is too long for the <3min `@critical` target). Playwright happy path:
   - Visit `/edit` on public host
-  - See strategy picker populated
+  - See strategy picker populated (seeded `[E2E_EVO]` strategy)
   - Paste sample text + pick strategy + Submit
-  - Mock the run to complete in 1s (E2E mode bypass)
+  - Mock the run to complete in 1s (`E2E_TEST_MODE=true` triggers an in-process executor that skips minicomputer)
   - Land on `/edit/runs/[runId]`
-  - Assert `SideBySideWordDiff` renders with original on left, evolved on right
-  - Assert testIDs `sxs-diff`, `sxs-parent`, `sxs-variant` are present
+  - Assert `SideBySideWordDiff` renders with original on left, evolved on right (testids `sxs-diff`, `sxs-parent`, `sxs-variant`)
+  - Assert response headers include `noindex` + `no-referrer`
   - Assert privacy footer present
-- [ ] `src/__tests__/e2e/specs/12-edit/edit-host-isolation.spec.ts` (NEW) — `/edit` returns 200 on `explainanything.vercel.app`, 404 on `ea-evolution.vercel.app`. Extends the existing `00-host-isolation/host-isolation.spec.ts` pattern.
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-strategy-public-toggle.spec.ts` (NEW, `@evolution`) — admin can flip the `public_visible` toggle inline on the strategy list page; toggle disabled for strategies with `budgetUsd > 0.10`.
+  - `afterAll` cleanup: delete created rows (enforced by ESLint `flakiness/require-test-cleanup`)
+- [ ] `src/__tests__/e2e/specs/12-edit/edit-host-isolation.spec.ts` (NEW, `@critical`) — `/edit` returns 200 on `explainanything.vercel.app`, 404 on `ea-evolution.vercel.app`. Extends `00-host-isolation/host-isolation.spec.ts`.
+- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-strategy-public-toggle.spec.ts` (NEW, `@evolution`) — admin can flip the `public_visible` toggle inline on the strategy list page; toggle disabled for strategies with `budgetUsd > 0.10`; failed-toggle revert + toast.
+- [ ] `src/__tests__/e2e/specs/smoke.public.spec.ts` (extend, `@smoke-public`) — add an assertion that `/edit` returns 200 + form renders. Post-deploy smoke catches Vercel deployment breakage without a real submission. Matches the existing matrix `--grep="@smoke-public"` in `post-deploy-smoke.yml`.
 
 ### Manual Verification
 - [ ] Local server + Playwright MCP: paste a 500-word article, pick a strategy, observe the diff renders matching the variant-details tab visual exactly (same fonts, same gutter, same color encoding).
-- [ ] Local: trip the per-IP cap by submitting 6 runs from the same dev session → expect 429 on the 6th.
+- [ ] Local: with `PUBLIC_EDIT_RATE_LIMIT_DISABLED` UNSET, trip the per-IP cap by submitting 6 runs from the same dev session → expect 429 on the 6th.
+- [ ] Local: set `LLM_GATE_FAIL_CLOSED_DISABLED='true'` → confirm gate reverts to silent-allow behavior (rollback path works).
+- [ ] Local: set `PUBLIC_EDIT_DISABLED='true'` → confirm form shows "temporarily unavailable" + POST returns 503.
 - [ ] Staging: enable `public_visible` on 2-3 curated strategies via the admin UI; manually verify they appear in the `/edit` picker.
 - [ ] Staging: paste a real article + run a real strategy; confirm the minicomputer picks it up within ~60s and the result polls in.
+- [ ] Staging: after Phase 0 fail-closed flag flip, watch Honeycomb for `gate.fail_closed_rejected` events for 24h.
 
 ## Verification
 
@@ -149,16 +211,20 @@ The new public surface depends on a fail-CLOSED, reserve-before-spend gate. Land
 - [ ] `npm run migration:verify` — confirms new migrations apply cleanly (Phase 0 + Phase 1)
 
 ## Documentation Updates
-- [ ] `docs/feature_deep_dives/authentication_rls.md` — add `/edit` to the public-host route table; note the unauthed pattern + the `'public_edit_anonymous'` sentinel; document the `LLM_GATE_PANIC_BYPASS` + `LLM_GATE_FAIL_CLOSED_DISABLED` kill switches.
-- [ ] `docs/feature_deep_dives/server_action_patterns.md` — add `submitPublicEditAction`, `getEditRunStatusAction`, `listPublicStrategiesAction` to the action catalog.
-- [ ] `docs/feature_deep_dives/state_management.md` — add `editPageLifecycleReducer` next to the existing reducer documentation.
-- [ ] `docs/docs_overall/design_style_guide.md` — likely unchanged (reusing existing components); confirm no new variant introduced.
+- [ ] **NEW** `docs/feature_deep_dives/llm_spending_gate.md` — dedicated deep dive on the hardened gate: layered cap stack (per-run / per-IP / per-region / per-user / global / kill-switch), reserve-before-spend semantics, fail-closed contract + kill-switch rollback path, orphan-reservation cleanup cron, `LLM_GATE_PANIC_BYPASS` + `LLM_GATE_FAIL_CLOSED_DISABLED` + `PUBLIC_EDIT_RATE_LIMIT_DISABLED` + `PUBLIC_EDIT_DISABLED` env vars + the panic-bypass audit-log pattern. Cross-links from `evolution/docs/cost_optimization.md`.
+- [ ] `docs/feature_deep_dives/authentication_rls.md` — add `/edit` to the public-host route table; note the unauthed pattern (uses `GUEST_USER_ID` as `callLLM` userid, NOT a separate sentinel — clarified); document the `LLM_GATE_PANIC_BYPASS` + `LLM_GATE_FAIL_CLOSED_DISABLED` kill switches (link to llm_spending_gate.md).
+- [ ] `docs/feature_deep_dives/server_action_patterns.md` — add `submitPublicEditAction`, `getEditRunStatusAction`, `listPublicStrategiesAction` to the action catalog. Document the new `publicAction` factory pattern alongside the existing `adminAction`.
+- [ ] `docs/feature_deep_dives/state_management.md` — add `editPageLifecycleReducer` next to the existing reducer documentation; explain why a separate reducer was chosen.
+- [ ] `docs/docs_overall/design_style_guide.md` — likely unchanged (reusing existing components); confirm no new variant introduced during execution.
 - [ ] `docs/feature_deep_dives/markdown_ast_diffing.md` — note that `/edit` reuses `SideBySideWordDiff` without modification.
-- [ ] `evolution/docs/architecture.md` — add `submitPublicEditAction → claimAndExecuteRun` as a fifth entry point alongside the existing four. Document the `run_source` column + values.
-- [ ] `evolution/docs/data_model.md` — document `evolution_runs.run_source` + `evolution_strategies.public_visible` columns. Note the new `per_user_daily_cost_rollups` reservation semantics.
-- [ ] `evolution/docs/strategies_and_experiments.md` — document the public-strategy whitelist mechanism + the admin UI toggle.
+- [ ] `docs/docs_overall/environments.md` — add `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` to the env-var reference table; add `PUBLIC_EDIT_DISABLED`, `PUBLIC_EDIT_RATE_LIMIT_DISABLED`, `LLM_GATE_PANIC_BYPASS`, `LLM_GATE_FAIL_CLOSED_DISABLED`; note Upstash add-on provisioning in the Vercel section + GH Environment secret tables.
+- [ ] `evolution/docs/architecture.md` — add `submitPublicEditAction → claimAndExecuteRun` as a fifth entry point alongside the existing four. Document the `run_source` column + values; document GDPR/data-deletion request handling.
+- [ ] `evolution/docs/data_model.md` — document `evolution_runs.run_source` + `evolution_strategies.public_visible` columns. Note the new `per_user_daily_cost_rollups` reservation semantics (clarify the read-only `checkPerUserCap` vs reserve-before-spend `reserveForUser`). Correct any stale `evolution_runs.evolution_explanation_id` references — that column does NOT exist; the seed-text FK is `explanation_id BIGINT`.
+- [ ] `evolution/docs/strategies_and_experiments.md` — document the public-strategy whitelist mechanism + the admin UI toggle + the `[E2E_EVO]` carve-out for E2E tests.
 - [ ] `evolution/docs/visualization.md` — cross-link the new `/edit` public surface from the admin strategy list section; note the `Public visible` column.
-- [ ] `evolution/docs/cost_optimization.md` — document the layered cap stack for public-edit (per-run / per-IP / per-region / per-user / global); document the new `llm_cost_config` keys.
+- [ ] `evolution/docs/cost_optimization.md` — document the layered cap stack for public-edit (per-run / per-IP / per-region / per-user / global); document the new `llm_cost_config` keys + their defaults; extend the "Test cost containment" section with the `PUBLIC_EDIT_RATE_LIMIT_DISABLED` + `[E2E_EVO]` carve-out pattern.
+- [ ] `evolution/docs/minicomputer_deployment.md` — document the queue-starvation risk under /edit traffic burst + ops lever (`--parallel 3`); priority-lane follow-up TBD.
+- [ ] `evolution/docs/reference.md` — add new files (`perIpSpendingGate.ts`, `submitPublicEditAction`, `publicAction.ts`, etc.) + new env vars to the env-var catalog.
 - [ ] `evolution/docs/reference.md` — add new files (`perIpSpendingGate.ts`, `submitPublicEditAction`, etc.) + new env vars (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `LLM_GATE_PANIC_BYPASS`, `LLM_GATE_FAIL_CLOSED_DISABLED`).
 - [ ] `docs/docs_overall/environments.md` — add `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` to the env-var reference table; note Upstash add-on provisioning in the Vercel section.
 - [ ] (Other relevantDocs from `_status.json` are read for context but unlikely to require updates; verify during /finalize.)
@@ -330,4 +396,43 @@ Verified against `src/app/page.tsx` + `src/components/home/HomeSearchPanel.tsx` 
 **Visual consistency check:** the `/edit` page, when loaded next to `/` (Home), `/results`, `/userlibrary`, should feel like the same product surface — same fonts, same warm cream, same paper texture, same nav. The atlas-class binding is what guarantees that.
 
 ## Review & Discussion
-[This section is populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration]
+
+### Iteration 1 — Security 2/5, Architecture 2/5, Testing 2/5
+
+**15 critical gaps surfaced + resolved:**
+
+Security & Technical
+1. Fail-CLOSED blast radius / cold-start ordering → staged rollout: kill-switch defaults `'true'` on merge, flipped after 24h staging soak; sequence documented in Phase 0
+2. Per-IP cap easily bypassed (residential proxies + missing bot protection) → Vercel BotID integration added to Phase 1 + Upstash fail-CLOSED on KV error specified + `request.ip` trust documented via `x-vercel-id` assertion
+3. Reserve-before-spend correctness / orphan cleanup → cited existing `check_and_reserve_llm_budget` RPC for lock semantics + added `cleanup_orphaned_per_user_reservations` RPC + reconciliation invariant on synchronous-throw + reservation-on-failure release
+4. Migration deploy ordering → explicit deploy sequence in Phase 0 rollout block (migrations land first via supabase-migrations.yml, kill-switch keeps code no-op until verified)
+5. `run_source` NULL + missed insert sites → added `NOT NULL DEFAULT 'admin'` + CHECK constraint + backfill migration + explicit 6-site insert audit list (was hand-wavy "set at every site")
+
+Architecture & Integration
+1. **`evolution_runs.evolution_explanation_id` does not exist** (insert payload was wrong) → corrected to use `explanations.id BIGINT` (the real seed-text FK from migration `20260409000002`); `evolution_explanations` write removed entirely (wrong table); `[EDIT]` title prefix added to the `explanations` insert for discovery-filter compatibility
+2. File path `strategyRegistryActionsV2.ts` → corrected to `strategyRegistryActions.ts` (no V2 suffix) everywhere
+3. `publicAction` wrapper pattern undefined → new `evolution/src/services/publicAction.ts` factory specified, mirrors `adminAction` minus `requireAdmin()`; reused across 3 unauthed actions
+4. `'public_edit_anonymous'` sentinel silently bypassed the per-user cap → eliminated the sentinel; `submitPublicEditAction` now passes `process.env.GUEST_USER_ID` as `userid` so the existing `llms.ts:986-989` gate predicate fires correctly
+5. Async-queue starvation + 3s polling cost → accepted with mitigations: documented in `minicomputer_deployment.md`, ops lever `--parallel 3`, Honeycomb dashboard for queue depth by run_source; SSE upgrade path documented as code-comment follow-up
+
+Testing & CI/CD
+1. UPSTASH secrets not provisioned in CI environments → new "Test Environment & Secrets" subsection itemizes staging + Production env additions + the `PUBLIC_EDIT_RATE_LIMIT_DISABLED` test-mode bypass
+2. Fail-CLOSED CI failure mode (existing integration tests would break on the new RPC's first call) → kill-switch defaults `'true'`, so existing tests pass; new tests cover BOTH `'true'` (rollback) and `'false'` (fail-closed) explicitly
+3. Per-IP cap tripping in CI from shared egress IP → explicit `E2E_TEST_MODE === 'true'` + `PUBLIC_EDIT_RATE_LIMIT_DISABLED === 'true'` bypass + `x-test-client-ip` header support (NODE_ENV=test only)
+4. E2E strategy whitelist + test-content collision → seeded `[E2E_EVO] public-edit smoke` strategy via new `evolution/scripts/seedPublicEditE2EStrategy.ts`, with server-side carve-out in `updateStrategyAction` only when `E2E_TEST_MODE='true'`
+5. Migration idempotency patterns not enumerated → explicit per-DDL idempotency contract in Phase 0 + Phase 1 migration bullets (`CREATE OR REPLACE FUNCTION`, `SECURITY DEFINER`, `ADD COLUMN IF NOT EXISTS`, `set search_path`)
+6. Post-deploy smoke missing `/edit` → added an assertion in `smoke.public.spec.ts` (`@smoke-public`) for `/edit` 200 + form render
+7. CI path classifier (`EVOLUTION_ONLY_PATHS`) doesn't pick up `src/app/edit/` → explicit `ci.yml` regex edit in Phase 4
+
+**Additional improvements absorbed:**
+- `@critical` budget impact → full happy path moved to `@evolution`+`@skip-prod`; tiny 5s form-renders smoke retained as `@critical`+`@skip-prod`
+- `attributeCallSource` exhaustiveness fix added to Phase 4
+- ESLint `no-restricted-imports` rule blocks new callers of deprecated `checkPerUserCap`
+- noindex/no-referrer/no-store response headers on `/edit/runs/[runId]`
+- `PUBLIC_EDIT_DISABLED` operational kill switch for the public surface itself
+- Sentry `beforeSend` strips user-pasted text from breadcrumbs/tags (PII defense)
+- `[strategyId]` route param naming corrected from `[id]`
+- Optimistic UI revert flow + structured error code + toast copy specified
+
+Ready for iteration 2 re-review.
+
