@@ -31,11 +31,18 @@ jest.mock('../../../instrumentation', () => ({
 }));
 jest.mock('openai/helpers/zod');
 const mockCheckPerUserCap = jest.fn().mockResolvedValue(undefined);
+const mockReserveForUser = jest.fn().mockResolvedValue(0);
+const mockRecordActualForUser = jest.fn().mockResolvedValue(undefined);
+const mockGetGuestUserCap = jest.fn().mockResolvedValue(10);
 jest.mock('./llmSpendingGate', () => ({
   getSpendingGate: jest.fn(() => ({
     checkBudget: jest.fn().mockResolvedValue(0.01),
     checkPerUserCap: mockCheckPerUserCap,
+    reserveForUser: mockReserveForUser,
+    recordActualForUser: mockRecordActualForUser,
+    getGuestUserCap: mockGetGuestUserCap,
     reconcileAfterCall: jest.fn().mockResolvedValue(undefined),
+    invalidateCache: jest.fn(),
   })),
 }));
 
@@ -700,8 +707,12 @@ describe('llms', () => {
 
   describe('per-user LLM cap (guest)', () => {
     beforeEach(() => {
-      mockCheckPerUserCap.mockClear();
-      mockCheckPerUserCap.mockResolvedValue(undefined);
+      mockReserveForUser.mockClear();
+      mockReserveForUser.mockResolvedValue(0.01);
+      mockRecordActualForUser.mockClear();
+      mockRecordActualForUser.mockResolvedValue(undefined);
+      mockGetGuestUserCap.mockClear();
+      mockGetGuestUserCap.mockResolvedValue(10);
     });
 
     afterEach(() => {
@@ -716,39 +727,40 @@ describe('llms', () => {
       });
     }
 
-    it('calls checkPerUserCap when userid matches GUEST_USER_ID', async () => {
+    it('calls reserveForUser when userid matches GUEST_USER_ID', async () => {
       process.env.GUEST_USER_ID = 'guest-uuid-123';
       mockSuccessResponse();
 
       await callLLM(
         'p', testSource('t'), 'guest-uuid-123', 'gpt-4.1-mini', false, null, null, null, false,
       );
-      expect(mockCheckPerUserCap).toHaveBeenCalledWith('guest-uuid-123', 10);
+      expect(mockGetGuestUserCap).toHaveBeenCalled();
+      expect(mockReserveForUser).toHaveBeenCalledWith('guest-uuid-123', expect.any(Number), 10);
     });
 
-    it('does NOT call checkPerUserCap when userid does not match GUEST_USER_ID', async () => {
+    it('does NOT call reserveForUser when userid does not match GUEST_USER_ID', async () => {
       process.env.GUEST_USER_ID = 'guest-uuid-123';
       mockSuccessResponse();
 
       await callLLM(
         'p', testSource('t'), 'some-other-user', 'gpt-4.1-mini', false, null, null, null, false,
       );
-      expect(mockCheckPerUserCap).not.toHaveBeenCalled();
+      expect(mockReserveForUser).not.toHaveBeenCalled();
     });
 
-    it('does NOT call checkPerUserCap when GUEST_USER_ID env var unset (soft no-op)', async () => {
+    it('does NOT call reserveForUser when GUEST_USER_ID env var unset (soft no-op)', async () => {
       delete process.env.GUEST_USER_ID;
       mockSuccessResponse();
 
       await callLLM(
         'p', testSource('t'), 'guest-uuid-123', 'gpt-4.1-mini', false, null, null, null, false,
       );
-      expect(mockCheckPerUserCap).not.toHaveBeenCalled();
+      expect(mockReserveForUser).not.toHaveBeenCalled();
     });
 
-    it('propagates checkPerUserCap throw (cap exceeded path)', async () => {
+    it('propagates reserveForUser throw (cap exceeded path)', async () => {
       process.env.GUEST_USER_ID = 'guest-uuid-123';
-      mockCheckPerUserCap.mockRejectedValueOnce(new Error('Daily per-user budget exceeded'));
+      mockReserveForUser.mockRejectedValueOnce(new Error('Daily per-user budget exceeded'));
 
       await expect(callLLM(
         'p', testSource('t'), 'guest-uuid-123', 'gpt-4.1-mini', false, null, null, null, false,

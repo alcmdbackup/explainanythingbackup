@@ -3,7 +3,7 @@
 // Provides CRUD for evolution runs, variant listing, cost breakdown, and logs.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid, getTestStrategyIds, applyNonTestStrategyFilter, validateRunContentRefs } from './shared';
+import { validateUuid, getTestStrategyIds, applyNonTestStrategyFilter } from './shared';
 import { logger } from '@/lib/server_utilities';
 import { logAdminAction } from '@/lib/services/auditLog';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
@@ -178,11 +178,6 @@ export const queueEvolutionRunAction = adminAction(
     if (!input.explanationId && !input.promptId) {
       throw new Error('Either explanationId or promptId is required');
     }
-
-    // Phase 1 of build_website_for_evolutiOn_20260626: symmetric validation for
-    // both content refs (previously only promptId was validated against its table).
-    // Shared validator so the public-side submitPublicEditAction reuses the same logic.
-    await validateRunContentRefs({ explanationId: input.explanationId, promptId: input.promptId }, supabase);
 
     const { data: strategy } = await supabase
       .from('evolution_strategies')
