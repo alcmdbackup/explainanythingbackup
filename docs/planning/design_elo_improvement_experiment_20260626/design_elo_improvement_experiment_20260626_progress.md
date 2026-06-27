@@ -69,5 +69,13 @@ Scores: Security 3/5, Architecture 2/5, Testing 3/5 — NOT consensus. Code-veri
 9. **Recompute mirrors live path exactly** (confidence=0 no count, draw id-sort, absolute count) + prod-refusal guard + tolerance defined.
 Plus minor fixes (projectDispatchPlan path, "differ only in agentType"→+family knobs, maxDispatches paragraph-only, drop warm-up iteration, auto-complete re-open check).
 
+## Plan Review (iteration 2, 2026-06-26)
+Scores: Security 3/5, Architecture 3/5 (↑), Testing 4/5 (↑) — iter-1 fixes landed; re-grounding surfaced new gaps, all fixed:
+- **Seed doesn't compete (load-bearing):** lone `generation_method='seed'` row is excluded from the pool under default `EVOLUTION_REUSE_SEED_RATING` → primary DV unmeasurable. Fix: **two-row anchor now MANDATORY** (Decision A); anchor pipeline row is the Phase-1c contended row (not the seed-source row).
+- **CAS on NUMERIC mu/sigma is unsound** (float round-trip → permanent false-conflict → always fail-loud). Fix: OCC on Postgres `xmin` (exact, no schema change).
+- **Additive count double-counts** (current contract is absolute; TS pre-adds from stale snapshot). Fix: delta-only in TS + additive SQL + UPDATE the absolute-count contract test.
+- **Concurrency test buildability:** specify READ COMMITTED autocommit, catch 0-row AND 40001, structured `{retries}` return surface, read/CAS test seam, flag ON/OFF, BOTH sync-arena backward-compat tests.
+- Editing minors: full-Variant synthetic parent, runtime branch must read sourceMode, editing output-diversity (temp>0 + cache-collision), projector budget-fill math, audit isVariantProducingAgentType. computeRatings path → src/lib/shared/.
+
 ### Next
-- Re-review (iteration 2). Then build phases (1b → 1c → 2 → 2.5 → 3 → 4).
+- Re-review (iteration 3). Then build phases (1b → 1c → 2 → 2.5 → 3 → 4).
