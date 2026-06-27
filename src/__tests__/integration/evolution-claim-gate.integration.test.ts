@@ -83,6 +83,15 @@ async function makePrompt(
   return data.id;
 }
 
+// Insert test runs with an ancient created_at so FIFO `ORDER BY created_at ASC`
+// in claim_evolution_run puts them at the FRONT of the staging queue. Without
+// this, the next queue-claim RPC call may claim some other pending row (e.g. one
+// of a fresh batch queued by an unrelated experiment), the gate test's polling
+// window times out, AND the test pollutes the production queue with a stray
+// claim under a runner_id that doesn't heartbeat → 10-min stale-claim expiry
+// fails the unrelated row.
+const ANCIENT_CREATED_AT = '2020-01-01T00:00:00Z';
+
 async function makeRun(
   sb: SupabaseClient,
   tracker: CleanupTracker,
@@ -97,6 +106,7 @@ async function makeRun(
       prompt_id: promptId,
       status: opts.status,
       allow_test_execution: opts.allowTestExecution ?? false,
+      created_at: ANCIENT_CREATED_AT,
     })
     .select('id')
     .single();
@@ -119,19 +129,22 @@ async function callClaim(
 }
 
 /** Race-safe assertion that the gate ALLOWED the run to be claimed. The test's `callClaim`
- *  races against the live staging minicomputer's 60s queue-claim cron — both call the same
- *  `claim_evolution_run` RPC with `LIMIT 1 FOR UPDATE SKIP LOCKED`, so one of them wins the
- *  row's lock and the other gets nothing. The test's intent is to verify the gate's behavior
- *  (run becomes claimable), not to assert this specific RPC call is the claimer.
+ *  races against the live staging minicomputer's queue-claim cron — both call the same
+ *  `claim_evolution_run` RPC, and the row's advisory lock serializes them. The test's intent
+ *  is to verify the gate's behavior (run becomes claimable), not to assert this specific
+ *  RPC call is the claimer.
  *
  *  Outcomes:
  *  - Our `callClaim` returned the run → we won the race, gate verified directly.
  *  - Our `callClaim` returned a different/empty set → another claimer (likely the minicomputer)
  *    won the race. Query the run's status: if 'claimed' then the gate let it through.
- *  - Status still 'pending' → genuine gate bug or our call's transaction collided. Wait
- *    briefly (≤ 2s, well under the minicomputer's next 60s tick) and re-poll once: this
- *    covers the narrow window where another claimer's UPDATE is still in flight when we
- *    read. If still 'pending' after the wait, fail — the gate genuinely blocked it.
+ *  - Status still 'pending' → either the gate blocked it OR our row was behind some other
+ *    eligible row in the FIFO queue and the claimer picked that one. We retry callClaim
+ *    a few times — once the higher-priority rows drain, our row bubbles to the front.
+ *
+ *  Combined with the `ANCIENT_CREATED_AT` in makeRun (puts the test row at the FRONT of the
+ *  FIFO queue), this should resolve essentially instantly. The retry window covers the rare
+ *  case where staging has very-old pending rows ahead of ours.
  *
  *  This replaces the flaky `expect(claimed.find(r => r.id === runId)).toBeDefined()` that
  *  intermittently failed on CI when the minicomputer claimed first (~50% of evolution
@@ -140,19 +153,27 @@ async function assertClaimAllowed(
   sb: SupabaseClient,
   claimedByUs: Array<{ id: string }>,
   runId: string,
+  callClaimFn: () => Promise<Array<{ id: string }>>,
 ): Promise<void> {
   if (claimedByUs.find((r) => r.id === runId)) return;
-  // Brief poll for the run to transition to 'claimed' by some other concurrent claimer.
-  for (let i = 0; i < 5; i++) {
+  // Poll up to ~5s for the run to transition to 'claimed'. On each poll, also fire
+  // another callClaim to re-attempt directly — if the row was behind another eligible
+  // row in FIFO order, draining one row per call lets ours surface.
+  for (let i = 0; i < 10; i++) {
     const { data: run } = await sb
       .from('evolution_runs')
       .select('status')
       .eq('id', runId)
       .single();
     if (run?.status === 'claimed') return;
-    if (i < 4) await new Promise((r) => setTimeout(r, 400));
+    if (i < 9) {
+      // Re-attempt the queue claim ourselves. If we get runId back, we're done.
+      const retry = await callClaimFn();
+      if (retry.find((r) => r.id === runId)) return;
+      await new Promise((r) => setTimeout(r, 400));
+    }
   }
-  // Still pending after ~2s: gate genuinely blocked the claim — real test failure.
+  // Still pending after ~5s + 9 retries: gate genuinely blocked the claim — real test failure.
   expect(`run ${runId} still pending after gate-allowed claim window`).toBe(
     `run ${runId} claimed (gate allowed)`,
   );
@@ -192,14 +213,16 @@ describe('claim_evolution_run is_test_content gate', () => {
 
   afterEach(async () => {
     if (!tablesExist || !migrationApplied) return;
-    // Always release any rows we accidentally claimed back to pending so they don't
-    // block other concurrent runs. Then cascade-delete via tracker.
-    if (tracker.runIds.length > 0) {
-      await sb
-        .from('evolution_runs')
-        .update({ status: 'pending', runner_id: null })
-        .in('id', tracker.runIds);
-    }
+    // Release every row our runner_id claimed — covers both tracker rows AND stray
+    // claims. A stray claim happens when our queue-claim RPC's gate filter excludes
+    // the test row (test 1 case) and the RPC instead claims the next gate-eligible
+    // pending row in the queue (some unrelated experiment's row). Without releasing
+    // strays, our dead runner_id would block them until the 10-min stale-claim
+    // expiry fails them outright. Then cascade-delete via tracker.
+    await sb
+      .from('evolution_runs')
+      .update({ status: 'pending', runner_id: null })
+      .eq('runner_id', RUNNER_ID);
     await cleanup(sb, tracker);
   });
 
@@ -226,7 +249,7 @@ describe('claim_evolution_run is_test_content gate', () => {
     const claimed = await callClaim(sb); // queue claim (no runId)
 
     // Race-safe verification (see comment on assertClaimAllowed).
-    await assertClaimAllowed(sb, claimed, runId);
+    await assertClaimAllowed(sb, claimed, runId, () => callClaim(sb));
   });
 
   test('queue claim CLAIMS pending run on non-test strategy (regression check)', async () => {
@@ -238,7 +261,7 @@ describe('claim_evolution_run is_test_content gate', () => {
     const claimed = await callClaim(sb); // queue claim (no runId)
 
     // Race-safe verification (see comment on assertClaimAllowed).
-    await assertClaimAllowed(sb, claimed, runId);
+    await assertClaimAllowed(sb, claimed, runId, () => callClaim(sb));
   });
 
   test('targeted claim BYPASSES gate on is_test_content strategy (no opt-in needed)', async () => {
