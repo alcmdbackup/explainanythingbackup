@@ -56,5 +56,18 @@
 - **#6 Ops pre-flight (Phase 2.5):** provider credit, MAX_OUTPUT_TOKENS, minicomputer pull+restart, daily-cap pace, wipeout detector.
 - Editing agents (Mode A/B) to run off seed = Phase 1b; idea-1 concurrency fix = Phase 1c. Terminology saved to memory.
 
+## Plan Review (iteration 1, 2026-06-26)
+Scores: Security 3/5, Architecture 2/5, Testing 3/5 — NOT consensus. Code-verified critical gaps fixed in the plan:
+1. **Phase 1c re-grounded:** race is in `syncToArena`+RPC (not MergeRatingsAgent); fold is TS-side (OpenSkill not plpgsql); RPC → guarded CAS UPDATE, signature changes; CAS must cover BOTH branches incl. the SEED (newEntries ON-CONFLICT + arenaUpdates); additive count on both.
+2. **Retry contract:** N=5 + jittered backoff + FAIL-LOUD on exhaustion (no silent swallow).
+3. **Kill-switch + rollback** (`EVOLUTION_ARENA_CAS_ENABLED`, default off).
+4. **Phase 1b is net-new dispatch logic:** editing branch has NO seed-parent path + A1 seed excluded from pool → editing pool size 0. Must inject a synthetic seed parent.
+5. **Editing budget-fill:** editing has no top-up → 1 variant/parent → under-spend confound. Add multi-dispatch off seed, else drop the 2 editing arms (checkpoint).
+6. **Concurrency test must FORCE interleaving** (two pg connections; assert retry counter) — naive Promise.all in maxWorkers:1 tests nothing.
+7. **migration:verify MANDATORY** (RPC body changes) + backward-compat gate on existing sync-arena test.
+8. **$40 cap ENFORCED** via pre-batch assertion (was advisory).
+9. **Recompute mirrors live path exactly** (confidence=0 no count, draw id-sort, absolute count) + prod-refusal guard + tolerance defined.
+Plus minor fixes (projectDispatchPlan path, "differ only in agentType"→+family knobs, maxDispatches paragraph-only, drop warm-up iteration, auto-complete re-open check).
+
 ### Next
-- Build phases (1b → 1c → 2 → 2.5 → 3 → 4). Strong candidate for `/plan-review` before execution.
+- Re-review (iteration 2). Then build phases (1b → 1c → 2 → 2.5 → 3 → 4).
