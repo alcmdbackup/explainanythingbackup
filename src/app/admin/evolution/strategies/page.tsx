@@ -20,6 +20,7 @@ import {
 import { getBatchMetricsAction } from '@evolution/services/metricsActions';
 import { executeEntityAction } from '@evolution/services/entityActions';
 import type { MetricRow } from '@evolution/lib/metrics/types';
+import PublicVisibleToggle from './PublicVisibleToggle';
 
 const loadData = async (filters: Record<string, string>, page: number, pageSize: number) => {
   const result = await listStrategiesAction({
@@ -56,6 +57,24 @@ const baseColumns: ColumnDef<StrategyListItem>[] = [
   { key: 'label', header: 'Label', skipLink: true, render: (row) => <span className="truncate block max-w-[200px]" title={row.label}>{row.label}</span> },
   { key: 'pipeline_type', header: 'Pipeline', skipLink: true, render: (row) => row.pipeline_type ?? '—' },
   { key: 'status', header: 'Status', skipLink: true, render: (row) => row.status },
+  // Phase 3 of build_website_for_evolutiOn_20260626: inline public_visible toggle.
+  {
+    key: 'public_visible',
+    header: 'Public',
+    skipLink: true,
+    render: (row) => {
+      // public_visible column added by migration 20260627000003; db.types regenerate on next CI pass.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pubVisible = Boolean((row as any).public_visible);
+      return (
+        <PublicVisibleToggle
+          strategyId={row.id}
+          initialPublicVisible={pubVisible}
+          config={row.config}
+        />
+      );
+    },
+  },
 ];
 const columns: ColumnDef<StrategyListItem>[] = [...baseColumns, ...createMetricColumns<StrategyListItem>('strategy')];
 

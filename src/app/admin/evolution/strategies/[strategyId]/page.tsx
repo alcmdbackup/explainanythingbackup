@@ -1,6 +1,9 @@
 // Strategy detail page with tabbed interface for metrics, configuration, and logs.
 // Uses V2 getStrategyDetailAction and shared EntityDetailHeader + EntityDetailTabs.
 
+// Phase 3 of build_website_for_evolutiOn_20260626: PublicVisibleToggle alongside status badge.
+import PublicVisibleToggle from '../PublicVisibleToggle';
+
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -123,15 +126,24 @@ export default function StrategyDetailPage(): JSX.Element {
         title={strategy.name}
         entityId={strategy.id}
         statusBadge={
-          <span
-            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${
-              strategy.status === 'active'
-                ? 'bg-[var(--status-success)]/20 text-[var(--status-success)] border-[var(--status-success)]/30'
-                : 'bg-[var(--text-muted)]/20 text-[var(--text-muted)] border-[var(--text-muted)]/30'
-            }`}
-            data-testid="strategy-status-badge"
-          >
-            {strategy.status}
+          <span className="inline-flex items-center gap-2">
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${
+                strategy.status === 'active'
+                  ? 'bg-[var(--status-success)]/20 text-[var(--status-success)] border-[var(--status-success)]/30'
+                  : 'bg-[var(--text-muted)]/20 text-[var(--text-muted)] border-[var(--text-muted)]/30'
+              }`}
+              data-testid="strategy-status-badge"
+            >
+              {strategy.status}
+            </span>
+            {/* Phase 3 of build_website_for_evolutiOn_20260626: public_visible toggle here too */}
+            <PublicVisibleToggle
+              strategyId={strategy.id}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- column added by migration 20260627000003
+              initialPublicVisible={Boolean((strategy as any).public_visible)}
+              config={strategy.config}
+            />
           </span>
         }
       />
