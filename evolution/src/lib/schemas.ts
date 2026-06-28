@@ -1141,6 +1141,15 @@ const strategyConfigBaseSchema = z.object({
   // First iteration cannot use pool-mode (pool is empty at start).
   return c.iterationConfigs[0]?.sourceMode !== 'pool';
 }, { message: 'First iteration cannot use sourceMode=pool (pool is empty at start); use seed mode' }).refine((c) => {
+  // Phase 1b (design_elo_improvement_experiment_20260626): an editing agent as the
+  // FIRST iteration MUST source from the seed. With unset/pool sourceMode the pool is
+  // empty at iteration 1, so the editing branch would produce zero variants (no-op).
+  const first = c.iterationConfigs[0];
+  if (first != null && isEditingAgentType(first.agentType)) {
+    return first.sourceMode === 'seed';
+  }
+  return true;
+}, { message: 'iterative_editing / iterative_editing_rewrite as the first iteration must set sourceMode=seed (pool is empty at start)' }).refine((c) => {
   // No swiss iteration may precede ALL variant-producing iterations.
   // Editing IS variant-producing per Decisions §14 (final cycle materializes a Variant).
   let hasVariantProducing = false;
