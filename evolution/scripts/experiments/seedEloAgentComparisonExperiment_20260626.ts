@@ -36,8 +36,10 @@ import type { StrategyConfig } from '../../src/lib/pipeline/infra/types';
 dns.setDefaultResultOrder('ipv4first');
 
 // ─── Constants ──────────────────────────────────────────────────
-const EXPERIMENT_NAME = 'ELOEXP agent comparison fed reserve 20260626';
-const ARENA_PROMPT_NAME = 'ELOEXP Federal Reserve seed 20260626';
+// Base names; an optional --tag suffix makes a fresh, isolated arena/experiment
+// (e.g. --tag verify1) so re-runs don't reuse a prior (possibly corrupted) arena.
+const BASE_EXPERIMENT_NAME = 'ELOEXP agent comparison fed reserve 20260626';
+const BASE_ARENA_NAME = 'ELOEXP Federal Reserve seed 20260626';
 // Source variant to copy as the seed (FR2, ~1325 Elo, most-settled — Decision A / KF7).
 const SOURCE_SEED_VARIANT_ID = '538bfbc9-5c17-458e-bfde-c4ce6c76dab3';
 const BUDGET_USD_PER_RUN = 0.10;
@@ -86,11 +88,15 @@ function parseIntArg(flag: string, d: number): number {
 const args = {
   target: parseStringArg('--target') as 'staging' | 'prod' | undefined,
   runsPerArm: parseIntArg('--runs-per-arm', 2),
+  tag: parseStringArg('--tag'),
   apply: process.argv.includes('--apply'),
   append: process.argv.includes('--append'),
   reuseExisting: process.argv.includes('--reuse-existing'),
   prodConfirmed: process.argv.includes('--i-know-this-is-prod'),
 };
+// Optional --tag suffix → a fresh, isolated arena + experiment (for verify re-runs).
+const EXPERIMENT_NAME = args.tag ? `${BASE_EXPERIMENT_NAME} ${args.tag}` : BASE_EXPERIMENT_NAME;
+const ARENA_PROMPT_NAME = args.tag ? `${BASE_ARENA_NAME} ${args.tag}` : BASE_ARENA_NAME;
 function validateArgs(): void {
   if (args.target !== 'staging' && args.target !== 'prod') {
     console.error('[FATAL] Missing/invalid --target (staging|prod)'); process.exit(2);
