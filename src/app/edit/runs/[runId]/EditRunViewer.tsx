@@ -12,7 +12,6 @@ import {
   editPageLifecycleReducer,
   initialEditPageState,
   isInFlight,
-  isViewing,
 } from '@/reducers/editPageLifecycleReducer';
 import { SideBySideWordDiff } from '@evolution/components/evolution/visualizations/SideBySideWordDiff';
 
@@ -23,7 +22,7 @@ interface Props {
   runId: string;
 }
 
-export default function EditRunViewer({ runId }: Props) {
+export default function EditRunViewer({ runId }: Props): JSX.Element | null {
   const [state, dispatch] = useReducer(editPageLifecycleReducer, initialEditPageState);
   const startedAtRef = useRef<number | null>(null);
 
@@ -126,7 +125,7 @@ export default function EditRunViewer({ runId }: Props) {
     );
   }
 
-  if (isViewing(state) && state.phase === 'viewing') {
+  if (state.phase === 'viewing') {
     const durationStr = (() => {
       const totalSecs = Math.round(state.durationMs / 1000);
       const m = Math.floor(totalSecs / 60);

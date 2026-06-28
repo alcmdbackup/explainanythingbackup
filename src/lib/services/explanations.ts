@@ -49,9 +49,7 @@ const PUBLIC_EDIT_PREFIX = '[EDIT]';
  */
 async function createExplanationImpl(explanation: ExplanationInsertType): Promise<ExplanationFullDbType> {
   const supabase = await createSupabaseServerClient()
-  
 
-  
   const { data, error } = await supabase
     .from('explanations')
     .insert(explanation)
@@ -67,7 +65,6 @@ async function createExplanationImpl(explanation: ExplanationInsertType): Promis
     });
     throw error;
   }
-
 
   return data as ExplanationFullDbType;
 }
@@ -292,7 +289,7 @@ async function deleteExplanationImpl(id: number): Promise<void> {
  */
 async function getExplanationsByIdsImpl(ids: number[]): Promise<ExplanationFullDbType[]> {
   const supabase = await createSupabaseServerClient()
-  
+
   const { data, error } = await supabase
     .from('explanations')
     .select()

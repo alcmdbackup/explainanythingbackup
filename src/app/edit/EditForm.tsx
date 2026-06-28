@@ -15,7 +15,7 @@ interface EditFormProps {
 
 const MAX_ARTICLE_CHARS = 50_000;
 
-export default function EditForm({ initialStrategies }: EditFormProps) {
+export default function EditForm({ initialStrategies }: EditFormProps): JSX.Element {
   const router = useRouter();
   const [articleText, setArticleText] = useState('');
   const [strategyId, setStrategyId] = useState<string>(initialStrategies[0]?.id ?? '');

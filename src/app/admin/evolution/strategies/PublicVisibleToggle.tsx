@@ -20,7 +20,7 @@ interface Props {
   onChange?: (newValue: boolean) => void;
 }
 
-export default function PublicVisibleToggle({ strategyId, initialPublicVisible, config, onChange }: Props): React.JSX.Element {
+export default function PublicVisibleToggle({ strategyId, initialPublicVisible, config, onChange }: Props): JSX.Element {
   const [value, setValue] = useState<boolean>(initialPublicVisible);
   const [busy, setBusy] = useState(false);
 

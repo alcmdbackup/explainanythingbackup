@@ -37,7 +37,7 @@ export async function generateMetadata({
   };
 }
 
-export default async function EditRunPage({ params }: { params: Promise<{ runId: string }> }) {
+export default async function EditRunPage({ params }: { params: Promise<{ runId: string }> }): Promise<JSX.Element> {
   const { runId } = await params;
   return (
     <div className="min-h-screen bg-[var(--surface-primary)] flex flex-col vignette-overlay paper-texture">

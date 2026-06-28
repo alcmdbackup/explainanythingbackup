@@ -13,7 +13,7 @@ export const metadata = {
   description: 'Paste an article, pick how it should be improved, see the result side-by-side.',
 };
 
-export default async function EditPage() {
+export default async function EditPage(): Promise<JSX.Element> {
   // Operational kill switch — if PUBLIC_EDIT_DISABLED=true, show a static
   // "temporarily unavailable" page instead of the form. The action also
   // rejects with 503 as a defense-in-depth backstop.

@@ -3,7 +3,7 @@
 
 import Navigation from '@/components/Navigation';
 
-export default function EditDisabledNotice() {
+export default function EditDisabledNotice(): JSX.Element {
   return (
     <div className="min-h-screen bg-[var(--surface-primary)] flex flex-col vignette-overlay paper-texture">
       <Navigation showSearchBar={false} />
