@@ -40,7 +40,6 @@ const EXPERIMENT_NAME = 'ELOEXP agent comparison fed reserve 20260626';
 const ARENA_PROMPT_NAME = 'ELOEXP Federal Reserve seed 20260626';
 // Source variant to copy as the seed (FR2, ~1325 Elo, most-settled — Decision A / KF7).
 const SOURCE_SEED_VARIANT_ID = '538bfbc9-5c17-458e-bfde-c4ce6c76dab3';
-const SOURCE_PROMPT_ID_FR2 = 'a546b7e9-f066-403d-9589-f5e0d2c9fa4f';
 const BUDGET_USD_PER_RUN = 0.10;
 
 // Shared generic criteria (KF7) for criteria arms — clarity / structure / engagement.
@@ -154,20 +153,20 @@ export async function setupArena(db: SupabaseClient): Promise<{ promptId: string
     return { promptId: existingPrompt.id };
   }
 
-  // Fetch the source seed variant (content + pinned rating) + the FR2 prompt text.
+  // Fetch the source seed variant (content + pinned rating).
   const { data: src, error: srcErr } = await db
     .from('evolution_variants')
     .select('variant_content, mu, sigma, elo_score')
     .eq('id', SOURCE_SEED_VARIANT_ID).single();
   if (srcErr || !src) throw new Error(`[FATAL] Could not load source seed variant ${SOURCE_SEED_VARIANT_ID}: ${srcErr?.message}`);
-  const { data: srcPrompt } = await db
-    .from('evolution_prompts').select('prompt').eq('id', SOURCE_PROMPT_ID_FR2).single();
 
-  // Create the new arena prompt.
+  // Create the new arena prompt. The prompt text must be UNIQUE (uq_arena_topic_prompt);
+  // it's cosmetic here — seed generation is skipped because we insert a seed-source row —
+  // so we use an experiment-tagged string rather than reusing FR2's text (which collides).
   const { data: prompt, error: pErr } = await db
     .from('evolution_prompts')
     .insert({
-      prompt: srcPrompt?.prompt ?? 'Explain the Federal Reserve.',
+      prompt: 'Explain the Federal Reserve — what it is, how it works, and why it matters. (arena: design_elo_improvement_experiment_20260626)',
       name: ARENA_PROMPT_NAME,
       status: 'active',
       prompt_kind: 'article',
