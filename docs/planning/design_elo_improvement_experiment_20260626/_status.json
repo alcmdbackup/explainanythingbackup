@@ -1,0 +1,25 @@
+{
+  "branch": "feat/design_elo_improvement_experiment_20260626",
+  "created_at": "2026-06-26T01:04:55Z",
+  "prerequisites": {
+    "testing_overview_read": "2026-06-27T04:54:13Z",
+    "testing_setup_read": "2026-06-27T04:54:14Z"
+  },
+  "relevantDocs": [
+    "evolution/docs/strategies_and_experiments.md",
+    "evolution/docs/arena.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/evolution_metrics.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/criteria_agents.md",
+    "evolution/docs/editing_agents.md",
+    "evolution/docs/paragraph_recombine.md",
+    "evolution/docs/paragraph_recombine_with_coherence_pass.md",
+    "evolution/docs/multi_iteration_strategies.md",
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/minicomputer_deployment.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/variant_lineage.md"
+  ],
+  "analyses": []
+}

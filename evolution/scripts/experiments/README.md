@@ -23,3 +23,4 @@ up with full cost tracking via `llmCallTracking`.
 |---|---|---|---|
 | `seedCoherencePassPerformanceExperiment_20260624.ts` | CoherencePassPerf A/B (federal_reserve_2) | [`investigate_paragraph_recombine_coherence_pass_performance_20260623`](../../../docs/planning/investigate_paragraph_recombine_coherence_pass_performance_20260623/) | 2026-06-24 |
 | `seedCoherencePassModeABExperiment_20260626.ts` | CoherencePassMode A/B (federal_reserve_2) — Mode A pinned vs Mode B default | [`rebuild_coherence_pass_agent_mode_ab_configurable_20260624`](../../../docs/planning/rebuild_coherence_pass_agent_mode_ab_configurable_20260624/) | 2026-06-26 |
+| `seedEloAgentComparisonExperiment_20260626.ts` | 9-agent comparison on a single ~1325-Elo seed (new isolated arena, 2 seed rows) | [`design_elo_improvement_experiment_20260626`](../../../docs/planning/design_elo_improvement_experiment_20260626/) | 2026-06-26 |
