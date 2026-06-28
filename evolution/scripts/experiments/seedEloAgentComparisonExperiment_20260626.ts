@@ -177,7 +177,9 @@ export async function setupArena(db: SupabaseClient): Promise<{ promptId: string
   const { data: prompt, error: pErr } = await db
     .from('evolution_prompts')
     .insert({
-      prompt: 'Explain the Federal Reserve — what it is, how it works, and why it matters. (arena: design_elo_improvement_experiment_20260626)',
+      // Must be UNIQUE per arena (uq_arena_topic_prompt) — include the (tag-bearing)
+      // arena name so each --tag gets distinct prompt text. Cosmetic (seed gen skipped).
+      prompt: `Explain the Federal Reserve — what it is, how it works, and why it matters. (arena: ${ARENA_PROMPT_NAME})`,
       name: ARENA_PROMPT_NAME,
       status: 'active',
       prompt_kind: 'article',

@@ -53,8 +53,9 @@ export type RunCoordinatorOptions = {
    *  REPLAN path. When BOTH `priorPicks` and `firstSlot` are provided AND `firstSlot > 0`,
    *  the coordinator builds the replan prompt (buildCoordinatorReplanPrompt) instead of
    *  the initial prompt, asking for a PARTIAL plan covering paragraphIndex in
-   *  [firstSlot, paragraphCount). Validation expects exactly `paragraphCount - firstSlot`
-   *  entries with each paragraphIndex in [firstSlot, paragraphCount). */
+   *  [firstSlot, paragraphCount). Validation accepts up to `paragraphCount - firstSlot`
+   *  entries (each paragraphIndex in [firstSlot, paragraphCount), unique); omitted indices
+   *  are padded with keep-original entries. */
   priorPicks?: readonly string[];
   firstSlot?: number;
 };
@@ -143,11 +144,12 @@ type ParseResult =
   | { ok: false; error: string };
 
 /** Parse + validate a coordinator plan response. Accepts both the initial-plan shape
- *  (paragraphIndex range [0, paragraphCount), exactly paragraphCount entries) and the
- *  replan shape (paragraphIndex range [firstSlot, paragraphCount), exactly
- *  paragraphCount - firstSlot entries). Each entry's paragraphIndex must lie in the
- *  expected range AND the entire range must be covered exactly once (no duplicates,
- *  no gaps). Phase 2 — replan path validation. */
+ *  (paragraphIndex range [0, paragraphCount)) and the replan shape (paragraphIndex range
+ *  [firstSlot, paragraphCount)). Each present entry's paragraphIndex must lie in the
+ *  expected range and be unique (no duplicates, no over-count). Under-count is tolerated:
+ *  omitted indices are padded with keep-original (shouldRewrite=false) entries so the
+ *  returned plan always covers the full range exactly once. Phase 2 — replan path
+ *  validation. */
 function parseAndValidate(
   rawResponse: string,
   paragraphCount: number,
@@ -175,10 +177,18 @@ function parseAndValidate(
   }
 
   const expectedSlotCount = paragraphCount - firstSlot;
-  if (result.data.paragraphPlans.length !== expectedSlotCount) {
+  // Over-count is garbage: a plan with MORE entries than slots must either duplicate an
+  // index or fall out of range (pigeonhole) — both caught below — so reject early with a
+  // clear message. Under-count is TOLERATED: small coordinator models (e.g. gpt-4.1-nano)
+  // frequently omit a paragraph, and a missing entry is recoverable because the sequential
+  // loop renders the parent paragraph verbatim for any slot lacking a plan. Rather than
+  // throwing away the whole invocation (the bug that produced zero paragraph_recombine
+  // variants in the 20260626 elo experiment), we pad the omitted slots with keep-original
+  // entries after the range/uniqueness pass (see padding block below).
+  if (result.data.paragraphPlans.length > expectedSlotCount) {
     return {
       ok: false,
-      error: `Plan has ${result.data.paragraphPlans.length} entries; expected ${expectedSlotCount} (firstSlot=${firstSlot}, paragraphCount=${paragraphCount})`,
+      error: `Plan has ${result.data.paragraphPlans.length} entries; expected at most ${expectedSlotCount} (firstSlot=${firstSlot}, paragraphCount=${paragraphCount})`,
     };
   }
 
@@ -204,6 +214,28 @@ function parseAndValidate(
         error: `Paragraph ${plan.paragraphIndex}: M=${plan.M} but candidates.length=${plan.candidates.length}`,
       };
     }
+  }
+
+  // Under-count tolerance: synthesize keep-original (shouldRewrite=false) entries for any
+  // paragraph index the coordinator omitted, so every slot has a plan entry and the
+  // sequential loop renders the parent paragraph verbatim for the omitted slots. Turns a
+  // frequent small-model failure (N-1 entries) from a hard invocation throw into a valid,
+  // slightly-more-conservative variant. Covers both the initial range [0, paragraphCount)
+  // and the replan range [firstSlot, paragraphCount).
+  if (seenIndices.size < expectedSlotCount) {
+    for (let idx = firstSlot; idx < paragraphCount; idx++) {
+      if (seenIndices.has(idx)) continue;
+      result.data.paragraphPlans.push({
+        paragraphIndex: idx,
+        role: 'body',
+        shouldRewrite: false,
+        priority: 'low',
+        M: 1,
+        candidates: [{ directive: '(unplanned slot — keep original)', temperature: 0.7 }],
+        rationale: 'synthesized: coordinator omitted this paragraph; defaulting to keep-original',
+      });
+    }
+    result.data.paragraphPlans.sort((a, b) => a.paragraphIndex - b.paragraphIndex);
   }
 
   return { ok: true, plan: result.data };

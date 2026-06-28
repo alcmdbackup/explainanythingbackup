@@ -150,12 +150,31 @@ describe('runCoordinator', () => {
     ).rejects.toBeInstanceOf(CoordinatorLLMError);
   });
 
-  it('rejects plan whose paragraphPlans length does not match paragraphCount', async () => {
-    const llm = makeLlmStub([JSON.stringify(VALID_PLAN), JSON.stringify(VALID_PLAN)]); // plan has 2 paragraphs
+  it('tolerates an under-count plan: pads the omitted slot as keep-original (no retry)', async () => {
+    // VALID_PLAN has 2 entries (indices 0,1); ask for 3 paragraphs → index 2 omitted.
+    // Small coordinator models routinely miscount; rather than throwing away the whole
+    // invocation (the 20260626 elo-experiment zero-variant bug), pad the omitted slot.
+    const llm = makeLlmStub([JSON.stringify(VALID_PLAN)]);
+    const result = await runCoordinator({
+      parentText: 'a\n\nb\n\nc',
+      paragraphCount: 3,
+      llm,
+      generationModel: 'gpt-4.1-nano',
+    });
+    expect(result.retried).toBe(false);
+    expect((llm.complete as jest.Mock).mock.calls).toHaveLength(1); // succeeded first try
+    expect(result.plan.paragraphPlans.map((p) => p.paragraphIndex)).toEqual([0, 1, 2]);
+    const padded = result.plan.paragraphPlans.find((p) => p.paragraphIndex === 2)!;
+    expect(padded.shouldRewrite).toBe(false); // omitted slot keeps its original paragraph
+  });
+
+  it('rejects an over-count plan (out-of-range index) and throws after retry', async () => {
+    // 2 entries but only 1 paragraph expected → index 1 is out of [0,1). Both attempts bad.
+    const llm = makeLlmStub([JSON.stringify(VALID_PLAN), JSON.stringify(VALID_PLAN)]);
     await expect(
       runCoordinator({
         parentText: 'a',
-        paragraphCount: 3, // expecting 3
+        paragraphCount: 1, // expecting at most 1; plan has 2
         llm,
         generationModel: 'gpt-4.1-nano',
       }),
@@ -185,5 +204,34 @@ describe('runCoordinator', () => {
         generationModel: 'gpt-4.1-nano',
       }),
     ).rejects.toBeInstanceOf(CoordinatorParseError);
+  });
+
+  it('tolerates under-count on the replan path (firstSlot>0)', async () => {
+    // Replan covers [2,4): 2 slots. Model returns 1 entry (index 2), omitting index 3.
+    const replanPlan: CoordinatorPlan = {
+      paragraphPlans: [
+        {
+          paragraphIndex: 2,
+          role: 'body',
+          shouldRewrite: true,
+          priority: 'medium',
+          M: 1,
+          candidates: [{ directive: 'd', temperature: 0.8 }],
+          rationale: 'r',
+        },
+      ],
+    };
+    const llm = makeLlmStub([JSON.stringify(replanPlan)]);
+    const result = await runCoordinator({
+      parentText: 'a\n\nb\n\nc\n\nd',
+      paragraphCount: 4,
+      llm,
+      generationModel: 'gpt-4.1-nano',
+      priorPicks: ['kept0', 'kept1'],
+      firstSlot: 2,
+    });
+    expect(result.kind).toBe('replan');
+    expect(result.plan.paragraphPlans.map((p) => p.paragraphIndex)).toEqual([2, 3]);
+    expect(result.plan.paragraphPlans.find((p) => p.paragraphIndex === 3)!.shouldRewrite).toBe(false);
   });
 });

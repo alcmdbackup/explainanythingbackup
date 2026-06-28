@@ -470,9 +470,11 @@ describe('Sequential Context-Aware Generation integration', () => {
       expect((llm.complete as jest.Mock).mock.calls).toHaveLength(2);
     });
 
-    it('replan validation rejects partial-coverage of the [firstSlot, paragraphCount) range', async () => {
-      // For paragraphCount=4 and firstSlot=1, the replan must cover indices 1, 2, 3
-      // exactly once. A plan with only index 1 should fail.
+    it('replan validation tolerates partial-coverage: pads omitted indices as keep-original', async () => {
+      // For paragraphCount=4 and firstSlot=1, the replan covers indices 1, 2, 3. A plan
+      // with only index 1 (small models routinely under-count) is now TOLERATED — indices
+      // 2 and 3 are padded with keep-original entries rather than throwing away the whole
+      // invocation (the 20260626 elo-experiment zero-variant bug).
       const incomplete: CoordinatorPlan = {
         paragraphPlans: [
           {
@@ -482,17 +484,20 @@ describe('Sequential Context-Aware Generation integration', () => {
           },
         ],
       };
-      const llm = makeLlmStub([JSON.stringify(incomplete), JSON.stringify(incomplete)]);
-      await expect(
-        runCoordinator({
-          parentText: 'a\n\nb\n\nc\n\nd',
-          paragraphCount: 4,
-          llm,
-          generationModel: 'gpt-4.1-nano',
-          priorPicks: ['winner'],
-          firstSlot: 1,
-        }),
-      ).rejects.toBeInstanceOf(CoordinatorParseError);
+      const llm = makeLlmStub([JSON.stringify(incomplete)]);
+      const result = await runCoordinator({
+        parentText: 'a\n\nb\n\nc\n\nd',
+        paragraphCount: 4,
+        llm,
+        generationModel: 'gpt-4.1-nano',
+        priorPicks: ['winner'],
+        firstSlot: 1,
+      });
+      expect(result.retried).toBe(false); // succeeded first try → no wasted retry
+      expect(result.plan.paragraphPlans.map((p) => p.paragraphIndex)).toEqual([1, 2, 3]);
+      for (const idx of [2, 3]) {
+        expect(result.plan.paragraphPlans.find((p) => p.paragraphIndex === idx)!.shouldRewrite).toBe(false);
+      }
     });
 
     it('initial path (no priorPicks/firstSlot) uses the original label + initial-plan validation', async () => {
