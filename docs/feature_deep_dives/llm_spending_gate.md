@@ -41,9 +41,13 @@ Orphan cleanup runs from the minicomputer's `processRunQueue.ts` BEFORE the clai
 
 ## Fail-CLOSED contract
 
-**Unconditional.** Any error path in the gate THROWS (`GlobalBudgetExceededError` with `cause: 'gate_check_failed'`). There is no env-var escape for the fail-CLOSED behavior — if the gate's DB reads break, every LLM call refuses until the underlying error is resolved. Cost-tracking integrity is treated as a load-bearing system invariant ([feedback_cost_tracking_fail_closed](../../memory/feedback_cost_tracking_fail_closed.md)).
+**Unconditional.** Any error path in the gate THROWS (`GlobalBudgetExceededError` with `cause: 'gate_check_failed'`). There is **no env-var escape** for the gate at all — if the gate's DB reads break, every LLM call refuses until the underlying error is resolved. Cost-tracking integrity is treated as a load-bearing system invariant ([feedback_cost_tracking_fail_closed](../../memory/feedback_cost_tracking_fail_closed.md)).
 
-The original Phase-0 `LLM_GATE_FAIL_CLOSED_DISABLED` rollback kill switch was retired in `fix/remove-llm-gate-failclosed-killswitch` after the staging soak proved the gate's DB reads were stable. `LLM_GATE_PANIC_BYPASS` remains as the only operational escape — but it kills the ENTIRE gate (not just the fail-closed path) and audit-logs on every call, so it can't be silently left on.
+Both Phase-0 env-var escape hatches were retired:
+- `LLM_GATE_FAIL_CLOSED_DISABLED` removed in `fix/remove-llm-gate-failclosed-killswitch` (PR #1305) after the staging soak proved the gate's DB reads were stable.
+- `LLM_GATE_PANIC_BYPASS` removed in the same PR after audit — its complexity (audit-log noise on every call + footgun risk of silently allowing unbounded LLM spend) outweighed its emergency-recovery value.
+
+The remaining override is **the DB-side kill switch** (`llm_cost_config.kill_switch` row): flipping that to `true` throws `LLMKillSwitchError` cleanly from the gate rather than bypassing it. Recovery via code revert if the gate itself is broken.
 
 Honeycomb-shaped events distinguish system-fault vs user-fault rejections:
 
@@ -56,7 +60,6 @@ Honeycomb-shaped events distinguish system-fault vs user-fault rejections:
 
 | Env var | Default | Effect when `'true'` |
 |---|---|---|
-| `LLM_GATE_PANIC_BYPASS` | unset | ALL gate checks short-circuit + audit-log to stderr per call. Last-resort tool for prolonged outages — turns the entire gate off. |
 | `PUBLIC_EDIT_RATE_LIMIT_DISABLED` | unset | Per-IP/per-region gate is no-op (E2E + CI bypass) |
 | `BOT_PROTECTION_DISABLED` | unset | BotID check skipped (E2E + local dev bypass) |
 | `PUBLIC_EDIT_DISABLED` | unset | `/edit` POST returns 503; page renders "temporarily unavailable" |

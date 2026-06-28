@@ -3,10 +3,11 @@
 //
 // Originally added in Phase 0 of build_website_for_evolutiOn_20260626:
 // - Fail-CLOSED on DB errors — UNCONDITIONAL. Any error path in the gate THROWS
-//   GlobalBudgetExceededError. (The Phase-0 LLM_GATE_FAIL_CLOSED_DISABLED rollback
-//   kill-switch was removed after staging soak; LLM_GATE_PANIC_BYPASS remains as
-//   the only operational escape, and it audit-logs on every call.)
-// - LLM_GATE_PANIC_BYPASS env var (operational kill-switch for all gate checks; audit-logged)
+//   GlobalBudgetExceededError. Both env-var escape hatches (LLM_GATE_FAIL_CLOSED_DISABLED
+//   and LLM_GATE_PANIC_BYPASS) were removed after the staging soak proved the gate stable.
+//   The DB-side kill switch (llm_cost_config.kill_switch) remains as the only operational
+//   override — it stops all LLM calls cleanly with LLMKillSwitchError rather than
+//   bypassing the gate.
 // - reserveForUser / recordActualForUser / releaseForUser triple (reserve-before-spend semantics)
 //   against the new per_user_daily_reservations table + reserve_per_user_daily_cost RPC
 //   (migration 20260627000002).
@@ -19,20 +20,6 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { GlobalBudgetExceededError, LLMKillSwitchError } from '@/lib/errors/serviceError';
 import type { CheckBudgetResult } from '@/lib/schemas/llmCostSchemas';
-
-/**
- * Operational panic bypass — when 'true', ALL gate checks short-circuit and allow
- * the call. Logs an audit line to stderr per call so the bypass is discoverable.
- * NEVER set in any deployed env by default. Last-resort tool for prolonged outages.
- */
-function panicBypassEnabled(): boolean {
-  if (process.env.LLM_GATE_PANIC_BYPASS === 'true') {
-    // Audit line — written every call so a forgotten flag is visible in container logs.
-    logger.error('[LLM_GATE_PANIC_BYPASS] gate disabled; call passing through unchecked');
-    return true;
-  }
-  return false;
-}
 
 // B088: Zod-parse the kill-switch config row instead of an unchecked cast.
 // The DB stores the value as `{ value: boolean }` JSON; anything else (a stringly-typed
@@ -117,7 +104,6 @@ export class LLMSpendingGate {
    * per_user_daily_reservations table — use `reserveForUser` for the airtight path.
    */
   async checkPerUserCap(userid: string, capUsd: number): Promise<void> {
-    if (panicBypassEnabled()) return;
     if (process.env.SEED_BYPASS_USER_CAP === 'true') return;
     if (!userid || capUsd <= 0) return;
 
@@ -197,7 +183,6 @@ export class LLMSpendingGate {
    * caller can pass it back unchanged to the reconcile call.
    */
   async reserveForUser(userid: string, estimatedCostUsd: number, capUsd: number): Promise<number> {
-    if (panicBypassEnabled()) return estimatedCostUsd;
     if (process.env.SEED_BYPASS_USER_CAP === 'true') return estimatedCostUsd;
     if (!userid || capUsd <= 0 || estimatedCostUsd <= 0) return 0;
 
@@ -272,7 +257,6 @@ export class LLMSpendingGate {
    * failure so the next call gets a fresh DB read.
    */
   async recordActualForUser(userid: string, reservedUsd: number): Promise<void> {
-    if (panicBypassEnabled()) return;
     if (!userid || reservedUsd <= 0) return;
 
     const today = new Date().toISOString().split('T')[0]!;
@@ -383,7 +367,6 @@ export class LLMSpendingGate {
 
   /** Throws on kill switch, over-cap, or DB errors (fail-closed). Returns reserved cost. */
   async checkBudget(callSource: string, estimatedCostUsd?: number): Promise<number> {
-    if (panicBypassEnabled()) return estimatedCostUsd ?? DEFAULT_RESERVATION_USD;
     const killSwitchEnabled = await this.getKillSwitch();
     if (killSwitchEnabled) {
       throw new LLMKillSwitchError();
