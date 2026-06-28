@@ -17,15 +17,22 @@ test.describe('/edit form smoke', { tag: ['@critical', '@skip-prod'] }, () => {
       if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
 
-    await page.goto('/edit');
+    await page.goto('/edit', { waitUntil: 'domcontentloaded' });
 
     // Page should render even if no public strategies are seeded yet —
     // we either see the form (when strategies exist) OR the empty-state notice.
+    // Drop the explicit timeout so the env-scaled default applies (CI 20s,
+    // prod 60s). Local dev Fast Refresh can interrupt within a 10s window.
     const form = page.getByTestId('edit-form');
     const empty = page.getByTestId('edit-form-no-strategies');
-    await expect(form.or(empty)).toBeVisible({ timeout: 10_000 });
+    await expect(form.or(empty)).toBeVisible();
 
-    // No console errors during render
-    expect(consoleErrors.filter((e) => !e.includes('Failed to load resource'))).toEqual([]);
+    // No console errors during render — filter HMR/Fast-Refresh noise.
+    const realErrors = consoleErrors.filter((e) =>
+      !e.includes('Failed to load resource') &&
+      !e.includes('Fast Refresh') &&
+      !e.includes('[HMR]'),
+    );
+    expect(realErrors).toEqual([]);
   });
 });
