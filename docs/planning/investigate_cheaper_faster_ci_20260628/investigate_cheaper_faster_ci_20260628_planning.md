@@ -58,6 +58,33 @@ All options remain on the table for Phase 2 evaluation — none are pre-eliminat
 ### Phase 2: Per-option deep investigation (do NOT commit yet)
 *This is the heart of the project. Each option gets a small scoped investigation; results feed Phase 3 decision.*
 
+#### Shared protocols (used by all Option B/C/D/E/F pilots)
+
+**Pilot measurement protocol** — every vendor/runner-swap pilot must:
+- Pin to a **single stable SHA** — use the last-green `main` commit at Phase 2 start; record the SHA in `_phase2_results.md`
+- Run **10 trials on the alt runner** + **10 control trials on `ubuntu-latest`** (same SHA, same workflow file modulo the `runs-on:` line). Without a control arm we cannot distinguish "vendor speedup" from "GitHub-hosted load dipped that hour."
+- Schedule trials so alt + control alternate (interleave, not back-to-back) — defeats time-of-day variance in GitHub-hosted load
+- Record per-trial: wall-clock duration, billable minutes (per-job timing endpoint), conclusion (success/failure/cancelled), Playwright `flaky` count from the JSON reporter
+- Report p50, p95, and standard deviation — single-sample comparisons are noise
+- **Inter-job needs caveat**: pilots that flip ONE job's `runs-on:` are testing that job in isolation. The wall-clock measurement captures only that job; if it's deep in a `needs:` chain (e.g. e2e-* depend on unit-tests → typecheck/lint), the end-to-end CI wall-clock improvement is bounded by the slowest job in its critical path, not by this one job's improvement.
+
+**Secret-propagation verification protocol** — every pilot must:
+- Use a **non-leaking presence check**, NEVER `env | grep` or `echo "$SECRET"`. Acceptable form:
+  ```bash
+  for V in NEXT_PUBLIC_SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY OPENAI_API_KEY ANTHROPIC_API_KEY \
+           DEEPSEEK_API_KEY OPENROUTER_API_KEY PINECONE_API_KEY PINECONE_INDEX_NAME_ALL \
+           PINECONE_NAMESPACE TEST_USER_EMAIL TEST_USER_PASSWORD TEST_USER_ID; do
+    if [[ -n "${!V}" ]]; then echo "$V: present"; else echo "$V: MISSING"; fi
+  done
+  ```
+- Verify GitHub Environment-scoped secrets resolve correctly: a pilot job using `environment: staging` must see staging secrets even when the runner is third-party (Environments scope secrets by environment, not by runner)
+- Reference list of expected secrets: environments.md "GitHub Secrets" section (12+ secrets per environment; ~23 unique names across repository + staging + Production)
+
+**Secret-rotation policy** — after a pilot completes:
+- If the pilot **succeeded and we adopt the vendor**, rotate any high-blast secret that cannot be revoked from the vendor's audit log. High-blast = `SUPABASE_SERVICE_ROLE_KEY` (full DB write), `*_API_KEY` for paid providers. Low-blast = `TEST_USER_PASSWORD` (test user only).
+- If the pilot **failed**, still rotate if there's any evidence the vendor's logs are persistent or world-readable, OR if vendor support staff have audit-log read access
+- Document rotation in `_phase2_results.md`; this is operational work that needs visibility
+
 #### Recommended Phase 2 order
 Do the free / instant-revert wins first so we know the post-cleanup baseline before paying for any vendor relationship. Each step's findings may reorder the rest — treat as a default, not a contract.
 
@@ -97,14 +124,17 @@ Reminder: yak-shaving and completionism are the failure modes this rule exists t
 #### Option B — Blacksmith pilot
 - [ ] Create a throwaway Blacksmith account; sign up at https://www.blacksmith.sh
 - [ ] On a feature branch, change `runs-on: ubuntu-latest` → `runs-on: blacksmith-2vcpu-ubuntu-2204` on **just the `e2e-evolution` job** (the highest cost driver)
-- [ ] Trigger that job 10 times via `gh workflow run` against a stable SHA
-- [ ] Measure: wall-clock p50 / p95, total billable min, success/fail rate (vendor flake), Playwright result diff vs GitHub-hosted baseline
-- [ ] Verify Docker-in-Docker still works for the `migration-verify-test` job (try on a second branch)
-- [ ] Verify all 23 secrets propagate identically (env-dump step in pilot)
-- [ ] Exit criterion: GO if observed speedup ≥ 1.3× AND no new flakes AND all secrets/Docker work. Compute projected $/yr at observed speedup. NO-GO if speedup < 1.2× or any compatibility break.
+- [ ] Apply pilot measurement protocol (see "Pilot measurement protocol" subsection below) — 10 runs on alt runner + 10 control runs on `ubuntu-latest`, same SHA
+- [ ] Measure: wall-clock p50 / p95, total billable min, success/fail rate (vendor flake), Playwright result diff vs GitHub-hosted control
+- [ ] Verify Docker-in-Docker still works for the `migration-verify-test` job (try on a second branch). Note: `migration-verify-test` pre-pulls `postgres:15-alpine` with a retry loop (ci.yml:301-308); alt runner Docker daemon warmup may interact with that retry budget.
+- [ ] Verify Rule 21 contract still holds on alt runner: dedicated `npm run build` step completes within its existing timeout AND start-only `npm start` webServer comes up within 120s (see testing_overview.md Rule 21)
+- [ ] Verify secret propagation using the non-leaking presence check (see "Secret-propagation verification protocol" subsection below) — do NOT `env | grep` or `echo "$SECRET"`
+- [ ] Verify GitHub Environment scoping still works: the job has `environment: staging`, so staging-scoped secrets must resolve when the runner is third-party
+- [ ] Exit criterion: GO if observed speedup ≥ 1.3× (vs control arm, not vs marketing claim) AND new-flake rate ≤ control flake rate + 5pp AND all secrets/Docker/Rule-21 verifications pass. Compute projected $/yr at observed speedup. NO-GO if speedup < 1.2× or any compatibility break.
+- [ ] Post-pilot: rotate any secret that was deemed "high-blast" if it cannot be revoked from Blacksmith's audit log (see "Secret-rotation policy" subsection below)
 
 #### Option C — Depot pilot
-- [ ] Same shape as Blacksmith pilot but with `runs-on: depot-ubuntu-24.04`
+- [ ] Same shape as Blacksmith pilot (including pilot-measurement protocol, secret-propagation protocol, Rule 21 verification, secret-rotation post-pilot) but with `runs-on: depot-ubuntu-24.04`
 - [ ] Additionally evaluate Depot's build-cache offering — does it speed up `npm ci` + Playwright browser install enough to justify the $0.20/GB/mo?
 - [ ] Exit criterion: same as Blacksmith. Compare head-to-head with Blacksmith pilot results.
 
@@ -137,10 +167,17 @@ Reminder: yak-shaving and completionism are the failure modes this rule exists t
 #### Option I — Workflow-level cleanup
 This is independent of any runner/plan change; the wins apply to all paths. Sub-investigations:
 
-- [ ] **I.1** Remove `deployment_status` trigger from `post-deploy-smoke.yml`. Per environments.md it's documented as an inert secondary that GitHub anti-recursion already drops; 95.5% of its runs are skipped. Measure: how many "skipped" runs disappear from the Actions tab after removal? Verify the `push: [production]` trigger still catches every real prod release.
-- [ ] **I.2** Free up GitHub Actions cache headroom. Current state: 10.6 GB / 88 entries. Run `gh api repos/Minddojo/explainanything/actions/caches?per_page=100 --paginate` and identify (a) oldest entries (b) entries from deleted/stale branches. Delete via `gh api -X DELETE`. Target: <5 GB / <30 entries.
-- [ ] **I.3** Audit the `detect-changes` classifier in `ci.yml:30-78`. Find any code-path that triggers `path=full` when only docs / docs+migrations changed. Each false-positive full path = ~37 billable min wasted.
-- [ ] **I.4** Validate Playwright browser cache hit rate. Sample 20 recent CI runs; count how often the `Install Playwright browsers` step ran (cache miss) vs `Install Playwright deps` (cache hit). If miss rate > 30%, the cache key is too narrow.
+- [ ] **I.1** Remove `deployment_status` trigger from `post-deploy-smoke.yml`. Per environments.md it's documented as an inert secondary that GitHub anti-recursion already drops; 95.5% of its runs are skipped. Cite `post-deploy-smoke.yml:9-12` (the `push: [production]` trigger that replaces it) in the commit message so a future contributor doesn't remove both. Measure: how many "skipped" runs disappear from the Actions tab after removal? Verify the `concurrency:` group on that workflow (post-deploy-smoke.yml:14) still serves a purpose under the surviving trigger.
+- [ ] **I.2** Free up GitHub Actions cache headroom. Current state: 10.6 GB / 88 entries.
+  - Run `gh api repos/Minddojo/explainanything/actions/caches?per_page=100 --paginate` and identify (a) oldest entries (b) entries from deleted/stale branches
+  - Generate a **dry-run preview** first: pipe candidate keys through `xargs -I{} echo "WOULD DELETE: {}"` before any actual `gh api -X DELETE`
+  - **Caution**: do NOT delete entries matching `nextjs-cache-Linux-` prefix (the `restore-keys` fallback for `.next/cache`) without confirming they're stale — aggressive deletion forces cold Next.js builds across all subsequent runs, briefly inflating cost before it deflates
+  - Target: <5 GB / <30 entries
+- [ ] **I.3** Audit the `detect-changes` classifier in `ci.yml:30-78`.
+  - **Concrete output**: produce a decision table — for each of the 5 routes (`fast`, `full`, `evolution-only`, `non-evolution-only`, `has_migrations`) list which jobs gate on it and what files trigger it. Save as `_phase2_classifier_audit.md`.
+  - **Sample**: take the last 50 merged PRs; reclassify each based on its actual changed-files list and the current classifier rules. Count false-positive `full` paths.
+  - **Exit criterion**: identify ≥1 reclassifiable route OR document "current classifier is optimal" with the sample's evidence
+- [ ] **I.4** Validate Playwright browser cache hit rate. Sample 20 recent CI runs; count how often the `Install Playwright browsers` step ran (cache miss) vs `Install Playwright deps` (cache hit). If miss rate > 30%, the cache key (`playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-${{ matrix.browser }}`) is too narrow — likely fix: drop the matrix.browser segment since we only use chromium.
 - [ ] **I.5** Audit `evolution-tracking-reconciliation` schedule. It's intentionally RED until the write path is deployed everywhere, but it's failing 100% currently. Check if any of those failures could be downgraded to a single nightly run instead of being on the daily critical-path.
 - [ ] **I.6** Look for jobs that don't need to run on `pull_request` triggers (e.g. some lint gates could be `push` only or vice-versa).
 
@@ -160,15 +197,30 @@ This is independent of any runner/plan change; the wins apply to all paths. Sub-
 
 - [ ] Apply chosen change to ONE highest-impact job first (likely `e2e-evolution`)
 - [ ] Monitor the next 10 real PRs that exercise that job
-- [ ] Compare wall-clock + failure-rate vs the prior 10 PRs (use `gh run list` + jq aggregation)
-- [ ] Maintain a 2-week fallback: if anything regresses, revert is one `runs-on:` change away
+- [ ] Compare wall-clock + failure-rate vs the prior 10 PRs on `ubuntu-latest` (use `gh run list` + jq aggregation)
+- [ ] **Required-checks re-mapping**: a `runs-on:` swap can rename matrix-expanded job IDs in the check-runs API and silently break branch protection. Before merging the Phase 4 change:
+  - Enumerate required checks: `gh api repos/Minddojo/explainanything/branches/main/protection --jq '.required_status_checks.contexts'`
+  - Compare against post-swap job names; if any drifted, update branch protection via `gh api -X PATCH` (admin scope required — likely needs user action)
+  - Repeat for `production` branch protection
+- [ ] **Concrete rollback criteria** — if any of these triggers fire within the 2-week window, revert via PR within 24h:
+  - Failure rate on the migrated job over rolling 10 PRs exceeds GitHub-hosted baseline + 5pp
+  - p95 wall-clock regresses > 10% vs GitHub-hosted baseline
+  - Vendor incident reported (status page) causes ≥ 2 consecutive blocked merges
+  - Cost reading from next billing cycle is ≥ baseline (i.e. didn't actually save)
+- [ ] **Rollback mechanism**: prepare a one-line revert PR template in `docs/planning/investigate_cheaper_faster_ci_20260628/_rollback_pr_template.md` with the `runs-on:` reversal and a placeholder for "Trigger: <criterion>". Owner: project author (single-user repo per Q1 resolution). Decision deadline: 14 days after Phase 4 start.
 
 ### Phase 5: Full rollout
 *Only after Phase 4 shows stable improvement.*
 
 - [ ] Migrate remaining workflows in order of cost-per-month descending
+- [ ] **Re-verify required-checks** after each workflow migration (same `gh api` enumeration from Phase 4)
 - [ ] Update `docs/docs_overall/environments.md` GitHub Actions section
-- [ ] Add a monthly cost-report script under `scripts/check-actions-cost.ts` so we catch any silent regression (the next time someone bumps a workflow's runner, we'll see it immediately)
+- [ ] **Manually update `docs/docs_overall/testing_overview.md`** — workflow YAML edits do NOT auto-surface this doc via `.claude/doc-mapping.json` (mapping only triggers on `tests/e2e/**` edits, not on workflow changes). Rule 21 references and CI workflow comparison tables (lines 305-320) need manual review.
+- [ ] Add a monthly cost-report script under `scripts/check-actions-cost.ts`:
+  - **Where it runs**: new lightweight workflow `.github/workflows/actions-cost-report.yml` on a monthly cron (1st of month, 00:00 UTC); single-runner ~30 sec; negligible billing impact
+  - **What it does**: pulls per-workflow billable min via `gh api repos/.../actions/workflows/{id}/timing`, sums to total, compares against a baseline stored in repo (`scripts/data/actions-cost-baseline.json`); files a `[release-health]` issue if month-over-month spend rises > 20%
+  - **What it depends on**: `gh` CLI in the runner image (already present in `ubuntu-latest`); PAT scope for the billing endpoint stored in a new `ACTIONS_COST_REPORT_PAT` repo secret
+  - **Failure detection**: if the workflow itself fails 2 consecutive months, e2e-nightly's notify-release-health already files `[release-health]` issues — extend or piggyback
 - [ ] Update `_status.json` `analyses` array if a formal `/analysis` report was produced
 
 ## Testing
@@ -226,3 +278,17 @@ The following docs were identified as relevant and may need updates:
 **Round 0.2 — Phase 2 discipline (2026-06-28):**
 - Added "Recommended Phase 2 order" subsection — encodes free/instant-revert wins first (Option I → E → A) before vendor pilots (B → C → F).
 - Added "savings-threshold early-exit" rule — Phase 2 STOPS when best projected savings ≥ $200/yr (declare victory) or < $50/yr (do nothing). Prevents yak-shaving and completionism on a project whose realistic max prize is ~$500/yr.
+
+**Round 1 — multi-agent /plan-review pass 1 fixes (2026-06-28):**
+Reviewers scored Security 3/5, Architecture 4/5, Testing 3/5. Addressed:
+- **Secret leakage**: replaced "env-dump step" (which would print secrets to world-readable Actions logs) with a non-leaking presence check that only echoes variable names. Added as shared "Secret-propagation verification protocol" referenced by all pilots.
+- **Pilot measurement noise**: added shared "Pilot measurement protocol" — 10 alt + 10 control trials on same SHA, interleaved, with p50/p95/stddev reported. Single-arm comparisons are too noisy for the 1.3× exit threshold.
+- **Production-secret exposure to third-party vendors**: added shared "Secret-rotation policy" — rotate high-blast secrets after vendor pilot regardless of GO/NO-GO outcome.
+- **Phase 4 rollback was named but undefined**: added 4 concrete revert triggers (failure-rate, p95 wall-clock, vendor incident, cost-reading), 24h deadline, single-user-repo owner, rollback PR template path.
+- **Required-checks re-mapping**: `runs-on:` swap can rename matrix job IDs and silently bypass branch protection. Added explicit enumeration + PATCH steps to Phase 4 and Phase 5.
+- **Rule 21 verification**: added explicit dedicated-build + start-only-webServer checks to Option B (and by reference C/D/E/F) pilots.
+- **Option I.3 audit scope**: replaced "audit the classifier" with a concrete decision-table output + 50-PR reclassification sample + exit criterion.
+- **I.2 cache deletion safety**: required dry-run preview and explicit warning about `nextjs-cache-Linux-` prefix.
+- **Inter-job needs chain**: documented that single-job pilots measure that job's improvement, not end-to-end CI wall-clock, in the Pilot measurement protocol.
+- **testing_overview.md doc-mapping gap**: flagged in Phase 5 as requiring manual update (workflow YAML edits don't auto-surface it).
+- **Phase 5 cost-report script**: specified runner venue (new monthly cron workflow), data location (baseline JSON in repo), failure-detection mechanism (piggyback on notify-release-health), and PAT secret requirement.
