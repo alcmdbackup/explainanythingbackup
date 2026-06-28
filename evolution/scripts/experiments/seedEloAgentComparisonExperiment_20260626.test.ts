@@ -72,4 +72,13 @@ describe('seedEloAgentComparison buildConfig', () => {
       expect(iter.maxDispatches).toBe(10);
     }
   });
+
+  it('#3: paragraph arms use a reliable coordinatorModel (flash-lite fails coordinator JSON)', () => {
+    for (const arm of ['paragraph_recombine', 'paragraph_recombine_with_coherence_pass'] as Arm[]) {
+      const cfg = buildConfig(arm) as unknown as { coordinatorModel?: string };
+      expect(cfg.coordinatorModel).toBe('gpt-4.1-nano');
+    }
+    // Non-paragraph arms don't set it.
+    expect((buildConfig('generate') as unknown as { coordinatorModel?: string }).coordinatorModel).toBeUndefined();
+  });
 });

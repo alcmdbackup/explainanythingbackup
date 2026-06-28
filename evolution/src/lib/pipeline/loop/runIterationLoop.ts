@@ -958,6 +958,9 @@ export async function evolveArticle(
           // instead of one-per-pool-parent. Default 'pool' preserves legacy behavior.
           const editingSourceMode = iterCfg.sourceMode ?? 'pool';
           let editingParents: Variant[];
+          // Hoisted so the seed-mode budget-fill top-up (#4) can dispatch more
+          // invocations off the same synthetic seed parent.
+          let editingSeedParent: Variant | null = null;
           if (editingSourceMode === 'seed') {
             const seedParent: Variant = {
               id: options?.seedVariantId ?? '',
@@ -996,6 +999,7 @@ export async function evolveArticle(
               cap: DISPATCH_SAFETY_CAP,
             });
             editingParents = Array.from({ length: seedDispatchCount }, () => seedParent);
+            editingSeedParent = seedParent;
             logger.info('Iterative-editing seed-sourced budget-fill', {
               iteration, iterIdx, seedDispatchCount, perInvocationEst, remainingForSize, phaseName: 'editing',
             });
@@ -1041,9 +1045,8 @@ export async function evolveArticle(
             const initialRatingsSnapshot: ReadonlyMap<string, Rating> | undefined = editingRankEnabled ? ratings : undefined;
             const initialMatchCountsSnapshot: ReadonlyMap<string, number> | undefined = editingRankEnabled ? matchCounts : undefined;
 
-            // Parallel dispatch via Promise.allSettled.
-            const parallelParents = editingParents.slice(0, dispatchCount);
-            const dispatchPromises = parallelParents.map(async (parent) => {
+            // One editing dispatch — reused by the initial batch and the seed top-up.
+            const runOneEditing = (parent: Variant): ReturnType<typeof editingAgent.run> => {
               const editExecOrder = ++executionOrder;
               const editCtx: AgentContext = {
                 db, runId, iteration,
@@ -1066,10 +1069,9 @@ export async function evolveArticle(
                 ...(initialMatchCountsSnapshot !== undefined ? { initialMatchCounts: initialMatchCountsSnapshot } : {}),
                 ...(editingRankEnabled ? { cache: comparisonCache, parentVariantId: parent.id } : {}),
               }, editCtx);
-            });
+            };
 
-            const settled = await Promise.allSettled(dispatchPromises);
-            for (const s of settled) {
+            const absorbEditing = (s: PromiseSettledResult<Awaited<ReturnType<typeof editingAgent.run>>>): void => {
               if (s.status === 'fulfilled' && s.value.success && s.value.result) {
                 const r = s.value.result as {
                   finalVariant: Variant | null;
@@ -1081,15 +1083,11 @@ export async function evolveArticle(
                   newVariants.push(r.finalVariant);
                   iterVariantsCreated++;
                 } else if (r.finalVariant !== null && !r.surfaced) {
-                  // Mirror generate branch (lines 660-665): collect non-surfaced
-                  // editing variants so the persistence layer can write them as
-                  // persisted=false rows. Without this, ranked-and-discarded
-                  // editing variants vanish and survivorship bias creeps into
-                  // parent→child Elo metrics.
+                  // Mirror generate branch: collect non-surfaced editing variants so the
+                  // persistence layer can write them as persisted=false rows (avoids
+                  // survivorship bias in parent→child Elo metrics).
                   discardedVariants.push(r.finalVariant);
                 }
-                // Phase 4.2 — collect ranking matches into the merge buffer
-                // (mirrors generate-branch line 561). Empty array when ranking skipped.
                 if (r.matches && r.matches.length > 0) {
                   editingMatchBuffers.push(
                     r.matches.map((m) => ({ match: m, idA: m.winnerId, idB: m.loserId })),
@@ -1098,6 +1096,36 @@ export async function evolveArticle(
                 if (s.value.budgetExceeded) {
                   iterStopReason = 'iteration_budget_exceeded';
                 }
+              }
+            };
+
+            // Initial parallel batch.
+            const spentBeforeBatch = iterTracker.getTotalSpent();
+            const parallelParents = editingParents.slice(0, dispatchCount);
+            (await Promise.allSettled(parallelParents.map(runOneEditing))).forEach(absorbEditing);
+
+            // Seed-mode budget-fill top-up (#4): the upfront cost estimate over-shoots
+            // ~5-10×, leaving editing arms spending a fraction of the budget. Keep
+            // dispatching off the seed using ACTUAL measured cost until the iteration
+            // budget is genuinely consumed (mirrors the generate-branch top-up loop).
+            // (cast: absorbEditing mutates iterStopReason inside a closure, which TS's
+            // control-flow narrowing doesn't track at these read sites.)
+            if (editingSeedParent !== null && (iterStopReason as string) !== 'iteration_budget_exceeded') {
+              const batchSpend = Math.max(0, iterTracker.getTotalSpent() - spentBeforeBatch);
+              const actualAvg = Math.max(
+                parallelParents.length > 0 ? batchSpend / parallelParents.length : perInvocationBudgetUsd,
+                1e-6,
+              );
+              let dispatched = parallelParents.length;
+              while (
+                dispatched < DISPATCH_SAFETY_CAP &&
+                (iterStopReason as string) !== 'iteration_budget_exceeded' &&
+                !options?.signal?.aborted &&
+                (iterBudgetUsd - iterTracker.getTotalSpent()) >= actualAvg
+              ) {
+                const settled = await Promise.allSettled([runOneEditing(editingSeedParent)]);
+                absorbEditing(settled[0]!);
+                dispatched++;
               }
             }
 

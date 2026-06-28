@@ -112,6 +112,7 @@ const BASE = {
 
 export function buildConfig(arm: Arm): StrategyConfig {
   const iter: Record<string, unknown> = { agentType: arm, sourceMode: 'seed', budgetPercent: 100 };
+  const extra: Record<string, unknown> = {};
   if (
     arm === 'criteria_and_generate' ||
     arm === 'single_pass_evaluate_criteria_and_generate' ||
@@ -125,8 +126,12 @@ export function buildConfig(arm: Arm): StrategyConfig {
     iter.rewritesPerParagraph = 3;
     iter.maxComparisonsPerParagraph = 6;
     iter.maxParagraphsPerInvocation = 12;
+    // #3: the sequential paragraph coordinator must emit a structured JSON plan;
+    // gemini-2.5-flash-lite produces malformed JSON. Use a reliable JSON model
+    // (gpt-4.1-nano, OpenAI-direct) just for the coordinator. One call/invocation.
+    extra.coordinatorModel = 'gpt-4.1-nano';
   }
-  return { ...BASE, iterationConfigs: [iter] } as unknown as StrategyConfig;
+  return { ...BASE, ...extra, iterationConfigs: [iter] } as unknown as StrategyConfig;
 }
 
 // ─── Env / DB ───────────────────────────────────────────────────
