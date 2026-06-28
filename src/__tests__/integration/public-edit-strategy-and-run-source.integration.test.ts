@@ -17,7 +17,7 @@ describe('public_visible + run_source (integration)', () => {
   let publicVisibleApplied = true;
   let runSourceApplied = true;
   let createdStrategyId: string | null = null;
-  let createdRunIds: string[] = [];
+  const createdRunIds: string[] = [];
 
   beforeAll(async () => {
     serviceClient = createTestSupabaseClient();

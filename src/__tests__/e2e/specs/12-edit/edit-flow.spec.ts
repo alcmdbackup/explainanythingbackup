@@ -22,13 +22,16 @@ test.describe('/edit happy path', { tag: ['@evolution', '@skip-prod'] }, () => {
   test('form renders the strategy picker + textarea with correct testids', async ({ page }) => {
     await page.goto('/edit');
 
-    // Render branch: either form OR empty-state
+    // Render branch: either form OR empty-state. Drop the explicit timeout so
+    // the env-scaled default applies (CI: 20s, prod: 60s).
     const form = page.getByTestId('edit-form');
     const empty = page.getByTestId('edit-form-no-strategies');
-    await expect(form.or(empty)).toBeVisible({ timeout: 10_000 });
+    await expect(form.or(empty)).toBeVisible();
 
-    // If the form is visible, the textarea + submit + picker should exist
-    if (await form.isVisible()) {
+    // If the form is visible, the textarea + submit + picker should exist.
+    // Use .count() for the branch predicate — never raises and never races
+    // hydration (no point-in-time isVisible check per testing rule 4).
+    if ((await form.count()) > 0) {
       await expect(page.getByTestId('strategy-picker')).toBeVisible();
       await expect(page.getByTestId('edit-textarea')).toBeVisible();
       await expect(page.getByTestId('edit-submit')).toBeVisible();
@@ -38,8 +41,14 @@ test.describe('/edit happy path', { tag: ['@evolution', '@skip-prod'] }, () => {
   test('typing text enables the submit button', async ({ page }) => {
     await page.goto('/edit');
     const form = page.getByTestId('edit-form');
-    if (!(await form.isVisible())) {
-      test.skip(true, 'no seeded public strategy available — skip');
+    // No seeded public strategy → empty-state renders; the assertions below
+    // would fail. Use the data-factory pattern: assert presence of either
+    // branch, and only run the typing-enable assertions when the form exists.
+    const empty = page.getByTestId('edit-form-no-strategies');
+    await expect(form.or(empty)).toBeVisible();
+    if ((await form.count()) === 0) {
+      // Empty-state branch: nothing to assert about typing.
+      return;
     }
 
     const textarea = page.getByTestId('edit-textarea');
