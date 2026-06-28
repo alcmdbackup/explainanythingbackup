@@ -11,6 +11,7 @@ jest.mock('@/lib/server_utilities', () => ({
 }));
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
+import { logger } from '@/lib/server_utilities';
 import { LLMSpendingGate, getSpendingGate, resetSpendingGate, getCallCategory } from './llmSpendingGate';
 import { GlobalBudgetExceededError, LLMKillSwitchError } from '@/lib/errors/serviceError';
 
@@ -430,6 +431,69 @@ describe('LLMSpendingGate', () => {
       resetSpendingGate();
       const b = getSpendingGate();
       expect(a).not.toBe(b);
+    });
+  });
+
+  describe('LLM_GATE_PANIC_BYPASS', () => {
+    afterEach(() => {
+      delete process.env.LLM_GATE_PANIC_BYPASS;
+    });
+
+    it('short-circuits checkBudget without touching the DB when set to "true"', async () => {
+      process.env.LLM_GATE_PANIC_BYPASS = 'true';
+      const supaSpy = (createSupabaseServiceClient as unknown as jest.Mock);
+      supaSpy.mockClear();
+      const reserved = await gate.checkBudget('returnExplanation', 0.05);
+      expect(reserved).toBe(0.05);
+      // No DB calls were made.
+      expect(supaSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns the default reservation when checkBudget is called without an explicit estimate', async () => {
+      process.env.LLM_GATE_PANIC_BYPASS = 'true';
+      const reserved = await gate.checkBudget('returnExplanation');
+      // DEFAULT_RESERVATION_USD inside the module is 0.01 (sanity-checked: any
+      // non-zero positive number is acceptable).
+      expect(reserved).toBeGreaterThan(0);
+    });
+
+    it('short-circuits checkPerUserCap', async () => {
+      process.env.LLM_GATE_PANIC_BYPASS = 'true';
+      // Must NOT throw even if the rollup query would otherwise refuse.
+      await expect(gate.checkPerUserCap('any-user', 1)).resolves.toBeUndefined();
+    });
+
+    it('short-circuits reconcileAfterCall', async () => {
+      process.env.LLM_GATE_PANIC_BYPASS = 'true';
+      await expect(gate.reconcileAfterCall(0.05, 'returnExplanation')).resolves.toBeUndefined();
+    });
+
+    it('emits the audit line to stderr / logger.error on every gate call', async () => {
+      process.env.LLM_GATE_PANIC_BYPASS = 'true';
+      const loggerErrorSpy = jest.spyOn(logger, 'error');
+      loggerErrorSpy.mockClear();
+      await gate.checkBudget('returnExplanation', 0.01);
+      expect(loggerErrorSpy).toHaveBeenCalledWith(expect.stringContaining('LLM_GATE_PANIC_BYPASS'));
+      loggerErrorSpy.mockRestore();
+    });
+
+    it('does NOT short-circuit when env var is unset or non-"true"', async () => {
+      // Strict-equality "true" only — verified by exercising the audit-line
+      // emission only when the var matches.
+      const loggerErrorSpy = jest.spyOn(logger, 'error');
+      delete process.env.LLM_GATE_PANIC_BYPASS;
+      loggerErrorSpy.mockClear();
+      mockSupabase();
+      await gate.checkBudget('returnExplanation', 0.01);
+      expect(loggerErrorSpy).not.toHaveBeenCalledWith(expect.stringContaining('LLM_GATE_PANIC_BYPASS'));
+
+      // Non-"true" value also doesn't trip the bypass.
+      process.env.LLM_GATE_PANIC_BYPASS = 'maybe';
+      loggerErrorSpy.mockClear();
+      mockSupabase();
+      await gate.checkBudget('returnExplanation', 0.01);
+      expect(loggerErrorSpy).not.toHaveBeenCalledWith(expect.stringContaining('LLM_GATE_PANIC_BYPASS'));
+      loggerErrorSpy.mockRestore();
     });
   });
 });

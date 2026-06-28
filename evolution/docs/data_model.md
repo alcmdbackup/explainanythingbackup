@@ -34,6 +34,7 @@ Stores strategy configurations with aggregated performance metrics. Strategies a
 | `first_used_at` | TIMESTAMPTZ | NOT NULL, default `now()` | |
 | `last_used_at` | TIMESTAMPTZ | NOT NULL, default `now()` | Updated by `update_strategy_aggregates` |
 | `is_test_content` | BOOLEAN | NOT NULL, default `false` | Populated by a BEFORE trigger calling `evolution_is_test_name(name)`. Replaces the admin UI's client-side `.not.in(<test strategy uuids>)` filter, which silently hit PostgREST URL length limits once staging accumulated ~1000 test strategies. Migration `20260415000001`. |
+| `public_visible` | BOOLEAN | NOT NULL, default `false` | Phase 1 of `build_website_for_evolutiOn_20260626`. Whether this strategy appears in the public `/edit` picker. Admin toggles via the inline button on `/admin/evolution/strategies` + the strategy detail page. Server-side guard in `updateStrategyAction` refuses `public_visible=true` when `config.budgetUsd > $0.10` (with structured error code `PUBLIC_VISIBLE_BUDGET_TOO_HIGH`). Backed by a composite partial index `WHERE public_visible = true AND status = 'active'`. Migration `20260627000003`. |
 | `created_at` | TIMESTAMPTZ | NOT NULL, default `now()` | |
 
 > **Note:** `avg_final_elo` uses Welford's online algorithm via the `update_strategy_aggregates` RPC. The `stddev_final_elo` and `avg_elo_per_dollar` columns are reserved for future use.
@@ -104,6 +105,7 @@ Central table for pipeline executions. Each run belongs to exactly one strategy 
 | `error_message` | TEXT | | Populated on failure |
 | `run_summary` | JSONB | | V3 summary, see [Run Summary V3](#run-summary-v3) |
 | `evolution_explanation_id` | UUID | NOT NULL, FK -> `evolution_explanations(id)` | Seed article identity |
+| `run_source` | TEXT | NOT NULL, DEFAULT `'admin'`, CHECK `('admin','minicomputer','public_edit','test','local')` | Phase 1 of `build_website_for_evolutiOn_20260626`. Provenance: `admin` = Trigger Run / API route, `minicomputer` = processRunQueue.ts, `public_edit` = `/edit` POST, `test` = E2E/integration fixtures, `local` = run-evolution-local.ts CLI. Backfilled by migration 20260627000004 via runner_id prefix heuristics (`v2-%` → minicomputer, `api-%` → admin, NULL → local). All NEW insert sites must explicitly set the column. |
 | `last_heartbeat` | TIMESTAMPTZ | | Stale runner detection |
 | `archived` | BOOLEAN | NOT NULL, default `false` | |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
@@ -432,6 +434,31 @@ Migration `20260621000001`. A **style fingerprint** is a DB-first, user-authored
 - `evolution_style_fingerprint_articles` — junction (the article set): `id`, `fingerprint_id`→fingerprints CASCADE, **`explanation_id` BIGINT**→`explanations` CASCADE *(nullable)*, **`article_text` TEXT** *(nullable)*, `position`, `added_at`. CHECK enforces **exactly one non-empty source** per row: `((explanation_id IS NOT NULL) <> (article_text IS NOT NULL)) AND (article_text IS NULL OR length(trim(article_text)) > 0)`.
 - `evolution_runs` gains **`style_fingerprint_id` UUID** (no FK — run survives fingerprint hard-delete) + **`style_fingerprint_snapshot` JSONB** (immutable `{traits}` captured at run start, so later edits never change what a historical run was generated/judged against).
 - `evolution_metrics.entity_type` CHECK extended with `'style_fingerprint'` (for the `total_extraction_cost` metric, written at CRUD time).
+
+### Per-user reservations table (Phase 0 of `build_website_for_evolutiOn_20260626`)
+
+`per_user_daily_reservations` (migration `20260627000002`) decouples reserve-before-spend
+semantics from the per-call_source `per_user_daily_cost_rollups` table. Keyed on
+`(date, user_id)` only (NO `call_source` — the rollups trigger writes per-call_source
+rows, so a call_source-keyed reservation would never reconcile under the actual LLM
+calls' `evolution_<agent>` source values).
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `date` | DATE | NOT NULL, PK part | |
+| `user_id` | TEXT | NOT NULL, PK part | Matches the existing `per_user_daily_cost_rollups.user_id` shape. |
+| `reserved_usd` | NUMERIC(12,6) | NOT NULL, default `0` | Atomically reserved against the per-user cap; decremented by app-side `reconcile_per_user_reservation` RPC. |
+| `updated_at` | TIMESTAMPTZ | NOT NULL, default `now()` | Targeted by `cleanup_orphaned_per_user_reservations` (15-min stale window). |
+
+**Partial index** `idx_per_user_reservations_stale ON (updated_at) WHERE reserved_usd > 0`
+makes the cleanup scan O(stale-rows) instead of O(all-rows).
+
+**Three new RPCs** (all `SECURITY DEFINER`, `service_role`-granted):
+- `reserve_per_user_daily_cost(p_user_id, p_date, p_estimated_usd, p_cap_usd) → jsonb` — `SELECT FOR UPDATE` pattern mirroring `check_and_reserve_llm_budget` (migration 20260228000001:84-117). Sums `total_cost_usd` across all `per_user_daily_cost_rollups.call_source` rows + the reservation row's `reserved_usd`. Rejects with `{ok: false}` if `total + reserved + estimate > cap`; otherwise increments and returns `{ok: true, reservedUsd, dailyTotal, dailyCap}`.
+- `reconcile_per_user_reservation(p_user_id, p_date, p_reserved_usd) → void` — `UPDATE … SET reserved_usd = GREATEST(0, reserved_usd - p_reserved_usd)`. Called app-side from `LLMSpendingGate.recordActualForUser` in the `finally` block of `callLLM`. NEVER called from the existing trigger (would double-decrement).
+- `cleanup_orphaned_per_user_reservations(p_stale_minutes INT DEFAULT 15) → INT` — zeros out reservations older than the stale window; returns count released. Called BEFORE the while-loop in `evolution/scripts/processRunQueue.ts` so it fires once per systemd-timer wake even when the queue is empty.
+
+See `docs/feature_deep_dives/llm_spending_gate.md` for the full layered cap stack.
 
 ## Entity Relationships
 

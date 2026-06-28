@@ -742,6 +742,8 @@ describe('evolutionActions', () => {
         is: jest.fn().mockReturnThis(),
         in: jest.fn().mockReturnThis(),
         single: jest.fn().mockResolvedValue({ data: { id: VALID_UUID_2, status: 'active' }, error: null }),
+        // validateRunContentRefs hits .maybeSingle() on the explanations probe.
+        maybeSingle: jest.fn().mockResolvedValue({ data: { id: 42 }, error: null }),
         insert: jest.fn().mockImplementation(() => {
           return {
             select: jest.fn().mockReturnThis(),
@@ -824,6 +826,10 @@ describe('evolutionActions', () => {
             data: { id: VALID_UUID_2, status: 'active' },
             error: null,
           });
+        },
+        // explanations probe (validateRunContentRefs)
+        (b: Record<string, jest.Mock>) => {
+          b.maybeSingle = jest.fn().mockResolvedValue({ data: { id: 1 }, error: null });
         },
         // evolution_runs insert
         (b: Record<string, jest.Mock>) => {

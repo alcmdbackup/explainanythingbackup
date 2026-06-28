@@ -979,13 +979,17 @@ async function callLLMModelRaw(
     const spendingGate = getSpendingGate();
     const estimatedCost = calculateLLMCost(effectiveModel, 1000, 4096, 0);
 
-    // Per-user cap: enforced only for the demo guest user (Phase 4 of
-    // fixes_explainanything_for_public_demo_20260523). $10/day prevents any
-    // single demo viewer from burning the global LLM budget mid-demo.
-    // Guarded by GUEST_USER_ID env var so missing config = no-op (not "always fail").
+    // Per-user gate (reserve-before-spend; Phase 0 of build_website_for_evolutiOn_20260626).
+    // Enforced only for the demo guest user (which is also the userid the public /edit
+    // surface passes via process.env.GUEST_USER_ID — by design, /edit traffic shares
+    // the same $10/day pool as the existing public-site guest auto-login traffic).
+    // Cap is now config-driven via `llm_cost_config.guest_user_daily_cap_usd` (default $10);
+    // previously hard-coded as `10` at this site.
     const guestUserId = process.env.GUEST_USER_ID;
+    let perUserReservedCost = 0;
     if (guestUserId && userid === guestUserId) {
-      await spendingGate.checkPerUserCap(userid, 10);
+      const guestCap = await spendingGate.getGuestUserCap();
+      perUserReservedCost = await spendingGate.reserveForUser(userid, estimatedCost, guestCap);
     }
 
     const reservedCost = await spendingGate.checkBudget(call_source, estimatedCost);
@@ -1023,6 +1027,16 @@ async function callLLMModelRaw(
                 });
             }
         });
+        // Phase 0: reconcile the per-user reservation. The llmCallTracking AFTER INSERT
+        // trigger writes the actual cost to per_user_daily_cost_rollups (separate table);
+        // we only release the reservation here, never re-add the actual.
+        if (perUserReservedCost > 0 && guestUserId) {
+            spendingGate.recordActualForUser(guestUserId, perUserReservedCost).catch((err) => {
+                logger.error('Per-user reservation reconcile failed (swallowed)', {
+                    error: err instanceof Error ? err.message : String(err),
+                });
+            });
+        }
     }
 }
 

@@ -212,8 +212,17 @@ The full set of strategy operations is exposed through `evolution/src/services/s
 - **listStrategiesAction** -- paginated listing with optional filters by status, created_by, and pipeline_type. Returns `{ items, total }` for pagination controls.
 - **getStrategyDetailAction** -- full detail for a single strategy by ID.
 - **createStrategyAction** -- validates input via Zod schema (including `iterationConfigs` validation: sum to 100, first must be generate, max 20), computes config hash and auto-label, inserts the row. The admin UI provides a 2-step wizard at `/admin/evolution/strategies/new` for creating strategies with an interactive iteration builder.
-- **updateStrategyAction** -- partial updates to name, description, or status.
+- **updateStrategyAction** -- partial updates to name, description, status, or **publicVisible** (Phase 1 of `build_website_for_evolutiOn_20260626`). The `publicVisible` flag controls whether the strategy appears in the public `/edit` picker. Server-side guard reads + parses `config.budgetUsd` independently of the client and refuses `publicVisible=true` when `> $0.10` with structured error code `PUBLIC_VISIBLE_BUDGET_TOO_HIGH` so the admin UI can show a specific tooltip. On successful toggle, invalidates the in-memory `listPublicStrategiesAction` cache.
 - **cloneStrategyAction** -- duplicates an existing strategy with a new name, useful for creating variations of a known-good config.
+- **listPublicStrategiesAction** (Phase 1, `publicAction`-wrapped — NOT admin-gated) -- returns the curated subset for the `/edit` picker: `public_visible=true AND status='active' AND is_test_content=false`. 60s in-memory cache (per serverless instance); invalidated by `updateStrategyAction` toggle.
+
+### Seeded `Public Edit Smoke` strategy
+
+`evolution/scripts/seedPublicEditE2EStrategy.ts` creates the strategy the E2E
+suite at `12-edit/edit-flow.spec.ts` uses. Name (`Public Edit Smoke`) deliberately
+avoids `[TEST]`/`[E2E]`/`[TEST_EVO]` + timestamp patterns so the
+`evolution_is_test_name` trigger leaves `is_test_content=false`. `budgetUsd=$0.001`
+passes the `updateStrategyAction` cap-guard. Idempotent via `ON CONFLICT (config_hash)`.
 
 ---
 

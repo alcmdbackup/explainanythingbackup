@@ -4,6 +4,7 @@
 
 import * as Sentry from "@sentry/nextjs";
 import { createBeforeSendLog } from "@/lib/sentrySanitization";
+import { redactEditPayload } from "@/lib/sentry/redactEditPayload";
 import { classifyHost } from "@/config/hostnames";
 
 // Production safeguard: FAST_DEV must NEVER run in production
@@ -62,6 +63,17 @@ Sentry.init({
     if (typeof host === 'string' && host.length > 0) {
       event.tags = { ...event.tags, site: classifyHost(host) };
     }
+
+    // Phase 4 of build_website_for_evolutiOn_20260626: finer-grained `surface=edit`
+    // tag for triage of public /edit issues.
+    const url = event.request?.url ?? '';
+    if (typeof url === 'string' && url.includes('/edit')) {
+      event.tags = { ...event.tags, surface: 'edit' };
+    }
+
+    // Phase 4: strip user-pasted article text from request payloads + breadcrumbs.
+    // Shared helper (see src/lib/sentry/redactEditPayload.test.ts).
+    redactEditPayload(event);
 
     return event;
   },

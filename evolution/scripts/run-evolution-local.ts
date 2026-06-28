@@ -227,6 +227,9 @@ async function createRunRecord(
       status: 'pending',
       budget_cap_usd: config.budgetUsd,
       strategy_id: strategyConfigId,
+      // Phase 1 of build_website_for_evolutiOn_20260626: explicit run_source provenance.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      run_source: 'local' as any,
     });
     if (error) {
       console.warn(`DB: Failed to create run record: ${error.message}`);

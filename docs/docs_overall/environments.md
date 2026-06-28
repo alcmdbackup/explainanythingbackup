@@ -8,7 +8,7 @@ The single Vercel project serves **two hostnames** for the explainanything / evo
 
 | Site | Hostname | Routes served | Login |
 |---|---|---|---|
-| Public | `explainanything.vercel.app` (or chosen apex) | `/`, `/results`, `/explanations`, `/sources/*`, `/userlibrary`, `/settings`, `/login`, `/api/returnExplanation`, `/api/runAISuggestionsPipeline`, `/api/stream-chat`, `/api/fetchSourceMetadata` | Supabase Auth (regular user accounts) |
+| Public | `explainanything.vercel.app` (or chosen apex) | `/`, `/results`, `/explanations`, `/sources/*`, `/userlibrary`, `/settings`, `/login`, `/edit`, `/edit/runs/*`, `/api/returnExplanation`, `/api/runAISuggestionsPipeline`, `/api/stream-chat`, `/api/fetchSourceMetadata` | Supabase Auth (regular user accounts). `/edit` is unauthed — uses `GUEST_USER_ID` for the per-user gate (see `docs/feature_deep_dives/llm_spending_gate.md`). |
 | Evolution | `ea-evolution.vercel.app` (placeholder — see `src/config/hostnames.ts`) | `/admin/evolution-dashboard`, `/admin/evolution/*`, `/api/evolution/*` | Supabase Auth + `admin_users` row check + hostname assertion in `requireAdmin()` |
 
 `src/middleware.ts` reads the `Host:` header on every request and 404s the wrong-mode routes per hostname. Cookies are hostname-scoped (`.vercel.app` is on the Public Suffix List), so admin sessions on the evolution hostname are structurally independent from any public-site session.
@@ -489,3 +489,19 @@ See `scripts/query-honeycomb.md` for detailed instructions on querying logs and 
 | `TEST_USER_PASSWORD` | E2E test user password |
 | `TEST_USER_ID` | E2E test user UUID |
 | `PINECONE_NAMESPACE` | Namespace for test isolation (`test` in CI) |
+
+### Public /edit surface (Phase 0/1/4 of build_website_for_evolutiOn_20260626)
+
+| Variable | Description |
+|----------|-------------|
+| `UPSTASH_REDIS_REST_URL` | Upstash KV REST URL for the perIpSpendingGate (per-IP + per-region $ caps). Production: prod Upstash database; Staging: dev Upstash database. Missing → gate degrades to no-op adapter (combined with fail-CLOSED, caps reject under load). |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash REST token (paired with `UPSTASH_REDIS_REST_URL`). |
+| `PUBLIC_EDIT_PER_IP_DAILY_USD_CAP` | Per-IP daily $ cap for the `/edit` surface. Default `0.50`. |
+| `PUBLIC_EDIT_PER_REGION_DAILY_USD_CAP` | Per-country daily $ cap. Default `5`. |
+| `PUBLIC_EDIT_RATE_LIMIT_DISABLED` | When `'true'`, `perIpSpendingGate` short-circuits to no-op. Set in `playwright.config.ts` for E2E and in CI envs for integration tests (shared egress IP would otherwise trip the cap). |
+| `BOT_PROTECTION_DISABLED` | When `'true'`, the server-side `checkBotId()` call in `submitPublicEditAction` short-circuits. Required for E2E + local dev (BotID only runs on Vercel infra). |
+| `PUBLIC_EDIT_DISABLED` | When `'true'`, `submitPublicEditAction` returns 503 and `/edit` page renders a static "temporarily unavailable" notice. Operational kill switch for turning the public surface off without a code revert. |
+| `LLM_GATE_FAIL_CLOSED_DISABLED` | When `'true'`, the gate reverts to today's silent-allow on DB error. Phase 0 rollback path; default OFF (fail-CLOSED). |
+| `LLM_GATE_PANIC_BYPASS` | When `'true'`, ALL gate checks short-circuit + audit-log to stderr per call. Last-resort. |
+
+See `docs/feature_deep_dives/llm_spending_gate.md` for the full cap stack + reserve-before-spend semantics.

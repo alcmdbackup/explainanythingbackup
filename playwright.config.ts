@@ -204,6 +204,15 @@ export default defineConfig({
           // 404s when getUser() returns the guest user id. Without this the
           // password-reset spec's guest-protection test cannot fire.
           ...(process.env.GUEST_USER_ID ? { GUEST_USER_ID: process.env.GUEST_USER_ID } : {}),
+          // Phase 1 of build_website_for_evolutiOn_20260626: bypass BotID +
+          // per-IP/per-region gates for E2E. BotID only runs on Vercel infra
+          // (always 403 outside it without bypass). CI workers share egress IP
+          // so per-IP cap would otherwise trip mid-suite.
+          // CONTRACT: any future test that needs to exercise the real BotID /
+          // per-IP path must spawn its own webServer with these unset, or invoke
+          // the underlying functions directly in a unit test.
+          BOT_PROTECTION_DISABLED: 'true',
+          PUBLIC_EDIT_RATE_LIMIT_DISABLED: 'true',
         },
       },
       // Secondary 3009 server — intentionally runs WITHOUT E2E_TEST_MODE so

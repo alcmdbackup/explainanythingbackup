@@ -1,0 +1,41 @@
+{
+  "branch": "feat/build_website_for_evolutiOn_20260626",
+  "created_at": "2026-06-26T00:00:00Z",
+  "prerequisites": {
+    "testing_overview_read": "2026-06-27T04:50:11Z",
+    "environments_read": "2026-06-27T04:50:20Z",
+    "todos_created": "2026-06-27T14:30:00Z"
+  },
+  "relevantDocs": [
+    "docs/docs_overall/design_style_guide.md",
+    "docs/feature_deep_dives/server_action_patterns.md",
+    "docs/feature_deep_dives/markdown_ast_diffing.md",
+    "docs/feature_deep_dives/authentication_rls.md",
+    "docs/feature_deep_dives/state_management.md",
+    "evolution/docs/architecture.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/strategies_and_experiments.md",
+    "evolution/docs/visualization.md",
+    "evolution/docs/arena.md",
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/reference.md",
+    "evolution/docs/variant_lineage.md",
+    "evolution/docs/agents/overview.md",
+    "evolution/docs/criteria_agents.md",
+    "evolution/docs/editing_agents.md",
+    "evolution/docs/entities.md",
+    "evolution/docs/evolution_metrics.md",
+    "evolution/docs/curriculum.md",
+    "evolution/docs/implicit_rubric_weights.md",
+    "evolution/docs/logging.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/minicomputer_deployment.md",
+    "evolution/docs/multi_iteration_strategies.md",
+    "evolution/docs/paragraph_recombine.md",
+    "evolution/docs/paragraph_recombine_with_coherence_pass.md",
+    "evolution/docs/prompt_editor.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/README.md"
+  ],
+  "analyses": []
+}

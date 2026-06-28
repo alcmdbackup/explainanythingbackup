@@ -166,6 +166,30 @@ async function main() {
   const targets = await buildDbTargets();
   log('info', 'Connected to databases', { targets: targets.map(t => t.name) });
 
+  // Phase 0 of build_website_for_evolutiOn_20260626: orphan-cleanup of per-user
+  // LLM reservations. Runs BEFORE the claim loop so it fires once per systemd-timer
+  // wake even when the queue is empty (the loop below exits immediately on
+  // "No pending runs found"). Releases reservations older than 15 minutes whose
+  // corresponding llmCallTracking row never landed (mid-call crash, container kill,
+  // etc.). Best-effort — swallows errors per-target so a transient DB blip doesn't
+  // abort the runner.
+  for (const target of targets) {
+    try {
+      // RPC added by migration 20260627000002; database.types.ts will regenerate on next CI types pass.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (target.client.rpc as any)('cleanup_orphaned_per_user_reservations', {
+        p_stale_minutes: 15,
+      });
+      if (error) {
+        log('warn', 'orphan cleanup RPC failed (continuing)', { db: target.name, error: error.message });
+      } else if (typeof data === 'number' && data > 0) {
+        log('info', 'orphan cleanup released reservations', { db: target.name, released: data });
+      }
+    } catch (err) {
+      log('warn', 'orphan cleanup threw (continuing)', { db: target.name, error: String(err) });
+    }
+  }
+
   let processedRuns = 0;
   // B056: persistent round-robin cursor across outer iterations. The previous code used
   // `targets[i % targets.length]` with `i` restarting from 0 each outer iteration, so the

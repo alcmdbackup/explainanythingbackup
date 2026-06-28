@@ -111,7 +111,18 @@ const updateStrategySchema = z.object({
   name: z.string().min(1).max(200).optional(),
   description: z.string().max(2000).optional(),
   status: z.enum(['active', 'archived']).optional(),
+  // Phase 1 of build_website_for_evolutiOn_20260626: per-strategy opt-in flag for
+  // the public /edit picker. Server-side guard enforces `config.budgetUsd <= 0.10`
+  // before allowing publicVisible=true.
+  publicVisible: z.boolean().optional(),
 });
+
+/** Maximum per-run budget allowed on a strategy that's also public_visible=true.
+ *  Matches the per-run cap on /edit submissions (evolution_runs.budget_cap_usd = $0.10). */
+const PUBLIC_VISIBLE_BUDGET_CAP_USD = 0.10;
+
+/** Structured error code for the admin UI tooltip when a budget-cap toggle fails. */
+const ERR_PUBLIC_VISIBLE_BUDGET_TOO_HIGH = 'PUBLIC_VISIBLE_BUDGET_TOO_HIGH';
 
 // ─── Actions ────────────────────────────────────────────────────
 
@@ -274,7 +285,7 @@ export const listEnsembleConfigsAction = adminAction(
   },
 );
 
-/** Update strategy name, description, or status. */
+/** Update strategy name, description, status, or publicVisible. */
 export const updateStrategyAction = adminAction(
   'updateStrategy',
   async (input: z.input<typeof updateStrategySchema>, ctx: AdminContext): Promise<StrategyListItem> => {
@@ -286,6 +297,33 @@ export const updateStrategyAction = adminAction(
     if (parsed.description !== undefined) updates.description = parsed.description;
     if (parsed.status !== undefined) updates.status = parsed.status;
 
+    // Phase 1 of build_website_for_evolutiOn_20260626: publicVisible guard.
+    // When enabling publicVisible, the strategy's config.budgetUsd must be <= $0.10
+    // (matches the per-run cap on /edit submissions). Read + parse the existing row
+    // independently of the client (defense-in-depth against stale client-side read).
+    if (parsed.publicVisible === true) {
+      const { data: existing, error: readErr } = await ctx.supabase
+        .from('evolution_strategies')
+        .select('config')
+        .eq('id', parsed.id)
+        .single();
+      if (readErr) throw readErr;
+      const cfg = (existing?.config ?? {}) as { budgetUsd?: number };
+      const budgetUsd = typeof cfg.budgetUsd === 'number' ? cfg.budgetUsd : null;
+      if (budgetUsd === null || budgetUsd > PUBLIC_VISIBLE_BUDGET_CAP_USD) {
+        const err = new Error(
+          `Per-run budget exceeds the public cap ($${PUBLIC_VISIBLE_BUDGET_CAP_USD.toFixed(2)}). Lower budgetUsd first.`,
+        ) as Error & { code?: string; budgetUsd?: number | null; cap?: number };
+        err.code = ERR_PUBLIC_VISIBLE_BUDGET_TOO_HIGH;
+        err.budgetUsd = budgetUsd;
+        err.cap = PUBLIC_VISIBLE_BUDGET_CAP_USD;
+        throw err;
+      }
+      updates.public_visible = true;
+    } else if (parsed.publicVisible === false) {
+      updates.public_visible = false;
+    }
+
     if (Object.keys(updates).length === 0) throw new Error('No fields to update');
 
     const { data, error } = await ctx.supabase
@@ -296,6 +334,13 @@ export const updateStrategyAction = adminAction(
       .single();
 
     if (error) throw error;
+
+    // Invalidate the public-strategies cache so the next /edit page load reflects
+    // the toggle immediately within this serverless instance. Cross-instance
+    // staleness is bounded by the 60s TTL.
+    if (parsed.publicVisible !== undefined) {
+      await invalidatePublicStrategiesCache();
+    }
 
     const stratLogger = createEntityLogger({
       entityType: 'strategy',
@@ -415,5 +460,86 @@ export const deleteStrategyAction = adminAction(
 
     stratLogger.info('Strategy deleted');
     return { deleted: true };
+  },
+);
+
+// ─── Public (unauthed) /edit picker support ─────────────────────────
+// Phase 1 of build_website_for_evolutiOn_20260626. The /edit page calls
+// listPublicStrategiesAction (via the publicAction wrapper) to populate its
+// strategy picker. Only rows with public_visible=true AND status='active' AND
+// is_test_content=false are returned. Cached 60s per serverless instance for
+// hot-path UX; invalidated by updateStrategyAction when publicVisible flips.
+
+import { publicAction, type PublicContext } from './publicAction';
+
+export interface PublicStrategySummary {
+  id: string;
+  name: string;
+  label: string;
+  description: string | null;
+  generationModel: string;
+  judgeModel: string;
+  iterationCount: number;
+}
+
+interface CacheEntry {
+  value: PublicStrategySummary[];
+  expiresAt: number;
+}
+const PUBLIC_STRATEGIES_CACHE_TTL_MS = 60_000;
+let publicStrategiesCache: CacheEntry | null = null;
+
+/** Drop the public-strategies cache. Called from updateStrategyAction whenever
+ *  publicVisible changes. Best-effort, per serverless instance.
+ *  Async by necessity — the file is 'use server', which only allows async exports. */
+export async function invalidatePublicStrategiesCache(): Promise<void> {
+  publicStrategiesCache = null;
+}
+
+export const listPublicStrategiesAction = publicAction(
+  'listPublicStrategies',
+  async (ctx: PublicContext): Promise<PublicStrategySummary[]> => {
+    if (publicStrategiesCache && Date.now() < publicStrategiesCache.expiresAt) {
+      return publicStrategiesCache.value;
+    }
+
+    // public_visible added by migration 20260627000003; cast until db.types regenerate.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const q: any = ctx.supabase
+      .from('evolution_strategies')
+      .select('id, name, label, description, config, public_visible, status, is_test_content')
+      .eq('public_visible', true)
+      .eq('status', 'active')
+      .eq('is_test_content', false);
+    const { data, error } = await q;
+
+    if (error) throw error;
+
+    type StrategyRow = {
+      id: string;
+      name: string;
+      label: string | null;
+      description: string | null;
+      config: StrategyConfig;
+    };
+    const items: PublicStrategySummary[] = ((data ?? []) as StrategyRow[]).map((row) => {
+      const config = (row.config ?? {}) as StrategyConfig;
+      return {
+        id: row.id,
+        name: row.name,
+        label: row.label ?? '',
+        description: row.description ?? null,
+        generationModel: config.generationModel ?? 'unknown',
+        judgeModel: config.judgeModel ?? 'unknown',
+        iterationCount: Array.isArray(config.iterationConfigs) ? config.iterationConfigs.length : 0,
+      };
+    });
+
+    publicStrategiesCache = {
+      value: items,
+      expiresAt: Date.now() + PUBLIC_STRATEGIES_CACHE_TTL_MS,
+    };
+
+    return items;
   },
 );

@@ -204,6 +204,35 @@ const eslintConfig = [
       "design-system/no-inline-typography": "off",
     },
   },
+  // Phase 0 of build_website_for_evolutiOn_20260626: block new callers of the
+  // deprecated `checkPerUserCap` (replaced by `reserveForUser`/`recordActualForUser`/
+  // `releaseForUser` triple). The wrapper is kept for one release cycle to enable
+  // rollback via `LLM_GATE_FAIL_CLOSED_DISABLED='true'`; delete this rule + the
+  // wrapper in the same follow-up PR that drops the kill switch.
+  // Carve-outs:
+  // - llmSpendingGate.ts defines the export
+  // - llmSpendingGate.test.ts tests the deprecated path explicitly
+  // - llms.ts (and any pre-existing call site) is allowed during the transition window
+  {
+    files: ["**/*.ts", "**/*.tsx"],
+    ignores: [
+      "src/lib/services/llmSpendingGate.ts",
+      "src/lib/services/llmSpendingGate.test.ts",
+      "src/lib/services/llms.ts",
+    ],
+    rules: {
+      "no-restricted-imports": ["error", {
+        paths: [
+          {
+            name: "@/lib/services/llmSpendingGate",
+            importNames: ["checkPerUserCap"],
+            message:
+              "checkPerUserCap is deprecated. Use reserveForUser/recordActualForUser/releaseForUser instead (Phase 0 of build_website_for_evolutiOn_20260626).",
+          },
+        ],
+      }],
+    },
+  },
 ];
 
 export default eslintConfig;

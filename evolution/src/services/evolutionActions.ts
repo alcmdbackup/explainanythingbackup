@@ -3,7 +3,7 @@
 // Provides CRUD for evolution runs, variant listing, cost breakdown, and logs.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid, getTestStrategyIds, applyNonTestStrategyFilter } from './shared';
+import { validateUuid, getTestStrategyIds, applyNonTestStrategyFilter, validateRunContentRefs } from './shared';
 import { logger } from '@/lib/server_utilities';
 import { logAdminAction } from '@/lib/services/auditLog';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
@@ -179,16 +179,6 @@ export const queueEvolutionRunAction = adminAction(
       throw new Error('Either explanationId or promptId is required');
     }
 
-    if (input.promptId) {
-      const { data: prompt } = await supabase
-        .from('evolution_prompts')
-        .select('id')
-        .eq('id', input.promptId)
-        .is('deleted_at', null)
-        .single();
-      if (!prompt) throw new Error(`Prompt not found: ${input.promptId}`);
-    }
-
     const { data: strategy } = await supabase
       .from('evolution_strategies')
       .select('id, status')
@@ -200,11 +190,19 @@ export const queueEvolutionRunAction = adminAction(
       throw new Error(`Strategy "${input.strategyId}" is archived and cannot be used for new runs`);
     }
 
+    // Validate content refs AFTER strategy check so invalid strategyId / archived
+    // strategy still fail fast without an extra round-trip to the explanations /
+    // evolution_prompts table. Shared validator — reused by publicEditActions.
+    await validateRunContentRefs({ explanationId: input.explanationId, promptId: input.promptId }, supabase);
+
     const budgetCap = input.budgetCapUsd ?? 5.00;
 
     const insertRow: Record<string, unknown> = {
       budget_cap_usd: budgetCap,
       strategy_id: input.strategyId,
+      // Phase 1: explicit run_source provenance (replaces the column DEFAULT 'admin'
+      // for clarity; CHECK constraint enforces the enum at the DB layer).
+      run_source: 'admin',
     };
     if (input.explanationId) insertRow.explanation_id = input.explanationId;
     if (input.promptId) insertRow.prompt_id = input.promptId;

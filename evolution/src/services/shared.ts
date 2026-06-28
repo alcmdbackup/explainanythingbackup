@@ -149,3 +149,44 @@ export function applyTestContentNameFilter(query: any): any {
     .not('name', 'ilike', '%[TEST_EVO]%')
     .not('name', 'ilike', 'test');
 }
+
+/**
+ * Validate run-content refs symmetrically (Phase 1 of build_website_for_evolutiOn_20260626).
+ * Earlier admin queueEvolutionRunAction validated promptId against evolution_prompts but
+ * NOT explanationId against explanations — meaning queued runs against deleted/nonexistent
+ * explanation IDs would only fail at claim-time. This shared validator is called from BOTH
+ * admin path (queueEvolutionRunAction) AND public path (submitPublicEditAction).
+ *
+ * At least one of explanationId / promptId must be provided. The validator queries the
+ * relevant target table(s) and throws with a clear message if absent.
+ */
+export async function validateRunContentRefs(
+  input: { explanationId?: number | null; promptId?: string | null },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+): Promise<void> {
+  if (!input.explanationId && !input.promptId) {
+    throw new Error('Either explanationId or promptId is required');
+  }
+
+  if (input.explanationId) {
+    const { data, error } = await supabase
+      .from('explanations')
+      .select('id')
+      .eq('id', input.explanationId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error(`Explanation not found: ${input.explanationId}`);
+  }
+
+  if (input.promptId) {
+    const { data, error } = await supabase
+      .from('evolution_prompts')
+      .select('id')
+      .eq('id', input.promptId)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error(`Prompt not found: ${input.promptId}`);
+  }
+}

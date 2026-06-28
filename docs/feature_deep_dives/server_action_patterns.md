@@ -65,6 +65,28 @@ All actions return a consistent structure:
 | **Metrics** | `getExplanationMetricsAction`, `refreshExplanationMetricsAction` |
 | **AI/Editing** | `generateAISuggestionsAction`, `applyAISuggestionsAction` |
 | **Link Admin** | `createWhitelistTermAction`, `approveCandidateAction` |
+| **Public /edit** | `submitPublicEditAction`, `getEditRunStatusAction`, `listPublicStrategiesAction` (all wrapped by the `publicAction` factory — see below) |
+
+### `publicAction` factory (Phase 1 of `build_website_for_evolutiOn_20260626`)
+
+For unauthed server actions on the public `/edit` surface. Mirrors `adminAction` minus
+`requireAdmin()`. Defined at `evolution/src/services/publicAction.ts`. Wraps a handler
+with `withLogging` + `serverReadRequestId` + a service-role Supabase client and returns
+the same `{success, data, error}` envelope.
+
+```typescript
+import { publicAction, type PublicContext } from '@evolution/services/publicAction';
+
+export const myUnauthedAction = publicAction(
+  'myUnauthedAction',
+  async (input: { x: number }, ctx: PublicContext): Promise<MyResult> => {
+    // ctx.supabase is the service-role client.
+    // No auth gate — cost / abuse defense lives at the perIpSpendingGate +
+    // LLMSpendingGate layers; see docs/feature_deep_dives/llm_spending_gate.md.
+    return doWork(input.x, ctx.supabase);
+  },
+);
+```
 
 ## Usage
 

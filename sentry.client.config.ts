@@ -4,6 +4,7 @@
 
 import * as Sentry from "@sentry/nextjs";
 import { createBeforeSendLog } from "@/lib/sentrySanitization";
+import { redactEditPayload } from "@/lib/sentry/redactEditPayload";
 import { classifyHost } from "@/config/hostnames";
 
 // FAST_DEV mode: Skip all Sentry initialization for faster local development
@@ -83,6 +84,19 @@ Sentry.init({
     if (typeof window !== 'undefined' && window.location?.host) {
       event.tags = { ...event.tags, site: classifyHost(window.location.host) };
     }
+
+    // Phase 4 of build_website_for_evolutiOn_20260626: finer-grained `surface=edit`
+    // tag for triage of public /edit issues (mirrors sentry.server.config).
+    const url = event.request?.url ?? (typeof window !== 'undefined' ? window.location?.pathname : '');
+    if (typeof url === 'string' && url.includes('/edit')) {
+      event.tags = { ...event.tags, surface: 'edit' };
+    }
+
+    // Phase 4: strip user-pasted article text from breadcrumbs / extras on
+    // the client side too — symmetric with server config. Browser exceptions
+    // can attach the textarea value via input.value / state snapshots / form
+    // breadcrumbs. Shared helper (see src/lib/sentry/redactEditPayload.test.ts).
+    redactEditPayload(event);
 
     return event;
   },
