@@ -197,5 +197,34 @@ The following docs were identified as relevant and may need updates:
 - [x] `evolution/docs/reference.md` — (Phase 0 already deleted the `EVOLUTION_COHERENCE_PASS_DEFAULTS_V2` row from the env-var table; nothing additional needed here.)
 - [x] No changes expected to: architecture, cost_optimization (cost profile similar), metrics (no new metrics)
 
+## Artifacts
+
+Phase 7 fanned out into three sequential staging A/Bs, all run from branch `chore/run_coherence_pass_mode_ab_staging_20260626` ([PR #1295](https://github.com/Minddojo/explainanything/pull/1295)):
+
+### A/B 1 — CoherencePassMode (Mode A vs Mode B), v1 — **INVALID**
+- **Seed script**: [`evolution/scripts/experiments/seedCoherencePassModeABExperiment_20260626.ts`](../../../evolution/scripts/experiments/seedCoherencePassModeABExperiment_20260626.ts)
+- **Experiment row**: `3aad46c9-6680-4856-9cfc-69dde5e852a9`
+- **Outcome**: invalidated — minicomputer ran pre-PR #1292 code (had not yet pulled main when runs executed). Both arms transparently fell back to Mode A code path. `coherencePass.config.editingMode` field missing from all 13 successful runs' execution_detail. Treated as historical and quarantined.
+- **Lesson**: per [`feedback_minicomputer_no_auto_pull`](../../../../.claude/projects/-home-ac-Documents-ac-explainanything-worktree0/memory/project_minicomputer_no_auto_pull.md), minicomputer requires manual `git pull` after every main merge affecting evolution code, BEFORE queueing verification runs.
+
+### A/B 2 — CoherencePassMode (Mode A vs Mode B), v2 — **valid, but bucket-confounded**
+- **Seed script**: same as v1 (re-run after minicomputer pull at 2026-06-27 01:40 UTC)
+- **Experiment row**: `efda7148-7b43-4eab-800a-855e4ebc5069`
+- **Strategies**: Mode A control `5a9b7f72-38fe-4e3d-a2cc-696dba3dd506`, Mode B treatment `fe314a1e-4894-4765-9162-8bf51c827dbc`
+- **Outcome**: 13 completed, 3 stale-claim-expired. Headline: Mode B applies edits in 14/14 cycles (vs Mode A's 1/6) — structural fix from PR #1292 works. Mean tactic eloAttrDelta: Mode B −53 Elo vs Mode A −115 Elo (16x scaled from raw mu to Elo).
+- **Caveat surfaced during analysis**: parent Elo imbalance (Mode A mean parent 1296 vs Mode B mean parent 1248) plus child-Elo collapse to a flat band (~1175–1220) made the headline +91 Elo median shift mostly artifact of parent quality + TrueSkill under-measurement (`maxComparisonsPerVariant: 3`). Within-bucket comparisons showed Mode A and Mode B essentially tied per parent-Elo bucket.
+
+### A/B 3 — CoherencePassEnabled (Phase C ON vs OFF) — **the clean controlled experiment**
+- **Seed script**: [`evolution/scripts/experiments/seedCoherencePassEnabledExperiment_20260627.ts`](../../../evolution/scripts/experiments/seedCoherencePassEnabledExperiment_20260627.ts)
+- **Experiment row**: `7ecb398a-7a43-4d1e-9015-22a01dbda05a`
+- **Strategies**: CP-Off control `0cd27136-b14a-408a-b7f6-635983c66bb6` (new), CP-On treatment `fe314a1e-…` (re-used from A/B 2)
+- **Analysis doc**: [`docs/analysis/coherence-pass-enabled-ab-results-20260627`](../../analysis/coherence-pass-enabled-ab-results-20260627/coherence-pass-enabled-ab-results-20260627.md)
+- **Outcome**: 16/16 completed cleanly. After controlling for multi-dispatch asymmetry (CP-Off got 2 multi-dispatch runs due to Phase-C-eating-budget mechanism) and using first-dispatch-per-run only:
+  - Mean Δ: CP-Off −53.1, CP-On −53.4 (essentially tied)
+  - Mann-Whitney one-sided p ≈ 0.56 (clearly null)
+  - Cost per variant: CP-Off $0.067, CP-On $0.070 (+5%)
+- **Verdict**: Phase C is approximately neutral on Elo at n=8/arm. The "−67 Elo coherence pass cost" prior observational finding does NOT replicate when Phase A + B are held constant — most of that gap came from agent-implementation differences between `paragraph_recombine` and `paragraph_recombine_with_coherence_pass`'s Phase A + B, not Phase C itself.
+- **Recommendation**: ship `coherencePassEnabled: false` as the default (statistically tied Elo, 5% cheaper per variant).
+
 ## Review & Discussion
 [This section is populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration]
