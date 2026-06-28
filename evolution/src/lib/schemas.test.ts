@@ -32,6 +32,7 @@ import {
   evolutionCriteriaFullDbSchema,
   evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema,
   iterationConfigSchema,
+  canBeFirstIteration,
   // Phase 2: Internal pipeline schemas
   variantSchema,
   strategyConfigSchema,
@@ -1861,6 +1862,20 @@ describe('iterationConfigSchema — new criteria-based agents (updated_criteria_
       sourceMode: 'seed',
     })).not.toThrow();
   });
+
+  // Phase 1b (design_elo_improvement_experiment_20260626): editing agents may now be
+  // the FIRST iteration when sourced from the seed.
+  it.each(['iterative_editing', 'iterative_editing_rewrite'] as const)(
+    '%s is allowed as the FIRST iteration with sourceMode=seed',
+    (agentType) => {
+      expect(() => strategyConfigSchema.parse({
+        generationModel: 'gpt-4.1-nano',
+        judgeModel: 'gpt-4.1-nano',
+        iterationConfigs: [{ agentType, budgetPercent: 100, sourceMode: 'seed' }],
+      })).not.toThrow();
+      expect(canBeFirstIteration(agentType)).toBe(true);
+    },
+  );
 });
 
 describe('iterationConfigSchema — debate_and_generate refinements (Phase 4.7)', () => {

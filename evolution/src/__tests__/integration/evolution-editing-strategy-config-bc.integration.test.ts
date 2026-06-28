@@ -102,16 +102,31 @@ describe('Phase 6.1.1b — strategy config schema BC', () => {
     expect(() => iterationConfigSchema.parse(invalid)).toThrow();
   });
 
-  it('rejects strategyConfig with iterative_editing as the FIRST iteration', () => {
+  it('rejects iterative_editing as the FIRST iteration without sourceMode=seed', () => {
+    // Phase 1b: editing CAN be first, but only sourced from the seed — an unset/pool
+    // first editing iteration has an empty pool → no-op, so the schema rejects it.
     const invalid = {
       generationModel: 'gpt-4.1',
       judgeModel: 'gpt-4.1',
       budgetUsd: 0.05,
       iterationConfigs: [
-        { agentType: 'iterative_editing', budgetPercent: 100 }, // can't be first
+        { agentType: 'iterative_editing', budgetPercent: 100 }, // no sourceMode=seed
       ],
     };
     expect(() => strategyConfigSchema.parse(invalid)).toThrow();
+  });
+
+  it('accepts iterative_editing as the FIRST iteration with sourceMode=seed (Phase 1b)', () => {
+    const valid = {
+      generationModel: 'gpt-4.1',
+      judgeModel: 'gpt-4.1',
+      budgetUsd: 0.05,
+      iterationConfigs: [
+        { agentType: 'iterative_editing', budgetPercent: 100, sourceMode: 'seed' },
+      ],
+    };
+    const parsed = strategyConfigSchema.parse(valid);
+    expect(parsed.iterationConfigs).toHaveLength(1);
   });
 
   it('rejects strategyConfig where swiss precedes all variant-producing iterations including editing', () => {

@@ -950,25 +950,75 @@ export async function evolveArticle(
           // agent's input-presence gate skips ranking. Default-true.
           const editingRankEnabled = resolveEditingRankEnabled(process.env);
 
-          // Compute eligible parents via shared helper (same call site as planner).
-          const arenaVariantIds = new Set<string>(); // Editing iterations don't add arena entries.
-          const dispatch = resolveEditingDispatchRuntime({
-            pool,
-            arenaVariantIds,
-            iterationStartRatings: ratings,
-            cutoff: iterCfg.editingEligibilityCutoff,
-          });
+          // ─── Resolve editing parents ──────────────────────────────
+          // Phase 1b (design_elo_improvement_experiment_20260626): sourceMode='seed'
+          // makes editing a first-iteration arm off the run's seed — synthesize a seed
+          // parent and budget-FILL N independent editing invocations off it (each varied
+          // by LLM temperature; requires generationTemperature>0 for real diversity),
+          // instead of one-per-pool-parent. Default 'pool' preserves legacy behavior.
+          const editingSourceMode = iterCfg.sourceMode ?? 'pool';
+          let editingParents: Variant[];
+          if (editingSourceMode === 'seed') {
+            const seedParent: Variant = {
+              id: options?.seedVariantId ?? '',
+              text: originalText,
+              version: 0,
+              parentIds: [],
+              tactic: 'seed',
+              createdAt: Date.now(),
+              iterationBorn: iteration,
+            };
+            // Size N by budget. Over-estimation is safe: the IterationBudgetTracker
+            // reserves before each call and the dispatch loop handles budgetExceeded,
+            // so excess invocations no-op rather than overspend.
+            const { estimateIterativeEditingCost } = await import('../infra/estimateCosts');
+            const editingModelForEst = (resolvedConfig as { editingModel?: string }).editingModel ?? resolvedConfig.generationModel;
+            const approverModelForEst = (resolvedConfig as { approverModel?: string }).approverModel ?? editingModelForEst;
+            const maxCyclesForEst = (iterCfg as { editingMaxCycles?: number }).editingMaxCycles ?? 3;
+            const maxCmpForEst = resolvedConfig.maxComparisonsPerVariant ?? 15;
+            const editEst = estimateIterativeEditingCost(
+              originalText.length,
+              editingModelForEst,
+              approverModelForEst,
+              editingModelForEst,
+              resolvedConfig.judgeModel,
+              maxCyclesForEst,
+              editingRankEnabled ? pool.length : 0,
+              editingRankEnabled ? maxCmpForEst : 0,
+              iterType === 'iterative_editing_rewrite' ? 'rewrite' : 'markup',
+            );
+            const perInvocationEst = Math.max(editEst.expected + editEst.expectedRanking, 1e-6);
+            const remainingForSize = Math.max(0, iterBudgetUsd - iterTracker.getTotalSpent());
+            const { resolveSeedEditingDispatchCount } = await import('./editingDispatch');
+            const seedDispatchCount = resolveSeedEditingDispatchCount({
+              remainingBudgetUsd: remainingForSize,
+              perInvocationEstUsd: perInvocationEst,
+              cap: DISPATCH_SAFETY_CAP,
+            });
+            editingParents = Array.from({ length: seedDispatchCount }, () => seedParent);
+            logger.info('Iterative-editing seed-sourced budget-fill', {
+              iteration, iterIdx, seedDispatchCount, perInvocationEst, remainingForSize, phaseName: 'editing',
+            });
+          } else {
+            const arenaVariantIds = new Set<string>(); // Editing iterations don't add arena entries.
+            const dispatch = resolveEditingDispatchRuntime({
+              pool,
+              arenaVariantIds,
+              iterationStartRatings: ratings,
+              cutoff: iterCfg.editingEligibilityCutoff,
+            });
+            editingParents = dispatch.eligibleParents.slice(0, Math.min(dispatch.eligibleParents.length, DISPATCH_SAFETY_CAP));
+          }
 
-          if (dispatch.eligibleParents.length === 0) {
+          if (editingParents.length === 0) {
             logger.warn('Iterative-editing: no eligible parents after cutoff', {
               iteration, iterIdx, poolSize: pool.length, phaseName: 'editing',
             });
             iterStopReason = 'iteration_no_pairs';
           } else {
-            // Cap dispatch count by eligible-parents count and DISPATCH_SAFETY_CAP.
             // Per-invocation budget split: divide remaining iter budget across invocations
             // per Decisions §15 (prevents starvation under shared IterationBudgetTracker).
-            const dispatchCount = Math.min(dispatch.eligibleParents.length, DISPATCH_SAFETY_CAP);
+            const dispatchCount = editingParents.length;
             const remainingBudget = Math.max(0, iterBudgetUsd - iterTracker.getTotalSpent());
             const perInvocationBudgetUsd = dispatchCount > 0
               ? remainingBudget / dispatchCount
@@ -992,7 +1042,7 @@ export async function evolveArticle(
             const initialMatchCountsSnapshot: ReadonlyMap<string, number> | undefined = editingRankEnabled ? matchCounts : undefined;
 
             // Parallel dispatch via Promise.allSettled.
-            const parallelParents = dispatch.eligibleParents.slice(0, dispatchCount);
+            const parallelParents = editingParents.slice(0, dispatchCount);
             const dispatchPromises = parallelParents.map(async (parent) => {
               const editExecOrder = ++executionOrder;
               const editCtx: AgentContext = {

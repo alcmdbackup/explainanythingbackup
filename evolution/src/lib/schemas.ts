@@ -706,15 +706,20 @@ const CRITERIA_BASED_AGENT_TYPES = new Set<IterationAgentType>([
 ]);
 
 /** Helper: agent types that may appear as the FIRST iteration of a strategy.
- *  Editing modes are excluded — they require existing variants to edit. Swiss is
- *  also excluded — it only re-ranks. Debate is excluded — it requires ≥2 pool variants
- *  (top-2 selection). All variant-producing-from-seed agents qualify. */
+ *  Swiss is excluded — it only re-ranks. Debate is excluded — it requires ≥2 pool
+ *  variants (top-2 selection). Editing modes (Mode A / Mode B) ARE allowed as the
+ *  first iteration when `sourceMode='seed'`: the runtime synthesizes a seed parent
+ *  Variant from the run's seed text and dispatches budget-fill editing invocations
+ *  off it (design_elo_improvement_experiment_20260626 Phase 1b). All
+ *  variant-producing-from-seed agents qualify. */
 export function canBeFirstIteration(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
   return t === 'generate'
     || t === 'reflect_and_generate'
     || t === 'criteria_and_generate'
     || t === 'single_pass_evaluate_criteria_and_generate'
     || t === 'proposer_approver_criteria_generate'
+    || t === 'iterative_editing'
+    || t === 'iterative_editing_rewrite'
     || t === 'paragraph_recombine'
     || t === 'paragraph_recombine_with_coherence_pass';
 }
@@ -779,7 +784,10 @@ export const iterationConfigSchema = z.object({
   agentType: iterationAgentTypeEnum,
   /** Percentage of total budget allocated to this iteration (1-100). Dollar amount = budgetPercent / 100 * totalBudgetUsd. */
   budgetPercent: z.number().min(1).max(100),
-  /** Source of the parent article: 'seed' (default) or 'pool'. Only valid for variant-producing iterations (generate, reflect_and_generate). */
+  /** Source of the parent article: 'seed' (default) or 'pool'. Valid for variant-producing
+   *  iterations (generate, reflect_and_generate) AND editing iterations — `sourceMode='seed'`
+   *  on an editing iteration makes the runtime synthesize a seed parent and budget-fill editing
+   *  invocations off it (Phase 1b). swiss/debate are refined out separately. */
   sourceMode: sourceModeEnum.optional(),
   /** Quality cutoff for pool-mode parent selection. Required when sourceMode='pool'. */
   qualityCutoff: qualityCutoffSchema.optional(),
@@ -1133,6 +1141,15 @@ const strategyConfigBaseSchema = z.object({
   // First iteration cannot use pool-mode (pool is empty at start).
   return c.iterationConfigs[0]?.sourceMode !== 'pool';
 }, { message: 'First iteration cannot use sourceMode=pool (pool is empty at start); use seed mode' }).refine((c) => {
+  // Phase 1b (design_elo_improvement_experiment_20260626): an editing agent as the
+  // FIRST iteration MUST source from the seed. With unset/pool sourceMode the pool is
+  // empty at iteration 1, so the editing branch would produce zero variants (no-op).
+  const first = c.iterationConfigs[0];
+  if (first != null && isEditingAgentType(first.agentType)) {
+    return first.sourceMode === 'seed';
+  }
+  return true;
+}, { message: 'iterative_editing / iterative_editing_rewrite as the first iteration must set sourceMode=seed (pool is empty at start)' }).refine((c) => {
   // No swiss iteration may precede ALL variant-producing iterations.
   // Editing IS variant-producing per Decisions §14 (final cycle materializes a Variant).
   let hasVariantProducing = false;

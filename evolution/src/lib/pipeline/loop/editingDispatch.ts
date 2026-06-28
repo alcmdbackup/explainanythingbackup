@@ -52,6 +52,26 @@ export function applyCutoffToCount(
   return { eligibleCount: cutoffCount, effectiveCap: 'eligibility' };
 }
 
+/**
+ * Phase 1b (design_elo_improvement_experiment_20260626): size the budget-fill for a
+ * seed-sourced editing iteration. Editing has no within-iteration top-up loop, so a
+ * single seed parent would yield ONE variant and massively under-spend; instead we
+ * dispatch N independent editing invocations off the seed. N = how many the remaining
+ * iteration budget affords (floor), clamped to [1, cap]. Over-estimation is safe — the
+ * IterationBudgetTracker reserves before each call, so excess invocations no-op rather
+ * than overspend. Pure for unit-testing.
+ */
+export function resolveSeedEditingDispatchCount(args: {
+  remainingBudgetUsd: number;
+  perInvocationEstUsd: number;
+  cap: number;
+}): number {
+  const { remainingBudgetUsd, perInvocationEstUsd, cap } = args;
+  if (perInvocationEstUsd <= 0) return Math.max(1, Math.min(1, cap));
+  const affordable = Math.floor(Math.max(0, remainingBudgetUsd) / perInvocationEstUsd);
+  return Math.max(1, Math.min(affordable, Math.max(1, cap)));
+}
+
 /** Runtime entry: takes the actual pool + ratings; returns the eligible Variants. */
 export function resolveEditingDispatchRuntime(args: {
   pool: ReadonlyArray<Variant>;
