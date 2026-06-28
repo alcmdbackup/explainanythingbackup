@@ -4,6 +4,7 @@
 
 import * as Sentry from "@sentry/nextjs";
 import { createBeforeSendLog } from "@/lib/sentrySanitization";
+import { redactEditPayload } from "@/lib/sentry/redactEditPayload";
 import { classifyHost } from "@/config/hostnames";
 
 // Production safeguard: FAST_DEV must NEVER run in production
@@ -71,28 +72,8 @@ Sentry.init({
     }
 
     // Phase 4: strip user-pasted article text from request payloads + breadcrumbs.
-    // Defense against a visitor accidentally pasting an API key/PII into the textarea
-    // and a downstream error landing the raw body in Sentry. Predicate matches the
-    // POST payload field name (`articleText`) anywhere in the body string.
-    try {
-      const body = event.request?.data;
-      if (typeof body === 'string' && body.includes('articleText')) {
-        event.request = { ...event.request, data: '[redacted: edit submission body]' };
-      } else if (body && typeof body === 'object' && Object.prototype.hasOwnProperty.call(body, 'articleText')) {
-        event.request = { ...event.request, data: '[redacted: edit submission body]' };
-      }
-      if (event.breadcrumbs) {
-        event.breadcrumbs = event.breadcrumbs.map((bc) => {
-          const bcBody = bc.data?.body;
-          if (typeof bcBody === 'string' && bcBody.includes('articleText')) {
-            return { ...bc, data: { ...bc.data, body: '[redacted: edit submission body]' } };
-          }
-          return bc;
-        });
-      }
-    } catch {
-      // Defensive: never let the redaction itself crash beforeSend.
-    }
+    // Shared helper (see src/lib/sentry/redactEditPayload.test.ts).
+    redactEditPayload(event);
 
     return event;
   },
