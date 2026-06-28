@@ -1675,6 +1675,79 @@ export async function evolveArticle(
               }
             }
 
+            // Seed-mode budget-fill top-up (mirrors the editing #4 fix). In sourceMode='seed'
+            // there is exactly ONE resolved parent (the seed), so parallelDispatchCount and the
+            // parent-bounded top-up above both cap at 1 — leaving paragraph arms at a single
+            // dispatch that spends a fraction of the budget (and failing the whole run when that
+            // lone invocation's variant is nulled by the per-invocation pre-final-ranking gate).
+            // Keep dispatching the SAME seed parent using ACTUAL measured cost until the
+            // iteration budget is genuinely consumed (bounded by maxDispatchesK). Gated on
+            // maxDispatchesK>1 so seed runs that leave maxDispatches unset keep their exact
+            // single-dispatch back-compat behavior; this gives maxDispatches a coherent meaning
+            // in seed mode (the budget-fill ceiling) where it was previously inert. (cast:
+            // iterStopReason is mutated by the dispatch loop, which TS's control-flow narrowing
+            // doesn't track at these read sites.)
+            if (
+              topUpEnabled &&
+              iterSourceMode === 'seed' &&
+              maxDispatchesK > 1 &&
+              (iterStopReason as string) !== 'iteration_budget_exceeded' &&
+              resolvedParents.length > 0
+            ) {
+              const seedParentRef = resolvedParents[0]!;
+              const seedAvgCost = Math.max(actualAvgCostPerAgent ?? expectedPerAgent, 1e-6);
+              let seedDispatched = parallelDispatchCount; // parent-bounded top-up is a no-op in seed mode
+              while (
+                seedDispatched < maxDispatchesK &&
+                seedDispatched < DISPATCH_SAFETY_CAP &&
+                (iterStopReason as string) !== 'iteration_budget_exceeded' &&
+                !options?.signal?.aborted &&
+                (iterBudgetUsd - iterTracker.getTotalSpent()) >= seedAvgCost
+              ) {
+                const execOrder = ++executionOrder;
+                const paragraphAgent = new ParagraphRecombineAgent();
+                try {
+                  const prResult = await paragraphAgent.run({
+                    parentText: seedParentRef.text,
+                    parentVariantId: seedParentRef.variantId,
+                    rewritesPerParagraph: iterCfg.rewritesPerParagraph,
+                    maxComparisonsPerParagraph: iterCfg.maxComparisonsPerParagraph,
+                    maxParagraphsPerInvocation: iterCfg.maxParagraphsPerInvocation,
+                    perInvocationCapUsd: iterCfg.perInvocationCapUsd,
+                    initialPool: pool,
+                    initialRatings: ratings,
+                    initialMatchCounts: matchCounts,
+                    cache: comparisonCache,
+                  }, makePrCtx(execOrder));
+                  if (prResult.budgetExceeded) {
+                    iterStopReason = 'iteration_budget_exceeded';
+                    break;
+                  }
+                  const prOutput = prResult.result;
+                  if (prOutput?.variant && prOutput.surfaced) {
+                    surfacedVariants.push(prOutput.variant);
+                    iterVariantsCreated++;
+                    if (prOutput.matches && prOutput.matches.length > 0) {
+                      matchBuffersAll.push(
+                        prOutput.matches.map((m) => ({ match: m, idA: m.winnerId, idB: m.loserId })),
+                      );
+                    }
+                  }
+                } catch (err) {
+                  if (err instanceof IterationBudgetExceededError) {
+                    iterStopReason = 'iteration_budget_exceeded';
+                    break;
+                  }
+                  logger.warn('Paragraph-recombine seed budget-fill invocation failed', {
+                    iteration, iterIdx, phaseName: 'paragraph_recombine',
+                    parentVariantId: seedParentRef.variantId,
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                }
+                seedDispatched++;
+              }
+            }
+
             // J4 step 6: Single MergeRatingsAgent over ALL surfaced variants' match buffers.
             if (surfacedVariants.length > 0) {
               const mergeExecOrder = ++executionOrder;
@@ -1971,6 +2044,81 @@ export async function evolveArticle(
                   });
                 }
                 topUpIndex++;
+              }
+            }
+
+            // Seed-mode budget-fill top-up (mirrors the editing #4 fix + the paragraph_recombine
+            // branch above). In sourceMode='seed' there is exactly ONE resolved parent, so the
+            // parallel batch + parent-bounded top-up cap at 1 dispatch. Keep dispatching the same
+            // seed parent using ACTUAL measured cost until the iteration budget is consumed
+            // (bounded by maxDispatchesK). Gated on maxDispatchesK>1 to preserve single-dispatch
+            // back-compat when maxDispatches is unset.
+            if (
+              topUpEnabled &&
+              iterSourceMode === 'seed' &&
+              maxDispatchesK > 1 &&
+              (iterStopReason as string) !== 'iteration_budget_exceeded' &&
+              resolvedParents.length > 0
+            ) {
+              const seedParentRef = resolvedParents[0]!;
+              const seedAvgCost = Math.max(actualAvgCostPerAgent ?? expectedPerAgent, 1e-6);
+              let seedDispatched = parallelDispatchCount; // parent-bounded top-up is a no-op in seed mode
+              while (
+                seedDispatched < maxDispatchesK &&
+                seedDispatched < DISPATCH_SAFETY_CAP &&
+                (iterStopReason as string) !== 'iteration_budget_exceeded' &&
+                !options?.signal?.aborted &&
+                (iterBudgetUsd - iterTracker.getTotalSpent()) >= seedAvgCost
+              ) {
+                const execOrder = ++executionOrder;
+                const agent = new ParagraphRecombineWithCoherencePassAgent();
+                try {
+                  const prResult = await agent.run({
+                    parentText: seedParentRef.text,
+                    parentVariantId: seedParentRef.variantId,
+                    rewritesPerParagraph: iterCfg.rewritesPerParagraph,
+                    maxComparisonsPerParagraph: iterCfg.maxComparisonsPerParagraph,
+                    maxParagraphsPerInvocation: iterCfg.maxParagraphsPerInvocation,
+                    perInvocationCapUsd: iterCfg.perInvocationCapUsd,
+                    coherencePassEnabled: iterCfg.coherencePassEnabled,
+                    coherencePassProposerModel: iterCfg.coherencePassProposerModel,
+                    coherencePassApproverModel: iterCfg.coherencePassApproverModel,
+                    coherencePassRewriteTempFloor: iterCfg.coherencePassRewriteTempFloor,
+                    coherencePassRewriteTempCeiling: iterCfg.coherencePassRewriteTempCeiling,
+                    coherencePassLengthCapRatio: iterCfg.coherencePassLengthCapRatio,
+                    coherencePassMaxCycles: iterCfg.coherencePassMaxCycles,
+                    coherencePassEditingMode: iterCfg.coherencePassEditingMode,
+                    initialPool: pool,
+                    initialRatings: ratings,
+                    initialMatchCounts: matchCounts,
+                    cache: comparisonCache,
+                  }, makePrCtx(execOrder));
+                  if (prResult.budgetExceeded) {
+                    iterStopReason = 'iteration_budget_exceeded';
+                    break;
+                  }
+                  const prOutput = prResult.result;
+                  if (prOutput?.variant && prOutput.surfaced) {
+                    surfacedVariants.push(prOutput.variant);
+                    iterVariantsCreated++;
+                    if (prOutput.matches && prOutput.matches.length > 0) {
+                      matchBuffersAll.push(
+                        prOutput.matches.map((m) => ({ match: m, idA: m.winnerId, idB: m.loserId })),
+                      );
+                    }
+                  }
+                } catch (err) {
+                  if (err instanceof IterationBudgetExceededError) {
+                    iterStopReason = 'iteration_budget_exceeded';
+                    break;
+                  }
+                  logger.warn('Paragraph-recombine-coherence seed budget-fill invocation failed', {
+                    iteration, iterIdx, phaseName: 'paragraph_recombine_with_coherence_pass',
+                    parentVariantId: seedParentRef.variantId,
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                }
+                seedDispatched++;
               }
             }
 

@@ -10,6 +10,7 @@ const mockGenerateRun = jest.fn();
 const mockSwissRun = jest.fn();
 const mockMergeRun = jest.fn();
 const mockParagraphRun = jest.fn();
+const mockCoherenceRun = jest.fn();
 
 jest.mock('../../core/agents/generateFromPreviousArticle', () => ({
   GenerateFromPreviousArticleAgent: jest.fn().mockImplementation(() => ({
@@ -37,6 +38,13 @@ jest.mock('../../core/agents/paragraphRecombine/ParagraphRecombineAgent', () => 
   ParagraphRecombineAgent: jest.fn().mockImplementation(() => ({
     name: 'paragraph_recombine',
     run: (input: unknown, ctx: unknown) => mockParagraphRun(input, ctx),
+  })),
+}));
+
+jest.mock('../../core/agents/paragraphRecombineWithCoherencePass/ParagraphRecombineWithCoherencePassAgent', () => ({
+  ParagraphRecombineWithCoherencePassAgent: jest.fn().mockImplementation(() => ({
+    name: 'paragraph_recombine_with_coherence_pass',
+    run: (input: unknown, ctx: unknown) => mockCoherenceRun(input, ctx),
   })),
 }));
 
@@ -326,6 +334,76 @@ describe('evolveArticle (orchestrator)', () => {
     // mocked iter budget is large, so this should land at min(3, 3) = 3 (capped by maxDispatches).
     expect(mockParagraphRun.mock.calls.length).toBeGreaterThanOrEqual(1);
     expect(mockParagraphRun.mock.calls.length).toBeLessThanOrEqual(3);
+  });
+
+  // Seed-mode budget-fill (design_elo_improvement_experiment_20260626 issue B): in
+  // sourceMode='seed' there is only ONE parent (the seed), so the parallel batch + parent-
+  // bounded top-up cap at a single dispatch — leaving paragraph arms spending a fraction of
+  // the budget (and failing the run when that lone variant is nulled by the per-invocation
+  // gate). With maxDispatches>1, the seed budget-fill loop re-dispatches the seed parent up
+  // to maxDispatches (budget permitting).
+  it('paragraph_recombine seed-mode budget-fill re-dispatches the seed parent up to maxDispatches', async () => {
+    process.env.EVOLUTION_TOPUP_ENABLED = 'true'; // outer beforeEach disables it
+    mockGenerateRun.mockResolvedValue(generateSuccess('g1'));
+    mockParagraphRun.mockResolvedValue({
+      success: true,
+      result: { variant: mkVariant('pr'), status: 'converged', surfaced: true, matches: [] },
+      cost: 0.001, durationMs: 5, invocationId: 'inv-pr',
+    });
+
+    const cfg = makeConfig();
+    cfg.iterationConfigs = [
+      { agentType: 'generate', budgetPercent: 60 },
+      // sourceMode defaults to 'seed'; maxDispatches=5 opts into budget-fill. The mocked
+      // tracker reports 0 spend (budget never binds), so the loop is bounded by maxDispatches.
+      { agentType: 'paragraph_recombine', budgetPercent: 40, maxDispatches: 5 },
+    ];
+
+    await evolveArticle('seed text', makeProvider(), makeDb() as never, 'run-1', cfg);
+
+    // 1 parallel dispatch (resolvedParents.length=1 in seed mode) + 4 seed budget-fill = 5.
+    expect(mockParagraphRun).toHaveBeenCalledTimes(5);
+  });
+
+  // Back-compat guard: maxDispatches unset in seed mode must NOT trigger budget-fill.
+  it('paragraph_recombine seed-mode with maxDispatches unset stays single-dispatch', async () => {
+    process.env.EVOLUTION_TOPUP_ENABLED = 'true'; // even with top-up ON, unset maxDispatches → 1
+    mockParagraphRun.mockResolvedValue({
+      success: true,
+      result: { variant: mkVariant('pr'), status: 'converged', surfaced: true, matches: [] },
+      cost: 0.001, durationMs: 5, invocationId: 'inv-pr',
+    });
+
+    const cfg = makeConfig();
+    cfg.iterationConfigs = [
+      { agentType: 'paragraph_recombine', budgetPercent: 100 }, // maxDispatches unset → 1
+    ];
+
+    await evolveArticle('seed text', makeProvider(), makeDb() as never, 'run-1', cfg);
+
+    expect(mockParagraphRun).toHaveBeenCalledTimes(1);
+  });
+
+  // The coherence-pass variant shares the identical seed budget-fill logic.
+  it('paragraph_recombine_with_coherence_pass seed-mode budget-fill re-dispatches up to maxDispatches', async () => {
+    process.env.EVOLUTION_TOPUP_ENABLED = 'true';
+    mockGenerateRun.mockResolvedValue(generateSuccess('g1'));
+    mockCoherenceRun.mockResolvedValue({
+      success: true,
+      result: { variant: mkVariant('cp'), status: 'converged', surfaced: true, matches: [] },
+      cost: 0.001, durationMs: 5, invocationId: 'inv-cp',
+    });
+
+    const cfg = makeConfig();
+    cfg.iterationConfigs = [
+      { agentType: 'generate', budgetPercent: 60 },
+      { agentType: 'paragraph_recombine_with_coherence_pass', budgetPercent: 40, maxDispatches: 4 },
+    ];
+
+    await evolveArticle('seed text', makeProvider(), makeDb() as never, 'run-1', cfg);
+
+    // 1 parallel + 3 seed budget-fill = 4 (bounded by maxDispatches).
+    expect(mockCoherenceRun).toHaveBeenCalledTimes(4);
   });
 
   // F3 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): iterCfg.perInvocationCapUsd
