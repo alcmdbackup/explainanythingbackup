@@ -15,6 +15,7 @@
 
 import { publicAction, type PublicContext } from '@evolution/services/publicAction';
 import { getPerIpSpendingGate, getClientGeo, PerIpBudgetExceededError } from '@/lib/services/perIpSpendingGate';
+import { getSpendingGate } from '@/lib/services/llmSpendingGate';
 import { validateRunContentRefs } from '@evolution/services/shared';
 import { z } from 'zod';
 import { headers as nextHeaders } from 'next/headers';
@@ -170,6 +171,31 @@ export const submitPublicEditAction = publicAction(
       throw err;
     }
 
+    // 6b. Reserve against the shared guest pool. The pipeline LLM calls run as
+    //     EVOLUTION_SYSTEM_USERID (not GUEST_USER_ID), so the per-user gate
+    //     inside callLLM never fires for /edit. Pre-reserve at the action layer
+    //     so the $10/day shared-pool cap is actually enforced. Reservation is
+    //     released by orphan-cleanup if the run never lands; the matching
+    //     `recordActualForUser` happens via the per_user_daily_cost_rollups
+    //     trigger when llmCallTracking rows land — both keyed on the same
+    //     guest userid (NOT the system userid).
+    const guestUserId = process.env.GUEST_USER_ID;
+    let reservedGuestCost = 0;
+    const spendingGate = getSpendingGate();
+    if (guestUserId) {
+      try {
+        const guestCap = await spendingGate.getGuestUserCap();
+        reservedGuestCost = await spendingGate.reserveForUser(guestUserId, estRunCost, guestCap);
+      } catch (err) {
+        // Release per-IP reservation before bubbling up.
+        await perIpGate.releaseForIp(ip, country, reservedIpCost).catch(() => {});
+        const wrapped = new Error('Daily quota exceeded — try again tomorrow.') as Error & { status?: number };
+        wrapped.status = 429;
+        wrapped.cause = err;
+        throw wrapped;
+      }
+    }
+
     try {
       // 7. Create the topic for this submission (matches processImport pattern at
       //    src/actions/importActions.ts:119). One topic row per submission.
@@ -186,7 +212,11 @@ export const submitPublicEditAction = publicAction(
       //    Schema-verified payload (src/lib/database.types.ts:1714-1735):
       //    - primary_topic_id BIGINT NOT NULL FK→topics (REQUIRED)
       //    - status enum allows 'draft' | 'published' (NOT 'private')
-      //    - source TEXT NULL (no explanation_text_type column exists)
+      //    - source CHECK constraint (migration 20251222215629) restricts to
+      //      ('chatgpt','claude','gemini','other','generated'). Use 'generated'
+      //      since the pipeline rewrites the article. The [EDIT] discovery
+      //      filters (on topic_title prefix + explanation_title prefix) keep
+      //      these out of the public Explore — source is not the discriminator.
       const explanationTitle = buildEditTitle(parsed.articleText);
       const { data: explanationRow, error: expErr } = await ctx.supabase
         .from('explanations')
@@ -195,7 +225,7 @@ export const submitPublicEditAction = publicAction(
           content: parsed.articleText,
           primary_topic_id: topicId,
           status: 'draft',
-          source: 'public_edit',
+          source: 'generated',
         })
         .select('id')
         .single();
@@ -225,9 +255,13 @@ export const submitPublicEditAction = publicAction(
 
       return { runId: runRow.id as string };
     } catch (err) {
-      // On insert failure, release the per-IP/per-region reservation so the
-      // visitor isn't billed for work that never happened.
+      // On insert failure, release both reservations so the visitor isn't
+      // billed for work that never happened. Per-user reservation is also
+      // backstopped by the orphan-cleanup pass.
       await perIpGate.releaseForIp(ip, country, reservedIpCost).catch(() => undefined);
+      if (guestUserId && reservedGuestCost > 0) {
+        await spendingGate.recordActualForUser(guestUserId, reservedGuestCost).catch(() => undefined);
+      }
       throw err;
     }
   },

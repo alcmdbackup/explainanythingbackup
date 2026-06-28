@@ -214,11 +214,20 @@ function getUpstashAdapter(): KvAdapter {
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
 
   if (!url || !token) {
-    // Without Upstash credentials, fall back to a no-op adapter that always
-    // returns 0. Combined with fail-CLOSED, this means caps would reject under
-    // production load — but it lets local-dev / CI without UPSTASH_* vars boot.
-    // Production deployments MUST set both env vars.
-    logger.warn('UPSTASH_REDIS_REST_URL/TOKEN not set; perIpSpendingGate using no-op adapter');
+    // Production fail-CLOSED: missing Upstash credentials in prod means the
+    // per-IP / per-region caps cannot be enforced. Don't silently allow — the
+    // no-op adapter would let unbounded /edit traffic through. Test/CI/dev
+    // bypass via PUBLIC_EDIT_RATE_LIMIT_DISABLED='true' at the gate layer
+    // (rateLimitDisabled() short-circuits before the adapter is touched).
+    if (process.env.NODE_ENV === 'production' && process.env.PUBLIC_EDIT_RATE_LIMIT_DISABLED !== 'true') {
+      throw new Error(
+        'perIpSpendingGate: UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required in production. ' +
+        'Set both env vars or set PUBLIC_EDIT_RATE_LIMIT_DISABLED=true to explicitly disable the per-IP gate.',
+      );
+    }
+    // Non-production: fall back to a throwing no-op so fail-CLOSED engages
+    // for any caller that doesn't honor the rate-limit-disabled bypass.
+    logger.warn('UPSTASH_REDIS_REST_URL/TOKEN not set; perIpSpendingGate using no-op adapter (non-prod only)');
     upstashAdapter = {
       async incrbyfloat() { return 0; },
       async decrbyfloat() { return 0; },

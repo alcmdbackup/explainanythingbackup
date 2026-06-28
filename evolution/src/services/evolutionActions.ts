@@ -3,7 +3,7 @@
 // Provides CRUD for evolution runs, variant listing, cost breakdown, and logs.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid, getTestStrategyIds, applyNonTestStrategyFilter } from './shared';
+import { validateUuid, getTestStrategyIds, applyNonTestStrategyFilter, validateRunContentRefs } from './shared';
 import { logger } from '@/lib/server_utilities';
 import { logAdminAction } from '@/lib/services/auditLog';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
@@ -189,6 +189,11 @@ export const queueEvolutionRunAction = adminAction(
     if (strategy.status === 'archived') {
       throw new Error(`Strategy "${input.strategyId}" is archived and cannot be used for new runs`);
     }
+
+    // Validate content refs AFTER strategy check so invalid strategyId / archived
+    // strategy still fail fast without an extra round-trip to the explanations /
+    // evolution_prompts table. Shared validator — reused by publicEditActions.
+    await validateRunContentRefs({ explanationId: input.explanationId, promptId: input.promptId }, supabase);
 
     const budgetCap = input.budgetCapUsd ?? 5.00;
 
