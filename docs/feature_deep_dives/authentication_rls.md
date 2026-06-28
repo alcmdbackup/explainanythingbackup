@@ -52,9 +52,11 @@ Cost / abuse defense is layered (NOT auth):
 - Global `evolution_daily_cap_usd` + `monthly_cap_usd`
 
 See `docs/feature_deep_dives/llm_spending_gate.md` for the full cap stack +
-all the Phase 0/1 kill switches (`LLM_GATE_PANIC_BYPASS`,
-`LLM_GATE_FAIL_CLOSED_DISABLED`, `PUBLIC_EDIT_DISABLED`,
-`PUBLIC_EDIT_RATE_LIMIT_DISABLED`, `BOT_PROTECTION_DISABLED`).
+the remaining kill switches (`PUBLIC_EDIT_DISABLED`,
+`PUBLIC_EDIT_RATE_LIMIT_DISABLED`, `BOT_PROTECTION_DISABLED`). Both
+`LLM_GATE_FAIL_CLOSED_DISABLED` and `LLM_GATE_PANIC_BYPASS` were removed
+after the staging soak — fail-CLOSED is unconditional and there is no
+env-var escape from the gate.
 
 Run-result pages (`/edit/runs/[runId]`) set `<meta robots="noindex,nofollow">`
 + `Referrer-Policy: no-referrer` + `Cache-Control: private, no-store` as

@@ -200,8 +200,7 @@ Validation throws plain `Error` with a descriptive message on constraint violati
 | `WEIGHT_INFERENCE_AUTO_MAX_CALLS` | `8000` | Auto-mode pre-flight hard ceiling on planned LLM calls (`remainingPairs × repeats × 4`), mirroring `JUDGE_EVAL_MAX_CALLS`. |
 | `WEIGHT_INFERENCE_AUTO_MAX_USD` | `5` | Auto-mode pre-flight hard cost ceiling, mirroring `JUDGE_EVAL_MAX_USD`. |
 | `WEIGHT_INFERENCE_AUTO_CHUNK_PAIRS` | `40` | Pairs judged per resumable auto-run invocation (keeps each request well inside `maxDuration=300`). |
-| `LLM_GATE_FAIL_CLOSED_DISABLED` | unset (= fail-CLOSED) | Phase 0 of `build_website_for_evolutiOn_20260626`. When `'true'`, the gate reverts to today's silent-allow on DB error. Used during the staged rollout window. |
-| `LLM_GATE_PANIC_BYPASS` | unset | Phase 0. When `'true'`, ALL gate checks short-circuit + audit-log to stderr per call. Last-resort. |
+(The Phase-0 `LLM_GATE_FAIL_CLOSED_DISABLED` and `LLM_GATE_PANIC_BYPASS` env vars were removed after the staging soak — fail-CLOSED is unconditional. The DB-side `llm_cost_config.kill_switch` row is the only override; it raises `LLMKillSwitchError` cleanly rather than bypassing the gate.)
 | `PUBLIC_EDIT_RATE_LIMIT_DISABLED` | unset | Phase 1. When `'true'`, `perIpSpendingGate` short-circuits to no-op (E2E + CI bypass). |
 | `PUBLIC_EDIT_PER_IP_DAILY_USD_CAP` | `0.50` | Phase 1. Per-IP daily cap for `/edit`. |
 | `PUBLIC_EDIT_PER_REGION_DAILY_USD_CAP` | `5` | Phase 1. Per-country daily cap for `/edit`. |

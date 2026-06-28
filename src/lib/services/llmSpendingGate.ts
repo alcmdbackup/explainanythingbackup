@@ -1,9 +1,13 @@
 // Global LLM spending gate — enforces daily/monthly caps and kill switch before every LLM call.
 // Uses in-memory TTL cache for performance with DB-atomic reservation for correctness near cap.
 //
-// Phase 0 of build_website_for_evolutiOn_20260626 added:
-// - Fail-CLOSED on DB errors (gated by LLM_GATE_FAIL_CLOSED_DISABLED env var; default = fail-CLOSED)
-// - LLM_GATE_PANIC_BYPASS env var (operational kill-switch for all gate checks; audit-logged)
+// Originally added in Phase 0 of build_website_for_evolutiOn_20260626:
+// - Fail-CLOSED on DB errors — UNCONDITIONAL. Any error path in the gate THROWS
+//   GlobalBudgetExceededError. Both env-var escape hatches (LLM_GATE_FAIL_CLOSED_DISABLED
+//   and LLM_GATE_PANIC_BYPASS) were removed after the staging soak proved the gate stable.
+//   The DB-side kill switch (llm_cost_config.kill_switch) remains as the only operational
+//   override — it stops all LLM calls cleanly with LLMKillSwitchError rather than
+//   bypassing the gate.
 // - reserveForUser / recordActualForUser / releaseForUser triple (reserve-before-spend semantics)
 //   against the new per_user_daily_reservations table + reserve_per_user_daily_cost RPC
 //   (migration 20260627000002).
@@ -16,29 +20,6 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { GlobalBudgetExceededError, LLMKillSwitchError } from '@/lib/errors/serviceError';
 import type { CheckBudgetResult } from '@/lib/schemas/llmCostSchemas';
-
-/**
- * If true, the gate reverts to the pre-Phase-0 silent-allow behavior on DB errors.
- * Provides a one-flip rollback path without a code revert. Default false (fail-CLOSED).
- * Set in Vercel envs during the staged rollout (see planning doc Phase 0 sequencing).
- */
-function failClosedDisabled(): boolean {
-  return process.env.LLM_GATE_FAIL_CLOSED_DISABLED === 'true';
-}
-
-/**
- * Operational panic bypass — when 'true', ALL gate checks short-circuit and allow
- * the call. Logs an audit line to stderr per call so the bypass is discoverable.
- * NEVER set in any deployed env by default. Last-resort tool for prolonged outages.
- */
-function panicBypassEnabled(): boolean {
-  if (process.env.LLM_GATE_PANIC_BYPASS === 'true') {
-    // Audit line — written every call so a forgotten flag is visible in container logs.
-    logger.error('[LLM_GATE_PANIC_BYPASS] gate disabled; call passing through unchecked');
-    return true;
-  }
-  return false;
-}
 
 // B088: Zod-parse the kill-switch config row instead of an unchecked cast.
 // The DB stores the value as `{ value: boolean }` JSON; anything else (a stringly-typed
@@ -108,10 +89,8 @@ export class LLMSpendingGate {
   private guestCapCache: CacheEntry<number> | null = null;
 
   /**
-   * @deprecated Use `reserveForUser` instead. Kept for one release cycle to ease
-   * rollback of Phase 0 (build_website_for_evolutiOn_20260626). New callers blocked
-   * by ESLint `no-restricted-imports`. To be deleted in the follow-up PR that drops
-   * the `LLM_GATE_FAIL_CLOSED_DISABLED` kill switch.
+   * @deprecated Use `reserveForUser` instead. New callers blocked by ESLint
+   * `no-restricted-imports`. To be deleted in a follow-up PR.
    *
    * Per-user daily LLM cap (read-only check). Reads from per_user_daily_cost_rollups
    * (populated by trigger on llmCallTracking insert — see migration 20260524000003).
@@ -120,12 +99,11 @@ export class LLMSpendingGate {
    * bypass the cap so they can populate the demo library without consuming the
    * day's budget for the actual demo. Set as env var only when running the script.
    *
-   * Phase 0: now fail-CLOSED on DB errors (gated by LLM_GATE_FAIL_CLOSED_DISABLED).
-   * Reads ONLY total_cost_usd; does NOT account for reserved_usd from the new
+   * Fails CLOSED on DB errors — throws GlobalBudgetExceededError. Reads ONLY
+   * total_cost_usd; does NOT account for reserved_usd from the new
    * per_user_daily_reservations table — use `reserveForUser` for the airtight path.
    */
   async checkPerUserCap(userid: string, capUsd: number): Promise<void> {
-    if (panicBypassEnabled()) return;
     if (process.env.SEED_BYPASS_USER_CAP === 'true') return;
     if (!userid || capUsd <= 0) return;
 
@@ -205,7 +183,6 @@ export class LLMSpendingGate {
    * caller can pass it back unchanged to the reconcile call.
    */
   async reserveForUser(userid: string, estimatedCostUsd: number, capUsd: number): Promise<number> {
-    if (panicBypassEnabled()) return estimatedCostUsd;
     if (process.env.SEED_BYPASS_USER_CAP === 'true') return estimatedCostUsd;
     if (!userid || capUsd <= 0 || estimatedCostUsd <= 0) return 0;
 
@@ -224,10 +201,6 @@ export class LLMSpendingGate {
 
       if (error) {
         if (isMissingTableError(error)) {
-          if (failClosedDisabled()) {
-            logger.warn('reserve_per_user_daily_cost RPC missing — fail-CLOSED disabled; allowing', { userid });
-            return estimatedCostUsd;
-          }
           this.logFailClosedRejected('reserveForUser.missing_rpc', userid, error);
           throw new GlobalBudgetExceededError(
             'reserve_per_user_daily_cost RPC not found (migration not applied)',
@@ -235,7 +208,6 @@ export class LLMSpendingGate {
           );
         }
         this.logFailClosedRejected('reserveForUser.rpc_error', userid, error);
-        if (failClosedDisabled()) return estimatedCostUsd;
         throw new GlobalBudgetExceededError(
           'Unable to verify per-user budget (DB error) — blocking call for safety',
           { category: 'per_user', cause: 'gate_check_failed', dailyTotal: 0, dailyCap: capUsd, reserved: 0 },
@@ -260,7 +232,6 @@ export class LLMSpendingGate {
     } catch (err) {
       if (err instanceof GlobalBudgetExceededError) throw err;
       if (isMissingTableError(err)) {
-        if (failClosedDisabled()) return estimatedCostUsd;
         this.logFailClosedRejected('reserveForUser.throw_missing', userid, err);
         throw new GlobalBudgetExceededError(
           'reserve_per_user_daily_cost RPC not found',
@@ -268,7 +239,6 @@ export class LLMSpendingGate {
         );
       }
       this.logFailClosedRejected('reserveForUser.throw', userid, err);
-      if (failClosedDisabled()) return estimatedCostUsd;
       throw new GlobalBudgetExceededError(
         'Unable to verify per-user budget (gate threw) — blocking call for safety',
         { category: 'per_user', cause: 'gate_check_failed' },
@@ -287,7 +257,6 @@ export class LLMSpendingGate {
    * failure so the next call gets a fresh DB read.
    */
   async recordActualForUser(userid: string, reservedUsd: number): Promise<void> {
-    if (panicBypassEnabled()) return;
     if (!userid || reservedUsd <= 0) return;
 
     const today = new Date().toISOString().split('T')[0]!;
@@ -384,21 +353,12 @@ export class LLMSpendingGate {
   }
 
   /**
-   * Phase 0 rollout helper: under `LLM_GATE_FAIL_CLOSED_DISABLED='true'`, retain
-   * today's silent-return behavior on DB errors. Otherwise fail-CLOSED.
-   * Used only by the deprecated `checkPerUserCap` (which is kept for one release
-   * cycle); new callers use `reserveForUser` which has its own fail-closed path.
+   * Fail-CLOSED helper: log + throw GlobalBudgetExceededError on any DB error.
+   * Used only by the deprecated `checkPerUserCap`; new callers use `reserveForUser`
+   * which has its own fail-closed path.
    */
   private failClosedOrAllow(site: string, userid: string, err: unknown): void {
     this.logFailClosedRejected(site, userid, err);
-    if (failClosedDisabled()) {
-      logger.warn('per_user cap check failed; LLM_GATE_FAIL_CLOSED_DISABLED set — allowing', {
-        site,
-        userid,
-        error: errorMsg(err),
-      });
-      return;
-    }
     throw new GlobalBudgetExceededError(
       'Unable to verify per-user budget (gate failed) — blocking call for safety',
       { category: 'per_user', cause: 'gate_check_failed' },
@@ -407,7 +367,6 @@ export class LLMSpendingGate {
 
   /** Throws on kill switch, over-cap, or DB errors (fail-closed). Returns reserved cost. */
   async checkBudget(callSource: string, estimatedCostUsd?: number): Promise<number> {
-    if (panicBypassEnabled()) return estimatedCostUsd ?? DEFAULT_RESERVATION_USD;
     const killSwitchEnabled = await this.getKillSwitch();
     if (killSwitchEnabled) {
       throw new LLMKillSwitchError();
@@ -564,14 +523,6 @@ export class LLMSpendingGate {
         return false;
       }
       this.logFailClosedRejected('getKillSwitch', '', err);
-      // Phase 0 rollout: under LLM_GATE_FAIL_CLOSED_DISABLED, fall back to today's
-      // "allow on DB error" behavior so a transient blip doesn't brick the site
-      // during the staged rollout. Default (unset) keeps the fail-CLOSED behavior.
-      if (failClosedDisabled()) {
-        logger.warn('Kill switch check failed; LLM_GATE_FAIL_CLOSED_DISABLED set — allowing', { error: errorMsg(err) });
-        this.killSwitchCache = { value: false, expiresAt: Date.now() + KILL_SWITCH_CACHE_TTL_MS };
-        return false;
-      }
       // B084: cache the fail-closed state for the TTL so every subsequent call in the
       // window doesn't re-query the failing DB. Without this cache write, a transient
       // DB error produces a flood of identical queries until it recovers.
@@ -604,10 +555,6 @@ export class LLMSpendingGate {
         return { allowed: true, daily_total: 0, daily_cap: 999, reserved: 0 };
       }
       this.logFailClosedRejected('reserveViaRpc', '', err);
-      if (failClosedDisabled()) {
-        logger.warn('Budget reservation RPC failed; LLM_GATE_FAIL_CLOSED_DISABLED set — allowing', { error: errorMsg(err), category });
-        return { allowed: true, daily_total: 0, daily_cap: 999, reserved: 0 };
-      }
       throw new GlobalBudgetExceededError(
         'Unable to verify LLM budget (DB error) — blocking call for safety',
         { category, cause: 'gate_check_failed' },
@@ -658,10 +605,6 @@ export class LLMSpendingGate {
         return;
       }
       this.logFailClosedRejected('checkMonthlyCap', '', err);
-      if (failClosedDisabled()) {
-        logger.warn('Monthly cap check failed; LLM_GATE_FAIL_CLOSED_DISABLED set — allowing', { error: errorMsg(err) });
-        return;
-      }
       throw new GlobalBudgetExceededError(
         'Unable to verify monthly budget (DB error) — blocking call for safety',
         { category, cause: 'gate_check_failed' },

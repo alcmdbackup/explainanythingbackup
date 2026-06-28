@@ -501,7 +501,7 @@ See `scripts/query-honeycomb.md` for detailed instructions on querying logs and 
 | `PUBLIC_EDIT_RATE_LIMIT_DISABLED` | When `'true'`, `perIpSpendingGate` short-circuits to no-op. Set in `playwright.config.ts` for E2E and in CI envs for integration tests (shared egress IP would otherwise trip the cap). |
 | `BOT_PROTECTION_DISABLED` | When `'true'`, the server-side `checkBotId()` call in `submitPublicEditAction` short-circuits. Required for E2E + local dev (BotID only runs on Vercel infra). |
 | `PUBLIC_EDIT_DISABLED` | When `'true'`, `submitPublicEditAction` returns 503 and `/edit` page renders a static "temporarily unavailable" notice. Operational kill switch for turning the public surface off without a code revert. |
-| `LLM_GATE_FAIL_CLOSED_DISABLED` | When `'true'`, the gate reverts to today's silent-allow on DB error. Phase 0 rollback path; default OFF (fail-CLOSED). |
-| `LLM_GATE_PANIC_BYPASS` | When `'true'`, ALL gate checks short-circuit + audit-log to stderr per call. Last-resort. |
+
+(The Phase-0 `LLM_GATE_FAIL_CLOSED_DISABLED` and `LLM_GATE_PANIC_BYPASS` env vars were removed after the staging soak — fail-CLOSED is unconditional; emergency override now lives in the `llm_cost_config.kill_switch` DB row.)
 
 See `docs/feature_deep_dives/llm_spending_gate.md` for the full cap stack + reserve-before-spend semantics.

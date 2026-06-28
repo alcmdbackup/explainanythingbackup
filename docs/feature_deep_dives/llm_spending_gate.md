@@ -41,9 +41,15 @@ Orphan cleanup runs from the minicomputer's `processRunQueue.ts` BEFORE the clai
 
 ## Fail-CLOSED contract
 
-Default: any error path in the gate THROWS (`GlobalBudgetExceededError` with `cause: 'gate_check_failed'`). The `LLM_GATE_FAIL_CLOSED_DISABLED='true'` kill switch reverts to today's silent-allow on DB error — used during the Phase 0 staged rollout, removed in the follow-up.
+**Unconditional.** Any error path in the gate THROWS (`GlobalBudgetExceededError` with `cause: 'gate_check_failed'`). There is **no env-var escape** for the gate at all — if the gate's DB reads break, every LLM call refuses until the underlying error is resolved. Cost-tracking integrity is treated as a load-bearing system invariant ([feedback_cost_tracking_fail_closed](../../memory/feedback_cost_tracking_fail_closed.md)).
 
-Honeycomb-shaped events distinguish the two cases:
+Both Phase-0 env-var escape hatches were retired:
+- `LLM_GATE_FAIL_CLOSED_DISABLED` removed in `fix/remove-llm-gate-failclosed-killswitch` (PR #1305) after the staging soak proved the gate's DB reads were stable.
+- `LLM_GATE_PANIC_BYPASS` removed in the same PR after audit — its complexity (audit-log noise on every call + footgun risk of silently allowing unbounded LLM spend) outweighed its emergency-recovery value.
+
+The remaining override is **the DB-side kill switch** (`llm_cost_config.kill_switch` row): flipping that to `true` throws `LLMKillSwitchError` cleanly from the gate rather than bypassing it. Recovery via code revert if the gate itself is broken.
+
+Honeycomb-shaped events distinguish system-fault vs user-fault rejections:
 
 | Event | Priority | Trigger | Alert action |
 |---|---|---|---|
@@ -54,8 +60,6 @@ Honeycomb-shaped events distinguish the two cases:
 
 | Env var | Default | Effect when `'true'` |
 |---|---|---|
-| `LLM_GATE_FAIL_CLOSED_DISABLED` | unset | Gate reverts to silent-allow on DB error (Phase 0 rollback path) |
-| `LLM_GATE_PANIC_BYPASS` | unset | ALL gate checks short-circuit + audit-log to stderr per call. Last-resort. |
 | `PUBLIC_EDIT_RATE_LIMIT_DISABLED` | unset | Per-IP/per-region gate is no-op (E2E + CI bypass) |
 | `BOT_PROTECTION_DISABLED` | unset | BotID check skipped (E2E + local dev bypass) |
 | `PUBLIC_EDIT_DISABLED` | unset | `/edit` POST returns 503; page renders "temporarily unavailable" |
