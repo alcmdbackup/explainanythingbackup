@@ -206,7 +206,7 @@ Validation throws plain `Error` with a descriptive message on constraint violati
 | `PUBLIC_EDIT_PER_REGION_DAILY_USD_CAP` | `5` | Phase 1. Per-country daily cap for `/edit`. |
 | `BOT_PROTECTION_DISABLED` | unset | Phase 1. When `'true'`, server-side `checkBotId()` is skipped (E2E + local dev bypass). |
 | `PUBLIC_EDIT_DISABLED` | unset | Phase 1. Operational kill switch for the public `/edit` surface (503 + static "temporarily unavailable" page). |
-| `UPSTASH_REDIS_REST_URL` / `_TOKEN` | unset → no-op adapter | Phase 1. Backs `perIpSpendingGate`. Combined with fail-CLOSED, caps reject under load when unset. |
+| `UPSTASH_REDIS_REST_URL` / `_TOKEN` *or* `KV_REST_API_URL` / `_TOKEN` | unset → no-op adapter (dev) / throws on init (prod) | Phase 1. Backs `perIpSpendingGate`. Accepts either the Upstash-native names or Vercel KV add-on names (same Redis under the hood). |
 
 #### `IterationConfig` paragraph_recombine knobs (added by `investigate_paragraph_rewrite_cost_undershoot_evolution_20260529`)
 

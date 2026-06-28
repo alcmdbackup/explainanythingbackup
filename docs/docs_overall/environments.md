@@ -494,8 +494,8 @@ See `scripts/query-honeycomb.md` for detailed instructions on querying logs and 
 
 | Variable | Description |
 |----------|-------------|
-| `UPSTASH_REDIS_REST_URL` | Upstash KV REST URL for the perIpSpendingGate (per-IP + per-region $ caps). Production: prod Upstash database; Staging: dev Upstash database. Missing → gate degrades to no-op adapter (combined with fail-CLOSED, caps reject under load). |
-| `UPSTASH_REDIS_REST_TOKEN` | Upstash REST token (paired with `UPSTASH_REDIS_REST_URL`). |
+| `UPSTASH_REDIS_REST_URL` *or* `KV_REST_API_URL` | Upstash KV REST URL for the perIpSpendingGate (per-IP + per-region $ caps). Either name works — the `KV_REST_API_*` pair is what Vercel's KV add-on auto-injects; the `UPSTASH_REDIS_REST_*` pair is the Upstash-native naming. In production, missing both throws on init (fail-CLOSED). |
+| `UPSTASH_REDIS_REST_TOKEN` *or* `KV_REST_API_TOKEN` | Auth token, paired with whichever URL var is set. |
 | `PUBLIC_EDIT_PER_IP_DAILY_USD_CAP` | Per-IP daily $ cap for the `/edit` surface. Default `0.50`. |
 | `PUBLIC_EDIT_PER_REGION_DAILY_USD_CAP` | Per-country daily $ cap. Default `5`. |
 | `PUBLIC_EDIT_RATE_LIMIT_DISABLED` | When `'true'`, `perIpSpendingGate` short-circuits to no-op. Set in `playwright.config.ts` for E2E and in CI envs for integration tests (shared egress IP would otherwise trip the cap). |
