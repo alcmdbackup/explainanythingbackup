@@ -147,9 +147,30 @@ async function fetchSpendBuckets(
 /** Single label used for evolution in the by-model / by-user tabs (no per-model/user grain). */
 const EVOLUTION_PIPELINE_LABEL = 'evolution-pipeline';
 
-/** Whether the canonical evolution merge is active. Unset/false ⇒ exact pre-merge behaviour. */
+/** Prod Supabase project ref (environments.md). The canonical merge needs the
+ *  `get_evolution_spend_buckets` RPC + `llmCallTracking.is_test`, which aren't promoted to prod
+ *  yet, so the merge auto-falls-back there to avoid erroring until the migration lands on prod. */
+const PROD_SUPABASE_PROJECT_REF = 'qbxhivoezkfbjbsctdzo';
+
+/**
+ * Whether the canonical evolution merge is active. **Default ON** — disable explicitly with
+ * `COST_DASHBOARD_UNIFIED_EVOLUTION=false`, and auto-fall-back on the prod project (where the
+ * canonical source isn't migrated yet) so it can't error. When this returns false the dashboard
+ * keeps exact pre-merge behaviour (llmCallTracking only).
+ */
 function unifiedEvolutionEnabled(): boolean {
-  return process.env.COST_DASHBOARD_UNIFIED_EVOLUTION === 'true';
+  if (process.env.COST_DASHBOARD_UNIFIED_EVOLUTION === 'false') return false;
+  // Prod guard: until the migration is promoted to prod, fall back so reads don't 404 on the RPC.
+  if ((process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').includes(PROD_SUPABASE_PROJECT_REF)) return false;
+  return true;
+}
+
+/** True for "object does not exist" Postgres/PostgREST errors (RPC/column not migrated). */
+function isMissingCanonicalSource(error: { message?: string; code?: string } | null | undefined): boolean {
+  if (!error) return false;
+  const s = `${error.code ?? ''} ${error.message ?? ''}`.toLowerCase();
+  return s.includes('42883') || s.includes('pgrst202') || s.includes('does not exist')
+    || s.includes('could not find the function') || s.includes('schema cache');
 }
 
 /** One row from the get_evolution_spend_buckets RPC. */
@@ -173,6 +194,12 @@ async function fetchEvolutionSpendBuckets(
     p_end: end,
   });
   if (error) {
+    // Prod / pre-migration: the RPC isn't promoted yet → treat as "no canonical data" rather than
+    // throwing, so the reconciliation oracle degrades to 0 instead of erroring on prod.
+    if (isMissingCanonicalSource(error)) {
+      logger.warn('get_evolution_spend_buckets unavailable — treating evolution canonical spend as empty', { error: error.message });
+      return [];
+    }
     logger.error('Error fetching evolution spend buckets', { error: error.message });
     throw error;
   }
