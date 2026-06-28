@@ -89,6 +89,16 @@ Scores: Security 5/5, Architecture 5/5, Testing 5/5 — zero critical gaps, veri
 - Deferred: Phase 1c idea-1 (run validation at conc=1), abComparison.ts (only needed for /analysis).
 - Remaining to RUN validation: /finalize → PR → CI → merge main → minicomputer pull → seed script --apply (~$1.80) → wait → recompute --apply → verify QA gates (success/cost>0/no wipeout/spend≈cap).
 
-### Next — plan is execution-ready
-- Build order: Phase 0 (confirm anchor competes) → 1b (editing off-seed + budget-fill) → 1c (idea-1 CAS) → 2 (seed rows + scripts) → 2.5 (ops pre-flight) → 3 (validation batch + adaptive) → 4 (recompute + /analysis).
-- Recommend `/finalize` after each product-code phase (1b, 1c) lands.
+## Validation batch + post-validation fixes (2026-06-27/28)
+- **Validation batch ran** (exp `3d3dfd72`, 18 runs, prompt `574632af`, anchor `69d2b22e`): 13 completed, 5 failed. **Phase 1b editing-off-seed validated live**; **mandatory anchor competed** (222 matches — Decision A confirmed); recompute + cost tracking work. Verdict 🟡: machinery sound; fixes needed before scaling.
+- **Issues + resolutions (user, 2026-06-28):**
+  - **#1 Concurrency drift (125 Elo > 40 effect):** RESOLVED as policy — **recompute-before-analysis IS the experiment's correctness mechanism** (works once anchor pinned). idea-1/Phase 1c → **separate production-bug follow-up PR**, not an experiment blocker.
+  - **#2 Recompute reset the anchor → FIXED (committed):** pins the anchor from its IMMUTABLE source (`--anchor-id`/`--anchor-source-id`) + holds it fixed, so the scale anchors at the seed's true ~1325.
+  - **#3 paragraph JSON fails on `gemini-flash-lite`** (coordinator structured-output; ≠402): PLAN — stronger `coordinatorModel` for paragraph arms (or drop them); needs model choice + 1-run verify.
+  - **#4 Editing low yield (1–4 vs 50–120):** PLAN — bump editing dispatch so it fills budget (equal-actual-spend), or accept the profile.
+  - **#5 `abComparison.ts`** (P(best)/top-tier + one-sided vs-baseline + Holm) → BUILT (committed, 11 tests).
+  - **#6 Adaptive P(best) batching:** PLAN — thin wrapper (Decision E).
+  - **OpenRouter 402:** credits refilled (was the cause of 5 failures; both models route via OpenRouter).
+  - **Minor:** seed-script `uq_arena_topic_prompt` fix needs a follow-up PR to land on main; real run uses a FRESH arena.
+
+### Next — fixed now: #2 (anchor pin), #5 (abComparison). Decisions pending: #3 model, #4 editing dispatch. Follow-ups: idea-1 PR, seed-script PR, adaptive wrapper.

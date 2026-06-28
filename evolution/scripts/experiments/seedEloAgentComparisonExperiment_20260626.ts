@@ -36,11 +36,12 @@ import type { StrategyConfig } from '../../src/lib/pipeline/infra/types';
 dns.setDefaultResultOrder('ipv4first');
 
 // ─── Constants ──────────────────────────────────────────────────
-const EXPERIMENT_NAME = 'ELOEXP agent comparison fed reserve 20260626';
-const ARENA_PROMPT_NAME = 'ELOEXP Federal Reserve seed 20260626';
+// Base names; an optional --tag suffix makes a fresh, isolated arena/experiment
+// (e.g. --tag verify1) so re-runs don't reuse a prior (possibly corrupted) arena.
+const BASE_EXPERIMENT_NAME = 'ELOEXP agent comparison fed reserve 20260626';
+const BASE_ARENA_NAME = 'ELOEXP Federal Reserve seed 20260626';
 // Source variant to copy as the seed (FR2, ~1325 Elo, most-settled — Decision A / KF7).
 const SOURCE_SEED_VARIANT_ID = '538bfbc9-5c17-458e-bfde-c4ce6c76dab3';
-const SOURCE_PROMPT_ID_FR2 = 'a546b7e9-f066-403d-9589-f5e0d2c9fa4f';
 const BUDGET_USD_PER_RUN = 0.10;
 
 // Shared generic criteria (KF7) for criteria arms — clarity / structure / engagement.
@@ -87,11 +88,15 @@ function parseIntArg(flag: string, d: number): number {
 const args = {
   target: parseStringArg('--target') as 'staging' | 'prod' | undefined,
   runsPerArm: parseIntArg('--runs-per-arm', 2),
+  tag: parseStringArg('--tag'),
   apply: process.argv.includes('--apply'),
   append: process.argv.includes('--append'),
   reuseExisting: process.argv.includes('--reuse-existing'),
   prodConfirmed: process.argv.includes('--i-know-this-is-prod'),
 };
+// Optional --tag suffix → a fresh, isolated arena + experiment (for verify re-runs).
+const EXPERIMENT_NAME = args.tag ? `${BASE_EXPERIMENT_NAME} ${args.tag}` : BASE_EXPERIMENT_NAME;
+const ARENA_PROMPT_NAME = args.tag ? `${BASE_ARENA_NAME} ${args.tag}` : BASE_ARENA_NAME;
 function validateArgs(): void {
   if (args.target !== 'staging' && args.target !== 'prod') {
     console.error('[FATAL] Missing/invalid --target (staging|prod)'); process.exit(2);
@@ -113,6 +118,7 @@ const BASE = {
 
 export function buildConfig(arm: Arm): StrategyConfig {
   const iter: Record<string, unknown> = { agentType: arm, sourceMode: 'seed', budgetPercent: 100 };
+  const extra: Record<string, unknown> = {};
   if (
     arm === 'criteria_and_generate' ||
     arm === 'single_pass_evaluate_criteria_and_generate' ||
@@ -126,8 +132,12 @@ export function buildConfig(arm: Arm): StrategyConfig {
     iter.rewritesPerParagraph = 3;
     iter.maxComparisonsPerParagraph = 6;
     iter.maxParagraphsPerInvocation = 12;
+    // #3: the sequential paragraph coordinator must emit a structured JSON plan;
+    // gemini-2.5-flash-lite produces malformed JSON. Use a reliable JSON model
+    // (gpt-4.1-nano, OpenAI-direct) just for the coordinator. One call/invocation.
+    extra.coordinatorModel = 'gpt-4.1-nano';
   }
-  return { ...BASE, iterationConfigs: [iter] } as unknown as StrategyConfig;
+  return { ...BASE, ...extra, iterationConfigs: [iter] } as unknown as StrategyConfig;
 }
 
 // ─── Env / DB ───────────────────────────────────────────────────
@@ -154,20 +164,20 @@ export async function setupArena(db: SupabaseClient): Promise<{ promptId: string
     return { promptId: existingPrompt.id };
   }
 
-  // Fetch the source seed variant (content + pinned rating) + the FR2 prompt text.
+  // Fetch the source seed variant (content + pinned rating).
   const { data: src, error: srcErr } = await db
     .from('evolution_variants')
     .select('variant_content, mu, sigma, elo_score')
     .eq('id', SOURCE_SEED_VARIANT_ID).single();
   if (srcErr || !src) throw new Error(`[FATAL] Could not load source seed variant ${SOURCE_SEED_VARIANT_ID}: ${srcErr?.message}`);
-  const { data: srcPrompt } = await db
-    .from('evolution_prompts').select('prompt').eq('id', SOURCE_PROMPT_ID_FR2).single();
 
-  // Create the new arena prompt.
+  // Create the new arena prompt. The prompt text must be UNIQUE (uq_arena_topic_prompt);
+  // it's cosmetic here — seed generation is skipped because we insert a seed-source row —
+  // so we use an experiment-tagged string rather than reusing FR2's text (which collides).
   const { data: prompt, error: pErr } = await db
     .from('evolution_prompts')
     .insert({
-      prompt: srcPrompt?.prompt ?? 'Explain the Federal Reserve.',
+      prompt: 'Explain the Federal Reserve — what it is, how it works, and why it matters. (arena: design_elo_improvement_experiment_20260626)',
       name: ARENA_PROMPT_NAME,
       status: 'active',
       prompt_kind: 'article',
