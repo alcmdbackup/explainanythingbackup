@@ -139,6 +139,12 @@ export async function updateSession(request: NextRequest) {
           host,
           path: request.nextUrl.pathname,
         })
+        // /edit is unauthed by design (build_website_for_evolutiOn_20260626 Q7).
+        // Don't bounce to /login on guest-login failure — let the action run
+        // with the service-role client.
+        if (request.nextUrl.pathname.startsWith('/edit')) {
+          return supabaseResponse
+        }
         // Redirect to /login so the visitor sees <LoginForm />. The onLoginPath
         // guard above prevents this redirect from re-triggering auto-login on
         // the second middleware invocation (no redirect loop).
@@ -175,6 +181,12 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith('/auth') &&
     !request.nextUrl.pathname.startsWith('/forgot-password') &&
     !request.nextUrl.pathname.startsWith('/reset-password') &&
+    // Phase 1 of build_website_for_evolutiOn_20260626: /edit is an unauthed
+    // public surface (Q7 decision). Guest auto-login may still fire above for
+    // shared-guest-pool cost attribution, but auto-login failures must NOT
+    // bounce visitors to /login — the server action uses a service-role client
+    // and has its own layered defenses (BotID + per-IP/per-region/per-user caps).
+    !request.nextUrl.pathname.startsWith('/edit') &&
     !(process.env.NODE_ENV !== 'production' && request.nextUrl.pathname.startsWith('/debug-critic')) &&
     !(process.env.NODE_ENV !== 'production' && request.nextUrl.pathname.startsWith('/test-global-error'))
   ) {
