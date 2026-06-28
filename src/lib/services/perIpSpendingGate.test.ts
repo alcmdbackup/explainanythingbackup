@@ -148,6 +148,62 @@ describe('PerIpSpendingGate', () => {
   });
 });
 
+describe('getUpstashAdapter env-var resolution', () => {
+  const originalEnv = process.env;
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    (process.env as Record<string, string | undefined>).UPSTASH_REDIS_REST_URL = undefined;
+    (process.env as Record<string, string | undefined>).UPSTASH_REDIS_REST_TOKEN = undefined;
+    (process.env as Record<string, string | undefined>).KV_REST_API_URL = undefined;
+    (process.env as Record<string, string | undefined>).KV_REST_API_TOKEN = undefined;
+    (process.env as Record<string, string | undefined>).PUBLIC_EDIT_RATE_LIMIT_DISABLED = undefined;
+    (process.env as Record<string, string | undefined>).NODE_ENV = 'production';
+  });
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('throws in production when neither UPSTASH nor KV env vars are set', () => {
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require('./perIpSpendingGate') as typeof import('./perIpSpendingGate');
+      expect(() => mod.getPerIpSpendingGate()).toThrow(/UPSTASH_REDIS_REST_URL[\s\S]*KV_REST_API_URL/);
+    });
+  });
+
+  it('boots without throwing when KV_REST_API_* vars are set (Vercel KV add-on)', () => {
+    process.env.KV_REST_API_URL = 'https://example.upstash.io';
+    process.env.KV_REST_API_TOKEN = 'token-xyz';
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require('./perIpSpendingGate') as typeof import('./perIpSpendingGate');
+      expect(() => mod.getPerIpSpendingGate()).not.toThrow();
+    });
+  });
+
+  it('boots without throwing when UPSTASH_REDIS_REST_* vars are set (Upstash-native)', () => {
+    process.env.UPSTASH_REDIS_REST_URL = 'https://example.upstash.io';
+    process.env.UPSTASH_REDIS_REST_TOKEN = 'token-xyz';
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require('./perIpSpendingGate') as typeof import('./perIpSpendingGate');
+      expect(() => mod.getPerIpSpendingGate()).not.toThrow();
+    });
+  });
+
+  it('prefers UPSTASH_* over KV_* when both are set (no throw either way)', () => {
+    process.env.UPSTASH_REDIS_REST_URL = 'https://upstash.example.com';
+    process.env.UPSTASH_REDIS_REST_TOKEN = 'upstash-token';
+    process.env.KV_REST_API_URL = 'https://kv.example.com';
+    process.env.KV_REST_API_TOKEN = 'kv-token';
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require('./perIpSpendingGate') as typeof import('./perIpSpendingGate');
+      expect(() => mod.getPerIpSpendingGate()).not.toThrow();
+    });
+  });
+});
+
 describe('getClientGeo', () => {
   const originalEnv = process.env;
   beforeEach(() => {

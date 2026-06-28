@@ -9,6 +9,9 @@
 //   the defense; max-leak bounded by evolution_runs.budget_cap_usd).
 // - Fail-CLOSED on Upstash error (UNCONDITIONAL — no env var escape).
 //   gate.fail_closed_rejected is logged + PerIpBudgetExceededError is raised.
+// - Credentials: accepts EITHER `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`
+//   (Upstash-native names) OR `KV_REST_API_URL` + `KV_REST_API_TOKEN` (Vercel KV
+//   add-on names — same Redis under the hood). Whichever the operator provisioned.
 // - Test bypass: `E2E_TEST_MODE='true'` OR `PUBLIC_EDIT_RATE_LIMIT_DISABLED='true'`
 //   short-circuits to no-op so CI workers (shared egress IP) don't trip the cap mid-suite.
 //
@@ -201,8 +204,12 @@ let upstashAdapter: KvAdapter | null = null;
 function getUpstashAdapter(): KvAdapter {
   if (upstashAdapter) return upstashAdapter;
 
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  // Accept either the Upstash-native env var names OR the Vercel KV add-on's
+  // names (which point at the same Upstash Redis under the hood, just with a
+  // different naming convention). Whichever provisioning path the operator
+  // picked, we use the REST URL + token.
+  const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
 
   if (!url || !token) {
     // Production fail-CLOSED: missing Upstash credentials in prod means the
@@ -212,13 +219,15 @@ function getUpstashAdapter(): KvAdapter {
     // (rateLimitDisabled() short-circuits before the adapter is touched).
     if (process.env.NODE_ENV === 'production' && process.env.PUBLIC_EDIT_RATE_LIMIT_DISABLED !== 'true') {
       throw new Error(
-        'perIpSpendingGate: UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required in production. ' +
-        'Set both env vars or set PUBLIC_EDIT_RATE_LIMIT_DISABLED=true to explicitly disable the per-IP gate.',
+        'perIpSpendingGate: Upstash credentials required in production. Set either ' +
+        'UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN (Upstash-native names) or ' +
+        'KV_REST_API_URL + KV_REST_API_TOKEN (Vercel KV add-on names). ' +
+        'Or set PUBLIC_EDIT_RATE_LIMIT_DISABLED=true to explicitly disable the per-IP gate.',
       );
     }
     // Non-production: fall back to a throwing no-op so fail-CLOSED engages
     // for any caller that doesn't honor the rate-limit-disabled bypass.
-    logger.warn('UPSTASH_REDIS_REST_URL/TOKEN not set; perIpSpendingGate using no-op adapter (non-prod only)');
+    logger.warn('Upstash REST credentials not set (neither UPSTASH_REDIS_REST_* nor KV_REST_API_*); perIpSpendingGate using no-op adapter (non-prod only)');
     upstashAdapter = {
       async incrbyfloat() { return 0; },
       async decrbyfloat() { return 0; },
