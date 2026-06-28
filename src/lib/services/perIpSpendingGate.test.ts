@@ -44,7 +44,6 @@ describe('PerIpSpendingGate', () => {
     process.env = { ...originalEnv };
     (process.env as Record<string, string | undefined>).E2E_TEST_MODE = undefined;
     (process.env as Record<string, string | undefined>).PUBLIC_EDIT_RATE_LIMIT_DISABLED = undefined;
-    (process.env as Record<string, string | undefined>).LLM_GATE_FAIL_CLOSED_DISABLED = undefined;
     (process.env as Record<string, string | undefined>).NODE_ENV = undefined;
   });
   afterAll(() => { process.env = originalEnv; });
@@ -126,17 +125,17 @@ describe('PerIpSpendingGate', () => {
       .rejects.toBeInstanceOf(PerIpBudgetExceededError);
   });
 
-  it('reverts to silent-allow on KV error when LLM_GATE_FAIL_CLOSED_DISABLED=true', async () => {
-    process.env.LLM_GATE_FAIL_CLOSED_DISABLED = 'true';
+  it('remainingForIp returns 0/0 on adapter error (fail-CLOSED)', async () => {
     const failing: KvAdapter = {
-      async incrbyfloat() { throw new Error('upstash down'); },
+      async incrbyfloat() { return 0; },
       async decrbyfloat() { return 0; },
       async expire() {},
-      async get() { return 0; },
+      async get() { throw new Error('upstash down'); },
     };
     const gate = new PerIpSpendingGate(failing, 0.5, 5);
-    const reserved = await gate.reserveForIp('1.2.3.4', 'US', 0.10);
-    expect(reserved).toBe(0.10);
+    const { ipRemaining, regionRemaining } = await gate.remainingForIp('1.2.3.4', 'US');
+    expect(ipRemaining).toBe(0);
+    expect(regionRemaining).toBe(0);
   });
 
   it('remainingForIp returns full cap minus used', async () => {

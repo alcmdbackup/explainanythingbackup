@@ -7,8 +7,8 @@
 // - Eager reservation: reserve $est at submit time; release/decrement on call failure.
 //   NOT auto-released on downstream per-user/global cap failures (over-projection is
 //   the defense; max-leak bounded by evolution_runs.budget_cap_usd).
-// - Fail-CLOSED on Upstash error (consistent with LLMSpendingGate Phase 0 contract).
-//   `LLM_GATE_FAIL_CLOSED_DISABLED='true'` reverts to silent-allow for the staged rollout.
+// - Fail-CLOSED on Upstash error (UNCONDITIONAL — no env var escape).
+//   gate.fail_closed_rejected is logged + PerIpBudgetExceededError is raised.
 // - Test bypass: `E2E_TEST_MODE='true'` OR `PUBLIC_EDIT_RATE_LIMIT_DISABLED='true'`
 //   short-circuits to no-op so CI workers (shared egress IP) don't trip the cap mid-suite.
 //
@@ -64,10 +64,6 @@ function testBypassEnabled(): boolean {
   );
 }
 
-function failClosedDisabled(): boolean {
-  return process.env.LLM_GATE_FAIL_CLOSED_DISABLED === 'true';
-}
-
 const DAY_SECONDS = 86_400;
 
 export class PerIpSpendingGate {
@@ -79,8 +75,8 @@ export class PerIpSpendingGate {
 
   /**
    * Reserve `estCost` against both the per-IP and per-region buckets. Throws on
-   * either cap exhaustion (PerIpBudgetExceededError) or KV error (also throws
-   * under fail-CLOSED contract; reverts to silent allow under the kill switch).
+   * either cap exhaustion (PerIpBudgetExceededError) or KV error (UNCONDITIONAL
+   * fail-CLOSED: gate.fail_closed_rejected fires + PerIpBudgetExceededError raised).
    * Returns the reserved USD amount (echoed from estCost) for the caller to
    * pass back to release/record.
    */
@@ -120,10 +116,6 @@ export class PerIpSpendingGate {
         errorMessage: err instanceof Error ? err.message : String(err),
         cause: 'gate_check_failed',
       });
-      if (failClosedDisabled()) {
-        logger.warn('perIpSpendingGate reserve failed; LLM_GATE_FAIL_CLOSED_DISABLED set — allowing', { ip, country });
-        return estCost;
-      }
       throw new PerIpBudgetExceededError('ip', ipK, 0, this.ipCapUsd);
     }
   }
@@ -176,9 +168,8 @@ export class PerIpSpendingGate {
         country,
         error: err instanceof Error ? err.message : String(err),
       });
-      // Under fail-CLOSED, return zero remaining so the affordability check rejects.
-      if (!failClosedDisabled()) return { ipRemaining: 0, regionRemaining: 0 };
-      return { ipRemaining: this.ipCapUsd, regionRemaining: this.regionCapUsd };
+      // Fail-CLOSED: zero remaining so the affordability check rejects.
+      return { ipRemaining: 0, regionRemaining: 0 };
     }
   }
 }
