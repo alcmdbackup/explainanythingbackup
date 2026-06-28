@@ -1,0 +1,10 @@
+{
+  "branch": "feat/investigate_cheaper_faster_ci_20260628",
+  "created_at": "2026-06-28T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/minicomputer_deployment.md"
+  ],
+  "analyses": []
+}
