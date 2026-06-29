@@ -41,6 +41,34 @@ jest.mock('@evolution/lib/pipeline/finalize/persistRunResults', () => ({
   syncToArena: (...args: unknown[]) => mockSyncToArena(...args),
 }));
 
+// Phase 2 follow-up of build_website_for_evolutiOn_20260626: explanation-id
+// runs persist a synthetic seed variant before the iteration loop. Mock just
+// the function; preserve the real RunDeletedDuringExecutionError class so
+// classifyError's `instanceof` checks still resolve a constructor.
+const mockPersistSeedVariantRow = jest.fn().mockResolvedValue(undefined);
+jest.mock('@evolution/lib/pipeline/persistSeedVariant', () => {
+  const actual = jest.requireActual('@evolution/lib/pipeline/persistSeedVariant');
+  return {
+    ...actual,
+    persistSeedVariantRow: (...args: unknown[]) => mockPersistSeedVariantRow(...args),
+  };
+});
+
+// Test fixtures here use placeholder strings like 'run-abc' for run IDs. The
+// new explanation-id seed-variant insert path parses the row against
+// evolutionVariantInsertSchema, which enforces uuid() on run_id. Mock the
+// schema as pass-through in this test so legacy non-UUID fixtures still
+// execute the full pipeline. Production data uses gen_random_uuid() so the
+// real schema is exercised end-to-end in the unit test at
+// evolution/src/lib/pipeline/claimAndExecuteRun.test.ts.
+jest.mock('@evolution/lib/schemas', () => {
+  const actual = jest.requireActual('@evolution/lib/schemas');
+  return {
+    ...actual,
+    evolutionVariantInsertSchema: { parse: (x: unknown) => x },
+  };
+});
+
 const mockWriteMetricMax = jest.fn().mockResolvedValue(undefined);
 jest.mock('@evolution/lib/metrics/writeMetrics', () => ({
   writeMetricMax: (...args: unknown[]) => mockWriteMetricMax(...args),

@@ -166,7 +166,7 @@ const createTopicSchema = z.object({
 export const getArenaTopicsAction = adminAction(
   'getArenaTopics',
   async (
-    filters: { status?: string; filterTestContent?: boolean; includeParagraphTopics?: boolean } | undefined,
+    filters: { status?: string; filterTestContent?: boolean; includeParagraphTopics?: boolean; includePublicEdit?: boolean } | undefined,
     ctx: AdminContext,
   ): Promise<ArenaTopic[]> => {
     let query = ctx.supabase
@@ -182,6 +182,19 @@ export const getArenaTopicsAction = adminAction(
     // Researchers can opt in by passing `includeParagraphTopics: true`.
     if (!filters?.includeParagraphTopics) {
       query = query.eq('prompt_kind', 'article');
+    }
+    // build_website_for_evolutiOn_20260626 follow-up: hide /edit-derived topics
+    // by default. Each /edit submission creates ~10 unique paragraph topics
+    // (named by parentVariantId + slotIndex, never reused across submissions),
+    // which would otherwise noise the arena topic list 1:1 with submission volume.
+    // Source is denormalized from evolution_runs.run_source onto evolution_prompts
+    // by upsertSlotTopic (migration 20260629000001). Researchers can opt in by
+    // passing `includePublicEdit: true`.
+    if (!filters?.includePublicEdit) {
+      // db types regen pending after migration 20260629000001 added the `source`
+      // column. Cast to the narrow PostgrestFilterBuilder shape that exposes
+      // .neq(string, string) — preserves type safety on the call shape.
+      query = (query as unknown as { neq: (col: string, val: string) => typeof query }).neq('source', 'public_edit');
     }
 
     const { data, error } = await query;

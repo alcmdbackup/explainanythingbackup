@@ -215,6 +215,10 @@ export async function evolveArticle(
      *  caller) and iteration-loop spend share a single budget envelope. When undefined,
      *  evolveArticle creates its own (legacy / standalone path). */
     costTracker?: V2CostTracker;
+    /** Provenance for any topic / variant rows written during the loop. Mirrors
+     *  evolution_runs.run_source. Threaded into AgentContext so upsertSlotTopic
+     *  can tag the paragraph topic. Defaults to 'admin'. */
+    runSource?: 'admin' | 'public_edit' | 'test' | 'local' | 'minicomputer';
   },
 ): Promise<EvolutionResult> {
   validateConfig(config);
@@ -510,6 +514,7 @@ export async function evolveArticle(
             logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
             experimentId: options?.experimentId,
             strategyId: options?.strategyId,
+            runSource: options?.runSource,
             styleFingerprint: resolvedConfig.styleFingerprint,
             agentIndex: execOrder,
             rawProvider: llmProvider,
@@ -876,6 +881,7 @@ export async function evolveArticle(
           logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
           experimentId: options?.experimentId,
           strategyId: options?.strategyId,
+          runSource: options?.runSource,
         };
         const mergeAgent = new MergeRatingsAgent();
         // Per Decisions §7: pass the actual iteration type through to MergeRatings so
@@ -1056,6 +1062,7 @@ export async function evolveArticle(
                 logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
                 experimentId: options?.experimentId,
                 strategyId: options?.strategyId,
+                runSource: options?.runSource,
                 rawProvider: llmProvider,
                 defaultModel: (resolvedConfig as { editingModel?: string }).editingModel ?? resolvedConfig.generationModel,
                 generationTemperature: resolvedConfig.generationTemperature,
@@ -1142,6 +1149,7 @@ export async function evolveArticle(
                 logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
                 experimentId: options?.experimentId,
                 strategyId: options?.strategyId,
+                runSource: options?.runSource,
               };
               const mergeAgent = new MergeRatingsAgent();
               await mergeAgent.run({
@@ -1217,6 +1225,7 @@ export async function evolveArticle(
               logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
               experimentId: options?.experimentId,
               strategyId: options?.strategyId,
+              runSource: options?.runSource,
               rawProvider: llmProvider,
               defaultModel: resolvedConfig.generationModel,
               generationTemperature: resolvedConfig.generationTemperature,
@@ -1259,6 +1268,7 @@ export async function evolveArticle(
                   logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
                   experimentId: options?.experimentId,
                   strategyId: options?.strategyId,
+                  runSource: options?.runSource,
                 };
                 const mergeAgent = new MergeRatingsAgent();
                 const mergeResult = await mergeAgent.run({
@@ -1343,6 +1353,7 @@ export async function evolveArticle(
             logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
             experimentId: options?.experimentId,
             strategyId: options?.strategyId,
+            runSource: options?.runSource,
             rawProvider: llmProvider,
             defaultModel: resolvedConfig.generationModel,
             generationTemperature: resolvedConfig.generationTemperature,
@@ -1372,6 +1383,7 @@ export async function evolveArticle(
             logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
             experimentId: options?.experimentId,
             strategyId: options?.strategyId,
+            runSource: options?.runSource,
           };
           const mergeAgent = new MergeRatingsAgent();
           const mergeBuffers: MergeMatchEntry[][] = [
@@ -1523,6 +1535,7 @@ export async function evolveArticle(
             logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
             experimentId: options?.experimentId,
             strategyId: options?.strategyId,
+            runSource: options?.runSource,
             rawProvider: llmProvider,
             defaultModel: resolvedConfig.generationModel,
             generationTemperature: resolvedConfig.generationTemperature,
@@ -1759,6 +1772,7 @@ export async function evolveArticle(
                 logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
                 experimentId: options?.experimentId,
                 strategyId: options?.strategyId,
+                runSource: options?.runSource,
               };
               const mergeAgent = new MergeRatingsAgent();
               const mergeResult = await mergeAgent.run({
@@ -1901,6 +1915,7 @@ export async function evolveArticle(
             logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
             experimentId: options?.experimentId,
             strategyId: options?.strategyId,
+            runSource: options?.runSource,
             rawProvider: llmProvider,
             defaultModel: resolvedConfig.generationModel,
             generationTemperature: resolvedConfig.generationTemperature,
@@ -2132,6 +2147,7 @@ export async function evolveArticle(
                 logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
                 experimentId: options?.experimentId,
                 strategyId: options?.strategyId,
+                runSource: options?.runSource,
               };
               const mergeAgent = new MergeRatingsAgent();
               const mergeResult = await mergeAgent.run({

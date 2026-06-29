@@ -194,6 +194,13 @@ export interface AgentContext {
    *  per iteration in runIterationLoop and read by ReflectAndGenerateFromPreviousArticleAgent
    *  to populate the reflection prompt. Phase 4 of the same project. */
   tacticEloBoosts?: Map<string, number | null>;
+  /** Provenance for any topic / variant rows the agent writes — denormalized from
+   *  evolution_runs.run_source (migration 20260627000004). Threaded into
+   *  upsertSlotTopic so paragraph topics inherit the originating run's source,
+   *  letting the arena UI hide /edit-derived topics by default
+   *  (migration 20260629000001). Defaults to 'admin' when omitted, matching the
+   *  evolution_prompts.source column default. */
+  runSource?: 'admin' | 'public_edit' | 'test' | 'local' | 'minicomputer';
 }
 
 export interface AgentOutput<TOutput, TDetail> {

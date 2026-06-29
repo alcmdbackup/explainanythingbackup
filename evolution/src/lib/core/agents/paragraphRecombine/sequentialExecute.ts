@@ -413,7 +413,7 @@ async function processSequentialRound(
   let topicId: string;
   let originalSlotVariantId: string;
   try {
-    const upsert = await upsertSlotTopic(ctx.db, 'paragraph', parentVariantId, slot.paragraphIndex, slot.originalText);
+    const upsert = await upsertSlotTopic(ctx.db, 'paragraph', parentVariantId, slot.paragraphIndex, slot.originalText, ctx.runSource);
     topicId = upsert.topicId;
     originalSlotVariantId = upsert.originalSlotVariantId;
   } catch (err) {

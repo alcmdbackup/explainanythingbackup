@@ -102,7 +102,7 @@ describe('ArenaListPage', () => {
     await user.selectOptions(filter, 'active');
 
     await waitFor(() => {
-      expect(mockGetArenaTopicsAction).toHaveBeenCalledWith({ status: 'active', filterTestContent: true, includeParagraphTopics: false });
+      expect(mockGetArenaTopicsAction).toHaveBeenCalledWith({ status: 'active', filterTestContent: true, includeParagraphTopics: false, includePublicEdit: false });
     });
   });
 

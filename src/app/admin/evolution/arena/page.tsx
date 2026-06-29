@@ -71,6 +71,10 @@ export default function ArenaListPage(): JSX.Element {
     filterTestContent: 'true',
     hideEmpty: 'true',
     showParagraphTopics: 'false',
+    // build_website_for_evolutiOn_20260626 follow-up: /edit submissions create
+    // ~10 paragraph topics each (never reused across submissions). Default-hide
+    // to keep the list focused on admin-curated content; opt in via toggle.
+    showPublicEdit: 'false',
   });
 
   const fetchTopics = useCallback(async () => {
@@ -79,6 +83,7 @@ export default function ArenaListPage(): JSX.Element {
       status: filterValues.status || undefined,
       filterTestContent: filterValues.filterTestContent === 'true',
       includeParagraphTopics: filterValues.showParagraphTopics === 'true',
+      includePublicEdit: filterValues.showPublicEdit === 'true',
     });
     if (result.success && result.data) {
       setTopics(result.data);
@@ -86,7 +91,7 @@ export default function ArenaListPage(): JSX.Element {
       toast.error(result.error?.message ?? 'Failed to load arena topics');
     }
     setLoading(false);
-  }, [filterValues.status, filterValues.filterTestContent, filterValues.showParagraphTopics]);
+  }, [filterValues.status, filterValues.filterTestContent, filterValues.showParagraphTopics, filterValues.showPublicEdit]);
 
   useEffect(() => {
     fetchTopics();
@@ -115,7 +120,13 @@ export default function ArenaListPage(): JSX.Element {
         return (
           <EntityListPage
             title="Arena Topics"
-            filters={[STATUS_FILTER, HIDE_EMPTY_FILTER, { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true }, { key: 'showParagraphTopics', label: 'Show paragraph topics', type: 'checkbox', defaultChecked: false }]}
+            filters={[
+              STATUS_FILTER,
+              HIDE_EMPTY_FILTER,
+              { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
+              { key: 'showParagraphTopics', label: 'Show paragraph topics', type: 'checkbox', defaultChecked: false },
+              { key: 'showPublicEdit', label: 'Show /edit submissions', type: 'checkbox', defaultChecked: false },
+            ]}
             columns={COLUMNS}
             items={visibleTopics}
             loading={loading}
