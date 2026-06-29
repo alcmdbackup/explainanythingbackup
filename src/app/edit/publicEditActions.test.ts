@@ -146,4 +146,44 @@ describe('submitPublicEditAction', () => {
     expect(result?.success).toBe(true);
     expect(result?.data?.runId).toBe('bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb');
   });
+
+  // Regression: `topics.topic_title` has a unique constraint, so the same
+  // article submitted twice previously hit `duplicate key value violates
+  // unique constraint "topics_topic_title_unique"`. The fix appends a
+  // per-submission 8-char suffix to both topic and explanation titles.
+  it('appends a unique per-submission suffix to topic + explanation titles so duplicate articles do not collide', async () => {
+    const insertedRows: Array<{ table: string; row: Record<string, unknown> }> = [];
+    const supabase = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      from: jest.fn((table: string): any => ({
+        insert: jest.fn((row: Record<string, unknown>) => {
+          insertedRows.push({ table, row });
+          if (table === 'topics') return { select: () => ({ single: async () => ({ data: { id: 42 }, error: null }) }) };
+          if (table === 'explanations') return { select: () => ({ single: async () => ({ data: { id: 99 }, error: null }) }) };
+          if (table === 'evolution_runs') return { select: () => ({ single: async () => ({ data: { id: 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb' }, error: null }) }) };
+          return { select: () => ({ single: async () => ({ data: null, error: null }) }) };
+        }),
+        select: jest.fn(() => ({
+          eq: jest.fn().mockReturnThis(),
+          maybeSingle: async () => ({ data: { id: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', config: { generationModel: 'mock', judgeModel: 'mock', iterationConfigs: [] } }, error: null }),
+          single: async () => ({ data: { id: 99 }, error: null }),
+        })),
+      })),
+    };
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(supabase);
+
+    const article = 'A short article to evolve.';
+    const result = await submitPublicEditAction({
+      articleText: article,
+      strategyId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
+    });
+    expect(result?.success).toBe(true);
+
+    const topicRow = insertedRows.find(r => r.table === 'topics')!.row as { topic_title: string };
+    const expRow = insertedRows.find(r => r.table === 'explanations')!.row as { explanation_title: string };
+    // Both titles share the SAME suffix (1:1 admin matching).
+    expect(topicRow.topic_title).toContain('A short article to evolve');
+    expect(topicRow.topic_title).toMatch(/ · [0-9a-f]{8}$/);
+    expect(expRow.explanation_title).toBe(topicRow.topic_title);
+  });
 });

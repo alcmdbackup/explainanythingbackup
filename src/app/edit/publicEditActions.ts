@@ -71,10 +71,16 @@ function botProtectionDisabled(): boolean {
   return process.env.BOT_PROTECTION_DISABLED === 'true';
 }
 
-/** Build the [EDIT]-prefixed title from the article body (first ~60 chars). */
-function buildEditTitle(articleText: string): string {
+/** Build the [EDIT]-prefixed title from the article body (first ~60 chars).
+ *  A per-submission unique suffix is required because `topics.topic_title` has
+ *  a unique constraint, and the same article submitted twice would otherwise
+ *  collide. The suffix is the caller-supplied submission id (a short string
+ *  taken from a fresh UUID's first segment); both the topic title and
+ *  explanation title use the same suffix so admin views see a 1:1 match. */
+function buildEditTitle(articleText: string, uniqueSuffix: string): string {
   const trimmed = articleText.trim().slice(0, 60).replace(/\s+/g, ' ');
-  return `${EDIT_TITLE_PREFIX} ${trimmed}${articleText.length > 60 ? '…' : ''}`;
+  const ellipsis = articleText.length > 60 ? '…' : '';
+  return `${EDIT_TITLE_PREFIX} ${trimmed}${ellipsis} · ${uniqueSuffix}`;
 }
 
 /** Rough estimate of /edit run cost from articleText length. Used by the
@@ -199,7 +205,14 @@ export const submitPublicEditAction = publicAction(
     try {
       // 7. Create the topic for this submission (matches processImport pattern at
       //    src/actions/importActions.ts:119). One topic row per submission.
-      const topicTitle = buildEditTitle(parsed.articleText);
+      //
+      //    `topics.topic_title` has a unique constraint, so repeated submissions
+      //    of the same article would collide on the first 60-char title slug.
+      //    Append a short per-submission suffix (first 8 chars of a fresh UUID)
+      //    to keep each submission's topic distinct. Both topic and explanation
+      //    titles use the SAME suffix so admin tooling can match them 1:1.
+      const submissionSuffix = crypto.randomUUID().slice(0, 8);
+      const topicTitle = buildEditTitle(parsed.articleText, submissionSuffix);
       const { data: topicRow, error: topicErr } = await ctx.supabase
         .from('topics')
         .insert({ topic_title: topicTitle })
@@ -217,7 +230,7 @@ export const submitPublicEditAction = publicAction(
       //      since the pipeline rewrites the article. The [EDIT] discovery
       //      filters (on topic_title prefix + explanation_title prefix) keep
       //      these out of the public Explore — source is not the discriminator.
-      const explanationTitle = buildEditTitle(parsed.articleText);
+      const explanationTitle = buildEditTitle(parsed.articleText, submissionSuffix);
       const { data: explanationRow, error: expErr } = await ctx.supabase
         .from('explanations')
         .insert({
