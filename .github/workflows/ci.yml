@@ -633,7 +633,11 @@ jobs:
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-${{ matrix.browser }}
+          # Key intentionally omits matrix.browser segment so it aligns with e2e-critical
+          # and e2e-non-evolution — all three jobs share one Playwright cache entry. Safe
+          # because matrix.browser is always [chromium] (Firefox retired 2026-06-12). If
+          # Firefox or another browser is ever re-added to the matrix, re-add the segment.
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
 
       - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'

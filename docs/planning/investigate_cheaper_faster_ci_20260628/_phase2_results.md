@@ -136,9 +136,42 @@ Projected so far: **~$48-68/year**.
 
 ---
 
-## Option E — GitHub ARM runners
+## Option E — GitHub ARM runners ✅ COMPLETE (investigation only; pilot deferred)
 
-**Status**: pending
+**Status**: ✅ complete — confirmed available + compatible
+
+**Findings**:
+- `ubuntu-24.04-arm` became GA for private repos on 2026-01-29 (per [GitHub Changelog](https://github.blog/changelog/2026-01-29-arm64-standard-runners-are-now-available-in-private-repositories/))
+- 2 vCPU on private repos (4 vCPU on public — irrelevant for us)
+- Standard runner: uses Team plan's 3,000 free min allocation (same pool as x64)
+- Per-min rate: **$0.005/min** vs x64's $0.006/min = **17% per-min cheaper**
+- ARM compatibility: package-lock has `@next/swc-linux-arm64-gnu` + `@next/swc-linux-arm64-musl`; no sharp/canvas/bcrypt; Playwright supports ARM Chromium; postgres:15-alpine (used by migration-verify-test) is multi-arch
+- Empirical speed delta on Graviton vs x64: historically 1.0-1.2× on Node workloads (modest)
+
+**Projected savings**: ~**$77/year** if all CI jobs migrate to ARM
+- Current: 6,400 overage min × $0.006 = $38.40/month overage
+- All-ARM: 6,400 overage min × $0.005 = $32.00/month overage
+- Savings: $6.40/month = **$77/year**
+- Even no-speedup scenario: pure $0.005 vs $0.006 = 17% off → guaranteed floor
+
+**Action proposed**: pilot lint + typecheck (lowest-blast, no Docker/Playwright) on ARM first; if clean, extend to unit-tests → integration-critical → e2e-critical → e2e-evolution. Each step is one-line revert.
+
+**Pilot deferred to Phase 4** — Phase 2 is investigation only; piloting 10×10 trials would burn meaningful CI minutes.
+
+---
+
+## Savings-threshold checkpoint after Option E
+
+| Option | Annual savings |
+|---|---:|
+| I (workflow cleanup, 6 sub-items) | $48-68 |
+| E (ARM migration) | $77 |
+| **Combined** | **$125-145** |
+
+- Combined < $200/yr → still in the $50-200 band per rule
+- Per rule: "Run ONE more step then re-evaluate"
+- Next step: **Option A (Enterprise plan check)** — requires user input
+
 
 ---
 
