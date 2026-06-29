@@ -269,7 +269,10 @@ export class ParagraphRecombineWithCoherencePassAgent extends Agent<
 
     // ─── Step 3: Assemble + validate format ───────────────────────
     const recombinedText = assembleRecombinedArticle(parentText, slots, slotWinnerTexts);
-    const formatResult = validateFormat(recombinedText);
+    // /edit-source runs accept arbitrary visitor prose — pass mode='warn' so
+    // the validator records issues without rejecting variants. Admin runs keep
+    // the default 'reject' mode set by FORMAT_VALIDATION_MODE.
+    const formatResult = validateFormat(recombinedText, ctx.runSource === 'public_edit' ? 'warn' : undefined);
 
     // ─── Run-level slot_provenance_ratio_p25/p50 ──────────────────
     // OBSERVATIONAL ONLY — see slotProvenance.ts noise caveat. Sentence-level matching
