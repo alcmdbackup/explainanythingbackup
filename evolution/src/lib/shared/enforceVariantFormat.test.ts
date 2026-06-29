@@ -94,6 +94,42 @@ describe('validateFormat', () => {
     }
   });
 
+  // build_website_for_evolutiOn_20260626 Phase 2 follow-up: per-call mode
+  // override so /edit-source runs accept arbitrary visitor prose without
+  // failing the H1/section structural gates that the LLM-generated pipeline
+  // output is designed around.
+  it('modeOverride="warn" returns valid=true even when env says reject', () => {
+    const original = process.env.FORMAT_VALIDATION_MODE;
+    process.env.FORMAT_VALIDATION_MODE = 'reject';
+    _reloadValidationModeForTesting();
+    try {
+      // Same input the user's /edit submission used — 3 sentences of plain
+      // prose with no H1 or section headings.
+      const text = 'The Roman aqueducts were marvels of engineering. Built between 312 BC and AD 226, they carried fresh water. Many segments still stand today.';
+      const defaultResult = validateFormat(text);
+      expect(defaultResult.valid).toBe(false);
+      expect(defaultResult.issues.length).toBeGreaterThan(0);
+      // With override: still records the issues but reports valid=true.
+      const warnResult = validateFormat(text, 'warn');
+      expect(warnResult.valid).toBe(true);
+      expect(warnResult.issues.length).toBeGreaterThan(0);
+      expect(warnResult.issues).toEqual(defaultResult.issues);
+    } finally {
+      if (original !== undefined) {
+        process.env.FORMAT_VALIDATION_MODE = original;
+      } else {
+        delete process.env.FORMAT_VALIDATION_MODE;
+      }
+      _reloadValidationModeForTesting();
+    }
+  });
+
+  it('modeOverride="off" bypasses all checks', () => {
+    const result = validateFormat('garbage', 'off');
+    expect(result.valid).toBe(true);
+    expect(result.issues).toHaveLength(0);
+  });
+
   it('skips all checks in off mode', () => {
     const original = process.env.FORMAT_VALIDATION_MODE;
     process.env.FORMAT_VALIDATION_MODE = 'off';

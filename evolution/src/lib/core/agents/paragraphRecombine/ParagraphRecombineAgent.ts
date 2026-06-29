@@ -462,8 +462,11 @@ export class ParagraphRecombineAgent extends Agent<
     }
 
     // ─── Step 3: Assemble recombined article + validate format ────
+    // /edit-source runs accept arbitrary visitor prose — pass mode='warn' so
+    // the validator records issues without rejecting variants. Admin runs keep
+    // the default 'reject' mode set by FORMAT_VALIDATION_MODE.
     const recombinedText = assembleRecombinedArticle(parentText, slots, slotWinnerTexts);
-    const formatResult = validateFormat(recombinedText);
+    const formatResult = validateFormat(recombinedText, ctx.runSource === 'public_edit' ? 'warn' : undefined);
 
     const partialDetail: SlotRecombineExecutionDetail = {
       detailType: 'paragraph_recombine',

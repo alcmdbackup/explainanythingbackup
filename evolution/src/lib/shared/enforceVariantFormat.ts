@@ -153,8 +153,16 @@ function findH1Lines(lines: string[]): number[] {
 }
 
 /** Validate article text format. Returns issues; empty issues + valid=true means compliant. */
-export function validateFormat(text: string): FormatResult {
-  const mode = getValidationMode();
+/** Optional per-call mode override. When omitted, falls back to the
+ *  module-level FORMAT_VALIDATION_MODE env var. /edit-source runs pass
+ *  'warn' so the pipeline produces variants even when the user's pasted
+ *  prose lacks H1 / section structure (build_website_for_evolutiOn_20260626
+ *  Phase 2 follow-up — formatted articles are the pipeline's native shape;
+ *  /edit accepts arbitrary visitor prose). */
+export type FormatValidationMode = 'reject' | 'warn' | 'off';
+
+export function validateFormat(text: string, modeOverride?: FormatValidationMode): FormatResult {
+  const mode = modeOverride ?? getValidationMode();
   if (mode === 'off') return { valid: true, issues: [] };
 
   const issues: string[] = [];
