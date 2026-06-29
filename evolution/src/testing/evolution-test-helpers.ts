@@ -244,6 +244,37 @@ export async function createTestPrompt(
 }
 
 /**
+ * Insert a test evolution_experiments row and return its UUID.
+ * Required for /run_experiment_analysis integration tests + any test that
+ * needs to bind runs to a multi-arm experiment.
+ *
+ * Defaults: name='[TEST_EVO] Experiment <timestamp>' (cleanable via name prefix
+ * matcher), status='completed' (so /run_experiment_analysis pre-flight gate 7
+ * passes without warning). Pass a prompt_id or one is auto-created.
+ */
+export async function createTestExperiment(
+  supabase: SupabaseClient,
+  overrides?: { promptId?: string; name?: string; status?: 'draft' | 'running' | 'completed' | 'cancelled' | 'archived'; config?: Record<string, unknown> },
+): Promise<string> {
+  const promptId = overrides?.promptId ?? await createTestPrompt(supabase);
+  const name = overrides?.name ?? `[TEST_EVO] Experiment ${Date.now()}`;
+  const status = overrides?.status ?? 'completed';
+  const row: Record<string, unknown> = {
+    name,
+    prompt_id: promptId,
+    status,
+  };
+  if (overrides?.config !== undefined) row.config = overrides.config;
+  const { data, error } = await supabase
+    .from('evolution_experiments')
+    .insert(row)
+    .select('id')
+    .single();
+  if (error) throw new Error(`createTestExperiment failed: ${error.message ?? error.code ?? JSON.stringify(error)}`);
+  return data.id as string;
+}
+
+/**
  * Insert a test evolution_explanations row and return its UUID.
  * Auto-infers source from whether explanationId is provided.
  * Returns null if the table doesn't exist yet (pre-migration).

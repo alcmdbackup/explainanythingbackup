@@ -121,6 +121,27 @@ STATUS_FILE=$(echo "$STATUS_FILES" | sort -V | tail -1)
 - **Template-placeholder filter**: exclude lines matching the regex `^- \[ \] \[.*\]$` (literal-bracket placeholders carried over from initialize template)
 - If unchecked > 0 → RED with `file:line` list
 
+**Project-kind closure check** (experiment projects only — verifies the analysis was promoted before allowing closure):
+
+```bash
+PROJECT_KIND=$(jq -r '.project_kind // "standard"' "$STATUS_FILE")
+ANALYSES_COUNT=$(jq -r '.analyses // [] | length' "$STATUS_FILE")
+
+if [ "$PROJECT_KIND" = "feature_with_experiment" ] || [ "$PROJECT_KIND" = "experiment_only" ]; then
+  if [ "$ANALYSES_COUNT" -eq 0 ]; then
+    # YELLOW (not RED): the analysis may genuinely not be ready when the user
+    # wants to close (e.g. runs still in progress, EAR drafted but not promoted).
+    # Surface as caution, not a hard block.
+    echo "YELLOW: project_kind=$PROJECT_KIND but analyses[] is empty in $STATUS_FILE — has /run_experiment_analysis been run and promoted via /write_doc_for_completed_analysis?"
+  fi
+fi
+```
+
+- `project_kind == "standard"` → no check (current behavior; full backward compat for projects predating the field).
+- `project_kind == "feature_with_experiment"` AND `analyses[]` empty → YELLOW.
+- `project_kind == "experiment_only"` AND `analyses[]` empty → YELLOW.
+- Either experiment kind WITH non-empty `analyses[]` → no flag (analysis promoted; closure ok on this axis).
+
 **Gate files** — each JSON read includes `schema_version` validation with explicit three-state semantics:
 - Field absent → treat as v1 (omit-tolerant for gate files written by current `/finalize`)
 - Field present AND value == 1 → GREEN proceed

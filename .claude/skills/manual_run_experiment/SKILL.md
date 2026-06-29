@@ -4,7 +4,8 @@ description: >
   Run a controlled staging A/B (or multi-arm) experiment for the evolution
   pipeline end-to-end: reuse existing seed-script infrastructure when possible,
   enforce production cost tracking, wait for the runs to complete, trigger
-  /analysis to document results, and create a PR with the script + analysis.
+  /run_experiment_analysis (which transparently invokes /write_doc_for_completed_analysis
+  on user approval), and create a PR with the script + analysis.
   Use when the user wants to validate a hypothesis with N runs/arm on staging,
   test a new agent/config against a baseline, or kick off a comparison study.
 allowed-tools:
@@ -118,18 +119,65 @@ Add to the project's planning doc (under an `## Artifacts` section, before
 `## Review & Discussion`) a pointer to the script + the experiment+strategy ids
 produced by the first --apply.
 
-### Step 5 — Dry-run, then apply
+### Step 5 — Dry-run, then apply (with experiment_id capture)
 
 ```bash
 npx tsx evolution/scripts/experiments/seed<Name>Experiment_YYYYMMDD.ts \
   --target staging --runs-per-arm 8
 
-# Verify the planned writes look right, then:
+# Verify the planned writes look right, then run with --apply.
+# Use tee + pipefail to capture stdout for experiment_id extraction
+# (extraction is testable: scripts/skills/manual-run-experiment-capture.ts).
+set -o pipefail
+SEED_OUT=$(mktemp)
 npx tsx evolution/scripts/experiments/seed<Name>Experiment_YYYYMMDD.ts \
-  --target staging --runs-per-arm 8 --apply
+  --target staging --runs-per-arm 8 --apply | tee "$SEED_OUT"
+# pipefail is REQUIRED — without it, a failed seed-script silently produces
+# empty $SEED_OUT and the standalone-skip path misleads the user.
+
+# Extract experiment_id (handles all 3 known seed-script output shapes:
+# "experiment_id = <uuid>" / "Reusing existing experiment <uuid>" /
+# "Reusing experiment <uuid>"):
+EID=$(npx tsx scripts/skills/manual-run-experiment-capture.ts extract "$SEED_OUT")
+if [ -z "$EID" ]; then
+  echo "ERROR: could not extract experiment_id from seed-script output." >&2
+  exit 2
+fi
+echo "Captured experiment_id = $EID"
 ```
 
-Capture the printed experiment id + strategy ids.
+**experiment_id write to `_status.json`** (per /run_experiment_analysis Phase 6 design):
+
+```bash
+# Resolve project folder from current branch (strips feat/, fix/, chore/, docs/, hotfix/).
+BRANCH=$(git branch --show-current)
+PROJECT_DIR=$(npx tsx scripts/skills/manual-run-experiment-capture.ts resolve-folder "$BRANCH")
+if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/_status.json" ]; then
+  echo "WARNING: no project folder resolved for branch '$BRANCH'." >&2
+  echo "         Captured experiment_id=$EID but skipping _status.json write." >&2
+  echo "         Pass [experiment_id] explicitly when invoking /run_experiment_analysis." >&2
+else
+  # Idempotency contract: absent/null → write, equal → noop, differs → ERROR.
+  CURRENT=$(jq -r '.experiment_id // "null"' "$PROJECT_DIR/_status.json")
+  ACTION=$(npx tsx scripts/skills/manual-run-experiment-capture.ts idempotency "$CURRENT" "$EID")
+  case "$ACTION" in
+    write|noop)
+      jq --arg eid "$EID" '.experiment_id = $eid' "$PROJECT_DIR/_status.json" > "$PROJECT_DIR/_status.json.tmp"
+      mv "$PROJECT_DIR/_status.json.tmp" "$PROJECT_DIR/_status.json"
+      echo "✓ Wrote experiment_id=$EID to $PROJECT_DIR/_status.json (action: $ACTION)"
+      ;;
+    error)
+      echo "ERROR: Project already has experiment_id=$CURRENT recorded." >&2
+      echo "       Either you're running a different experiment for this project" >&2
+      echo "       (use a new project via /initialize), or the previous experiment" >&2
+      echo "       was wrong (manually clear _status.json.experiment_id and re-run)." >&2
+      exit 1
+      ;;
+  esac
+fi
+```
+
+Capture the printed strategy ids too — they'll appear in the planning doc's `## Artifacts` section.
 
 ### Step 6 — Wait for completion
 
@@ -157,29 +205,24 @@ npm run query:staging -- --json "SELECT s.name, r.status, count(*) FROM evolutio
 If any runs `failed`, surface those (`error_code`, `error_message`) before
 proceeding to analysis — failures pollute the comparison.
 
-### Step 7 — Trigger /analysis
+### Step 7 — Trigger /run_experiment_analysis
 
-Invoke the `/analysis <project-name>` skill for the project this experiment
-belongs to. The analysis report MUST contain:
+Invoke the `/run_experiment_analysis [experiment_id]` skill for the project this experiment belongs to (resolves `experiment_id` from `_status.json.experiment_id` set in Step 5). That skill runs:
 
-- **`## Methodology`** section calling out the EXACT script path used + flags
-  invoked (`evolution/scripts/experiments/seed<Name>Experiment_YYYYMMDD.ts
-  --target staging --runs-per-arm N --apply`) so future readers can reproduce.
-- **`## Key Findings`** including the per-arm median tactic-delta + the
-  decision-rule outcome from the project's planning doc (PASS / FAIL /
-  INCONCLUSIVE per Mann-Whitney + median-shift criteria).
-- **`## Dataset`** with `dataset.csv` containing per-run metrics:
-  `run_id, strategy_id, arm_label, tactic_delta, cost_usd, variant_count`,
-  plus any tactic-specific signals from the project's plan.
-- **`## Queries & Results`** with every SQL query used to pull the dataset and
-  compute the decision rule.
-- **Outlier rule application**: explicitly document which runs (if any) were
-  dropped per the project's outlier rule and why.
+1. **Pre-flight gates** — PRAP-content validation, UUID validation, `experiment_id` existence in `evolution_experiments`.
+2. **Funnel/balance audit** — 6 SQL queries from `evolution/scripts/analysis/`.
+3. **Arena-only wipeout HARD GATE** — calls `evolution/scripts/detectArenaOnlyWipeouts.ts --experiment-id`. Refuses to compute significance if any wipeouts detected; AskUserQuestion to resolve (drop / rerun / proceed with caveat).
+4. **Significance computation** — per the named statistical test in `_planning.md ## Pre-Registered Analysis Plan` (Mann-Whitney / McNemar / Spearman / Bootstrap / permutation).
+5. **Judge-decisiveness audit** — per-arm decisive % @0.6 + full confidence bucket distribution + position-bias %.
+6. **Causal-evidence pass** — refuses to ship pattern claims with <2 concrete examples.
+7. **Writes EAR.md** to `docs/planning/<project>/EAR.md` with all 10 required `##` sections including Table A (Test-vs-Control Metrics) + Table B (Experimental Validity Funnel).
+8. **Adversarial 5/5 review loop** via `/analysis-review-loop` (per-section scoring across 3 reviewers × 6 sections = 18 cells).
+9. **User approval gate** — review EAR.md, approve / fix-then-promote / abort.
+10. **Transparent promotion** on approval → invokes `/write_doc_for_completed_analysis <project>` (Step 3 findings-picker against `_research.md ## Key Findings` which was mirrored from EAR in Step 7).
 
-If the project's planning doc pre-registered a decision rule (e.g.
-"median tactic-delta ≥ 0 on NEW AND median shift ≥ +5 mu AND Mann-Whitney p <
-0.10 one-sided"), report all three components separately in the findings — not
-just the conclusion.
+The PRAP section in `_planning.md` MUST be filled in BEFORE invoking this skill (the skill's Step 1 gate refuses without it). Required PRAP content (per `scripts/skills/prap-validator.ts`): `arms` + `threshold` + a named test (Mann-Whitney / McNemar / Bootstrap / Spearman / permutation). For projects created without PRAP (project_kind=standard), run `/add_experiment_phases` first to convert.
+
+The final promoted analysis at `docs/analysis/<name>/<name>.md` (written by the downstream `/write_doc_for_completed_analysis` skill) inherits its 5-section template via the EAR's first 5 sections — Header / Methodology / Key Findings / Dataset / Queries & Results.
 
 ### Step 8 — Create PR
 
@@ -207,7 +250,7 @@ After the PR is created, drop the URL into the response so the user can monitor.
   `addRunToExperiment` which wires the experiment_id binding + the run-creation
   invariants. Use the API.
 - **Writing the analysis as a comment on the planning doc**. Analysis goes in
-  `docs/analysis/<name>/` (per `/analysis` skill). The planning doc just gets
+  `docs/analysis/<name>/` (per `/write_doc_for_completed_analysis` skill). The planning doc just gets
   a pointer in its Artifacts section.
 - **Shipping without the PR.** The whole point is durability — if the script
   and analysis aren't merged, they evaporate when the branch dies.
@@ -221,5 +264,8 @@ After the PR is created, drop the URL into the response so the user can monitor.
 - Experiments folder + index: `evolution/scripts/experiments/README.md`
 - Cost tracking deep dive: `evolution/docs/cost_optimization.md` (search for
   `recordSpend`, `AgentCostScope`)
-- Analysis skill: `/analysis <project-name>` (writes to `docs/analysis/<name>/`)
+- Rigorous analysis skill: `/run_experiment_analysis <project-name>` (produces EAR.md + adversarial 5/5 review)
+- Promotion skill: `/write_doc_for_completed_analysis <project-name>` (writes the durable artifact to `docs/analysis/<name>/`; invoked transparently by `/run_experiment_analysis` Step 10)
+- Sub-skill: `/analysis-review-loop` (adversarial loop used by `/run_experiment_analysis` Step 8)
+- Mid-cycle conversion: `/add_experiment_phases` (converts a `standard` project to `feature_with_experiment` so the PRAP gate passes)
 - Project workflow: `docs/docs_overall/project_workflow.md`

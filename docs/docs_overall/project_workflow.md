@@ -22,6 +22,32 @@ Before starting any new project, ensure the following requirements are met:
 
 **Important:** Always use `_planning.md` in your project folder for plans, not `.claude/plans/`.
 
+#### `_status.json` schema
+
+`/initialize` writes (and downstream skills read) this shape:
+
+```jsonc
+{
+  "branch": "feat/foo_20260628",                            // current branch
+  "created_at": "2026-06-28T00:00:00Z",                     // ISO timestamp
+  "prerequisites": { /* per-skill prerequisite checks */ },
+  "project_kind": "standard",                               // NEW (2026-06-28)
+  "experiment_id": null,                                    // NEW (2026-06-28)
+  "relevantDocs": [                                         // user-confirmed docs to read for context
+    "evolution/docs/strategies_and_experiments.md"
+  ],
+  "analyses": [                                             // appended by /write_doc_for_completed_analysis
+    "docs/analysis/foo-priming-study/"
+  ]
+}
+```
+
+- **`project_kind`** (introduced 2026-06-28): one of `"standard"` | `"feature_with_experiment"` | `"experiment_only"`. Default `"standard"` for projects predating this field (full backward compat). Set by `/initialize` Step 1.6's 4-way "controlled experiment?" question. Read by:
+  - `/run_experiment_analysis` — refuses to run on `"standard"` (helpful error → `/add_experiment_phases`)
+  - `/safe_to_close` — for experiment kinds, verifies `analyses[]` is non-empty before GREEN
+  - `/write_doc_for_completed_analysis` — optionally surfaces `EAR.md` path
+- **`experiment_id`** (introduced 2026-06-28): UUID of the bound experiment in `evolution_experiments`, or `null`. Initialized to `null` by `/initialize`; populated by `/manual_run_experiment` after `--apply` captures the printed id. Idempotent write contract (per `scripts/skills/manual-run-experiment-capture.ts`): absent → write; equal → noop; differs → ERROR.
+
 ### Bypassing Workflow Enforcement
 
 For quick fixes or emergencies, use one of these bypass methods:

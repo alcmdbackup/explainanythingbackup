@@ -39,12 +39,41 @@ REQUIRED_SECTIONS[".claude/commands/mainToProd.md"]="
 REQUIRED_SECTIONS[".claude/commands/finalize.md"]="
 "
 
-REQUIRED_SECTIONS[".claude/commands/analysis.md"]="
+REQUIRED_SECTIONS[".claude/commands/write_doc_for_completed_analysis.md"]="
 ## Header
 ## Methodology
 ## Key Findings
 ## Dataset
 ## Queries & Results
+"
+
+REQUIRED_SECTIONS[".claude/commands/run_experiment_analysis.md"]="
+## Workflow
+## Pre-flight Gates
+## EAR Output Template
+## Header
+## Methodology
+## Key Findings
+## Dataset
+## Queries & Results
+## Pre-Registered Analysis Plan
+## Balance Audit
+## Decisiveness Audit
+## Causal Evidence
+## Adversarial Review Log
+"
+
+REQUIRED_SECTIONS[".claude/skills/analysis-review-loop/SKILL.md"]="
+## When to Use
+## Workflow
+## Reviewer JSON Schema
+## Stop Condition
+"
+
+REQUIRED_SECTIONS[".claude/commands/add_experiment_phases.md"]="
+## Usage
+## Pre-conditions
+## Actions
 "
 
 fail=0

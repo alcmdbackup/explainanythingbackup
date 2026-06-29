@@ -1,11 +1,13 @@
-# /analysis - Create a Formal Analysis Report
+# /write_doc_for_completed_analysis - Write Up a Completed Analysis
+
+> **Naming note (2026-06-28):** Renamed from `/analysis`. The previous name implied this skill *runs* analyses; it only writes them up after they're done. For the production-side rigor (PRAP, balance audit, significance, judge decisiveness, adversarial loop), see `/run_experiment_analysis`.
 
 Distill the useful findings in a project's research doc into a durable, reproducible **analysis report** under `docs/analysis/`. An analysis is the formal artifact promoted from the transient `_research.md` working notes; it is self-contained and survives the planning folder going stale after merge.
 
 ## Usage
 
 ```
-/analysis <project-name>
+/write_doc_for_completed_analysis <project-name>
 ```
 
 - `project-name` (optional): project name or partial match. If omitted, resolves by the current git branch (like `/research`).
@@ -74,6 +76,6 @@ For non-SQL: the source and pull method. Cross-reference queries.sql.]
 ```
 
 ## Notes
-- `/analysis` requires a research doc by design (no standalone/bypass-branch mode in v1).
+- `/write_doc_for_completed_analysis` requires a research doc by design (no standalone/bypass-branch mode in v1).
 - Legacy flat reports at `docs/analysis/` root predate the subfolder convention and stay flat; new analyses always use a `<name>/` subfolder.
 - The 5 `## ` headers above are enforced by `scripts/check-skill-sections.sh`; if you rename one, update that script in the same PR.

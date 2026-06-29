@@ -1,0 +1,20 @@
+{
+  "branch": "feat/experiment_analysis_skill_20260628",
+  "created_at": "2026-06-28T00:00:00Z",
+  "prerequisites": {
+    "testing_overview_read": "2026-06-28T21:14:37Z",
+    "project_workflow_read": "2026-06-28T21:55:21Z"
+  },
+  "relevantDocs": [
+    "evolution/docs/strategies_and_experiments.md",
+    "evolution/docs/architecture.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/arena.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/evolution_metrics.md",
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/implicit_rubric_weights.md",
+    "evolution/docs/reference.md"
+  ],
+  "analyses": []
+}

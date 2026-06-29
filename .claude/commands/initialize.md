@@ -58,6 +58,35 @@ BRANCH_TYPE="[user's selection]"  # e.g., "feat", "fix", "chore", "docs"
 BRANCH_NAME="${BRANCH_TYPE}/${PROJECT_NAME}"
 ```
 
+### 1.6. Ask about controlled experiments (project_kind branching)
+
+**YOU MUST use AskUserQuestion** to determine whether this project will involve a controlled experiment. The answer selects the planning-doc template variant and sets `project_kind` in `_status.json` so downstream skills (`/run_experiment_analysis`, `/safe_to_close`, `/write_doc_for_completed_analysis`) can behave correctly.
+
+Question: *"Will this project involve a controlled experiment (A/B or N-arm) for the evolution pipeline?"*
+
+Options (single-select):
+- **A. No** — current behavior; standard template (Recommended for most projects)
+- **B. Yes — Pattern 1: feature + experiment** — build a feature whose value needs experimental validation; planning template adds a Pre-Registered Analysis Plan (PRAP) section + Phases 6-10 (seed script / `/manual_run_experiment` / `/run_experiment_analysis` / `/write_doc_for_completed_analysis` / follow-up PR)
+- **C. Yes — Pattern 2: pure validation** — no new feature, just comparing existing configs; smaller PRAP-primary template with no Implementation phases
+- **D. Maybe, decide later** — standard template plus an inline pointer to `/add_experiment_phases` for mid-cycle conversion
+
+Map the answer to `BRANCH_ANSWER` (`no` / `pattern1` / `pattern2` / `maybe`) and resolve the template selection via the testable helper:
+
+```bash
+BRANCH_ANSWER="[no|pattern1|pattern2|maybe]"  # e.g., "no" for option A
+TEMPLATE_SELECTION=$(npx tsx scripts/skills/initialize-template-selector.ts "$BRANCH_ANSWER")
+# TEMPLATE_SELECTION is JSON: {projectKind, prap, experimentPhases, dropImplementationPhase,
+# autoIncludeEvolutionDocs, inlineConvertNote}
+PROJECT_KIND=$(echo "$TEMPLATE_SELECTION" | jq -r '.projectKind')
+INCLUDE_PRAP=$(echo "$TEMPLATE_SELECTION" | jq -r '.prap')
+INCLUDE_EXPERIMENT_PHASES=$(echo "$TEMPLATE_SELECTION" | jq -r '.experimentPhases')
+DROP_IMPLEMENTATION_PHASE=$(echo "$TEMPLATE_SELECTION" | jq -r '.dropImplementationPhase')
+AUTO_INCLUDE_EVOLUTION_DOCS=$(echo "$TEMPLATE_SELECTION" | jq -r '.autoIncludeEvolutionDocs')
+INLINE_CONVERT_NOTE=$(echo "$TEMPLATE_SELECTION" | jq -r '.inlineConvertNote')
+```
+
+**Bypass behavior:** if `WORKFLOW_BYPASS=true`, skip the question and default to `BRANCH_ANSWER="no"` (`project_kind: "standard"`).
+
 ### 2. Create Branch from Remote Main
 
 Fetch the latest from remote and create a new branch based exactly off `origin/main`:
@@ -234,13 +263,15 @@ mkdir -p docs/planning/PROJECT_NAME_DATE
 
 ### 3.5. Write Status File with Relevant Docs
 
-Create `$PROJECT_PATH/_status.json` using the **Write tool**. Include the `relevantDocs` array so `/finalize` and other skills can identify which docs to update:
+Create `$PROJECT_PATH/_status.json` using the **Write tool**. Include `relevantDocs`, `project_kind`, and `experiment_id`:
 
 ```json
 {
   "branch": "${BRANCH_NAME}",
   "created_at": "[ISO timestamp]",
   "prerequisites": {},
+  "project_kind": "${PROJECT_KIND}",
+  "experiment_id": null,
   "relevantDocs": [
     "docs/feature_deep_dives/tag_system.md",
     "docs/docs_overall/architecture.md"
@@ -249,11 +280,18 @@ Create `$PROJECT_PATH/_status.json` using the **Write tool**. Include the `relev
 }
 ```
 
+- `project_kind` (NEW) — one of `"standard"`, `"feature_with_experiment"`, `"experiment_only"`. Set from Step 1.6's `$PROJECT_KIND` variable. Default for projects predating this field is `"standard"` (full backward compat).
+- `experiment_id` (NEW) — UUID or `null`. Initialized to `null`; populated later by `/manual_run_experiment` after `--apply` writes a captured `experiment_id` (Phase 6 of the experiment-analysis design).
 - `relevantDocs` may contain paths under `docs/docs_overall/`, `docs/feature_deep_dives/`, or `evolution/docs/evolution/`
 - Never include paths under `docs/planning/`
-- Populate from the user-confirmed list in step 2.7
+- Populate from the user-confirmed list in step 2.7. **If `$AUTO_INCLUDE_EVOLUTION_DOCS == true`** (Pattern 1 or Pattern 2), prepend the 5 evolution docs:
+  - `evolution/docs/strategies_and_experiments.md`
+  - `evolution/docs/architecture.md`
+  - `evolution/docs/data_model.md`
+  - `evolution/docs/arena.md`
+  - `evolution/docs/rating_and_comparison.md`
 - **Core docs are pre-read** (Step 2.5) and intentionally excluded from `relevantDocs` to avoid flooding `/finalize` Step 6 with phantom doc-update prompts; `.claude/doc-mapping.json` handles them via file-pattern matching when actually relevant
-- `analyses` is seeded as an empty array `[]`. The `/analysis` skill **appends** the directory path of each formal analysis report it promotes from this project's research doc (e.g. `"docs/analysis/<name>/"`). It is additive/optional — projects predating this field are valid and `/analysis` treats a missing key as `[]`.
+- `analyses` is seeded as an empty array `[]`. The `/write_doc_for_completed_analysis` skill **appends** the directory path of each formal analysis report it promotes from this project's research doc (e.g. `"docs/analysis/<name>/"`). It is additive/optional — projects predating this field are valid and the skill treats a missing key as `[]`.
 
 ### 3.8. Ask for GitHub Issue Summary and Detailed Requirements
 
@@ -318,6 +356,15 @@ Pre-populate the "Relevant Docs" section with the actual paths from `RELEVANT_DO
 **IMPORTANT:** Copy `ISSUE_REQUIREMENTS` verbatim — do not summarize, condense, or reformat the user's requirements.
 
 ### 5. Create Planning Document
+
+Select the planning-doc template variant based on the Step 1.6 answer:
+
+- `$PROJECT_KIND == "standard"` AND `$INLINE_CONVERT_NOTE == false` → **baseline template** (below, unchanged from current behavior)
+- `$PROJECT_KIND == "standard"` AND `$INLINE_CONVERT_NOTE == true` (answer D — Maybe) → **baseline + maybe-note** (append `> **Note:** If experimental validation becomes needed later, run \`/add_experiment_phases\` to add the PRAP section + experiment phases to this plan.` at end of `## Background`)
+- `$PROJECT_KIND == "feature_with_experiment"` (answer B) → **baseline + PRAP section inserted between `## Options Considered` and `## Phased Execution Plan` + Phases 6-10 stub appended to `## Phased Execution Plan`**
+- `$PROJECT_KIND == "experiment_only"` (answer C) → **same as feature_with_experiment but drop the Implementation phase** (i.e. drop any default "Phase X: Implementation" stub from the baseline `## Phased Execution Plan` — PRAP becomes primary content)
+
+For convenience, the testable helper at `scripts/skills/initialize-template-selector.ts` exports the exact `PRAP_SECTION_TEMPLATE`, `EXPERIMENT_PHASES_STUB`, and `MAYBE_CONVERT_NOTE` constants so the additions can be programmatically inserted rather than copy-pasted (and stay in sync if the templates evolve).
 
 Create `$PROJECT_PATH/${PROJECT_NAME}_planning.md` using the **Write tool** with this template:
 

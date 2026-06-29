@@ -104,7 +104,7 @@ service_role_all RLS):**
 |---|---|
 | `judge_eval_agreement_runs` | One row per settings tuple; `settings_key` (sha256 with an `agreement\|` prefix) UNIQUE → idempotent re-run. Carries `judge_rubric_id` (required). |
 | `judge_eval_agreement_calls` | Per (pair × repeat): holistic + rubric winner/confidence, `holistic_decisive`/`rubric_decisive` (GENERATED `confidence > 0.6`), `rubric_matches_holistic`, split + summed cost/tokens, per-pass raw audit, and the frozen ground-truth snapshot. |
-| `judge_eval_agreement_criterion_verdicts` | One flat row per criterion per call (SQL-queryable for `/analysis`): `dimension_winner`, `agrees_with_holistic` (NULL on criterion TIE/abstain), `matches_ground_truth` (NULL unless large-gap decisive). |
+| `judge_eval_agreement_criterion_verdicts` | One flat row per criterion per call (SQL-queryable for `/write_doc_for_completed_analysis`): `dimension_winner`, `agrees_with_holistic` (NULL on criterion TIE/abstain), `matches_ground_truth` (NULL unless large-gap decisive). |
 | `judge_eval_agreement_leaderboard` (VIEW) | One row per run × `pair_kind`: strict / both-decisive agreement, abstain-divergence, and holistic/rubric accuracy (FILTER + NULLIF guard zero-large-gap runs). RLS-locked to `service_role`. |
 
 **Reducer** `computeAgreementMetrics` (`agreementMetrics.ts`, pure, reused by run-detail + tests): the

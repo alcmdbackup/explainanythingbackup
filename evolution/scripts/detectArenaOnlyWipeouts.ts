@@ -15,11 +15,17 @@
  * the key signal that distinguishes a wipeout from an intentional arena-only run.
  *
  * Usage:
- *   npx tsx evolution/scripts/detectArenaOnlyWipeouts.ts                 # staging, last 24h (default)
- *   npx tsx evolution/scripts/detectArenaOnlyWipeouts.ts --prod          # production
- *   npx tsx evolution/scripts/detectArenaOnlyWipeouts.ts --hours 168     # custom window
- *   npx tsx evolution/scripts/detectArenaOnlyWipeouts.ts --json          # machine-readable output
+ *   npx tsx evolution/scripts/detectArenaOnlyWipeouts.ts                       # staging, last 24h (default)
+ *   npx tsx evolution/scripts/detectArenaOnlyWipeouts.ts --prod                # production
+ *   npx tsx evolution/scripts/detectArenaOnlyWipeouts.ts --hours 168           # custom window
+ *   npx tsx evolution/scripts/detectArenaOnlyWipeouts.ts --json                # machine-readable output
+ *   npx tsx evolution/scripts/detectArenaOnlyWipeouts.ts --experiment-id <uuid> # scope to one experiment (NEW 2026-06-28)
+ *                                                                              # supersedes --hours; no time-window filter
  * Exit code: 0 = no wipeouts, 1 = wipeouts detected (so CI/cron can alert).
+ *
+ * --experiment-id was added to support /run_experiment_analysis Step 3 (Decision #13 of the
+ * experiment-analysis project plan): the skill calls this detector instead of duplicating the
+ * fingerprint in SQL. --json envelope shape is unchanged for back-compat.
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
@@ -71,8 +77,26 @@ export async function findRecentWipeouts(db: SupabaseClient, sinceHours: number)
     .gte('completed_at', sinceIso)
     .in('status', ['completed', 'failed']);
   if (error) throw new Error(`evolution_runs query failed: ${error.message}`);
-  if (!runs || runs.length === 0) return [];
+  return collectAndDetect(db, runs);
+}
 
+/** Queries all runs for a single experiment and returns the wipeouts. Read-only. No time-window filter. */
+export async function findWipeoutsForExperiment(db: SupabaseClient, experimentId: string): Promise<RunHealthRow[]> {
+  const { data: runs, error } = await db
+    .from('evolution_runs')
+    .select('id, status, error_code, run_summary')
+    .eq('experiment_id', experimentId)
+    .in('status', ['completed', 'failed']);
+  if (error) throw new Error(`evolution_runs query failed: ${error.message}`);
+  return collectAndDetect(db, runs);
+}
+
+/** Shared row-collection + detection helper used by both query paths. */
+async function collectAndDetect(
+  db: SupabaseClient,
+  runs: unknown[] | null,
+): Promise<RunHealthRow[]> {
+  if (!runs || runs.length === 0) return [];
   const rows: RunHealthRow[] = [];
   for (const r of runs as Array<{ id: string; status: string; error_code: string | null; run_summary: { stopReason?: string } | null }>) {
     const [{ count: genCount }, { count: variantCount }, costRow] = await Promise.all([
@@ -100,6 +124,8 @@ async function main(): Promise<void> {
   const asJson = argv.includes('--json');
   const hoursArg = argv.indexOf('--hours');
   const sinceHours = hoursArg >= 0 ? Number(argv[hoursArg + 1]) || 24 : 24;
+  const eidArg = argv.indexOf('--experiment-id');
+  const experimentId = eidArg >= 0 ? argv[eidArg + 1] : undefined;
 
   const envFile = isProd ? '.env.evolution-prod' : '.env.local';
   dotenv.config({ path: path.resolve(process.cwd(), envFile) });
@@ -111,13 +137,27 @@ async function main(): Promise<void> {
   }
   const db = createClient<Database>(url, key, { auth: { persistSession: false } });
 
-  const wipeouts = await findRecentWipeouts(db, sinceHours);
+  // --experiment-id supersedes --hours (per /run_experiment_analysis Step 3 design;
+  // experiment-scoped queries should not be time-filtered).
+  const wipeouts = experimentId
+    ? await findWipeoutsForExperiment(db, experimentId)
+    : await findRecentWipeouts(db, sinceHours);
+
   if (asJson) {
-    console.log(JSON.stringify({ target: isProd ? 'prod' : 'staging', sinceHours, count: wipeouts.length, wipeouts }, null, 2));
+    // Envelope shape unchanged for back-compat (sinceHours is null when experiment-scoped).
+    console.log(JSON.stringify({
+      target: isProd ? 'prod' : 'staging',
+      sinceHours: experimentId ? null : sinceHours,
+      experimentId: experimentId ?? null,
+      count: wipeouts.length,
+      wipeouts,
+    }, null, 2));
   } else if (wipeouts.length === 0) {
-    console.log(`✓ No arena_only wipeouts in the last ${sinceHours}h (${isProd ? 'prod' : 'staging'}).`);
+    const scope = experimentId ? `experiment ${experimentId}` : `last ${sinceHours}h (${isProd ? 'prod' : 'staging'})`;
+    console.log(`✓ No arena_only wipeouts in ${scope}.`);
   } else {
-    console.error(`⚠ ${wipeouts.length} arena_only wipeout(s) in the last ${sinceHours}h (${isProd ? 'prod' : 'staging'}):`);
+    const scope = experimentId ? `experiment ${experimentId}` : `the last ${sinceHours}h (${isProd ? 'prod' : 'staging'})`;
+    console.error(`⚠ ${wipeouts.length} arena_only wipeout(s) in ${scope}:`);
     for (const w of wipeouts) {
       console.error(`  run ${w.runId} — status=${w.status} stopReason=${w.stopReason} gen=${w.generateInvocationCount} variants=${w.variantCount} cost=${w.totalCostUsd}`);
     }

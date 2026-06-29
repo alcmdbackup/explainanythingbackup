@@ -658,6 +658,10 @@ Server action: `getStrategyTacticBreakdownAction` in `evolution/src/services/tac
 
 ---
 
+## Post-experiment analysis
+
+After a manual experiment completes (via [`/manual_run_experiment`](../../.claude/skills/manual_run_experiment/SKILL.md)), use [`/run_experiment_analysis`](../../.claude/commands/run_experiment_analysis.md) to produce a rigorous Experiment Analysis Report (EAR). The skill enforces a Pre-Registered Analysis Plan gate, performs a per-arm funnel/balance audit (with a hard gate on arena-only wipeouts via [`detectArenaOnlyWipeouts.ts`](../../evolution/scripts/detectArenaOnlyWipeouts.ts) `--experiment-id`), computes the named statistical test from the PRAP, audits judge decisiveness, refuses pattern claims without ≥2 concrete examples, runs an 18-cell adversarial review via [`/analysis-review-loop`](../../.claude/skills/analysis-review-loop/SKILL.md), and on user approval transparently invokes [`/write_doc_for_completed_analysis`](../../.claude/commands/write_doc_for_completed_analysis.md) to promote the EAR to `docs/analysis/<name>/`. See [`docs/planning/experiment_analysis_skill_20260628/`](../../docs/planning/experiment_analysis_skill_20260628/) for the design.
+
 ## Related Documentation
 
 - [Architecture](./architecture.md) — pipeline phases and configuration

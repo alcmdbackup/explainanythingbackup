@@ -436,8 +436,14 @@ jobs:
       # evolution_cost_calibration CHECK constraint and restores it. MUST run
       # serially (--runInBand); concurrent jest workers would see a CHECK
       # rejecting valid phase strings during the mutation window.
+      #
+      # Invoke via test:integration (NOT test:integration:evolution) + explicit
+      # spec path so Jest 30's --testPathPatterns union semantics don't cause
+      # the full evolution suite to re-run a second time (which surfaced as a
+      # flake on PR #1312 — weight-inference passed the first pass and failed
+      # the second; same code, same data).
       - name: Editing — startup-assertion proof (serial)
-        run: npm run test:integration:evolution -- --runInBand --testPathPatterns="evolution-startup-assertion-check"
+        run: npm run test:integration -- --runInBand evolution/src/__tests__/integration/evolution-startup-assertion-check.integration.test.ts
 
   # Non-evolution integration tests for PRs to production
   integration-non-evolution:
