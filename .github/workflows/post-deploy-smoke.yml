@@ -1,15 +1,18 @@
 name: Post-Deploy Smoke Tests
 
 # Fires on every push to the production branch (Vercel deploys prod on this push) —
-# the reliable prod-deploy signal. deployment_status is kept only as a (currently
-# inert) secondary: GitHub anti-recursion drops the GITHUB_TOKEN-created Vercel
-# deployment status, so it never triggers a workflow run today. workflow_dispatch
-# allows manual smoke runs.
+# the reliable prod-deploy signal. workflow_dispatch allows manual smoke runs.
+#
+# Note: a deployment_status trigger was previously kept as an inert secondary, but
+# GitHub anti-recursion drops the GITHUB_TOKEN-created Vercel deployment status so it
+# never actually fired a workflow run; meanwhile it generated ~60 skipped runs/day from
+# every preview deploy event (filtered by the job-level if:). Removed 2026-06-28.
+# If GitHub ever stops anti-recursion-dropping deployment_status events, re-add the
+# trigger and restore the deployment_status branch in the job-level if: condition.
 on:
   push:
     branches: [production]
   workflow_dispatch:
-  deployment_status:
 
 concurrency:
   group: post-deploy-smoke-${{ github.ref }}
@@ -21,15 +24,7 @@ jobs:
     environment: Production
     timeout-minutes: 20
     # push:[production] / manual dispatch always proceed (the Health Check step below
-    # polls until the apex deploy is live). The deployment_status path keeps its original
-    # prod+vercel.app guard for the day GitHub stops anti-recursion-dropping the event.
-    if: |
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'deployment_status' &&
-        github.event.deployment_status.state == 'success' &&
-        github.event.deployment.environment == 'Production' &&
-        contains(github.event.deployment_status.target_url, 'vercel.app'))
+    # polls until the apex deploy is live).
     runs-on: ubuntu-latest
 
     # Smoke each Vercel hostname served by this single project. Both hostnames
@@ -195,10 +190,10 @@ jobs:
 
       - name: Notify Slack on failure
         # Alert on failure OR on cancelled IF the run was an unattended prod-deploy event
-        # (push to production, or a real deployment_status) vs an intentional manual
-        # workflow_dispatch cancel during dev. Avoids re-spamming the channel that went
-        # unread during the 62-day silent outage.
-        if: failure() || (cancelled() && (github.event_name == 'push' || github.event_name == 'deployment_status'))
+        # (push to production) vs an intentional manual workflow_dispatch cancel during
+        # dev. Avoids re-spamming the channel that went unread during the 62-day silent
+        # outage.
+        if: failure() || (cancelled() && github.event_name == 'push')
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |

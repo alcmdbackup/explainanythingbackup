@@ -11,7 +11,12 @@ import { type SupabaseClient } from '@supabase/supabase-js';
 import { createTestSupabaseClient } from '@/testing/utils/integration-helpers';
 import type { Database } from '@/lib/database.types';
 
-const TEST_USER_ID = `test-reservation-${crypto.randomUUID()}`;
+// llmCallTracking.userid is a UUID column — must be a valid UUID, not a prefixed string.
+// (The "test-reservation-…" prefix was silently rejected by the INSERT, leaving rollups at
+// $0 and the cap-exceeded assertion always returning ok=true. Test never ran in PR-to-main
+// CI because per-user-daily-reservations is not in integration-critical, so this slipped
+// past the CI gate when it landed in #1302.)
+const TEST_USER_ID = crypto.randomUUID();
 const TEST_DATE = new Date().toISOString().split('T')[0]!;
 
 describe('per_user_daily_reservations (integration)', () => {

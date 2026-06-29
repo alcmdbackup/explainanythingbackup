@@ -236,6 +236,8 @@ npm run query:prod -- --json "SELECT id, explanation_title FROM explanations LIM
 
 ## GitHub Actions
 
+> **Plan tier:** The `Minddojo` org is on **GitHub Enterprise Cloud** as of 2026-06-28 (upgraded from Team). Enterprise includes 50,000 free Actions minutes/month, comfortably covering current usage (~9,400 billable min/month). Net Actions cost: $0 overage. Re-evaluate if seat count grows past ~4-5 or monthly usage approaches the cap. See `docs/planning/investigate_cheaper_faster_ci_20260628/_decision.md` for the upgrade rationale.
+
 ### CI Workflow (`ci.yml`)
 
 **Trigger:** Pull requests to `main` or `production`
