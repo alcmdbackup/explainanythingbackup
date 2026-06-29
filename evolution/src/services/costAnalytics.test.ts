@@ -60,9 +60,20 @@ describe('CostAnalytics Service', () => {
   };
 
   const mockAdminId = 'admin-123';
+  const origMergeFlag = process.env.COST_DASHBOARD_UNIFIED_EVOLUTION;
+  const origSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  afterAll(() => {
+    if (origMergeFlag === undefined) delete process.env.COST_DASHBOARD_UNIFIED_EVOLUTION;
+    else process.env.COST_DASHBOARD_UNIFIED_EVOLUTION = origMergeFlag;
+    if (origSupabaseUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    else process.env.NEXT_PUBLIC_SUPABASE_URL = origSupabaseUrl;
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // The merge now defaults ON; the non-merge assertions below test the explicitly-disabled path.
+    process.env.COST_DASHBOARD_UNIFIED_EVOLUTION = 'false';
 
     mockSupabase = {
       from: jest.fn().mockReturnThis(),
@@ -656,6 +667,69 @@ describe('CostAnalytics Service', () => {
       // rollup ($25) replaces it as a single entity.
       expect(evo?.totalCost).toBeCloseTo(25.0, 5);
       expect(result.data?.find((e) => e.entity === 'Evolution: generation')).toBeUndefined();
+    });
+  });
+
+  describe('merge gating (default-on + prod guard + kill-switch)', () => {
+    const prev = process.env.COST_DASHBOARD_UNIFIED_EVOLUTION;
+    const prevUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    afterAll(() => {
+      if (prev === undefined) delete process.env.COST_DASHBOARD_UNIFIED_EVOLUTION;
+      else process.env.COST_DASHBOARD_UNIFIED_EVOLUTION = prev;
+      if (prevUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+      else process.env.NEXT_PUBLIC_SUPABASE_URL = prevUrl;
+    });
+
+    it('default ON: merge applies with no env set on a non-prod project', async () => {
+      delete process.env.COST_DASHBOARD_UNIFIED_EVOLUTION; // unset → default on
+      process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://ifubinffdbyewoezcidz.supabase.co'; // dev/staging
+      mockSupabase.not
+        .mockResolvedValueOnce({ data: [{ estimated_cost_usd: '0.50', total_tokens: 10 }], error: null, count: 1 })
+        .mockResolvedValueOnce({ count: 0, error: null });
+      mockSupabase.rpc.mockResolvedValue({ data: [{ bucket: 'b', is_test: false, call_count: 1, total_cost: '5.00' }], error: null });
+
+      const result = await getCostSummaryAction({});
+      expect(result.data?.evolutionMerged).toBe(true);
+      expect(result.data?.totalCost).toBeCloseTo(5.5, 5);
+    });
+
+    it('prod guard: merge OFF on the prod project even when default-on (no RPC error)', async () => {
+      delete process.env.COST_DASHBOARD_UNIFIED_EVOLUTION; // default on…
+      process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://qbxhivoezkfbjbsctdzo.supabase.co'; // …but prod
+      mockSupabase.lte
+        .mockResolvedValueOnce({ data: [{ estimated_cost_usd: '0.50', total_tokens: 10 }], error: null, count: 1 })
+        .mockResolvedValueOnce({ count: 0, error: null });
+
+      const result = await getCostSummaryAction({});
+      expect(result.data?.evolutionMerged).toBe(false);
+      expect(result.data?.totalCost).toBeCloseTo(0.5, 5); // tracking only
+      expect(mockSupabase.not).not.toHaveBeenCalled(); // no evolution dedup filter on prod
+      expect(mockSupabase.rpc).not.toHaveBeenCalled();  // no canonical RPC on prod
+    });
+
+    it('kill-switch: COST_DASHBOARD_UNIFIED_EVOLUTION=false disables the merge', async () => {
+      process.env.COST_DASHBOARD_UNIFIED_EVOLUTION = 'false';
+      process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://ifubinffdbyewoezcidz.supabase.co';
+      mockSupabase.lte
+        .mockResolvedValueOnce({ data: [], error: null, count: 0 })
+        .mockResolvedValueOnce({ count: 0, error: null });
+
+      const result = await getCostSummaryAction({});
+      expect(result.data?.evolutionMerged).toBe(false);
+    });
+
+    it('graceful fallback: a missing RPC (pre-migration) is treated as 0, not an error', async () => {
+      delete process.env.COST_DASHBOARD_UNIFIED_EVOLUTION;
+      process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://ifubinffdbyewoezcidz.supabase.co';
+      mockSupabase.not
+        .mockResolvedValueOnce({ data: [{ estimated_cost_usd: '0.50', total_tokens: 10 }], error: null, count: 1 })
+        .mockResolvedValueOnce({ count: 0, error: null });
+      // RPC reports the function doesn't exist → evolution canonical spend = 0 (no throw).
+      mockSupabase.rpc.mockResolvedValue({ data: null, error: { code: '42883', message: 'function get_evolution_spend_buckets does not exist' } });
+
+      const result = await getCostSummaryAction({});
+      expect(result.success).toBe(true);
+      expect(result.data?.totalCost).toBeCloseTo(0.5, 5); // evolution adds 0
     });
   });
 });
