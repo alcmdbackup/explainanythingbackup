@@ -13,6 +13,15 @@ export const metadata = {
   description: 'Paste an article, pick how it should be improved, see the result side-by-side.',
 };
 
+// Force dynamic rendering on every request. Without this, Next.js App Router
+// defaults to static rendering: the page is built once at deploy time with
+// whatever `listPublicStrategiesAction` returned then, baked into static HTML,
+// and served as a static asset regardless of DB state. Admin flips of
+// `public_visible` would never appear until a code-triggered redeploy.
+// The listPublicStrategiesAction itself has a 60s in-memory cache, so the
+// "every request" cost is bounded.
+export const dynamic = 'force-dynamic';
+
 export default async function EditPage(): Promise<JSX.Element> {
   // Operational kill switch — if PUBLIC_EDIT_DISABLED=true, show a static
   // "temporarily unavailable" page instead of the form. The action also
