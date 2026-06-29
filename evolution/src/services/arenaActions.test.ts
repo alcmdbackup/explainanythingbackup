@@ -177,6 +177,45 @@ describe('arenaActions', () => {
       expect(result.data![0]!.entry_count).toBe(0);
     });
 
+    // build_website_for_evolutiOn_20260626 follow-up — public-edit filter
+    // (migration 20260629000001). Defaults to hiding /edit-derived topics
+    // because each /edit submission spawns ~10 unique paragraph topics.
+    it('filters out source=public_edit topics by default', async () => {
+      let capturedBuilder: Record<string, jest.Mock> | null = null;
+      const mock = createTableAwareMock([
+        (b) => {
+          capturedBuilder = b;
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [], error: null })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      await getArenaTopicsAction(undefined);
+
+      expect(capturedBuilder).not.toBeNull();
+      expect(capturedBuilder!.neq).toHaveBeenCalledWith('source', 'public_edit');
+    });
+
+    it('includes public-edit topics when includePublicEdit=true', async () => {
+      let capturedBuilder: Record<string, jest.Mock> | null = null;
+      const mock = createTableAwareMock([
+        (b) => {
+          capturedBuilder = b;
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [], error: null })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      await getArenaTopicsAction({ includePublicEdit: true });
+
+      expect(capturedBuilder).not.toBeNull();
+      expect(capturedBuilder!.neq).not.toHaveBeenCalledWith('source', 'public_edit');
+    });
+
     it('skips count requests and returns empty when no topics match the filters', async () => {
       const mock = createTableAwareMock([
         (b) => {

@@ -34,6 +34,19 @@ jest.mock('./finalize/persistRunResults', () => ({
   syncToArena: (...args: unknown[]) => mockSyncToArena(...args),
 }));
 
+// Phase 2 follow-up of build_website_for_evolutiOn_20260626: explanation-id
+// runs persist a synthetic seed variant before the iteration loop. Mock just
+// the function (preserve the real RunDeletedDuringExecutionError class so
+// classifyError's `instanceof` checks still resolve a constructor).
+const mockPersistSeedVariantRow = jest.fn().mockResolvedValue(undefined);
+jest.mock('./persistSeedVariant', () => {
+  const actual = jest.requireActual('./persistSeedVariant');
+  return {
+    ...actual,
+    persistSeedVariantRow: (...args: unknown[]) => mockPersistSeedVariantRow(...args),
+  };
+});
+
 /** Minimal chainable supabase mock with concurrent run count support. */
 function createChainMock(activeRunCount = 0) {
   const mock: Record<string, jest.Mock> = {};
@@ -347,6 +360,65 @@ describe('claimAndExecuteRun', () => {
       await claimAndExecuteRun({ runnerId: 'test' });
 
       expect(createSupabaseServiceClient).toHaveBeenCalled();
+    });
+  });
+
+  describe('explanation-id seed-variant persistence (build_website_for_evolutiOn_20260626 Phase 2 fix)', () => {
+    // Regression: explanation-id-driven runs (/edit submissions + any future
+    // admin runs that queue against an existing explanation) previously
+    // reached the iteration loop with seedVariantId=undefined, which fell
+    // back to '' (empty string) at the agent layer. Agents that validate
+    // parentVariantId.uuid() in execution_detail (e.g. paragraph_recombine_
+    // with_coherence_pass) then rejected every invocation with
+    // 'detail_invalid: Invalid uuid', producing finalize_empty_pool runs.
+    // The fix in claimAndExecuteRun.ts inserts a synthetic seed_variant from
+    // the explanation content before the iteration loop runs.
+    it('persists a seed_variant and forwards its id as seedVariantId when explanation_id is set', async () => {
+      const claimedRow = {
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', // valid v4 UUID — schema enforces uuid on run_id
+
+        explanation_id: 42,
+        prompt_id: null,
+        experiment_id: null,
+        strategy_id: 'strat-1',
+        budget_cap_usd: '0.1',
+        run_source: 'public_edit',
+      };
+      mockRpc.mockResolvedValue({ data: [claimedRow], error: null });
+      mockBuildRunContext.mockResolvedValue({
+        context: {
+          originalText: 'The Roman aqueducts were marvels of ancient engineering.',
+          config: { iterationConfigs: [{ agentType: 'generate' as const, budgetPercent: 100 }], budgetUsd: 0.1, judgeModel: 'gpt-4.1-nano', generationModel: 'gpt-4.1-nano' },
+          logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+          initialPool: [],
+          randomSeed: BigInt(0),
+        },
+      });
+      mockEvolveArticle.mockResolvedValue({
+        winner: null, pool: [], ratings: new Map(), matchHistory: [], totalCost: 0,
+        iterationsRun: 0, stopReason: 'time_limit', muHistory: [], diversityHistory: [], matchCounts: {},
+      });
+      mockFinalizeRun.mockResolvedValue(undefined);
+      mockPersistSeedVariantRow.mockClear();
+
+      await claimAndExecuteRun({ runnerId: 'test-runner' });
+
+      // The seed variant was persisted exactly once.
+      expect(mockPersistSeedVariantRow).toHaveBeenCalledTimes(1);
+      const persistArgs = mockPersistSeedVariantRow.mock.calls[0];
+      const seedRow = persistArgs[2] as Record<string, unknown>;
+      expect(seedRow.explanation_id).toBe(42);
+      expect(seedRow.variant_content).toBe('The Roman aqueducts were marvels of ancient engineering.');
+      expect(seedRow.agent_name).toBe('seed_variant');
+      expect(typeof seedRow.id).toBe('string');
+      // Must be a valid UUID (the whole point of the fix).
+      expect(seedRow.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+
+      // evolveArticle received the seed variant's id (not '').
+      const evolveOpts = mockEvolveArticle.mock.calls[0][5];
+      expect(evolveOpts.seedVariantId).toBe(seedRow.id);
+      // runSource propagated from claimed row.
+      expect(evolveOpts.runSource).toBe('public_edit');
     });
   });
 

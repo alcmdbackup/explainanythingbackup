@@ -192,6 +192,9 @@ export interface ClaimedRun {
   experiment_id: string | null;
   strategy_id: string;
   budget_cap_usd: number;
+  /** Run-source provenance (migration 20260627000004). Threaded into
+   *  AgentContext.runSource so paragraph topics inherit it via upsertSlotTopic. */
+  run_source?: string;
 }
 
 type RawLLMProvider = {

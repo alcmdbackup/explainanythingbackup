@@ -55,20 +55,31 @@ export async function upsertSlotTopic(
   parentVariantId: string,
   slotIndex: number,
   originalSlotText: string,
+  /** Provenance for the topic — mirrors evolution_runs.run_source. Set to
+   *  'public_edit' for paragraph topics created during a /edit submission so
+   *  the arena UI can hide them by default (migration 20260629000001). When
+   *  the topic already exists (ON CONFLICT path), the existing row's source
+   *  is preserved — admin-created topics stay admin even if a later /edit
+   *  run somehow lands on the same slot key. */
+  source: 'admin' | 'public_edit' | 'test' | 'local' | 'minicomputer' = 'admin',
 ): Promise<UpsertSlotTopicResult> {
   const topicName = formatSlotTopicName(parentVariantId, slotIndex, kind === 'paragraph' ? 'para' : kind);
 
   // Try INSERT first; on conflict (partial unique index hit), SELECT the existing row.
   // We can't use a simple ON CONFLICT DO NOTHING + .select() because Supabase's
   // returning clause is empty on conflict; we need a two-step.
+  // db types regen pending after migration 20260629000001 added the `source`
+  // column; use a Record-typed payload rather than `any`.
+  const insertPayload: Record<string, string> = {
+    prompt: topicName,
+    name: topicName,
+    prompt_kind: 'paragraph',
+    status: 'active',
+    source,
+  };
   const { data: insertedTopic, error: insertError } = await db
     .from('evolution_prompts')
-    .insert({
-      prompt: topicName,
-      name: topicName,
-      prompt_kind: 'paragraph',
-      status: 'active',
-    })
+    .insert(insertPayload)
     .select('id')
     .maybeSingle();
 

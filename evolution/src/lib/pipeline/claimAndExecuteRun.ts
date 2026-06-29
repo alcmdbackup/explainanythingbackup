@@ -1,5 +1,6 @@
 // Thin orchestrator: claim a pending run, build context, run pipeline, persist results.
 
+import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
@@ -164,6 +165,7 @@ export async function claimAndExecuteRun(
     experiment_id: (claimedRow.experiment_id as string | null) ?? null,
     strategy_id: claimedRow.strategy_id,
     budget_cap_usd: budgetValid ? rawBudget : 1.0,
+    run_source: typeof claimedRow.run_source === 'string' ? claimedRow.run_source : undefined,
   };
 
   logger.info('Claimed evolution run', { runId, runnerId: options.runnerId });
@@ -287,6 +289,7 @@ async function executePipeline(
       experimentId: claimedRun.experiment_id ?? undefined,
       strategyId: claimedRun.strategy_id,
       styleFingerprint: config.styleFingerprint,
+      runSource: claimedRun.run_source as AgentContext['runSource'] | undefined,
     };
     const seedAgent = new CreateSeedArticleAgent();
     const seedResult = await seedAgent.run({
@@ -348,6 +351,41 @@ async function executePipeline(
   } else if (seedVariantRow) {
     // Existing seed content from arena — use its ID for parentIds tracking
     seedVariantId = seedVariantRow.id;
+  } else if (originalText && typeof claimedRun.explanation_id === 'number') {
+    // Explanation-id-driven runs (build_website_for_evolutiOn_20260626 /edit
+    // surface — and any future admin runs queued against an existing
+    // explanation): resolveContent returns originalText but does NOT create a
+    // seed variant row. Without a seed variant, seedVariantId stays undefined
+    // and the iteration loop falls back to `options?.seedVariantId ?? ''` →
+    // empty string. Agents that validate `parentVariantId` as a UUID in their
+    // execution_detail Zod schema (e.g. paragraph_recombine_with_coherence_pass)
+    // then reject every invocation with `detail_invalid: Invalid uuid` and the
+    // run finalizes empty-pool. Fix: persist a synthetic seed variant from the
+    // explanation content here so seedVariantId is a real UUID downstream.
+    const seedId = randomUUID();
+    const seedRating = ratingToDb(createRating());
+    const seedRow = evolutionVariantInsertSchema.parse({
+      id: seedId,
+      run_id: runId,
+      explanation_id: claimedRun.explanation_id,
+      variant_content: originalText,
+      elo_score: seedRating.elo_score,
+      mu: seedRating.mu,
+      sigma: seedRating.sigma,
+      generation: 0,
+      parent_variant_id: null,
+      agent_name: 'seed_variant',
+      match_count: 0,
+      is_winner: false,
+      prompt_id: claimedRun.prompt_id ?? null,
+      persisted: true,
+    });
+    await persistSeedVariantRow(db, runId, seedRow as Record<string, unknown>, runLogger);
+    seedVariantId = seedId;
+    runLogger.info('Seed variant persisted from explanation content (explanation-id-driven run)', {
+      seedVariantId: seedId, explanationId: claimedRun.explanation_id, textLength: originalText.length,
+      phaseName: 'seed_generation',
+    });
   }
 
   runLogger.info('Starting evolution loop', {
@@ -368,6 +406,7 @@ async function executePipeline(
     seedVariantId,
     // B001-S1+S2: share the tracker so seed-phase spend counts against the same budget.
     costTracker: sharedCostTracker,
+    runSource: claimedRun.run_source as 'admin' | 'public_edit' | 'test' | 'local' | 'minicomputer' | undefined,
   });
   runLogger.info('Evolution loop completed', {
     stopReason: result.stopReason, iterations: result.iterationsRun,

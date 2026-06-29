@@ -147,6 +147,34 @@ describe('upsertSlotTopic', () => {
       upsertSlotTopic(mock as never, 'paragraph', PARENT_ID, 2, 'Original.'),
     ).rejects.toThrow(/upsertSlotTopic: insert failed/);
   });
+
+  // build_website_for_evolutiOn_20260626 follow-up — source propagation
+  // (migration 20260629000001). Source is denormalized onto evolution_prompts
+  // so arena topic-list filters don't need a 3-table JOIN.
+  it('passes source=admin by default when omitted', async () => {
+    const mock = makeSupabaseMock();
+    mock.overrideInsert('evolution_prompts', { data: { id: TOPIC_ID } });
+    mock.overrideInsert('evolution_variants', { data: { id: ORIG_VARIANT_ID } });
+    mock.overrideSelect('evolution_variants', { data: null });
+
+    await upsertSlotTopic(mock as never, 'paragraph', PARENT_ID, 2, 'Original.');
+
+    const promptsInsert = mock.inserts.find((i) => i.table === 'evolution_prompts');
+    expect(promptsInsert).toBeDefined();
+    expect((promptsInsert!.rows as { source: string }).source).toBe('admin');
+  });
+
+  it('persists source=public_edit when caller passes it (paragraph topic tagging)', async () => {
+    const mock = makeSupabaseMock();
+    mock.overrideInsert('evolution_prompts', { data: { id: TOPIC_ID } });
+    mock.overrideInsert('evolution_variants', { data: { id: ORIG_VARIANT_ID } });
+    mock.overrideSelect('evolution_variants', { data: null });
+
+    await upsertSlotTopic(mock as never, 'paragraph', PARENT_ID, 2, 'Original.', 'public_edit');
+
+    const promptsInsert = mock.inserts.find((i) => i.table === 'evolution_prompts');
+    expect((promptsInsert!.rows as { source: string }).source).toBe('public_edit');
+  });
 });
 
 describe('persistSlotMatches', () => {
