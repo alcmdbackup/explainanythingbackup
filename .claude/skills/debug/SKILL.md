@@ -456,6 +456,33 @@ mcp__plugin_playwright_playwright__browser_snapshot()
 mcp__plugin_playwright_playwright__browser_console_messages()
 ```
 
+### Bypass Vercel SSO on staging/preview URLs
+
+Staging (`explainanythingstage.vercel.app`) and Preview deploys (`explainanything-<hash>-acs-projects-dcdb9943.vercel.app`) sit behind Vercel Deployment Protection — every URL 302-redirects to `vercel.com/sso-api`. Playwright MCP and `WebFetch` can't follow the SSO login flow, so reproducing UI issues there normally hits a dead end.
+
+**Workaround: use the project's automation bypass token.**
+
+1. Read the token from `.env.local` (key: `VERCEL_AUTOMATION_BYPASS_SECRET`). Don't read the Vercel CLI auth file — that's a different, broader credential and the classifier will block it.
+2. Pass the token as query params on the FIRST navigation only — Vercel sets a session cookie that subsequent requests inherit:
+   ```
+   https://explainanythingstage.vercel.app/edit?x-vercel-protection-bypass=<token>&x-vercel-set-bypass-cookie=samesitenone
+   ```
+3. From that point on the playwright context can browse the deploy freely.
+
+```
+mcp__plugin_playwright_playwright__browser_navigate(
+  url='https://explainanythingstage.vercel.app/edit?x-vercel-protection-bypass=<token>&x-vercel-set-bypass-cookie=samesitenone'
+)
+# subsequent navigations inherit the cookie:
+mcp__plugin_playwright_playwright__browser_navigate(url='https://explainanythingstage.vercel.app/userlibrary')
+```
+
+The `WebFetch` tool's query-param bypass does NOT work (302 to SSO regardless). Use Playwright MCP for staging/preview probes that need real browser semantics.
+
+If `VERCEL_AUTOMATION_BYPASS_SECRET` isn't in `.env.local`, the project may not have one provisioned — set up in Vercel → project Settings → Deployment Protection → Protection Bypass for Automation → "Add Bypass Secret", then mirror the value into `.env.local`.
+
+**Production never needs this** — `ea-evolution.vercel.app` is not behind Deployment Protection.
+
 ---
 
 ## Request ID Correlation
