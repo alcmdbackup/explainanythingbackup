@@ -31,18 +31,11 @@ interface Props {
 export default function EditRunViewer({ runId }: Props): JSX.Element | null {
   const [state, dispatch] = useReducer(editPageLifecycleReducer, initialEditPageState);
   const startedAtRef = useRef<number | null>(null);
-  // Refs for the polling loop. Reading state from inside `tick` via a ref
-  // avoids re-creating the interval on every dispatch — depending on `state`
-  // in the useEffect deps caused the cleanup-and-restart cycle to fire ~3
-  // polls/second instead of every 3s (observed in Vercel logs 2026-06-30).
-  const isInFlightRef = useRef<boolean>(true);
+  // Polling-loop refs. Keeping the interval id outside the useEffect closure
+  // lets tick() self-clear on terminal transitions — eliminates the need to
+  // depend on `state` (which used to recreate the interval ~3×/second).
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const consecutiveErrorsRef = useRef<number>(0);
-
-  // Mirror in-flight state into the ref so the polling loop can read it
-  // without subscribing.
-  useEffect(() => {
-    isInFlightRef.current = isInFlight(state);
-  }, [state]);
 
   // Seed: assume queued, kick off polling.
   useEffect(() => {
@@ -55,16 +48,19 @@ export default function EditRunViewer({ runId }: Props): JSX.Element | null {
   useEffect(() => {
     let cancelled = false;
     const startedAt = startedAtRef.current ?? Date.now();
+    const stopPolling = (): void => {
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
 
     const tick = async (): Promise<void> => {
       if (cancelled) return;
-      // Stop polling once the reducer has moved to a terminal phase (viewing
-      // or error). The interval keeps firing harmlessly until cleanup but
-      // never dispatches another action.
-      if (!isInFlightRef.current) return;
       const elapsedMs = Date.now() - startedAt;
       if (elapsedMs > MAX_POLL_DURATION_MS) {
         dispatch({ type: 'POLL_FAILED', runId, message: 'This is taking longer than expected. Try refreshing the page.' });
+        stopPolling();
         return;
       }
       try {
@@ -76,6 +72,7 @@ export default function EditRunViewer({ runId }: Props): JSX.Element | null {
           consecutiveErrorsRef.current += 1;
           if (consecutiveErrorsRef.current >= MAX_CONSECUTIVE_POLL_ERRORS) {
             dispatch({ type: 'POLL_FAILED', runId, message: result?.error?.message ?? 'Could not fetch run status.' });
+            stopPolling();
           }
           return;
         }
@@ -90,10 +87,12 @@ export default function EditRunViewer({ runId }: Props): JSX.Element | null {
             strategyLabel: '',
             durationMs: elapsedMs,
           });
+          stopPolling();
           return;
         }
         if (status === 'failed' || status === 'cancelled') {
           dispatch({ type: 'POLL_FAILED', runId, message: result.data.errorMessage ?? 'The rewrite hit a snag.' });
+          stopPolling();
           return;
         }
         dispatch({ type: 'POLL_TICK', runId, status: status as 'pending' | 'claimed' | 'running', elapsedMs });
@@ -106,15 +105,16 @@ export default function EditRunViewer({ runId }: Props): JSX.Element | null {
         consecutiveErrorsRef.current += 1;
         if (consecutiveErrorsRef.current >= MAX_CONSECUTIVE_POLL_ERRORS) {
           dispatch({ type: 'POLL_FAILED', runId, message: err instanceof Error ? err.message : 'Network error.' });
+          stopPolling();
         }
       }
     };
 
     void tick(); // fire immediately
-    const id = setInterval(tick, POLL_INTERVAL_MS);
+    intervalRef.current = setInterval(tick, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stopPolling();
     };
     // Deps: only runId. State changes must NOT recreate the interval — that
     // was the 2026-06-30 regression that produced ~3 polls/second + made a
