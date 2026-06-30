@@ -17,6 +17,12 @@ import { SideBySideWordDiff } from '@evolution/components/evolution/visualizatio
 
 const POLL_INTERVAL_MS = 3_000;
 const MAX_POLL_DURATION_MS = 10 * 60 * 1_000;
+/** Tolerate transient fetch errors (Vercel function blips, mid-flight network
+ *  drops). Surface the error UI only after this many consecutive failures so
+ *  one bad poll doesn't abort the loop while the backend pipeline is still
+ *  running. 5 consecutive failures @ 3s interval = ~15s of total connectivity
+ *  loss before we give up. */
+const MAX_CONSECUTIVE_POLL_ERRORS = 5;
 
 interface Props {
   runId: string;
@@ -25,6 +31,18 @@ interface Props {
 export default function EditRunViewer({ runId }: Props): JSX.Element | null {
   const [state, dispatch] = useReducer(editPageLifecycleReducer, initialEditPageState);
   const startedAtRef = useRef<number | null>(null);
+  // Refs for the polling loop. Reading state from inside `tick` via a ref
+  // avoids re-creating the interval on every dispatch — depending on `state`
+  // in the useEffect deps caused the cleanup-and-restart cycle to fire ~3
+  // polls/second instead of every 3s (observed in Vercel logs 2026-06-30).
+  const isInFlightRef = useRef<boolean>(true);
+  const consecutiveErrorsRef = useRef<number>(0);
+
+  // Mirror in-flight state into the ref so the polling loop can read it
+  // without subscribing.
+  useEffect(() => {
+    isInFlightRef.current = isInFlight(state);
+  }, [state]);
 
   // Seed: assume queued, kick off polling.
   useEffect(() => {
@@ -35,13 +53,15 @@ export default function EditRunViewer({ runId }: Props): JSX.Element | null {
   }, [runId]);
 
   useEffect(() => {
-    if (!isInFlight(state)) return;
-
     let cancelled = false;
     const startedAt = startedAtRef.current ?? Date.now();
 
     const tick = async (): Promise<void> => {
       if (cancelled) return;
+      // Stop polling once the reducer has moved to a terminal phase (viewing
+      // or error). The interval keeps firing harmlessly until cleanup but
+      // never dispatches another action.
+      if (!isInFlightRef.current) return;
       const elapsedMs = Date.now() - startedAt;
       if (elapsedMs > MAX_POLL_DURATION_MS) {
         dispatch({ type: 'POLL_FAILED', runId, message: 'This is taking longer than expected. Try refreshing the page.' });
@@ -51,9 +71,15 @@ export default function EditRunViewer({ runId }: Props): JSX.Element | null {
         const result = await getEditRunStatusAction(runId);
         if (cancelled) return;
         if (!result?.success || !result.data) {
-          dispatch({ type: 'POLL_FAILED', runId, message: result?.error?.message ?? 'Could not fetch run status.' });
+          // Treat action-level errors as transient too (Vercel function blips,
+          // Supabase 503s). Bail only after N consecutive failures.
+          consecutiveErrorsRef.current += 1;
+          if (consecutiveErrorsRef.current >= MAX_CONSECUTIVE_POLL_ERRORS) {
+            dispatch({ type: 'POLL_FAILED', runId, message: result?.error?.message ?? 'Could not fetch run status.' });
+          }
           return;
         }
+        consecutiveErrorsRef.current = 0;
         const status = result.data.status;
         if (status === 'completed') {
           dispatch({
@@ -73,7 +99,14 @@ export default function EditRunViewer({ runId }: Props): JSX.Element | null {
         dispatch({ type: 'POLL_TICK', runId, status: status as 'pending' | 'claimed' | 'running', elapsedMs });
       } catch (err) {
         if (cancelled) return;
-        dispatch({ type: 'POLL_FAILED', runId, message: err instanceof Error ? err.message : 'Network error.' });
+        // Transient fetch errors (network blip, edge timeout) shouldn't kill
+        // the polling loop on the first failure. The backend pipeline keeps
+        // running independently; we just retry on the next tick. Surface
+        // the error UI only after N consecutive failures.
+        consecutiveErrorsRef.current += 1;
+        if (consecutiveErrorsRef.current >= MAX_CONSECUTIVE_POLL_ERRORS) {
+          dispatch({ type: 'POLL_FAILED', runId, message: err instanceof Error ? err.message : 'Network error.' });
+        }
       }
     };
 
@@ -83,7 +116,10 @@ export default function EditRunViewer({ runId }: Props): JSX.Element | null {
       cancelled = true;
       clearInterval(id);
     };
-  }, [runId, state]);
+    // Deps: only runId. State changes must NOT recreate the interval — that
+    // was the 2026-06-30 regression that produced ~3 polls/second + made a
+    // single fetch failure terminal.
+  }, [runId]);
 
   // ─── Render branches ─────────────────────────────────────────────
 
