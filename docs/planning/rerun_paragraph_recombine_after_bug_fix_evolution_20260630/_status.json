@@ -1,0 +1,19 @@
+{
+  "branch": "feat/rerun_paragraph_recombine_after_bug_fix_evolution_20260630",
+  "created_at": "2026-06-30T13:40:00Z",
+  "prerequisites": {
+    "getting_started_read": "2026-06-30T13:33:10Z",
+    "project_workflow_read": "2026-06-30T13:33:10Z",
+    "todos_created": "2026-06-30T13:50:00Z"
+  },
+  "project_kind": "experiment_only",
+  "experiment_id": "ef2d1dc2-4a9b-4f19-9ece-d04fb175c5e6",
+  "relevantDocs": [
+    "evolution/docs/paragraph_recombine.md",
+    "evolution/docs/paragraph_recombine_with_coherence_pass.md",
+    "evolution/docs/strategies_and_experiments.md"
+  ],
+  "analyses": [
+    "docs/analysis/rerun-paragraph-recombine-after-bug-fix-20260630/"
+  ]
+}
