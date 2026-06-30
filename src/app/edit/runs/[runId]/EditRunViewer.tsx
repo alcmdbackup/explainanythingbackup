@@ -58,11 +58,11 @@ export default function EditRunViewer({ runId }: Props): JSX.Element | null {
     const tick = async (): Promise<void> => {
       if (cancelled) return;
       const elapsedMs = Date.now() - startedAt;
-      if (elapsedMs > MAX_POLL_DURATION_MS) {
-        dispatch({ type: 'POLL_FAILED', runId, message: 'This is taking longer than expected. Try refreshing the page.' });
-        stopPolling();
-        return;
-      }
+      // Always fetch status first — the elapsed-time backstop only fires when
+      // the run is STILL in-flight past 10 min. If the run has already
+      // completed (e.g. user backgrounded the tab → browser throttled
+      // setInterval to 1/min → polling missed the completion window), we
+      // want to surface the diff rather than the timeout error.
       try {
         const result = await getEditRunStatusAction(runId);
         if (cancelled) return;
@@ -92,6 +92,15 @@ export default function EditRunViewer({ runId }: Props): JSX.Element | null {
         }
         if (status === 'failed' || status === 'cancelled') {
           dispatch({ type: 'POLL_FAILED', runId, message: result.data.errorMessage ?? 'The rewrite hit a snag.' });
+          stopPolling();
+          return;
+        }
+        // Run is still pending / claimed / running. If we've passed the
+        // 10-min deadline AND the server still hasn't moved on, the run is
+        // genuinely stuck — surface the timeout error. Backend hard cap is
+        // 5min for /edit budget caps so anything past 10min is anomalous.
+        if (elapsedMs > MAX_POLL_DURATION_MS) {
+          dispatch({ type: 'POLL_FAILED', runId, message: 'This is taking longer than expected. Try refreshing the page.' });
           stopPolling();
           return;
         }

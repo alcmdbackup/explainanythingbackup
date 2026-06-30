@@ -122,6 +122,50 @@ describe('EditRunViewer polling loop', () => {
     expect(screen.queryByTestId('diff-viewer-mock')).not.toBeNull();
   });
 
+  // Regression for the 2026-06-30 timeout-before-status-check bug. If the
+  // user backgrounds the tab → browser throttles setInterval to 1/min → the
+  // polling client misses the completion window. When the user returns
+  // 10+ min later, we MUST still check status (and surface the diff if the
+  // run completed) before showing the "taking longer than expected" timeout.
+  it('still surfaces a completed run even when polling resumes past MAX_POLL_DURATION_MS', async () => {
+    // First tick: still running (run is in progress). Page-load time → t=0.
+    // Subsequent ticks: completed (run finished server-side while tab was
+    // backgrounded). Set mockResolvedValue (not Once) so any tick during the
+    // long advance sees the same completed response.
+    mockGetEditRunStatusAction
+      .mockResolvedValueOnce(makeStatusResponse('running'))
+      .mockResolvedValue(makeStatusResponse('completed'));
+    render(<EditRunViewer runId={RUN_ID} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByTestId('edit-run-pending')).not.toBeNull();
+
+    // Simulate tab being backgrounded for 11 minutes (past MAX_POLL_DURATION_MS).
+    // During this time the run completes server-side. The NEXT tick after
+    // the backgrounded interval fires fetches status='completed' and MUST
+    // dispatch POLL_COMPLETED — NOT POLL_FAILED with "taking longer than
+    // expected". Advance just enough to fire one more tick + flush.
+    await act(async () => {
+      jest.advanceTimersByTime(11 * 60 * 1_000);
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByTestId('diff-viewer-mock')).not.toBeNull();
+    expect(screen.queryByTestId('edit-run-error')).toBeNull();
+  });
+
+  it('still surfaces timeout error when run is genuinely stuck past 10 min', async () => {
+    // All polls return status='running' — run never completes.
+    mockGetEditRunStatusAction.mockResolvedValue(makeStatusResponse('running'));
+    render(<EditRunViewer runId={RUN_ID} />);
+    await act(async () => { await Promise.resolve(); });
+
+    // Advance past the 10-min deadline.
+    await act(async () => {
+      jest.advanceTimersByTime(11 * 60 * 1_000);
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId('edit-run-error')).not.toBeNull();
+  });
+
   it('stops polling after reaching terminal phase (no further dispatches)', async () => {
     mockGetEditRunStatusAction.mockResolvedValueOnce(makeStatusResponse('completed'));
     render(<EditRunViewer runId={RUN_ID} />);
