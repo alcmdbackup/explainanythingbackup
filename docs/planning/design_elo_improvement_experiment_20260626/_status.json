@@ -21,5 +21,9 @@
     "evolution/docs/data_model.md",
     "evolution/docs/variant_lineage.md"
   ],
-  "analyses": []
+  "analyses": [
+    "docs/analysis/elo-agent-comparison-federal-reserve-2-20260628/"
+  ],
+  "experiment_id": "bc10c2e0-a51c-41a8-a2c3-34577a1fa489",
+  "project_kind": "feature_with_experiment"
 }

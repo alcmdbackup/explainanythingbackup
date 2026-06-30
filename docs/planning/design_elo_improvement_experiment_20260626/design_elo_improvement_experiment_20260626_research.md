@@ -12,6 +12,16 @@ Design a robust experiment accounting for budget & confidence intervals that can
 
 ## High Level Summary
 
+**Experiment Analysis (tranche 1, exp `bc10c2e0`, 90 runs — see EAR.md).** On the pre-registered primary
+metric `reflect_and_generate` leads (P(best) 96%, median +165 Elo) with `generate` second, but the result is
+**confounded and not a clean quality ranking**: (1) the "+165 lift" is measured against the seed's *in-arena*
+recomputed Elo (~1176, mid-pack), not the nominal 1325; and (2) a severe **1%→53% judge-decisiveness spread**
+means small-edit arms (criteria/proposer/editing/coherence) mostly draw and physically cannot earn Elo, so
+the max-Elo-lift ceiling DV rewards high-variance rewriting rather than quality. No arm beats `generate`
+significantly (reflect +34 Elo, Holm p=0.23). Recommended next: redesign the DV (head-to-head variant-vs-seed
+win-rate) before more spend. Full rigor (funnel/balance, wipeout gate=0, decisiveness audit, causal evidence)
+in `EAR.md`.
+
 **Goal.** Compare candidate evolution agents/strategies (the "arms") on their ability to lift a single fixed seed article above its current ~1325 Elo, with proper confidence intervals and budget accounting, and with per-agent sanity checks that each agent actually did its job.
 
 **Key design facts surfaced by research:**
@@ -96,6 +106,16 @@ For this experiment we want a **NEW prompt** (new Arena Topic) whose only seeded
 | Run-order confounds | arms run sequentially → arena drift | randomize/interleave arm execution order |
 
 Per-arm "agent worked as intended" gate before admitting Elo data: `success=true` on all invocations, `variant_count>0`, matches recorded in `evolution_arena_comparisons`, cost within 1.5× projection, no `structured_output_parse_failure`.
+
+### Experiment Analysis Findings (tranche 1 — mirrors EAR.md)
+1. `reflect_and_generate` leads the primary metric (P(best) 96%, median +165 Elo); `generate` second (P(best) 4%); all other arms P(best) 0%.
+2. The "+165 lift" is vs the seed's recomputed *in-arena* Elo (~1176, mid-pack near the 1200 default) — NOT the nominal 1325. Top variants ~1340; seed ~1176; one self-contained pool.
+3. Cross-arm comparison is confounded by a **1%→53% judge-decisiveness spread**: Elo only moves on decisive matches, and small-edit arms (proposer 1%, single_pass 4%, criteria 5%, coherence 6%) mostly draw → cannot earn Elo. The max-lift DV rewards high-variance rewriting, not quality.
+4. No arm beats `generate` significantly (reflect +34 Elo, CI [−6,78], Holm p=0.23). Arms below generate are confounded per #3.
+5. Causal evidence: proposer_approver's 200 variants span Elo 1103–1241 (max +65), clustered near the seed; generate's variants reach ~1340 (+165) via decisive wins (variant `620f6619` won 391/1090 decisively).
+6. Wipeout gate = 0; `paragraph_recombine` completed 6/10 (4 zero-variant, kept as 0-lift).
+7. Design verified: 1 round, sourceMode=seed for all 9 arms; all 2,120 article variants parent directly off the seed (single generation, no variant-of-variant).
+8. Per-variant quality density (`%var>seed`) ranks arms OPPOSITELY to the ceiling: reflect 94% > criteria 81% > iterative_editing 78% > single_pass 76% > **generate 64%** > editing_rewrite 63% > proposer 57% > coherence 44%. Targeted-edit arms produce a higher SHARE of seed-beating variants; generate wins the ceiling only via high-variance outliers. "Best arm" is goal-dependent (ceiling vs density); reflect tops both.
 
 ## Key Findings (code-level — Phase 0 /research, RESOLVED)
 
@@ -197,3 +217,6 @@ Per-arm "agent worked as intended" gate before admitting Elo data: `success=true
 ## Staging Queries Run (read-only)
 - Confirmed `Federal Reserve 2` = `a546b7e9-f066-403d-9589-f5e0d2c9fa4f` (2675 synced variants, max Elo 1442).
 - Identified ~1325 seed candidates `da03b016…`, `538bfbc9…`, `93a9ac9d…` — all low match-count (3–6), sigma 5–6 → noisy baseline.
+
+## Promoted Analyses
+- docs/analysis/elo-agent-comparison-federal-reserve-2-20260628/

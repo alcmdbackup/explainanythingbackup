@@ -49,15 +49,22 @@ describe('Evolution Watchdog Integration Tests', () => {
   it('marks running run with stale heartbeat as failed', async () => {
     if (!tablesExist) return;
 
-    const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    // Flake guard: `claim_evolution_run` (called by parallel Jest workers, e.g.
+    // evolution-claim.integration.test.ts) auto-expires stale claimed/running runs by the
+    // SAME criteria as the watchdog, but with a FIXED 10-minute threshold. A run older than
+    // 10 min would be raced-to-failed by that concurrent claim before our runWatchdog call,
+    // leaving markedFailed empty. So we keep the run stale for a SMALL watchdog threshold
+    // (2 min) yet inside claim's 10-min window (3 min old) — the watchdog marks it, the
+    // concurrent claim sweep cannot.
+    const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString();
     const run = await createTrackedRun({
       status: 'running',
       runner_id: 'test-runner-stale',
-      last_heartbeat: fifteenMinAgo,
+      last_heartbeat: threeMinAgo,
     });
     const runId = run.id as string;
 
-    const result = await runWatchdog(supabase, 10);
+    const result = await runWatchdog(supabase, 2);
 
     expect(result.markedFailed).toContain(runId);
 
@@ -109,14 +116,17 @@ describe('Evolution Watchdog Integration Tests', () => {
     });
     const runId = run.id as string;
 
-    // Manually backdate created_at to 15 minutes ago
-    const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    // Backdate created_at to 3 minutes ago — stale for our 2-min watchdog threshold but
+    // INSIDE claim_evolution_run's fixed 10-min auto-expiry window, so a concurrent claim
+    // call (parallel Jest worker) can't race-fail this run before our runWatchdog sees it.
+    // (See the flake-guard note on the stale-heartbeat test above.)
+    const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString();
     await supabase
       .from('evolution_runs')
-      .update({ created_at: fifteenMinAgo })
+      .update({ created_at: threeMinAgo })
       .eq('id', runId);
 
-    const result = await runWatchdog(supabase, 10);
+    const result = await runWatchdog(supabase, 2);
 
     expect(result.markedFailed).toContain(runId);
 

@@ -189,5 +189,49 @@ The following docs were identified as relevant and may need updates:
 - [ ] `evolution/docs/rating_and_comparison.md` — note the replicate-runs-vs-matches CI guidance if confirmed.
 - [ ] `docs/analysis/<name>/` — new analysis report (created by `/analysis` in Phase 4).
 
+## Pre-Registered Analysis Plan
+<!-- Pre-registered via 3-iteration /plan-review (5/5/5 consensus) BEFORE any runs were enqueued.
+     Formalized into this header for /run_experiment_analysis. -->
+
+### Arms (9, one strategy each)
+All arms are a **single iteration off the seed** (`sourceMode='seed'`, `budgetPercent: 100`) at an
+**equal budget** (`budgetUsd: 0.10`) with the **same models held constant** (generation + judge =
+`google/gemini-2.5-flash-lite`, `maxComparisonsPerVariant: 3`) — apples-to-apples. The arms:
+
+1. `generate` — **control / baseline**
+2. `reflect_and_generate`
+3. `criteria_and_generate`
+4. `single_pass_evaluate_criteria_and_generate`
+5. `proposer_approver_criteria_generate`
+6. `iterative_editing`
+7. `iterative_editing_rewrite`
+8. `paragraph_recombine`
+9. `paragraph_recombine_with_coherence_pass`
+
+### Primary DV
+Per-run **max-Elo-lift over the seed (ceiling)** = `max(Elo of the run's surfaced variants) − seedElo`,
+where Elo is **recomputed canonically from `evolution_arena_comparisons`** before analysis (Decision F —
+immune to the sync race; the live `elo_score` is NOT trusted). `seedElo` = the **competing seed anchor**
+(`generation_method='pipeline'`, `run_id IS NULL`) after the same recompute — lift is measured vs the
+seed's in-arena standing, NOT a pinned external rating (anchor-pinning was deliberately removed; "lift vs
+whatever the Elo is"). Runs that produce zero surfaced variants (incl. `all_generations_failed`) count as
+**0-lift data points**, not dropped. Median lift is the headline statistic per arm.
+
+### Primary analysis (which arm is best)
+**Bootstrap** P(best) — the probability each arm has the single highest median lift (ties split equally) —
+and top-tier membership P(within **threshold** of the best median). This jointly ranks all 9 arms.
+
+### Secondary analysis (is an arm better than the control)
+One-sided (arm > `generate`) **Bootstrap** diff-of-medians vs the `generate` control, **Holm**-corrected
+across the arm family; an arm is "significantly beats control" iff Holm-adjusted p < 0.05. Reported with a
+95% bootstrap CI on the median difference.
+
+### Threshold
+**40 Elo** — the top-tier / practically-tied band (the smallest difference treated as meaningful), used
+for P(within-threshold-of-best) and as the target effect size for sizing.
+
+### Sizing
+Adaptive: run tranches and stop when the P(best) leader is decisive; hard cap **$40 total**.
+
 ## Review & Discussion
 <!-- Populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration. -->

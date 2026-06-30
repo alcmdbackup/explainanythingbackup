@@ -204,8 +204,28 @@ Cite PRAP location: docs/planning/<project>/<project>_planning.md ## Pre-Registe
 ## Key Findings
 [Numbered list. Each finding cites concrete data. Include Table A:
 Test-vs-Control Metrics Summary (per arm rows; columns:
-n_runs_completed, top_elo, median_elo, top_elo_delta_vs_control,
-total_cost_usd, cost_per_improver_usd, significance_verdict).]
+runs_completed/queued, variants_produced (and of-those ranked, i.e. with >=1 arena match),
+top_elo, median_elo, top_elo_delta_vs_control,
+pct_variants_better_than_seed (share of an arm's RANKED variants with Elo > seedElo),
+budget_per_run_usd, total_budget_usd (= budget_per_run x queued runs),
+total_spent_usd, cost_per_improver_usd, significance_verdict).
+The `pct_variants_better_than_seed` column is mandatory and reports per-variant QUALITY DENSITY,
+which is throughput-UNBIASED (a proportion, not a max) and frequently ranks arms differently from
+the top-/median-Elo ceiling: targeted-edit arms can produce a higher SHARE of seed-beating variants
+while a high-variance arm wins the ceiling via a few outliers. Report ceiling and density side by
+side; "best arm" is goal-dependent (highest single variant vs most reliable per-variant lift).
+Use the same seedElo and RANKED-variant filter (arena_match_count>0) as the primary DV; caveat any
+arm whose ranked-variant n is small.
+Show budget_per_run/total_budget/total_spent together so per-arm BUDGET UTILIZATION is visible:
+an arm that under-spends its equal budget (e.g. via failed runs or too few dispatches) will show a
+depressed throughput/ceiling that is partly unused budget, not per-variant weakness — flag any arm
+spending materially below the others. Add a final Total/mean row (summed total_budget + total_spent).
+The `variants_produced (ranked)` column is the per-arm THROUGHPUT and is mandatory:
+the max-/top-Elo ceiling DV is shots-on-goal sensitive (an arm producing 47 variants/run
+has far more chances at a high-Elo outlier than one producing ~1), so throughput must be
+visible alongside any ceiling metric to avoid mistaking a shots-on-goal artifact for quality.
+Count ARTICLE-level variants only (variant_kind='article', generation_method<>'seed') —
+paragraph/recombine arms otherwise inflate the count with paragraph-slot intermediate variants.]
 
 ### Follow-up Ideas
 [Numbered. What would improve the next iteration of this analysis?]
