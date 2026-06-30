@@ -1,5 +1,7 @@
 # Brainstorm New Agents With Reflection Research
 
+> **Scope decision 2026-06-30**: After surveying five design directions below, the project was **rescoped to a single prototype — `self_critique_revise` (Design 3)** — for focused validation. The other two prototypes originally selected (`reflect_and_localize`, `reflect_and_rewrite_diff`) remain captured here as deferred follow-ups; they re-enter scope only if the Agent 3 staging signal warrants it. See `_planning.md` "Options Considered" for the rescoping rationale.
+
 ## Problem Statement
 Come up with new agent types for the evolution pipeline that leverage reflection (a meta-cognitive pattern where an agent reviews its own or another agent's output and proposes improvements). Note how well reflection-style agents have performed in recent analyses. Special focus from `/research`: **how to adapt reflection to EDITING cheaply and flexibly — without the structural overhead of `paragraph_recombine`** (per-slot arena topics, N×M LLM calls, per-slot ranking, sync_to_arena, merge).
 
