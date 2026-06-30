@@ -46,34 +46,36 @@ The three new agents fit this template exactly. The only *new* code per agent is
 | Detail view | `DETAIL_VIEW_CONFIGS` in `evolution/src/lib/core/detailViewConfigs.ts` | Per-agent field config (mechanical copy of reflect/single_pass) |
 | Kill switch | env var `EVOLUTION_REFLECTION_ENABLED` style | One env var per agent: `EVOLUTION_REFLECT_LOCALIZE_ENABLED`, `EVOLUTION_REFLECT_REWRITE_DIFF_ENABLED`, `EVOLUTION_SELF_CRITIQUE_ENABLED` (all default `'true'`) |
 
-### Agent 1: `ReflectAndLocalizeAgent` (`reflect_and_localize`)
-**Hypothesis.** A small reflection call that picks ONE paragraph + ONE directive lets us run a *focused* edit at near-GFPA cost — no full-article rewrite, no markup parser, no approver loop.
+### Agent 1: `ReflectAndLocalizeAgent` (`reflect_and_localize`) — multi-target
+**Hypothesis.** A small reflection call that picks ONE-TO-N paragraphs (each with its own directive) lets us run several focused edits in a single dispatch at near-GFPA cost — no full-article rewrite, no markup parser, no approver loop. Letting the reflector pick multiple paragraphs in one pass gives it a holistic view ("the intro needs tightening AND the conclusion needs an example") that single-paragraph dispatch can't express without multiple iterations.
 
 **Algorithm (per parent variant):**
-1. Reflection LLM call (`AgentName: 'localize_reflection'`). Prompt feeds parent text + numbered paragraph list (parsed via `extractParagraphsWithRanges` from `evolution/src/lib/shared/paragraphSlots.ts` — already exists for paragraph_recombine). Asks LLM to pick one paragraph index + one directive from a small enum (`tighten` | `clarify` | `expand` | `add_example` | `strengthen_transition` | `replace_filler`) + a one-sentence rationale.
-2. Parse via `parseLocalizeReflection` — tolerant, throws `LocalizeReflectionParseError` on zero valid output. (Per-line format: `Paragraph: <int>\nDirective: <enum>\nRationale: <text>`.)
-3. Targeted rewrite LLM call (`AgentName: 'localize_rewrite'`). Prompt is `buildParagraphRewritePrompt` (already exists for paragraph_recombine) BUT seeded with the chosen directive and the chosen paragraph text only.
-4. Validate via `validateParagraphRewrite` (already exists — handles length cap ±20%, no bullets/lists/tables/H1, ≥1 sentence-ending punctuation). On invalid, fall back to original paragraph (no change) and emit `surfaced=false, discardReason: {reason: 'localize_invalid'}`.
-5. Splice via `assembleRecombinedArticle` (already exists — right-to-left byte-offset preserving splice). `validateFormat` the whole article.
-6. Rank via `rankNewVariant` against the iteration-start pool snapshot (article mode, same as GFPA). Surface/discard decision identical to GFPA (`local elo` ≥ `top15Cutoff` → surface, else discard).
-7. Emit variant with `parent_variant_ids = [parentVariantId]` (single primary parent — D4 invariant). Tactic = `reflect_localize`. `execution_detail` carries reflection sub-object + rewrite sub-object + ranking sub-object.
+1. Reflection LLM call (`AgentName: 'localize_reflection'`). Prompt feeds parent text + numbered paragraph list (parsed via `extractParagraphsWithRanges` from `evolution/src/lib/shared/paragraphSlots.ts` — already exists for paragraph_recombine). Asks LLM to pick **between 1 and `localizeMaxTargets`** paragraphs (default 3, range 1-5; per-iteration knob), each with one directive from a small enum (`tighten` | `clarify` | `expand` | `add_example` | `strengthen_transition` | `replace_filler`) + a one-sentence rationale per target.
+2. Parse via `parseLocalizeReflection` — tolerant, throws `LocalizeReflectionParseError` on zero valid output. Returns `{targets: [{paragraphIndex, directive, rationale}, ...]}` with `1 ≤ length ≤ localizeMaxTargets`. Validates each `paragraphIndex` is in-range, each `directive` is in enum, drops duplicate paragraph picks (keeps first), truncates if the LLM returned more than `localizeMaxTargets` (logs warn).
+3. **Parallel targeted rewrite LLM calls** (`AgentName: 'localize_rewrite'`). For each surviving target, in parallel via `Promise.allSettled`: prompt is `buildParagraphRewritePrompt` (already exists for paragraph_recombine) seeded with that target's directive and that paragraph's text only. Each rewrite is BLIND to the others (acceptable for prototype — matches legacy paragraph_recombine's parallel-slot behavior).
+4. For each target independently, validate via `validateParagraphRewrite` (already exists — length cap ±20%, no bullets/lists/tables/H1, ≥1 sentence-ending punctuation). On invalid OR on LLM-call failure, fall back to the original paragraph for THAT SLOT only (partial application — other targets still apply). Record `validationPassed=false` and `error` in detail.
+5. If ALL targets fell back, emit `surfaced=false, discardReason: {reason: 'all_targets_invalid'}`. Otherwise: splice all successful rewrites in one pass via `assembleRecombinedArticle` (already exists — right-to-left byte-offset preserving splice, designed for the N-slot case). `validateFormat` the whole article.
+6. Rank via `rankNewVariant` against the iteration-start pool snapshot (article mode, same as GFPA). ONE article-level ranking pass — NOT per-slot. Surface/discard decision identical to GFPA.
+7. Emit variant with `parent_variant_ids = [parentVariantId]` (single primary parent — D4 invariant). Tactic = `reflect_localize`. `execution_detail` carries reflection sub-object (with all targets) + per-target rewrite results array + one article-level ranking sub-object.
 
 **What it deliberately doesn't do:**
 - NO `upsertSlotTopic` / no per-slot arena topic.
 - NO `sync_to_arena` payload extension for per-slot.
 - NO `persistSlotMatches`.
-- NO per-slot ranking, per-slot AgentCostScope nesting, per-slot LLM-client proxy.
+- NO **per-slot ranking** — ONE article-level ranking pass at the end.
+- NO per-slot AgentCostScope nesting, NO per-slot LLM-client proxy.
 - NO multi-cycle loop, NO approver, NO mirror-approver, NO CriticMarkup parser.
+- NO sequential context-aware mode (parallel rewrites are BLIND to each other — acceptable for prototype).
 
 It uses paragraph_recombine's **text-manipulation utilities** (`extractParagraphsWithRanges`, `validateParagraphRewrite`, `assembleRecombinedArticle`, `buildParagraphRewritePrompt`) WITHOUT the **infrastructure overhead** the user asked us to avoid. This is the cleanest fit.
 
-**Cost stack:**
-- Reflection: ~$0.0003 (small input, ~80 output toks: index + directive + rationale)
-- Rewrite: ~$0.0008 (input full article, output only one paragraph ~250 toks vs GFPA's full article ~1000)
+**Cost stack** (at default `localizeMaxTargets = 3`, typical N=2-3 picked):
+- Reflection: ~$0.0005 (small input, ~200 output toks: N targets each with index + directive + rationale)
+- Rewrites (N parallel): ~N × $0.0008 each (input full article, output one paragraph ~250 toks vs GFPA's full ~1000) — so ~$0.0016-0.0024 at N=2-3
 - Ranking: same as GFPA (~$0.002 with default `maxComparisonsPerVariant=15` and a small pool)
-- **Total estimate ~$0.003 per variant** — close to GFPA's $0.0048 staging median. **~0.6-0.8× GFPA cost.**
+- **Total estimate ~$0.004-0.005 per variant at N=2-3** — close to GFPA's $0.0048 staging median. **~0.9-1.1× GFPA cost.** Lower N drops it; higher N (cap 5) tops out around ~$0.007.
 
-**Attribution dimension:** the chosen directive (e.g., `eloAttrDelta:reflect_and_localize:tighten`).
+**Attribution dimension:** the **first chosen target's directive** (e.g., `eloAttrDelta:reflect_and_localize:tighten`) — matches the criteria-agent convention of using the primary weakness. Tail directives still recorded on detail for inspection.
 
 **New schema fields** (`reflectAndLocalizeExecutionDetailSchema`):
 ```ts
@@ -81,40 +83,63 @@ It uses paragraph_recombine's **text-manipulation utilities** (`extractParagraph
   detailType: 'reflect_and_localize',
   tactic: 'reflect_localize',
   reflection: {
-    paragraphCount: int,        // total paragraphs presented to LLM
-    paragraphIndex: int,         // 0-based, the chosen slot
-    directive: enum,             // tighten | clarify | expand | add_example | strengthen_transition | replace_filler
-    rationale: string,
-    rawResponse?: string,        // on parse failure
+    paragraphCount: int,         // total paragraphs presented to LLM
+    maxTargetsRequested: int,     // = localizeMaxTargets from config
+    targets: array of {            // 1 ≤ length ≤ localizeMaxTargets
+      paragraphIndex: int,          // 0-based, the chosen slot
+      directive: enum,              // tighten | clarify | expand | add_example | strengthen_transition | replace_filler
+      rationale: string,
+    },
+    droppedDuplicates?: int,      // count of duplicate paragraph picks the parser collapsed
+    rawResponse?: string,         // on parse failure
     parseError?: string,
     durationMs?: int,
     cost?: number,
   },
-  rewrite: {
-    newParagraphLength: int,
+  rewrites: array of {            // same length + order as reflection.targets; entries for failed targets carry validationPassed=false
+    paragraphIndex: int,
+    directive: enum,
     originalParagraphLength: int,
-    formatValid: boolean,
-    formatIssues?: string[],
+    newParagraphLength: int,
+    validationPassed: boolean,
+    formatIssues?: string[],       // when validation failed
+    error?: string,                 // when the rewrite LLM call threw or returned empty
     durationMs?: int,
     cost?: number,
   },
-  generation?: {...},   // optional — populated when we want to surface aggregate generation stats; for localize it's the rewrite sub-object
-  ranking?: {...},       // reused rankNewVariantDetailInnerSchema, identical to GFPA's
+  rewriteSummary: {
+    requested: int,                // = reflection.targets.length
+    succeeded: int,
+    failed: int,                    // requested - succeeded
+    totalRewriteCost: number,
+  },
+  ranking?: {...},                // reused rankNewVariantDetailInnerSchema, identical to GFPA's — ONE article-level rank, not per-slot
   totalCost: number,
   surfaced: boolean,
-  discardReason?: {...} // localElo / localTop15Cutoff, plus {reason: 'localize_invalid'} when validation fell back
+  discardReason?: {...}           // localElo / localTop15Cutoff, plus {reason: 'all_targets_invalid'} when every target failed
 }
 ```
 
-### Agent 2: `ReflectAndRewriteDiffAgent` (`reflect_and_rewrite_diff`)
-**Hypothesis.** Reflection picks a *focus area* (a section heading) → Mode B (rewrite-then-diff) does a single constrained-scope cycle → approver decides → mechanical apply. This grafts `reflect_and_generate`'s selection onto `iterative_editing_rewrite` Mode B's cheap-diff substrate. Avoids multi-cycle compounding (the 5× cost in default iterative_editing) and the Mode A foot-gun.
+**New per-iteration knob:** `localizeMaxTargets?: number` (range 1-5, default 3) on `iterationConfigSchema`. Zod `.superRefine` rejects it when `agentType !== 'reflect_and_localize'`. Participates in the strategy `config_hash` via `canonicalizeIterationConfig` (defaults fold).
+
+### Agent 2: `ReflectAndRewriteDiffAgent` (`reflect_and_rewrite_diff`) — general focus
+**Hypothesis.** Reflection picks a *general focus* of one of four kinds — a **criterion** (e.g. tone, clarity, voice), an **area** (e.g. intro, conclusion, a specific heading, or "whole_article"), a **general weakness** (e.g. "examples are too abstract throughout"), or **feedback** (e.g. "needs more concrete data points") — then Mode B (rewrite-then-diff) does a single intent-scoped cycle → approver decides → mechanical apply. This grafts `reflect_and_generate`'s selection onto `iterative_editing_rewrite` Mode B's cheap-diff substrate, and pairs naturally with Agent 1: **Agent 1 = *location-specific* edits (pick paragraphs), Agent 2 = *theme-specific* edits (pick a quality dimension, an area, a recurring weakness, or feedback).** Avoids multi-cycle compounding (the 5× cost in default iterative_editing) and the Mode A foot-gun.
 
 **Algorithm:**
-1. Reflection LLM call (`AgentName: 'reflect_rewrite_diff_reflection'`). Prompt feeds parent text with its H2/H3 headings indexed; asks LLM to pick one heading (or "intro" / "conclusion" / "whole article" as fallback) + a one-sentence rationale + an edit intent string (free-form, 1-2 phrases).
-2. Parse via `parseRewriteDiffReflection` — tolerant, structured `{focusArea: string, rationale: string, editIntent: string}`. Throws on zero valid output.
-3. Build a Mode B proposer prompt by extending `proposerPromptRewrite.ts` (the existing Mode B proposer prompt for `iterative_editing_rewrite`) with a SCOPE BLOCK injected at the top: *"Edit ONLY the section under heading '<focusArea>'. Edit intent: <editIntent>. Leave the rest of the article byte-equal."* The proposer's `## Rationale + ## Rewrite` shape is unchanged.
-4. Call `runEditingCycle` (the shared helper already extracted from `IterativeEditingAgent`) ONCE with `rewriteMode: { coalesceAndCap: false }` (Mode B path) + the new system prompt. This drives proposer → `splitRationaleAndRewrite` → `computeMarkupFromRewrite` (mechanical diff) → `validateEditGroups` → approver call → `applyAcceptedGroups`. All of this code already exists; the only addition is the system prompt override.
-5. If `cycleResult.appliedCount === 0` → emit `surfaced=false` with reason. Otherwise the new article text becomes the variant.
+1. Reflection LLM call (`AgentName: 'reflect_rewrite_diff_reflection'`). Prompt feeds parent text + a brief explanation of the four focus types + the list of headings (extracted from H1/H2/H3 lines so the LLM can name an area precisely if it picks `focusType: 'area'`). Asks the LLM to pick the SINGLE most-impactful focus. Structured output:
+   - `focusType: 'criterion' | 'area' | 'general_weakness' | 'feedback'`
+   - `focus`: the actual content. For `criterion`: a single name like `"tone"`, `"clarity"`, `"voice"`, `"precision"`, `"flow"`, `"depth"`, `"engagement"` (free-form, but the prompt suggests these). For `area`: a heading text from the presented list, or one of the sentinels `"intro"` / `"conclusion"` / `"whole_article"`. For `general_weakness`: a brief description of the recurring pattern (e.g. "examples are too abstract throughout"). For `feedback`: a brief actionable note (e.g. "needs more concrete data points"). Free-form string, capped to 200 chars.
+   - `editIntent`: what to actually DO about the focus — the executable directive the proposer will follow (e.g. "shift from formal academic to conversational without losing precision", "add a concrete hook", "replace 2-3 abstract examples with concrete ones"). Free-form, capped to 500 chars.
+   - `rationale`: one-sentence justification.
+2. Parse via `parseRewriteDiffReflection` — tolerant, structured. Throws `RewriteDiffReflectionParseError` on zero valid output. Validates `focusType` is in enum, `focus` and `editIntent` are non-empty + within length caps. When `focusType === 'area'` AND `focus` is a heading-text candidate, soft-checks that the heading actually appears in the article — logs a warn if not but DOES NOT throw (the proposer can still attempt the edit).
+3. Build a scope-aware Mode B proposer prompt by extending `proposerPromptRewrite.ts` (the existing Mode B proposer prompt for `iterative_editing_rewrite`) with a SCOPE BLOCK that branches on `focusType`. The proposer's `## Rationale + ## Rewrite` output shape is unchanged; only the system-prompt scope framing differs:
+   - `focusType=criterion`: *"This article needs improvement on the '<focus>' criterion. Apply this intent across the article: <editIntent>. Preserve substantive content and structure; change only what serves this criterion."*
+   - `focusType=area`: *"Edit ONLY the area '<focus>'. Edit intent: <editIntent>. Leave the rest of the article byte-equal where possible."*
+   - `focusType=general_weakness`: *"The article has a recurring weakness: <focus>. Apply this targeted fix: <editIntent>. Minimize collateral changes — touch only what addresses the weakness."*
+   - `focusType=feedback`: *"Apply this targeted feedback: <focus>. Specifically: <editIntent>. Minimize collateral changes — make the smallest set of edits that fully addresses the feedback."*
+   All four variants share a closing instruction: *"Output the full article via `## Rationale` and `## Rewrite` blocks. The diff engine derives minimal edits from your rewrite — making fewer changes produces fewer derived edits."*
+4. Call `runEditingCycle` (the shared helper already extracted from `IterativeEditingAgent`) ONCE with `rewriteMode: { coalesceAndCap: false }` (Mode B path) + the new system prompt. This drives proposer → `splitRationaleAndRewrite` → `computeMarkupFromRewrite` (mechanical diff) → `validateEditGroups` → approver call → `applyAcceptedGroups`. All of this code already exists; the only addition is the system-prompt override.
+5. If `cycleResult.appliedCount === 0` → emit `surfaced=false` with reason `'no_edits_applied'`. Otherwise the new article text becomes the variant.
 6. Rank via `rankNewVariant` against the iteration-start pool (article mode). Same surface/discard as GFPA.
 7. Emit variant with `parent_variant_ids = [parentVariantId]`. Tactic = `reflect_rewrite_diff`.
 
@@ -123,15 +148,16 @@ It uses paragraph_recombine's **text-manipulation utilities** (`extractParagraph
 - NO CriticMarkup-from-the-LLM (Mode B = diff derived mechanically).
 - NO mirror-approver (one pass is enough for a small targeted change).
 - NO paragraph_recombine infrastructure.
+- NO **strict scope enforcement at the splice level** — Mode B's mechanical diff is what bounds edit breadth; the scope block is a *behavioral hint* to the proposer, not a hard wall. For `focusType=criterion` / `general_weakness` / `feedback` the proposer is explicitly invited to touch multiple places.
 
 **Cost stack:**
-- Reflection: ~$0.0004 (heading list + rationale + intent)
-- Proposer (Mode B): output is full-article but only one section changes — total ~1.4× article (same as today's `iterative_editing_rewrite` per cycle)
-- Approver: input-heavy, output ~50 toks per accepted/rejected group
+- Reflection: ~$0.0005 (focusType + focus + editIntent + rationale ~ 200 toks)
+- Proposer (Mode B): output is full-article — total ~1.4× article (same as today's `iterative_editing_rewrite` per cycle)
+- Approver: input-heavy, output ~50 toks per accepted/rejected group. Slightly more derived groups expected for whole-article focus (criterion / general_weakness / feedback) than for narrowly-scoped area focus, but approver decisions stay cheap per group.
 - Ranking: same as GFPA
-- **Total estimate ~$0.012-0.018 per variant.** **~2.5-3× GFPA cost** — but still ~40-50% cheaper than today's `iterative_editing_rewrite` (which runs 3 cycles by default).
+- **Total estimate ~$0.012-0.020 per variant.** **~2.5-3× GFPA cost** — still ~40-50% cheaper than today's `iterative_editing_rewrite` (3 cycles default).
 
-**Attribution dimension:** the focus area string (truncated, e.g., `eloAttrDelta:reflect_and_rewrite_diff:Intro`).
+**Attribution dimension:** the `focusType` (4 categories) — clean 4-bucket grouping on the tactic leaderboard. The `focus` itself is recorded on detail for inspection, so a follow-up SQL slice can break out e.g. `criterion:tone` vs `criterion:clarity` without bloating the leaderboard buckets. (`eloAttrDelta:reflect_and_rewrite_diff:criterion`, `eloAttrDelta:reflect_and_rewrite_diff:area`, etc.)
 
 **New schema fields:**
 ```ts
@@ -139,10 +165,12 @@ It uses paragraph_recombine's **text-manipulation utilities** (`extractParagraph
   detailType: 'reflect_and_rewrite_diff',
   tactic: 'reflect_rewrite_diff',
   reflection: {
-    focusArea: string,        // chosen heading or "intro" / "conclusion" / "whole_article"
-    editIntent: string,
+    focusType: enum,             // criterion | area | general_weakness | feedback
+    focus: string,                // ≤ 200 chars
+    editIntent: string,            // ≤ 500 chars
     rationale: string,
-    headingsPresented: string[],
+    headingsPresented: string[],  // for forensic display (audit what the LLM saw when picking 'area')
+    areaHeadingMatched?: boolean,  // when focusType='area' AND focus is a heading text, did it match the article? (soft check)
     rawResponse?: string,
     parseError?: string,
     durationMs?: int,
@@ -277,6 +305,7 @@ Each estimate uses `OUTPUT_TOKEN_ESTIMATES.<label>` extended with the new labels
 
 ### Phase 1: Shared scaffolding (foundation for all 3 agents)
 - [ ] Extend `iterationConfigSchema.agentType` enum in `evolution/src/lib/schemas.ts` to include `'reflect_and_localize'`, `'reflect_and_rewrite_diff'`, `'self_critique_revise'`. Add `.superRefine` rules: each is variant-producing; first-iter allowed for all 3; mutex with `criteriaIds` / `generationGuidance` follows the existing pattern.
+- [ ] Add new per-iteration knob `localizeMaxTargets?: number` (z.number().int().min(1).max(5)) to `iterationConfigSchema`. `.superRefine`: rejected when `agentType !== 'reflect_and_localize'`. Include in `canonicalizeIterationConfig` for config_hash participation (default `3` folded).
 - [ ] Add three new umbrella cost metrics to `METRIC_CATALOG` in `evolution/src/lib/core/metricCatalog.ts`: `localize_cost`, `reflect_rewrite_diff_cost`, `self_critique_cost`. Plus `total_*` + `avg_*_per_run` propagated counterparts (six metrics total).
 - [ ] Extend `AGENT_NAMES` in `evolution/src/lib/core/agentNames.ts` with the new labels: `localize_reflection`, `localize_rewrite`, `reflect_rewrite_diff_reflection`, `reflect_rewrite_diff_propose`, `reflect_rewrite_diff_review`, `self_critique`. Add `COST_METRIC_BY_AGENT` entries mapping each to the right umbrella (`reflection_cost` for reflection-style; new umbrellas for the rewrite/critique).
 - [ ] Add `OUTPUT_TOKEN_ESTIMATES` entries for the new labels in `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts` (or wherever the registry lives).
@@ -285,53 +314,86 @@ Each estimate uses `OUTPUT_TOKEN_ESTIMATES.<label>` extended with the new labels
 - [ ] Add `evolution/src/lib/core/startupAssertions.ts` updates (extend `assertCostCalibrationPhaseEnumsMatch` if needed — likely no-op since the existing assertion is data-driven).
 - [ ] Unit tests for: `iterationConfigSchema` accepts each new enum value + rejects bad combos; `COST_METRIC_BY_AGENT` is a complete mapping; new tactics resolve via `isValidTactic`.
 
-### Phase 2: Agent 1 — `ReflectAndLocalizeAgent`
-- [ ] Add `reflectAndLocalizeExecutionDetailSchema` to `evolution/src/lib/schemas.ts` (mirror reflect_and_generate's shape).
+### Phase 2: Agent 1 — `ReflectAndLocalizeAgent` (multi-target)
+- [ ] Add `reflectAndLocalizeExecutionDetailSchema` to `evolution/src/lib/schemas.ts` with `reflection.targets: array`, `rewrites: array`, `rewriteSummary` sub-object (see Architecture Analysis section above for full shape).
 - [ ] Create `evolution/src/lib/core/agents/reflectAndLocalize.ts`:
   - Custom errors: `LocalizeReflectionLLMError`, `LocalizeReflectionParseError`, `LocalizeRewriteLLMError`.
-  - `buildLocalizeReflectionPrompt(parentText, numberedParagraphs, directives): string`
-  - `parseLocalizeReflection(response): {paragraphIndex, directive, rationale}` — tolerant parser, throws on zero valid output. Validates `paragraphIndex` is in-range and `directive` is in enum.
-  - Class `ReflectAndLocalizeAgent extends Agent<...>` with `execute()` body following the `reflectAndGenerateFromPreviousArticle.ts` template.
-  - Attribution extractor registration (extract `detail.reflection.directive`).
-- [ ] Add `DETAIL_VIEW_CONFIGS.reflect_and_localize` entry in `evolution/src/lib/core/detailViewConfigs.ts`.
+  - `buildLocalizeReflectionPrompt(parentText, numberedParagraphs, directives, maxTargets): string` — instructs LLM to pick 1-N paragraphs, each with its own directive + rationale.
+  - `parseLocalizeReflection(response, paragraphCount, maxTargets): {targets, droppedDuplicates}` — tolerant parser. Returns `targets: Array<{paragraphIndex, directive, rationale}>` with `1 ≤ length ≤ maxTargets`. Drops duplicate paragraph picks (keeps first, increments `droppedDuplicates`). Truncates if LLM returned > maxTargets (logs warn). Throws `LocalizeReflectionParseError` on zero valid targets after filtering.
+  - Class `ReflectAndLocalizeAgent extends Agent<...>` with `execute()` body following `reflectAndGenerateFromPreviousArticle.ts` template. Body shape:
+    1. Reflection call + parse → `targets`
+    2. `Promise.allSettled(targets.map(rewriteOne))` — each rewrite catches LLM errors + validation failures and records per-target `validationPassed` + `error`
+    3. Build `successfulRewrites: Array<{paragraphIndex, newText}>` from settled results that passed validation
+    4. If `successfulRewrites.length === 0` → emit `surfaced=false, discardReason: {reason: 'all_targets_invalid'}` (no throw)
+    5. Splice via `assembleRecombinedArticle(parentText, slots, slotWinnerTexts)` — `slots` from the same `extractParagraphsWithRanges` call used for the reflection prompt, `slotWinnerTexts[i]` = new text for picked paragraphs, original text for unpicked
+    6. `validateFormat` the recombined article
+    7. `rankNewVariant` against pool snapshot — ONE call, article-mode
+    8. Merge detail + emit
+  - Attribution extractor registration (extract `detail.reflection.targets[0]?.directive`).
+- [ ] Add `DETAIL_VIEW_CONFIGS.reflect_and_localize` entry in `evolution/src/lib/core/detailViewConfigs.ts` — render `reflection.targets` as a table (paragraph#, directive, rationale) + `rewrites` as a table (paragraph#, directive, originalLen, newLen, validationPassed) + `rewriteSummary` summary card.
 - [ ] Unit tests `reflectAndLocalize.test.ts`:
-  - Prompt builder includes paragraph list with 1-based numbering for display
-  - Parser accepts well-formatted input, accepts whitespace variation, rejects unknown directives, rejects out-of-range paragraph index, throws on empty
-  - Parser-property test (`reflectAndLocalize.property.test.ts`) — fuzz against `fast-check` to assert "valid input → valid parse" + "no input → throws"
-  - `execute()` happy path (mocked LLM via `v2MockLlm`) — both LLM calls succeed, paragraph spliced, ranking ran, detail merged correctly
+  - Prompt builder includes paragraph list with 1-based numbering, lists allowed directives, states min=1 max=N
+  - Parser: 1 target ✓, N targets ✓, N+1 targets → truncated + warn, duplicates → kept-first + droppedDuplicates count, unknown directive → entry dropped, out-of-range paragraphIndex → entry dropped, all-invalid → throws, empty → throws, whitespace variation tolerated
+  - `execute()` happy path (mocked LLM via `v2MockLlm`, N=3): reflection + 3 parallel rewrites + splice + rank — variant produced, all rewrites recorded, `rewriteSummary.succeeded=3`, ranking ran
+  - `execute()` partial-success path: N=3, one rewrite invalid — variant produced with 2 changes, `rewriteSummary.succeeded=2`, the failed entry has `validationPassed=false`
+  - `execute()` all-targets-invalid path: N=3, all rewrites invalid → `surfaced=false`, `discardReason.reason='all_targets_invalid'`, no throw
   - `execute()` reflection-fail path — partial detail persisted before throw
-  - `execute()` rewrite-fail path — partial detail persisted before throw (reflection sub-object populated)
-  - `execute()` rewrite-invalid path — `surfaced=false`, `discardReason: {reason: 'localize_invalid'}`, no throw
+  - `execute()` rewrite-LLM-throws-for-one path — that target's `error` field populated, other targets succeed (Promise.allSettled isolates)
+- [ ] Property test `reflectAndLocalize.property.test.ts` — fuzz parser with `fast-check`:
+  - Valid generated input (1-N targets with in-range indexes + valid directives) → returns `targets.length` matching generated count
+  - Random text → either parses something valid or throws (never returns invalid state)
 - [ ] Invariant tests `reflectAndLocalize.invariants.test.ts`:
-  - Inner workhorse never called via `.run()` (no nested Agent.run scope)
-  - `costBefore*` captured before any LLM call
-  - Every throw path persists partial detail via `updateInvocation`
-  - Detail schema validates produced detail object
+  - Rewrites called via raw `llm.complete`, NOT through any nested Agent.run() (no cost-scope split)
+  - `costBeforeReflection` captured before any LLM call
+  - `costBeforeRewrites` captured after reflection but before parallel rewrites
+  - Every throw path persists partial detail via `updateInvocation` (reflection-fail, parser-fail)
+  - All-targets-invalid path does NOT throw (returns `surfaced=false` AgentOutput) — distinguish from throw paths
+  - Detail schema validates produced detail object on all 5 happy/partial/fail paths
 - [ ] Integration test in `src/__tests__/integration/evolution-reflect-localize.integration.test.ts`:
-  - Seed test prompt + strategy (1×reflect_and_localize iteration, mocked LLM)
+  - Seed test prompt + strategy (1×reflect_and_localize iteration, `localizeMaxTargets=2`, mocked LLM via `v2MockLlm` returning a 2-target reflection + 2 valid rewrites)
   - Trigger pipeline via `claimAndExecuteRun`
-  - Assert: ≥1 invocation row with `agent_name='reflect_and_localize'`, 1 variant produced + ranked, `localize_cost` metric > 0, `parent_variant_ids[0]` = seed variant id
+  - Assert: ≥1 invocation row with `agent_name='reflect_and_localize'`, 1 variant produced + ranked, `localize_cost` metric > 0, `parent_variant_ids[0]` = seed variant id, invocation's `execution_detail.rewriteSummary.succeeded === 2`
 
-### Phase 3: Agent 2 — `ReflectAndRewriteDiffAgent`
-- [ ] Add `reflectAndRewriteDiffExecutionDetailSchema` to schemas.ts.
+### Phase 3: Agent 2 — `ReflectAndRewriteDiffAgent` (general focus)
+- [ ] Add `reflectAndRewriteDiffExecutionDetailSchema` to schemas.ts with `reflection.focusType` enum (`'criterion' | 'area' | 'general_weakness' | 'feedback'`), `reflection.focus`, `reflection.editIntent`, `reflection.headingsPresented`, `reflection.areaHeadingMatched?` (see Architecture Analysis section).
 - [ ] Create `evolution/src/lib/core/agents/reflectAndRewriteDiff.ts`:
-  - Custom errors
-  - `buildRewriteDiffReflectionPrompt(parentText, headings): string`
-  - `parseRewriteDiffReflection(response): {focusArea, editIntent, rationale}` with tolerant parser
-  - `buildScopeLimitedProposerPrompt(parentText, focusArea, editIntent)` — extends `proposerPromptRewrite.ts` Mode B base with a SCOPE BLOCK
+  - Custom errors: `RewriteDiffReflectionLLMError`, `RewriteDiffReflectionParseError`.
+  - `buildRewriteDiffReflectionPrompt(parentText, headings): string` — feeds article text + heading list + explanation of the 4 focusTypes with examples of each. Asks LLM to pick exactly one. Output format: `focusType: <enum>\nfocus: <text>\neditIntent: <text>\nrationale: <text>` (one block).
+  - `parseRewriteDiffReflection(response, headings): {focusType, focus, editIntent, rationale, areaHeadingMatched?}` — tolerant. Validates `focusType` is in enum. Non-empty `focus` + `editIntent` strings, truncated to 200 + 500 chars. When `focusType === 'area'` AND `focus` is not one of `intro` / `conclusion` / `whole_article`, soft-checks `focus` appears in `headings` (returns `areaHeadingMatched: boolean`, warn-logs on false but does NOT throw — proposer can still attempt).
+  - `buildScopeBlock(focusType, focus, editIntent): string` — 4-way switch returning the focus-specific scope language (criterion / area / general_weakness / feedback) — see Algorithm step 3 above.
+  - `buildModeBProposerSystemPromptWithScope(scopeBlock): string` — extends the existing Mode B system prompt from `proposerPromptRewrite.ts` with the scope block prepended.
   - Class `ReflectAndRewriteDiffAgent extends Agent<...>` with `execute()`:
-    1. reflection call + parse
-    2. `await runEditingCycle({...input, rewriteMode: {coalesceAndCap: false}, systemPromptOverride: scopedPrompt})` — exactly ONE cycle, no loop
-    3. Rank the cycle's `newText` via `rankNewVariant`
-    4. Emit
-  - Attribution extractor
-- [ ] Add `DETAIL_VIEW_CONFIGS.reflect_and_rewrite_diff`.
-- [ ] Unit tests `reflectAndRewriteDiff.test.ts` + property test + invariants test, mirroring agent 1's pattern. Specific coverage:
-  - Scope block correctly injected into Mode B prompt
-  - Single-cycle invariant (no loop, no cycle counter ≥ 2)
-  - `runEditingCycle` called with `rewriteMode: {coalesceAndCap: false}` (Mode B)
-  - Empty-applied case (`appliedCount === 0`) → `surfaced=false, discardReason.reason='no_edits_applied'`
-- [ ] Integration test similar to agent 1.
+    1. reflection call + parse (passes headings extracted from parent)
+    2. Build scopeBlock + system-prompt override
+    3. `await runEditingCycle({...input, rewriteMode: {coalesceAndCap: false}, systemPromptOverride})` — EXACTLY ONE cycle, no loop
+    4. If `cycle.appliedCount === 0` → emit `surfaced=false, discardReason.reason='no_edits_applied'` (no throw)
+    5. Otherwise rank `cycle.newText` via `rankNewVariant` (article mode)
+    6. Merge detail + emit
+  - Attribution extractor (extracts `detail.reflection.focusType` → one of 4 buckets).
+- [ ] Add `DETAIL_VIEW_CONFIGS.reflect_and_rewrite_diff` — render focusType + focus + editIntent prominently, headingsPresented as collapsed list, areaHeadingMatched badge when focusType=area, cycle sub-object using existing iterative-editing cycle config.
+- [ ] Extend `proposerPromptRewrite.ts` (or add a sibling) to accept the scope-block prepend. Keep the existing Mode B path byte-identical for `IterativeEditingRewriteAgent` (no scope override → existing prompt).
+- [ ] Unit tests `reflectAndRewriteDiff.test.ts`:
+  - Prompt builder includes all 4 focusType explanations with examples
+  - Parser: valid `criterion` block ✓, valid `area` (heading match) ✓, valid `area` (heading miss → `areaHeadingMatched: false` + warn), valid `general_weakness` ✓, valid `feedback` ✓, unknown focusType → throws, empty focus → throws, empty editIntent → throws, focus > 200 chars → truncated, editIntent > 500 chars → truncated, whitespace variation tolerated
+  - `buildScopeBlock` returns the correct language for each focusType (assert on key phrase from each branch)
+  - `buildModeBProposerSystemPromptWithScope` prepends scope block to the existing Mode B system prompt without breaking the `## Rationale / ## Rewrite` instructions
+  - `execute()` happy path per focusType (4 sub-tests, mocked LLM): reflection picks each focusType → runEditingCycle called with Mode B + correct scope override → variant produced + ranked
+  - `execute()` reflection-fail path — partial detail persisted before throw
+  - `execute()` no-edits-applied path → `surfaced=false, discardReason.reason='no_edits_applied'`, no throw
+- [ ] Property test `reflectAndRewriteDiff.property.test.ts` — fuzz parser:
+  - Valid generated input per focusType → returns matching focusType + non-empty focus + non-empty editIntent
+  - Random strings → either parses validly or throws (no invalid state returned)
+- [ ] Invariant tests `reflectAndRewriteDiff.invariants.test.ts`:
+  - `runEditingCycle` called EXACTLY ONCE (no loop, no `for (cycle of cycles)`)
+  - `runEditingCycle` called with `rewriteMode: {coalesceAndCap: false}` (Mode B path confirmed)
+  - System-prompt override is the scope-wrapped prompt, NOT the bare Mode B prompt
+  - `costBeforeReflection` snapshot captured before any LLM call
+  - Every throw path persists partial detail via `updateInvocation`
+  - Detail schema validates produced detail object on all paths
+- [ ] Integration test in `src/__tests__/integration/evolution-reflect-rewrite-diff.integration.test.ts`:
+  - Seed test prompt + strategy (1×generate, 1×reflect_and_rewrite_diff, mocked LLM scripted to return `focusType: 'criterion', focus: 'tone'` reflection then a valid Mode B rewrite that touches 2-3 spans)
+  - Trigger pipeline via `claimAndExecuteRun`
+  - Assert: ≥1 invocation with `agent_name='reflect_and_rewrite_diff'`, variant produced + ranked, `reflect_rewrite_diff_cost` metric > 0, parent points at the generated variant, `execution_detail.reflection.focusType === 'criterion'`, `execution_detail.cycle.appliedCount > 0`
 
 ### Phase 4: Agent 3 — `SelfCritiqueReviseAgent`
 - [ ] Add `selfCritiqueReviseExecutionDetailSchema` to schemas.ts.
