@@ -1,19 +1,20 @@
 # Brainstorm New Agents With Reflection Plan
 
 ## Background
-Build a single prototype agent — `self_critique_revise` — that adapts the proven "reflection-as-selection" pattern to a new use case: instead of requiring an operator to populate `evolution_criteria` rows per topic, the agent self-generates 2-3 article-specific weaknesses on every parent and feeds those as a `customPrompt` to `GenerateFromPreviousArticleAgent` (GFPA). Recent analyses (2026-06-28) show the criteria-family agents (`criteria_and_generate`, `single_pass_criteria`, `iterative_editing`) lead density (`%var>seed` 76-81%) while vanilla `generate` lags at 64%. The hypothesis: the criteria-family's edge comes from the *structure* "list weaknesses → customPrompt → regenerate", not from the specific criteria-table content. If true, self-generated critique should match or beat the criteria-family without operator setup — becoming the default cheap-and-flexible agent for any new topic.
+Build a single prototype agent — `self_critique_revise` — that lets an LLM **reflect freely on how to improve an article** (anything from minor edits to structural rework) and write a plan that drives `GenerateFromPreviousArticleAgent` (GFPA). Recent analyses (2026-06-28) show the criteria-family agents (`criteria_and_generate`, `single_pass_criteria`, `iterative_editing`) lead density (`%var>seed` 76-81%) while vanilla `generate` lags at 64%. The original hypothesis was that the criteria-family's edge comes from a structured "list 2-3 specific weaknesses → customPrompt → regenerate" pattern. **The broader hypothesis we're now testing**: the edge actually comes from the two-step *reflect-then-execute* shape — having the LLM read the article and write a plan before regenerating — not from the specific "enumerated weaknesses" content. By giving the LLM full latitude over scope (minor edits, targeted rewrites, structural reworks, mode shifts), we let it pick the *kind* of change that best fits the article instead of forcing the surgical-edits posture the criteria-family bakes in.
 
-This project was originally scoped to three reflection-driven prototypes (`reflect_and_localize`, `reflect_and_rewrite_diff`, `self_critique_revise`); **on 2026-06-30 the scope was reduced to just `self_critique_revise`** to ship a focused validation. The other two designs remain captured in `_research.md` as deferred follow-ups.
+This project was originally scoped to three reflection-driven prototypes (`reflect_and_localize`, `reflect_and_rewrite_diff`, `self_critique_revise`); **on 2026-06-30 the scope was reduced to just `self_critique_revise`** to ship a focused validation, and **the design was broadened** the same day to remove the criteria-family-style "2-3 weaknesses" constraint in favor of free-form reflection. The other two designs remain captured in `_research.md` as deferred follow-ups.
 
 ## Requirements (from GH Issue #1324, revised 2026-06-30)
 Build a prototype `self_critique_revise` evolution agent with rigorous tests (including at least one end-to-end test) that:
-- Self-generates 2-3 article-specific weaknesses on every parent (no `evolution_criteria` table dependency)
-- Feeds those weaknesses as a `customPrompt` to GFPA
+- Reflects freely on the parent article — LLM has full latitude over the kind of change (minor edits, targeted rewrites, structural rework, mode shifts, anything else it judges appropriate)
+- Writes a structured plan (`changeKind` + `summary` + `plan`) that drives GFPA
 - Reuses existing wrapper patterns from `SinglePassEvaluateCriteriaAndGenerateAgent`
 - Works as a drop-in iteration type in any strategy
+- No `evolution_criteria` table dependency — operator setup is zero
 
 ## Problem
-The criteria-family agents lead density on recent evolution analyses (76-81% `%var>seed`) but require an operator to pre-populate `evolution_criteria` rows per topic before the agent can run. This is friction every time we onboard a new topic. The static criteria also can't capture article-specific weaknesses — the table is generic; the article is not. We need an agent with the same shape as `single_pass_criteria` but with the "what's wrong" signal self-generated from the LLM reading the actual parent article.
+The criteria-family agents lead density on recent evolution analyses (76-81% `%var>seed`) but: (1) require an operator to pre-populate `evolution_criteria` rows per topic, (2) lock the agent into a surgical-edits posture via the customPrompt's Length / Redundancy / Flow guardrails, and (3) the static criteria can't capture article-specific weaknesses — the table is generic; the article is not. We need an agent with the same wrapper shape as `single_pass_criteria` but where the "what to change" signal is self-generated AND the *scope* of change is the LLM's call (not pre-constrained to surgical edits).
 
 ## Architecture Analysis
 
@@ -32,9 +33,9 @@ The agent is a wrapper over `GenerateFromPreviousArticleAgent`, structurally ide
 - The `registerAttributionExtractor` registration at the file's tail
 
 **Novel code:**
-- `buildSelfCritiquePrompt(parentText): string` — asks LLM to list 2-3 issues with example passages + fixes
-- `parseSelfCritique(response, parentText): {issues, droppedIssueCount}` — tolerant parser with soft `examplePassage ∈ parentText` check
-- `buildSelfCritiqueCustomPromptFromIssues(issues, opts?: {highEloParent?}): {preamble, instructions}` — near-clone of `buildSinglePassCustomPromptFromSuggestions`
+- `buildSelfCritiquePrompt(parentText, parentElo?): string` — asks LLM to reflect freely on how to improve the article (any scope from minor edits to structural rework). Conditionally includes a high-Elo context note when `parentElo > SELF_CRITIQUE_HIGH_ELO_THRESHOLD = 1300`.
+- `parseSelfCritique(response): {changeKind, summary, plan}` — tolerant parser for the 3-field reflection output. Throws when any required field is missing or empty.
+- `buildSelfCritiqueCustomPromptFromReflection(reflection): {preamble, instructions}` — much simpler than the criteria-family equivalent; just embeds the reflection's `summary` + `plan`. No Length / Redundancy / Flow guardrails (those constrained scope; we no longer want to).
 - `selfCritiqueReviseExecutionDetailSchema` in `schemas.ts`
 - `SelfCritiqueReviseAgent extends Agent<...>` class
 
@@ -61,13 +62,44 @@ The agent is a wrapper over `GenerateFromPreviousArticleAgent`, structurally ide
 
 ### Algorithm summary
 
-1. **Self-critique LLM call** (`AgentName: 'self_critique'`). Prompt: read article, list 2-3 specific weaknesses, each with verbatim example passage + concrete fix.
-2. **Parse with `parseSelfCritique`** — tolerant. Returns `{issues, droppedIssueCount}` with `1 ≤ issues.length ≤ 5` (cap with warn at >5). Drops entries missing `examplePassage` or `fix`. Soft-checks `examplePassage` substring-appears in `parentText` (case + whitespace normalized); sets `exampleMatchedParent: boolean`, warn-logs on miss, does NOT throw. Throws `SelfCritiqueParseError` if zero valid issues survive.
-3. **Build customPrompt** via `buildSelfCritiqueCustomPromptFromIssues` — near-clone of `buildSinglePassCustomPromptFromSuggestions`. Three diffs from the original: numbered `Issue/Example/Fix` blocks instead of `Criterion` blocks; same Length/Redundancy/Flow soft directives verbatim; same high-Elo guidance block verbatim (gated by `SELF_CRITIQUE_HIGH_ELO_THRESHOLD = 1300`).
+1. **Reflection LLM call** (`AgentName: 'self_critique'`). Prompt asks the LLM to read the article and reflect on how to improve it, with EXPLICIT freedom over scope:
+   > *Reflect on how to improve this article. You have full latitude:*
+   > - *Minor edits (tone shifts, hedge-word removal, transition smoothing)*
+   > - *Targeted rewrites (rework specific paragraphs or sections)*
+   > - *Structural rework (reorganize the article's argument or order)*
+   > - *Mode shifts (e.g. abstract → concrete, theoretical → practical, dense → conversational)*
+   > - *Anything else you judge would make the article stronger*
+   
+   Lookup parent Elo from `input.initialRatings.get(input.parentVariantId)?.elo`. If `parentElo > SELF_CRITIQUE_HIGH_ELO_THRESHOLD (1300)`, prepend a context note: *"This article currently has Elo {parentElo} in the pool. Aggressive restructuring of high-Elo articles has historically backfired — consider whether smaller targeted changes would land better before deciding on a major rework."* The reflector USES this context to scope its plan; the rewriter doesn't see this note.
+   
+   Required output format:
+   ```
+   ChangeKind: <short label for your approach (e.g. "tone shift to conversational",
+     "structural rework into problem-solution form", "tighten throughout",
+     "abstract → concrete examples")>
+   Summary: <one or two sentences describing what should change and why>
+   Plan: <your actual revision instructions — be specific. The rewriter follows these
+     instructions exactly. This is where you do the analytical heavy lifting.>
+   ```
+2. **Parse with `parseSelfCritique`** — tolerant. Returns `{changeKind, summary, plan}`. Accepts whitespace and case variation around labels, markdown emphasis (`**ChangeKind:**`), reasoning preamble before the labels, and multi-line `Summary` + `Plan` blocks. Validates: `changeKind` non-empty (truncated to 120 chars), `summary` non-empty (truncated to 500 chars), `plan` non-empty (truncated to 4000 chars). **Throws `SelfCritiqueParseError`** if any required field is missing or empty after parsing — raw response preserved on the detail row.
+3. **Build customPrompt** via `buildSelfCritiqueCustomPromptFromReflection` — minimal. Just embeds the reflection's `summary` + `plan`:
+   ```
+   You are an expert article reviser. Apply this revision plan to the article below.
+   
+   ## Approach
+   {summary}
+   
+   ## Plan
+   {plan}
+   
+   Apply the plan thoroughly. Stay true to the reflector's intent — don't add unrelated
+   changes, don't water down the changes the plan calls for.
+   ```
+   NO Length / Redundancy / Flow soft directives — those were criteria-family constraints designed to force surgical edits; we explicitly DON'T want that here. NO high-Elo guidance block in the customPrompt — the reflector already saw the high-Elo context and accounted for it in the plan.
 4. **Delegate to `GenerateFromPreviousArticleAgent.execute()`** with `tactic: 'self_critique_driven'` (new marker tactic) and the customPrompt. NO `criteriaSetUsed` / `weakestCriteriaIds` — those are criteria-family fields.
-5. **Merge detail** — wrap GFPA's `generation` + `ranking` sub-objects under our `critique` sub-object. Recompute `totalCost = critiqueCost + gfpaDetail.totalCost`.
+5. **Merge detail** — wrap GFPA's `generation` + `ranking` sub-objects under our `reflection` sub-object. Recompute `totalCost = reflectionCost + gfpaDetail.totalCost`.
 6. **Forward GFPA's `failure` signal** (D1 invariant) — hard-fails (402, format-rejection, unknown tactic) flow up so the wrapper invocation gets `success=false` with the right error code.
-7. **Compute `lengthCapHit`** post-hoc — `generated.textLength / parentText.length > 1.10`. Observational only; doesn't gate the variant.
+7. **Compute `lengthCapHit`** post-hoc — `generated.textLength / parentText.length > 1.10`. Observational only; doesn't gate the variant. Useful as a signal of how often the plan calls for major expansions.
 
 ### Schema shape
 
@@ -75,23 +107,20 @@ The agent is a wrapper over `GenerateFromPreviousArticleAgent`, structurally ide
 {
   detailType: 'self_critique_revise',
   tactic: 'self_critique_driven',
-  critique: {
-    issues: [{
-      text: string,                     // ≤ 200 chars — one-sentence weakness description
-      examplePassage: string,            // ≤ 300 chars — verbatim quote from article
-      fix: string,                       // ≤ 300 chars — concrete fix direction
-      exampleMatchedParent?: boolean,
-    }],
-    issueCount: int,                     // = issues.length
-    droppedIssueCount?: int,             // entries the parser rejected (missing example or fix)
-    rawResponse?: string,
+  reflection: {
+    changeKind: string,                  // ≤ 120 chars — LLM's own short label for its approach
+    summary: string,                      // ≤ 500 chars — one to two sentences describing the change
+    plan: string,                         // ≤ 4000 chars — full revision instructions for GFPA
+    parentEloAtReflection?: number,      // recorded for forensics — what the reflector saw
+    highEloContextShown?: boolean,        // true when parentElo > SELF_CRITIQUE_HIGH_ELO_THRESHOLD
+    rawResponse?: string,                 // preserved on parse failure
     parseError?: string,
     durationMs?: int,
     cost?: number,
   },
   generation?: {...},                    // reused from GFPA
   ranking?: {...},                       // reused from GFPA
-  totalCost: number,                     // = critiqueCost + gfpaDetail.totalCost
+  totalCost: number,                     // = reflectionCost + gfpaDetail.totalCost
   surfaced: boolean,
   discardReason?: {...},
   guardrails: {
@@ -101,25 +130,26 @@ The agent is a wrapper over `GenerateFromPreviousArticleAgent`, structurally ide
 ```
 
 ### Attribution dimension
-**Literal `'self_critique'` single bucket** for the prototype. The per-issue forensics live in `execution_detail.critique.issues[]` for SQL slicing. If staging shows that one TYPE of issue consistently drives improvement (e.g. "hedge words", "missing examples"), we revisit and classify into a small enum. Premature classification would be guessing.
+**`changeKind` truncated to the first 60 chars** (with ellipsis on overflow). The LLM's self-chosen label captures the *kind* of change it decided to make, which is the most useful grouping for the tactic leaderboard. We'll get some cardinality noise (different LLM outputs for the same intent: "tone shift to conversational" vs "shift to conversational tone") but also surface interesting patterns — e.g. *does the agent win more when it picks "structural rework" vs "tighten throughout"?* Single-bucket `'self_critique'` was the safe call when the output was rigid; with free-form reflection, `changeKind` is the more informative dimension. Full `changeKind` + `summary` + `plan` still live on detail for SQL slicing if the leaderboard buckets get too noisy.
 
 ### Cost stack
 | Step | Estimate |
 |---|---|
-| Self-critique LLM call | ~$0.0005 (parent in, ~400 toks out — 3 issues × ~130 toks) |
+| Reflection LLM call | ~$0.0008 (parent in, ~600 toks out — `changeKind` + `summary` + `plan`. Plan can be long for structural reworks) |
 | GFPA generate | Same as vanilla generate (~$0.002) |
 | GFPA ranking | Same as vanilla generate (~$0.002) |
 | **Total per variant** | **~$0.005** |
 
-~1× GFPA cost + ~10% self-critique premium. Closely matches `single_pass_criteria`'s observed staging cost (~$0.004/variant in 2026-06-28 data: $0.964 spent across 10 runs producing 241 ranked variants).
+~1× GFPA cost + ~15% reflection premium. Closely matches `single_pass_criteria`'s observed staging cost (~$0.004/variant in 2026-06-28 data). The reflection call is slightly larger than the original "list 2-3 issues" design (~600 toks vs ~400) because the `plan` field can be substantial; the GFPA call is unchanged.
 
 ### What we will NOT build (out of scope)
 - **No new judge mode.** Article-mode comparisons only.
 - **No rubric-judging integration.** Holistic-judge-compatible only; `judgeRubricId` integration deferred.
 - **No new entity tables.** Everything fits in existing tables.
 - **No DB migration except the cost-calibration phase enum extension.** Mechanical, same shape as past migrations.
-- **No issue-categorization enum at attribution level.** Single-bucket attribution; per-issue forensics via execution_detail.
-- **No multi-cycle loop.** Single critique → single regenerate.
+- **No scope guardrails on the reflection.** The LLM picks any scope it judges right (minor edits ↔ structural rework). No Length / Redundancy / Flow soft directives in the customPrompt — those were criteria-family band-aids that constrained scope to surgical edits.
+- **No `changeKind` enum** — free-form short label. We classify into buckets later only if cardinality becomes a leaderboard problem.
+- **No multi-cycle loop.** Single reflection → single regenerate.
 - **No deferred `reflect_and_localize` or `reflect_and_rewrite_diff` work.** These remain in `_research.md` as deferred follow-ups; if the prototype succeeds, they re-enter scope as a follow-up project.
 
 ## Options Considered (rescoping decision, 2026-06-30)
@@ -146,46 +176,52 @@ The agent is a wrapper over `GenerateFromPreviousArticleAgent`, structurally ide
 - [ ] Unit tests: `iterationConfigSchema` accepts `'self_critique_revise'`, rejects `criteriaIds` on this agentType, `COST_METRIC_BY_AGENT` complete, `isValidTactic('self_critique_driven')` returns true.
 
 ### Phase 2: SelfCritiqueReviseAgent
-- [ ] Add `selfCritiqueReviseExecutionDetailSchema` to `evolution/src/lib/schemas.ts` (use the singlePass schema at line 2154 as template; swap `weakestCriteriaIds` / `weakestCriteriaNames` / `evaluateAndSuggest` for the `critique` sub-object).
+- [ ] Add `selfCritiqueReviseExecutionDetailSchema` to `evolution/src/lib/schemas.ts` (use the singlePass schema at line 2154 as template; replace `weakestCriteriaIds` / `weakestCriteriaNames` / `evaluateAndSuggest` with the `reflection` sub-object — fields: `changeKind` ≤ 120, `summary` ≤ 500, `plan` ≤ 4000, plus `parentEloAtReflection?` and `highEloContextShown?` for forensics).
 - [ ] Create `evolution/src/lib/core/agents/selfCritiqueRevise.ts`:
   - Custom errors: `SelfCritiqueLLMError`, `SelfCritiqueParseError`
-  - Export `SELF_CRITIQUE_HIGH_ELO_THRESHOLD = 1300` constant (mirrors singlePass; see file for the empirical justification)
-  - `buildSelfCritiquePrompt(parentText): string` — instructs LLM to list 2-3 specific weaknesses with verbatim examples + fixes
-  - `parseSelfCritique(response, parentText): {issues, droppedIssueCount}` — tolerant parser. Returns `1 ≤ issues.length ≤ 5`. Drops entries missing `examplePassage` or `fix`. Soft-checks `examplePassage` substring-appears in `parentText` (case + whitespace normalized); sets `exampleMatchedParent: boolean`, warn-logs on miss, does NOT throw. Throws `SelfCritiqueParseError` if zero valid issues survive after filtering.
-  - `buildSelfCritiqueCustomPromptFromIssues(issues, opts?: {highEloParent?}): {preamble, instructions}` — near-clone of `buildSinglePassCustomPromptFromSuggestions`. Three diffs: Issue/Example/Fix blocks instead of Criterion blocks; same Length/Redundancy/Flow directives verbatim; same high-Elo guidance verbatim.
+  - Export `SELF_CRITIQUE_HIGH_ELO_THRESHOLD = 1300` constant (empirical justification inherited from singlePass)
+  - `buildSelfCritiquePrompt(parentText, parentElo?): string` — instructs LLM to reflect freely on how to improve the article, lists the scope options explicitly (minor edits / targeted rewrites / structural rework / mode shifts / anything else), conditionally prepends the high-Elo context note when `parentElo > SELF_CRITIQUE_HIGH_ELO_THRESHOLD`. Specifies the `ChangeKind: / Summary: / Plan:` output format.
+  - `parseSelfCritique(response): {changeKind, summary, plan}` — tolerant parser. Accepts whitespace + case variation around labels, markdown emphasis around labels (e.g. `**ChangeKind:**`), reasoning preamble before the labels, and multi-line `Summary` + `Plan` blocks. Truncates `changeKind` to 120 chars, `summary` to 500, `plan` to 4000. **Throws `SelfCritiqueParseError`** if any of the three labeled fields is missing or empty after extraction.
+  - `buildSelfCritiqueCustomPromptFromReflection({summary, plan}): {preamble, instructions}` — minimal embed of `summary` + `plan` per the Algorithm summary. NO Length / Redundancy / Flow soft directives. NO high-Elo guidance block in the customPrompt (the reflector already accounted for high-Elo context if applicable).
   - `SelfCritiqueReviseAgent extends Agent<...>` class with `execute()`:
-    1. self-critique LLM call + parse (`costBeforeCritique` snapshot, partial-detail-on-throw)
-    2. Lookup parent Elo from `input.initialRatings.get(input.parentVariantId)?.elo` → `highEloParent` flag
-    3. Build customPrompt
+    1. Lookup parent Elo from `input.initialRatings.get(input.parentVariantId)?.elo` → pass to prompt builder
+    2. Reflection LLM call + parse (`costBeforeReflection` snapshot, partial-detail-on-throw)
+    3. Build customPrompt from parsed reflection
     4. `await new GenerateFromPreviousArticleAgent().execute(innerInput, ctx)` with `tactic: 'self_critique_driven'` + customPrompt
     5. Compute `lengthCapHit` post-hoc
     6. Merge detail + forward `failure` signal
-  - Attribution extractor: returns literal `'self_critique'`
-- [ ] Add `DETAIL_VIEW_CONFIGS.self_critique_revise` in `evolution/src/lib/core/detailViewConfigs.ts` — render critique.issues as a table (text / example / fix / exampleMatchedParent badge) + generation + ranking sub-objects + lengthCapHit indicator.
+  - Attribution extractor: returns `detail.reflection.changeKind` truncated to first 60 chars (with ellipsis on overflow); returns null when changeKind is missing/empty
+- [ ] Add `DETAIL_VIEW_CONFIGS.self_critique_revise` in `evolution/src/lib/core/detailViewConfigs.ts` — render `reflection.changeKind` as a badge, `reflection.summary` as a prominent paragraph, `reflection.plan` as a collapsible code block, `reflection.parentEloAtReflection` + `highEloContextShown` as forensic chips, then GFPA's generation + ranking sub-objects + lengthCapHit indicator.
 - [ ] Unit tests `selfCritiqueRevise.test.ts`:
-  - Prompt builder includes "be specific to THIS article — not generic writing advice" + verbatim-quote instruction
-  - Parser: 1 issue ✓, 3 issues ✓, 5 issues ✓, 6+ issues → truncated to 5 with warn, missing example → entry dropped, missing fix → entry dropped, example matches parent → `exampleMatchedParent=true`, example doesn't match → `exampleMatchedParent=false` + warn, all entries invalid → throws, empty response → throws, whitespace + smart-quote variation tolerated
-  - `buildSelfCritiqueCustomPromptFromIssues`: includes all 3 directives verbatim (Length/Redundancy/Flow), high-Elo block fires when `highEloParent=true`, NOT when `false` or omitted
-  - `execute()` happy path (mocked LLM via `v2MockLlm`): critique + GFPA both succeed → variant produced + ranked, totalCost includes critique + GFPA, `lengthCapHit` computed
-  - `execute()` high-Elo parent path: customPrompt includes the surgical-edits-only block when parent Elo > 1300
-  - `execute()` critique-LLM-throws path: partial detail persisted before re-throw (critique sub-object populated with `cost` + `durationMs`)
-  - `execute()` critique-parse-fails path: partial detail persisted with `rawResponse` + `parseError`
-  - `execute()` GFPA-throws path: partial detail persisted with full critique sub-object + GFPA's `cost` so far
+  - Prompt builder includes all 5 scope options explicitly (minor edits, targeted rewrites, structural rework, mode shifts, "anything else"), includes the required output format with `ChangeKind:` / `Summary:` / `Plan:` labels, conditionally includes the high-Elo context note when `parentElo > 1300`, omits it otherwise
+  - Parser happy paths: all three labels present and well-formed ✓; bold/italic emphasis on labels (`**ChangeKind:**`) ✓; reasoning preamble before labels ✓; multi-line `Summary` and `Plan` ✓; case variation (`changekind:`) ✓; whitespace variation ✓
+  - Parser truncation: `changeKind` > 120 chars truncated; `summary` > 500 truncated; `plan` > 4000 truncated
+  - Parser failure paths: missing `ChangeKind` → throws; missing `Summary` → throws; missing `Plan` → throws; empty value after any label → throws; empty response → throws; raw response preserved on throw
+  - `buildSelfCritiqueCustomPromptFromReflection`: embeds `summary` + `plan` verbatim; does NOT include Length/Redundancy/Flow directives; does NOT include high-Elo guidance block
+  - `execute()` happy path (mocked LLM via `v2MockLlm`): reflection + GFPA both succeed → variant produced + ranked, totalCost = reflectionCost + gfpaCost, `lengthCapHit` computed
+  - `execute()` high-Elo parent path: parent Elo lookup returns 1450 → reflection prompt includes high-Elo context note; `reflection.parentEloAtReflection === 1450`; `reflection.highEloContextShown === true`
+  - `execute()` low-Elo parent path: parent Elo lookup returns 1100 → reflection prompt does NOT include high-Elo context note; `reflection.highEloContextShown === false`
+  - `execute()` reflection-LLM-throws path: partial detail persisted before re-throw (reflection sub-object populated with `cost` + `durationMs`)
+  - `execute()` reflection-parse-fails path: partial detail persisted with `rawResponse` + `parseError`
+  - `execute()` GFPA-throws path: partial detail persisted with full reflection sub-object + GFPA's `cost` so far
   - `execute()` GFPA-failure-forwarded path: GFPA's `failure: {code, message}` returned in the wrapper's output (D1 invariant)
   - `execute()` lengthCapHit telemetry: `true` when generated > 1.10× parent, `false` otherwise
+  - Attribution extractor: returns `changeKind` truncated to 60 chars; returns null on empty
 - [ ] Property test `selfCritiqueRevise.property.test.ts` — fuzz parser with `fast-check`:
-  - Valid generated input (N issues with example + fix in correct format) → returns `issues.length === min(N, 5)`
-  - Random text → either parses validly or throws (never invalid state)
+  - Valid generated input (random `changeKind` / `summary` / `plan` text in correct format) → parses to the same three fields, lengths within caps
+  - Generated input with one of the three labels missing → throws every time
+  - Random text → either parses validly or throws (never invalid state returned)
 - [ ] Invariant tests `selfCritiqueRevise.invariants.test.ts`:
   - Inner GFPA called via `.execute()` not `.run()` (no nested AgentCostScope)
-  - `costBeforeCritique` snapshot before any LLM call
+  - `costBeforeReflection` snapshot captured before any LLM call
   - Every throw path persists partial detail via `updateInvocation`
   - GFPA `failure` forwarded (not swallowed)
-  - Detail schema validates produced detail object on all 5 paths (happy / critique-throw / parser-throw / GFPA-throw / GFPA-failure-forward)
+  - `customPrompt` passed to GFPA does NOT contain the strings "Preserve the original word count" or "Preserve transitions between paragraphs" (regression guard — those would re-introduce the criteria-family scope constraint)
+  - Detail schema validates produced detail object on all 5 paths (happy / reflection-throw / parser-throw / GFPA-throw / GFPA-failure-forward)
 - [ ] Integration test `src/__tests__/integration/evolution-self-critique.integration.test.ts`:
-  - Seed test prompt + strategy (1×self_critique_revise iteration, mocked LLM via `v2MockLlm` returning a 3-issue critique then a valid GFPA rewrite)
+  - Seed test prompt + strategy (1×self_critique_revise iteration, mocked LLM via `v2MockLlm` returning a well-formed 3-field reflection then a valid GFPA rewrite)
   - Trigger pipeline via `claimAndExecuteRun`
-  - Assert: ≥1 invocation with `agent_name='self_critique_revise'`, variant produced + ranked, `self_critique_cost` metric > 0, `parent_variant_ids[0]` = seed variant id, `execution_detail.critique.issueCount === 3`, `execution_detail.critique.issues[0].exampleMatchedParent` field present (true or false), `execution_detail.guardrails.lengthCapHit` field present
+  - Assert: ≥1 invocation with `agent_name='self_critique_revise'`, variant produced + ranked, `self_critique_cost` metric > 0, `parent_variant_ids[0]` = seed variant id, `execution_detail.reflection.changeKind` non-empty, `execution_detail.reflection.summary` non-empty, `execution_detail.reflection.plan` non-empty, `execution_detail.guardrails.lengthCapHit` field present
 
 ### Phase 3: Dispatch wiring
 - [ ] Extend the variant-producing conjunction at `runIterationLoop.ts:361` to include `'self_critique_revise'`.
@@ -209,6 +245,7 @@ The agent is a wrapper over `GenerateFromPreviousArticleAgent`, structurally ide
   - Test 3: `self_critique_cost` metric on the run > 0
   - Test 4: `subagent:ranking.cost` metric on the run > 0 (ranking ran via GFPA)
   - Test 5: variant's `mu` deviated from default 25 (post-ranking sanity)
+  - Test 6: `execution_detail.reflection.{changeKind, summary, plan}` all populated with non-empty strings — real-LLM verification that the prompt elicits the expected 3-field shape from `deepseek-v4-flash`
   - `afterAll`: release pipeline lock; cleanup via `trackEvolutionId`
 
 ### Phase 6: Final verification
