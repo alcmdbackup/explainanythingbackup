@@ -1,0 +1,20 @@
+{
+  "branch": "feat/improvements_to_edit_page_evolution_20260630",
+  "created_at": "2026-06-30T14:15:35Z",
+  "prerequisites": {},
+  "project_kind": "standard",
+  "experiment_id": null,
+  "relevantDocs": [
+    "evolution/docs/architecture.md",
+    "evolution/docs/strategies_and_experiments.md",
+    "evolution/docs/visualization.md",
+    "docs/feature_deep_dives/state_management.md",
+    "docs/feature_deep_dives/llm_spending_gate.md",
+    "docs/feature_deep_dives/markdown_ast_diffing.md",
+    "evolution/docs/variant_lineage.md",
+    "evolution/docs/editing_agents.md",
+    "evolution/docs/paragraph_recombine.md",
+    "docs/feature_deep_dives/lexical_editor_plugins.md"
+  ],
+  "analyses": []
+}
