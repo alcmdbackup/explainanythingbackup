@@ -206,6 +206,36 @@ describe('ParagraphRecombineWithCoherencePassAgent', () => {
     mockedRunEditingCycle.mockResolvedValue(makeCycleResult({ newText: FIXTURE_ARTICLE, appliedAny: false, stopReason: 'no_edits_proposed' }));
   });
 
+  // Regression marker for the 2026-06-30 cross-run paragraph-topic
+  // contamination bug. processSlot was calling upsertSlotTopic with
+  // `${slot.paragraphIndex}` (a bare digit '0', '1'…) instead of the
+  // parentVariantId UUID. Topic names became GLOBAL across all runs
+  // (`[para] 0.P1`, `[para] 1.P2`, …) and paragraph variants from every
+  // prior run accumulated, polluting subsequent runs' recombine step. The
+  // fix threads parentVariantId through ProcessSlotParams.
+  //
+  // This source-level guard is intentional: the agent's heavy mock graph
+  // makes black-box assertions on upsertSlotTopic call args unreliable
+  // (existing tests also gate their assertions on
+  // `mockedRunEditingCycle.mock.calls.length > 0`, treating mock invocation
+  // as best-effort). A grep-based check is the most resilient way to catch
+  // a re-introduction of the `${slot.paragraphIndex}` form.
+  it('source: upsertSlotTopic is called with parentVariantId (regression guard)', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require('node:fs') as typeof import('node:fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('node:path') as typeof import('node:path');
+    const agentSrc = fs.readFileSync(
+      path.resolve(__dirname, 'ParagraphRecombineWithCoherencePassAgent.ts'),
+      'utf8',
+    );
+    // Must contain the corrected call site (parentVariantId as 3rd arg).
+    expect(agentSrc).toMatch(/upsertSlotTopic\(ctx\.db,\s*'paragraph',\s*parentVariantId,/);
+    // Must NOT contain the regression form (slot.paragraphIndex as 3rd arg
+    // via template literal).
+    expect(agentSrc).not.toMatch(/upsertSlotTopic\(ctx\.db,\s*'paragraph',\s*`\$\{slot\.paragraphIndex\}`,/);
+  });
+
   it('runs end-to-end with mocks (smoke test for the scaffold)', async () => {
     const agent = new ParagraphRecombineWithCoherencePassAgent();
     const ctx = makeCtx();

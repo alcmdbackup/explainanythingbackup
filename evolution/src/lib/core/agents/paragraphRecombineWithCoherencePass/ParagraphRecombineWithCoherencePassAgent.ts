@@ -227,6 +227,7 @@ export class ParagraphRecombineWithCoherencePassAgent extends Agent<
         processSlot({
           slot,
           parentH1,
+          parentVariantId,
           totalSlots: paragraphCount,
           rewritesPerParagraph,
           maxComparisonsPerParagraph,
@@ -535,6 +536,17 @@ export class ParagraphRecombineWithCoherencePassAgent extends Agent<
 interface ProcessSlotParams {
   slot: ReturnType<typeof extractParagraphsWithRanges>[number];
   parentH1: string;
+  /** Parent variant UUID — threaded through to upsertSlotTopic so each slot
+   *  topic is keyed on the actual parent (per the original ParagraphRecombineAgent
+   *  contract). Without this, the topic name fell back to the bare paragraph
+   *  index ('0', '1', '2'…) which was GLOBAL across runs: paragraph variants
+   *  from every prior run of this agent piled into the same `[para] 0.P1`,
+   *  `[para] 1.P2`, … topics. A subsequent run's recombine step then ranked
+   *  the visitor's paragraph rewrites against THOSE foreign winners and
+   *  surfaced an entirely unrelated article (observed 2026-06-30: a public_edit
+   *  run on a tokenmaxxing essay won a Federal Reserve article assembled from
+   *  another run's variants). */
+  parentVariantId: string;
   totalSlots: number;
   rewritesPerParagraph: number;
   maxComparisonsPerParagraph: number;
@@ -550,7 +562,7 @@ interface ProcessSlotParams {
 
 async function processSlot(params: ProcessSlotParams): Promise<void> {
   const {
-    slot, parentH1, totalSlots, rewritesPerParagraph, maxComparisonsPerParagraph,
+    slot, parentH1, parentVariantId, totalSlots, rewritesPerParagraph, maxComparisonsPerParagraph,
     perSlotBudgetUsd, invocationScope, ctx, llm, tempFloor, tempCeiling, slotDetails, slotWinnerTexts,
   } = params;
 
@@ -581,7 +593,13 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
   let topicId: string;
   let originalSlotVariantId: string;
   try {
-    const upsert = await upsertSlotTopic(ctx.db, 'paragraph', `${slot.paragraphIndex}`, slot.paragraphIndex, slot.originalText, ctx.runSource);
+    // CRITICAL: pass the actual parentVariantId UUID, NOT `${slot.paragraphIndex}`.
+    // The bare paragraph index produces topic names like `[para] 0.P1` which are
+    // GLOBAL across all runs — paragraph variants from every prior run accumulate
+    // in the same topic and the next run's recombine step ranks the visitor's
+    // rewrites against foreign content. See ProcessSlotParams.parentVariantId
+    // comment for the 2026-06-30 public_edit symptom that surfaced this.
+    const upsert = await upsertSlotTopic(ctx.db, 'paragraph', parentVariantId, slot.paragraphIndex, slot.originalText, ctx.runSource);
     topicId = upsert.topicId;
     originalSlotVariantId = upsert.originalSlotVariantId;
   } catch (err) {
