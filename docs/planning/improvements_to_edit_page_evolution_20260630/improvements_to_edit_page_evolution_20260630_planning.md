@@ -5,7 +5,7 @@
 ## Background
 improvements to edit article external facing page
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1325)
 - Focus on new variant in final result
 - Show diff in a separate tab, not side by side
 - Critique the UX and how to make it better
