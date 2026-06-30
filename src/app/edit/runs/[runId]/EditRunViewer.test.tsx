@@ -1,0 +1,141 @@
+// Tests for EditRunViewer's polling loop.
+// Locks in the 2026-06-30 regression: useEffect([runId, state]) re-created
+// the interval on every dispatch, producing ~3 polls/second instead of every
+// 3s + making a single fetch failure terminal. Fix: deps=[runId] + ref-mirror
+// of isInFlight + N-failures-tolerance.
+
+import { render, screen, act } from '@testing-library/react';
+import EditRunViewer from './EditRunViewer';
+
+const mockGetEditRunStatusAction = jest.fn();
+
+jest.mock('../../publicEditActions', () => ({
+  getEditRunStatusAction: (...args: unknown[]) => mockGetEditRunStatusAction(...args),
+}));
+
+jest.mock('@evolution/components/evolution/visualizations/SideBySideWordDiff', () => ({
+  SideBySideWordDiff: () => <div data-testid="diff-viewer-mock" />,
+}));
+
+const RUN_ID = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa';
+
+function makeStatusResponse(status: 'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'cancelled', overrides: Record<string, unknown> = {}) {
+  return {
+    success: true,
+    data: {
+      status,
+      originalContent: 'original text',
+      winnerVariantContent: status === 'completed' ? 'evolved text' : null,
+      errorMessage: null,
+      costSpent: null,
+      etaSeconds: null,
+      ...overrides,
+    },
+    error: null,
+  };
+}
+
+describe('EditRunViewer polling loop', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockGetEditRunStatusAction.mockReset();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  // Regression for the 2026-06-30 over-polling bug. Before the fix, every
+  // dispatch (POLL_TICK, etc.) re-created the interval and fired an immediate
+  // tick — producing ~3 polls/second. After the fix, polling stays on the
+  // 3s cadence even as state mutates.
+  it('polls exactly once per 3s interval (does not re-create timer on every dispatch)', async () => {
+    mockGetEditRunStatusAction.mockResolvedValue(makeStatusResponse('running'));
+    render(<EditRunViewer runId={RUN_ID} />);
+    // Initial tick fires immediately (await microtasks for the mocked promise).
+    await act(async () => { await Promise.resolve(); });
+    expect(mockGetEditRunStatusAction).toHaveBeenCalledTimes(1);
+
+    // Advance 3 intervals (9000ms). Should produce exactly 3 more polls.
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        jest.advanceTimersByTime(3_000);
+        await Promise.resolve();
+      });
+    }
+    expect(mockGetEditRunStatusAction).toHaveBeenCalledTimes(4);
+  });
+
+  // Regression for the "single fetch error aborts the loop" bug. A transient
+  // network blip used to dispatch POLL_FAILED and stop polling immediately.
+  // Now we tolerate up to 5 consecutive failures before giving up.
+  it('tolerates a single fetch failure and recovers on the next poll', async () => {
+    mockGetEditRunStatusAction
+      .mockResolvedValueOnce(makeStatusResponse('running'))
+      .mockRejectedValueOnce(new Error('Failed to fetch'))
+      .mockResolvedValueOnce(makeStatusResponse('running'));
+
+    render(<EditRunViewer runId={RUN_ID} />);
+    await act(async () => { await Promise.resolve(); });
+    // First poll: running. Pending UI visible, no error.
+    expect(screen.queryByTestId('edit-run-error')).toBeNull();
+
+    // Tick 2: throws. Should NOT show the error UI (1 failure < 5 tolerated).
+    await act(async () => {
+      jest.advanceTimersByTime(3_000);
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId('edit-run-error')).toBeNull();
+
+    // Tick 3: succeeds again. Counter resets, polling continues.
+    await act(async () => {
+      jest.advanceTimersByTime(3_000);
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId('edit-run-error')).toBeNull();
+    expect(mockGetEditRunStatusAction).toHaveBeenCalledTimes(3);
+  });
+
+  it('terminates with error UI after 5 consecutive failures', async () => {
+    // 6 calls: first running, then 5 throws. Error UI surfaces on the 5th throw.
+    mockGetEditRunStatusAction
+      .mockResolvedValueOnce(makeStatusResponse('running'))
+      .mockRejectedValue(new Error('Failed to fetch'));
+
+    render(<EditRunViewer runId={RUN_ID} />);
+    await act(async () => { await Promise.resolve(); });
+
+    // Drive 5 more ticks. After tick 6, error UI shows.
+    for (let i = 0; i < 5; i++) {
+      await act(async () => {
+        jest.advanceTimersByTime(3_000);
+        await Promise.resolve();
+      });
+    }
+    expect(screen.queryByTestId('edit-run-error')).not.toBeNull();
+  });
+
+  it('flips to the viewing branch when status=completed', async () => {
+    mockGetEditRunStatusAction.mockResolvedValueOnce(makeStatusResponse('completed'));
+    render(<EditRunViewer runId={RUN_ID} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByTestId('diff-viewer-mock')).not.toBeNull();
+  });
+
+  it('stops polling after reaching terminal phase (no further dispatches)', async () => {
+    mockGetEditRunStatusAction.mockResolvedValueOnce(makeStatusResponse('completed'));
+    render(<EditRunViewer runId={RUN_ID} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(mockGetEditRunStatusAction).toHaveBeenCalledTimes(1);
+
+    // Advance many intervals. Polling should NOT fire any more action calls
+    // because isInFlightRef.current is now false.
+    for (let i = 0; i < 5; i++) {
+      await act(async () => {
+        jest.advanceTimersByTime(3_000);
+        await Promise.resolve();
+      });
+    }
+    expect(mockGetEditRunStatusAction).toHaveBeenCalledTimes(1);
+  });
+});
