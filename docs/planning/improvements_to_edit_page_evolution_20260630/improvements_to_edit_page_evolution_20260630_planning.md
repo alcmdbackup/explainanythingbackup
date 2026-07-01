@@ -143,7 +143,7 @@ With the mock-model filter (Q6) and widened filter (Q2), the currently-seeded `P
 **Fixture + spec updates:**
 
 - [ ] Modify `edit-submit-flow.spec.ts`:
-  - [ ] Add `beforeEach`: `await page.route('**/edit/publicEditActions*', route => route.fulfill({ ... }))` — mock both `submitPublicEditAction` (returns fake `runId`) and `getEditRunStatusAction` (returns a completed status with fixture `originalContent`/`winnerVariantContent`/`strategyLabel`/`costSpent`/`etaSeconds`). Server actions in Next.js are invoked via POST to their route; use a URL matcher for the specific action.
+  - [ ] Add `beforeEach`: `await page.route(url => url.pathname === '/edit' || url.pathname.startsWith('/edit/runs/'), async (route, request) => { ... })`. **Next.js server actions POST back to the page's own URL** (not a per-action path) with the `Next-Action` header identifying the action; match by URL + method=POST + `Next-Action` header presence, then dispatch by inspecting `request.postData()` for the action's argument shape (`articleText`/`strategyId` for submit vs a UUID string for status). Mock `submitPublicEditAction` → return `{ runId: 'fake-uuid-e2e' }`; mock `getEditRunStatusAction` → return a completed status with fixture `originalContent`/`winnerVariantContent`/`strategyLabel`/`costSpent`/`etaSeconds`.
   - [ ] Test types article, clicks first picker option (any real strategy — doesn't matter which since submit is mocked), submits; assert redirect to `/edit/runs/<fake-runId>` and viewing-phase render
   - [ ] Remove the existing `test.skip(!hasPublicStrategy, ...)` fallback (lines 58-62) — mock guarantees the flow proceeds regardless of DB state
   - [ ] No `afterAll` cleanup needed (nothing written to DB)
@@ -186,7 +186,7 @@ With the mock-model filter (Q6) and widened filter (Q2), the currently-seeded `P
   - [ ] With `PUBLIC_EDIT_WIDEN_FILTER=false`: fixture 3 strategies (public-visible active, non-public-visible active, mock active) → only public-visible active returned (control)
   - [ ] With `PUBLIC_EDIT_WIDEN_FILTER=true`: same fixture → both non-mock active returned; mock excluded
   - [ ] Cache invalidation: status flip on a strategy invalidates cache (assert next call re-queries)
-  - [ ] Env-toggle mechanics: use `jest.replaceProperty(process.env, 'PUBLIC_EDIT_WIDEN_FILTER', 'true')` per-test (relies on per-invocation env read in `publicStrategyFilter.ts` — see Phase 1 helper spec)
+  - [ ] Env-toggle mechanics: use `jest.replaceProperty(process.env, 'PUBLIC_EDIT_WIDEN_FILTER', 'true')` per-test (relies on per-invocation env read in `publicStrategyFilter.ts` — see Phase 1 helper spec). **Also call `invalidatePublicStrategiesCache()` explicitly** between with-flag-false and with-flag-true assertions in the same file, since the module-scope 60s cache in `strategyRegistryActions.ts:485-497` survives env changes (env is read fresh per call, but cached results aren't keyed on env).
 - [ ] Unit test `evolution/src/services/getPublicStrategyConfigAction.test.ts`:
   - [ ] Returns full StrategyConfig for a passing strategy
   - [ ] Throws `NotPubliclySubmittableError` with code `MOCK_MODEL` for mock-model strategy
@@ -256,7 +256,7 @@ Full test list is in **Phase 4** above (POMs, spec updates, seed-fixture reconci
 - [ ] `edit-flow.spec.ts` (@critical) — refactored to `EditPage` POM
 - [ ] `edit-form-smoke.spec.ts` (@critical, trimmed) — bare-form-render smoke only
 - [ ] `edit-picker-interactions.spec.ts` (@evolution, new) — combobox + `[Show config]` + budget-warning + modal interactions
-- [ ] `edit-submit-flow.spec.ts` — beforeAll seeds hermetic `[E2E_INLINE]` strategy; afterAll cleanup (Rule 16); submit via strategy id, not picker `.first()`
+- [ ] `edit-submit-flow.spec.ts` — route-mocks server actions (submitPublicEditAction + getEditRunStatusAction) via `page.route()`; no DB seed; `page.unrouteAll()` in `afterEach` per Rule 10
 - [ ] `edit-completed-run-handoff.spec.ts` — refactored to `EditRunPage` POM; variant tab default-active; diff switchable
 - [ ] `edit-host-isolation.spec.ts` — no changes
 
@@ -299,4 +299,32 @@ The following docs were identified as relevant and may need updates:
 - [ ] `docs/feature_deep_dives/lexical_editor_plugins.md` — no change
 
 ## Review & Discussion
-[Populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration]
+
+### Iteration 1 (2026-06-30)
+| Perspective | Score | Critical Gaps |
+|---|---|---|
+| Security & Technical | 3/5 | 5 (cost-math stub, TBD caps, reserve-amount ambiguity, missing SELECT + Zod, publicVisible orphan, no markdown XSS defense) |
+| Architecture & Integration | 3/5 | 5 (picker primitive misidentified, publicVisible orphan, missing dispatch site update, StrategyConfig dup, jest.mock path) |
+| Testing & CI/CD | 2/5 | 6 (seed contradiction — real LLM burn risk, no rollback plan, TBD caps, no hydration gate, no afterAll cleanup, @critical budget risk) |
+
+**Resolution:** Rewrote Phase 1 (cost math, feature flag, cache invalidation, publicVisible KEEP-VESTIGIAL decision, type-source cleanup). Rewrote Phase 2 (extend existing minimal Combobox with `renderOption` prop; move StrategyConfigDisplay; jest.mock path). Rewrote Phase 3 (react-markdown XSS defense with `sanitizeMarkdownUrl` scheme allowlist; Suspense contract; dispatch-site fix). Rewrote Phase 4 (Playwright route-mock — original inline seed rejected in iter 2; POM Locator returns; @critical split; hydration gates).
+
+### Iteration 2 (2026-06-30)
+| Perspective | Score | Critical Gaps |
+|---|---|---|
+| Security & Technical | **5/5** | 0 |
+| Architecture & Integration | **5/5** | 0 |
+| Testing & CI/CD | 4/5 | 0 (but flagged inline-seed contradiction as "lingering concern below critical threshold") |
+
+**Resolution:** Switched `edit-submit-flow.spec.ts` from inline service-role seed to Playwright `page.route()` mock (option e), fixing the whitelist-rejection collision that would have caused real-LLM burn on CI. Added polish: Zod `.max(10)` upper bound on `budgetUsd`, `config.budgetUsd` added to cache invalidation triggers, `sanitizeMarkdownUrl` edge cases (protocol-relative, fragment, empty, CRLF-injection mailto), `edit-run-tabs-hydrated` gate, ESLint rule confirmed live at `eslint.config.mjs:56`, `getPublicStrategyConfigAction` unit test, in-flight submit behavior during flag flip documented, `publicStrategyFilter.ts` shared-helper export signature spec.
+
+### Iteration 3 (2026-06-30) — ✅ CONSENSUS
+| Perspective | Score | Critical Gaps |
+|---|---|---|
+| Security & Technical | **5/5** | 0 |
+| Architecture & Integration | **5/5** | 0 |
+| Testing & CI/CD | **5/5** | 0 |
+
+**Resolution:** Route-mock now correctly targets Next.js server-action POST-to-page-URL semantics (matcher inspects `Next-Action` header + POST body shape, not a nonexistent per-action URL path). Testing index line updated to match Phase 4 route-mock approach. Env-toggle mechanics call `invalidatePublicStrategiesCache()` between with-flag-false and with-flag-true assertions (60s module-cache TTL doesn't key on env). 3 remaining minor items acknowledged as non-blocking polish (cost-leak smoke assertion) — safe to defer.
+
+**Outstanding user gate (intentional, not a review gap):** proposed cost cap sizing `PUBLIC_EDIT_PER_IP_DAILY_USD_CAP=$5.00` + `PUBLIC_EDIT_PER_REGION_DAILY_USD_CAP=$50.00` (10× current) requires explicit user sign-off before Phase 1 merge per `feedback_cost_tracking_fail_closed.md` + `feedback_never_reset_without_agreement.md`.
