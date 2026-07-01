@@ -1,0 +1,11 @@
+arm,runs_completed,runs_queued,article_variants,ranked_variants,median_lift_max_per_run,median_delta_per_invocation,mean_delta_per_invocation,mean_minus_median,pct_impr,pct_impr_ge40,pct_var_above_seed,pct_var_below_seed,p_best,p_top40,delta_vs_generate,ci_low,ci_high,holm_p,significant,decisive_pct,budget_per_run_usd,total_budget_usd,total_spent_usd
+reflect_and_generate,10,10,352,244,165.5,61.0,62.9,1.9,100,90,94,6,96,100,34.2,-6,78,0.257,no,45.6,0.10,1.00,0.980
+generate,10,10,474,317,131.3,31.1,9.7,-21.4,100,90,64,36,4,67,0,,,,baseline,53.7,0.10,1.00,0.969
+self_critique_revise,10,10,250,250,102.3,8.1,29.8,21.7,100,100,88,12,0,11,-29.0,-42,16,1.000,no,27.4,0.10,1.00,0.831
+criteria_and_generate,10,10,348,235,77.4,18.9,18.0,-0.8,100,80,81,19,0,0,-53.9,-83,-9,1.000,no,4.8,0.10,1.00,0.954
+iterative_editing_rewrite,10,10,171,168,75.1,3.7,3.1,-0.6,100,90,63,37,0,1,-56.2,-86,-8,1.000,no,5.5,0.10,1.00,0.978
+single_pass_evaluate_criteria_and_generate,10,10,344,241,73.5,19.1,15.2,-3.8,100,70,76,24,0,1,-57.8,-93,-14,1.000,no,4.0,0.10,1.00,0.964
+iterative_editing,10,10,118,117,54.9,6.5,14.3,7.8,100,80,78,22,0,0,-76.4,-94,-27,1.000,no,26.5,0.10,1.00,0.991
+proposer_approver_criteria_generate,10,10,263,200,41.6,3.1,2.9,-0.2,100,70,57,43,0,0,-89.7,-103,-42,1.000,no,1.0,0.10,1.00,0.986
+paragraph_recombine_with_coherence_pass,10,10,43,43,6.9,-5.8,-0.9,4.9,60,20,44,56,0,0,-124.4,-139,-82,1.000,no,5.8,0.10,1.00,0.866
+paragraph_recombine,6,10,7,7,2.9,19.2,6.5,-12.6,50,20,71,29,0,0,-128.4,-141,-78,1.000,no,44.2,0.10,1.00,0.586

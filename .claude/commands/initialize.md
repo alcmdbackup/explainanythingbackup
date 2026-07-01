@@ -70,22 +70,40 @@ Options (single-select):
 - **C. Yes — Pattern 2: pure validation** — no new feature, just comparing existing configs; smaller PRAP-primary template with no Implementation phases
 - **D. Maybe, decide later** — standard template plus an inline pointer to `/add_experiment_phases` for mid-cycle conversion
 
-Map the answer to `BRANCH_ANSWER` (`no` / `pattern1` / `pattern2` / `maybe`) and resolve the template selection via the testable helper:
+Map the answer to `BRANCH_ANSWER` (`no` / `pattern1` / `pattern2` / `maybe`).
+
+### 1.65. Ask about smoke-test tranche (experiment kinds only)
+
+**Only when `BRANCH_ANSWER` is `pattern1` or `pattern2`**, ask a follow-up question via `AskUserQuestion`:
+
+Question: *"Include a smoke-test tranche (small N first — e.g. 2 runs — before the full tranche)?"*
+
+Options (single-select):
+- **A. Yes — include smoke tranche (Recommended)** — Phase 7 splits into 7a (2 smoke runs with a 6-assertion checklist: `status='completed'`, no `arena_only` wipeout, expected agent invocations, cost tracking > 0, ≥ 1 variant, wipeout detector reports 0) and 7b (remaining full tranche, only after 7a passes). Adds ~10% marginal cost as insurance against a broken setup burning the whole budget on a bad config.
+- **B. No — single Phase 7 for the full tranche** — simpler for well-established experiment shapes where the seed script has already been proven on prior runs.
+
+Map the answer to `INCLUDE_SMOKE_TEST` (`true` / `false`). For `BRANCH_ANSWER ∈ {no, maybe}` the question is skipped and `INCLUDE_SMOKE_TEST=false` by construction (the selector coerces).
+
+**Bypass behavior:** if `WORKFLOW_BYPASS=true`, skip both questions and default to `BRANCH_ANSWER="no"` + `INCLUDE_SMOKE_TEST=false`.
+
+### 1.66. Resolve template selection
 
 ```bash
 BRANCH_ANSWER="[no|pattern1|pattern2|maybe]"  # e.g., "no" for option A
-TEMPLATE_SELECTION=$(npx tsx scripts/skills/initialize-template-selector.ts "$BRANCH_ANSWER")
+INCLUDE_SMOKE_TEST="[true|false]"             # from Step 1.65; false for non-experiment kinds
+SMOKE_ARG=""
+if [[ "$INCLUDE_SMOKE_TEST" == "true" ]]; then SMOKE_ARG="smoke"; fi
+TEMPLATE_SELECTION=$(npx tsx scripts/skills/initialize-template-selector.ts "$BRANCH_ANSWER" "$SMOKE_ARG")
 # TEMPLATE_SELECTION is JSON: {projectKind, prap, experimentPhases, dropImplementationPhase,
-# autoIncludeEvolutionDocs, inlineConvertNote}
+# autoIncludeEvolutionDocs, inlineConvertNote, includeSmokeTest}
 PROJECT_KIND=$(echo "$TEMPLATE_SELECTION" | jq -r '.projectKind')
 INCLUDE_PRAP=$(echo "$TEMPLATE_SELECTION" | jq -r '.prap')
 INCLUDE_EXPERIMENT_PHASES=$(echo "$TEMPLATE_SELECTION" | jq -r '.experimentPhases')
 DROP_IMPLEMENTATION_PHASE=$(echo "$TEMPLATE_SELECTION" | jq -r '.dropImplementationPhase')
 AUTO_INCLUDE_EVOLUTION_DOCS=$(echo "$TEMPLATE_SELECTION" | jq -r '.autoIncludeEvolutionDocs')
 INLINE_CONVERT_NOTE=$(echo "$TEMPLATE_SELECTION" | jq -r '.inlineConvertNote')
+INCLUDE_SMOKE_TEST=$(echo "$TEMPLATE_SELECTION" | jq -r '.includeSmokeTest')
 ```
-
-**Bypass behavior:** if `WORKFLOW_BYPASS=true`, skip the question and default to `BRANCH_ANSWER="no"` (`project_kind: "standard"`).
 
 ### 2. Create Branch from Remote Main
 
@@ -364,7 +382,12 @@ Select the planning-doc template variant based on the Step 1.6 answer:
 - `$PROJECT_KIND == "feature_with_experiment"` (answer B) → **baseline + PRAP section inserted between `## Options Considered` and `## Phased Execution Plan` + Phases 6-10 stub appended to `## Phased Execution Plan`**
 - `$PROJECT_KIND == "experiment_only"` (answer C) → **same as feature_with_experiment but drop the Implementation phase** (i.e. drop any default "Phase X: Implementation" stub from the baseline `## Phased Execution Plan` — PRAP becomes primary content)
 
-For convenience, the testable helper at `scripts/skills/initialize-template-selector.ts` exports the exact `PRAP_SECTION_TEMPLATE`, `EXPERIMENT_PHASES_STUB`, and `MAYBE_CONVERT_NOTE` constants so the additions can be programmatically inserted rather than copy-pasted (and stay in sync if the templates evolve).
+For the Phases 6-10 stub, pick between two variants using the Step 1.65 answer:
+
+- `$INCLUDE_SMOKE_TEST == false` (default) → append the baseline `EXPERIMENT_PHASES_STUB` (Phase 7 = single tranche).
+- `$INCLUDE_SMOKE_TEST == true` → append `EXPERIMENT_PHASES_STUB_WITH_SMOKE` instead. Phase 7 splits into 7a (smoke tranche, 2 runs, 6-assertion checklist) + 7b (full tranche). Phase 6 seed-script bullet gains a `--runs N` requirement so the smoke tranche can queue separately.
+
+For convenience, the testable helper at `scripts/skills/initialize-template-selector.ts` exports the exact `PRAP_SECTION_TEMPLATE`, `EXPERIMENT_PHASES_STUB`, `EXPERIMENT_PHASES_STUB_WITH_SMOKE`, `buildExperimentPhasesStub(includeSmokeTest)`, and `MAYBE_CONVERT_NOTE` constants so the additions can be programmatically inserted rather than copy-pasted (and stay in sync if the templates evolve).
 
 Create `$PROJECT_PATH/${PROJECT_NAME}_planning.md` using the **Write tool** with this template:
 

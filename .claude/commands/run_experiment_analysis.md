@@ -95,15 +95,17 @@ fi
 
 ### Step 2 — Funnel/Balance Audit
 
-Run the 6 SQL files at `evolution/scripts/analysis/*.sql` via sed substitution (per Phase 3 of the project plan):
+Run the **7 SQL files** at `evolution/scripts/analysis/*.sql` via sed substitution (per Phase 3 of the project plan):
 
 ```bash
-for f in evolution/scripts/analysis/{funnel_per_arm_variants,funnel_per_arm_invocations,funnel_per_arm_decisive_matches,funnel_per_arm_top_elo_gain,judge_decisiveness_distribution,per_arm_cost_breakdown}.sql; do
+for f in evolution/scripts/analysis/{funnel_per_arm_variants,funnel_per_arm_invocations,funnel_per_arm_decisive_matches,funnel_per_arm_top_elo_gain,per_arm_median_delta_per_invocation,judge_decisiveness_distribution,per_arm_cost_breakdown}.sql; do
   QUERY=$(sed "s/\$experiment_id/'$EID'/g" "$f")
   echo "=== $(basename $f .sql) ==="
   npm run query:staging -- --json "$QUERY"
 done
 ```
+
+`per_arm_median_delta_per_invocation.sql` (added 2026-07-01) supplies the mandatory `med Δ/inv` and `mean Δ/inv` columns of Table A (see EAR output template Table A columns). The median-vs-mean divergence reveals per-arm distribution shape (tight, left-skewed high-variance, or right-skewed with a small high-Elo tail) and frequently ranks arms differently from the max-lift ceiling — critical for distinguishing "high variance / high ceiling" arms (e.g. `generate`) from "consistent per-variant quality" arms (e.g. `reflect_and_generate`) from "reliability floor at the run level but modest per-variant density" arms (e.g. `self_critique_revise`).
 
 Aggregate results into the `## Balance Audit` section of the EAR (Table B — Experimental Validity Funnel: rows per arm; columns: runs_queued, runs_completed, invocations_total, invocations_success, invocations_failed, invocations_skipped, variants_produced, variants_synced_to_arena, matches_played, matches_decisive).
 
@@ -206,9 +208,26 @@ Cite PRAP location: docs/planning/<project>/<project>_planning.md ## Pre-Registe
 Test-vs-Control Metrics Summary (per arm rows; columns:
 runs_completed/queued, variants_produced (and of-those ranked, i.e. with >=1 arena match),
 top_elo, median_elo, top_elo_delta_vs_control,
+med_max_lift_per_run (primary DV: median across the arm's runs of max(variant_Elo) - seed_Elo),
+med_delta_per_inv, mean_delta_per_inv (from per_arm_median_delta_per_invocation.sql — see below),
 pct_variants_better_than_seed (share of an arm's RANKED variants with Elo > seedElo),
 budget_per_run_usd, total_budget_usd (= budget_per_run x queued runs),
 total_spent_usd, cost_per_improver_usd, significance_verdict).
+
+The `med Δ/inv` and `mean Δ/inv` columns are MANDATORY (added 2026-07-01, powered by
+`evolution/scripts/analysis/per_arm_median_delta_per_invocation.sql`). `med Δ/inv` = median
+across all of an arm's ranked article variants of `variant_Elo - seed_Elo` — the per-invocation
+quality density (throughput-unbiased) and the median lift the typical variant achieves. `mean Δ/inv`
+is the arithmetic mean as a cross-check; the median-vs-mean divergence reveals distribution SKEW:
+  - median ≈ mean → tight/near-normal distribution (consistent per-variant quality).
+  - median > mean → LEFT skew (few low-Elo outliers drag mean down; typical variant is good; classic
+    high-variance/high-ceiling pattern e.g. `generate`).
+  - median < mean → RIGHT skew (few high-Elo outliers pull mean up; typical variant is modest;
+    the "run-level reliability floor but modest per-invocation density" pattern e.g.
+    `self_critique_revise`).
+These patterns frequently rank arms differently from the max-lift ceiling and are critical for
+distinguishing arms whose reliability floor is at the RUN level vs the INVOCATION level.
+
 The `pct_variants_better_than_seed` column is mandatory and reports per-variant QUALITY DENSITY,
 which is throughput-UNBIASED (a proportion, not a max) and frequently ranks arms differently from
 the top-/median-Elo ceiling: targeted-edit arms can produce a higher SHARE of seed-beating variants
@@ -236,7 +255,7 @@ paragraph/recombine arms otherwise inflate the count with paragraph-slot interme
 Note PII handling: "Confirm dataset.csv contains no PII before committing."]
 
 ## Queries & Results
-[Every query used + raw results. Include the 6 standard SQL queries
+[Every query used + raw results. Include the 7 standard SQL queries
 parameterized on experiment_id + the wipeout-detector invocation.]
 
 ## Pre-Registered Analysis Plan
