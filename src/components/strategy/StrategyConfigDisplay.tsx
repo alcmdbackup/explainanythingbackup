@@ -8,7 +8,7 @@
  * (the local duplicate interface was removed as part of the same project).
  */
 import type { StrategyConfig } from '@evolution/lib/pipeline/infra/types';
-import type { IterationConfig, IterationAgentType } from '@evolution/lib/schemas';
+import type { IterationAgentType } from '@evolution/lib/schemas';
 
 const REQUIRED_AGENTS = ['generation', 'ranking', 'proximity'];
 

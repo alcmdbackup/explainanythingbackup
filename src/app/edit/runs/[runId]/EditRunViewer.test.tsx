@@ -5,6 +5,7 @@
 // of isInFlight + N-failures-tolerance.
 
 import { render, screen, act } from '@testing-library/react';
+import type React from 'react';
 import EditRunViewer from './EditRunViewer';
 
 const mockGetEditRunStatusAction = jest.fn();
@@ -19,13 +20,10 @@ jest.mock('@evolution/components/evolution/visualizations/SideBySideWordDiff', (
 
 // Mock EntityDetailTabs as a passthrough that renders both tab bodies so we
 // can assert on tab-panel content without driving tab state in unit tests.
-jest.mock('@evolution/components/evolution/sections/EntityDetailTabs', () => {
-  const React = require('react');
-  return {
-    EntityDetailTabs: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    useTabState: () => ['variant', jest.fn()],
-  };
-});
+jest.mock('@evolution/components/evolution/sections/EntityDetailTabs', () => ({
+  EntityDetailTabs: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  useTabState: () => ['variant', jest.fn()],
+}));
 
 // Mock react-markdown as a passthrough — we're not testing markdown rendering here.
 jest.mock('react-markdown', () => ({

@@ -13,7 +13,7 @@ const ALLOWED_SCHEMES: ReadonlySet<string> = new Set(['http:', 'https:', 'mailto
 /** Sanitize a URL from LLM-produced markdown before rendering.
  *  Returns the original URL when safe; returns '' otherwise (which react-markdown
  *  interprets as "no href"). */
-export function sanitizeMarkdownUrl(url: string, _key?: string, _node?: unknown): string {
+export function sanitizeMarkdownUrl(url: string): string {
   if (typeof url !== 'string' || url.length === 0) return '';
 
   // Reject protocol-relative URLs (//evil.com) — they inherit the current page's scheme.
