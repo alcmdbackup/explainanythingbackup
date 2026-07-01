@@ -36,17 +36,22 @@ Full options-and-tradeoffs analysis lived in the /research phase (see research d
 
 ### Phase 1: Backend — widen filter, plumb config + strategy_label + preserve cost invariants
 
-**Cost cap sizing (proposed defaults — REQUIRES USER SIGN-OFF before merge per `feedback_cost_tracking_fail_closed.md` + `feedback_never_reset_without_agreement.md`):**
+**Cost cap sizing — DECIDED (2026-06-30, user sign-off):** **KEEP ALL CAPS AT CURRENT VALUES.**
 
-| Env / DB key | Today | Proposed | Reasoning |
-|---|---|---|---|
-| `PUBLIC_EDIT_PER_IP_DAILY_USD_CAP` | `$0.50` | **`$5.00`** | Allows one max-strategy ($5) run per IP/day, OR ~50 cheap ($0.10) runs. Without raise: a single expensive-strategy pick day-locks the IP. |
-| `PUBLIC_EDIT_PER_REGION_DAILY_USD_CAP` | `$5.00` | **`$50.00`** | Same 10× proportion. Absorbs ~10 max-cost runs across the country. |
-| `guest_user_daily_cap_usd` (DB) | `$10` | **`$10`** (unchanged) | This IS the outer bound for the anon `/edit` flow; keeping it tight is the load-bearing safety knob. |
-| `evolution_daily_cap_usd` (DB) | `$25` | **`$25`** (unchanged) | Global outer bound. |
-| `monthly_cap_usd` (DB) | `$500` | **`$500`** (unchanged) | Monthly outer bound. |
+| Env / DB key | Value | Reasoning |
+|---|---|---|
+| `PUBLIC_EDIT_PER_IP_DAILY_USD_CAP` | `$0.50` (unchanged) | Trades convenience for safety. One $0.50-budgetUsd strategy pick uses the full IP cap; expensive strategies (up to Zod-max $10) can't be picked twice in a day per IP. Accepted: some strategies effectively rate-limit to 1/day/IP. |
+| `PUBLIC_EDIT_PER_REGION_DAILY_USD_CAP` | `$5.00` (unchanged) | Absorbs ~10 max-cheap runs or ~5 mid-tier per country. |
+| `guest_user_daily_cap_usd` (DB) | `$10` (unchanged) | Outer bound for anon `/edit` flow. |
+| `evolution_daily_cap_usd` (DB) | `$25` (unchanged) | Global outer bound. |
+| `monthly_cap_usd` (DB) | `$500` (unchanged) | Monthly outer bound. |
 
-**Rationale for keeping guest_user + global caps unchanged:** the raise happens ONLY at per-IP/per-region layers where day-locking a single user is user-hostile UX. The guest-user pool + global caps stay tight so total system spend is still bounded. Under proposed values, worst case = $10/day per unique guest (already true today) × N unique IPs, further bounded by $25/day evolution + $500/month.
+**Implication:** removing the per-run $0.10 cap while KEEPING per-IP at $0.50 means:
+- A strategy with `budgetUsd = $0.05` can be picked ~10 times/day per IP
+- A strategy with `budgetUsd = $0.10` can be picked ~5 times/day per IP  
+- A strategy with `budgetUsd = $0.50` can be picked exactly 1 time/day per IP
+- A strategy with `budgetUsd > $0.50` will be **rejected at submit** by `perIpGate.reserveForIp` (reservation > cap) — user sees an error. The ⚠ budget-warning badge in the picker gives advance notice.
+- **This is stricter than the previous "silent underperform" model** — user gets an explicit error instead of a degraded run.
 
 **Feature flag (Task #2 — rollback path):**
 - Add `PUBLIC_EDIT_WIDEN_FILTER` env var. Default `'false'` (current behavior: only `public_visible=true` strategies visible).
@@ -71,7 +76,7 @@ Full options-and-tradeoffs analysis lived in the /research phase (see research d
 - [ ] **Remove** `PER_RUN_BUDGET_CAP_USD` constant (`publicEditActions.ts:30`); per-run insert reads `budget_cap_usd: strategy.config.budgetUsd` (`publicEditActions.ts:260`)
 - [ ] Refactor `estimateRunCostUsd()` signature (`publicEditActions.ts:89-94`) to `estimateRunCostUsd(budgetUsd: number): number` — returns `budgetUsd`; update the 3 call sites (`publicEditActions.ts:151`, `170`, `194`) to pass `strategy.config.budgetUsd`
 - [ ] **Reserve-amount contract (Task #1 — load-bearing):** `perIpGate.reserveForIp(ip, country, strategy.config.budgetUsd)` and `spendingGate.reserveForUser(GUEST_USER_ID, strategy.config.budgetUsd, GUEST_CAP)` — reserve the FULL strategy budgetUsd, NOT $0.10. This ensures per-IP/per-region caps are not silently defeated by an underspec'd reservation.
-- [ ] Bump env `PUBLIC_EDIT_PER_IP_DAILY_USD_CAP=5.00` + `PUBLIC_EDIT_PER_REGION_DAILY_USD_CAP=50.00` on Vercel Preview + Production (via `vercel env add`). Document in Phase 5 doc updates. Rollback: revert env values.
+- [x] Cost cap sizing — DECIDED: no raise. Env values stay at current `PUBLIC_EDIT_PER_IP_DAILY_USD_CAP=0.50` and `PUBLIC_EDIT_PER_REGION_DAILY_USD_CAP=5.00`. No Vercel env changes needed.
 - [ ] Extend `getEditRunStatusAction` (`publicEditActions.ts:288-352`) return shape to include `strategyLabel: string | null` — join `evolution_runs.strategy_id → evolution_strategies` and return `label ?? name`
 - [ ] Update the `EditRunStatus` interface (`publicEditActions.ts:55-62`)
 - [ ] **Broaden cache invalidation triggers (Task #7):** `invalidatePublicStrategiesCache()` currently only fires on `publicVisible` flip (`strategyRegistryActions.ts:341-343`). Post-widening, must also fire on: `status` change, `is_test_content` change, `config.generationModel` change, and **`config.budgetUsd` change** (the picker displays budgetUsd + drives the ⚠ badge; stale values would mislead the user). Update `updateStrategyAction`, `archiveStrategyAction` (`~line 409`), and `deleteStrategyAction` (if present) call sites.
@@ -327,4 +332,4 @@ The following docs were identified as relevant and may need updates:
 
 **Resolution:** Route-mock now correctly targets Next.js server-action POST-to-page-URL semantics (matcher inspects `Next-Action` header + POST body shape, not a nonexistent per-action URL path). Testing index line updated to match Phase 4 route-mock approach. Env-toggle mechanics call `invalidatePublicStrategiesCache()` between with-flag-false and with-flag-true assertions (60s module-cache TTL doesn't key on env). 3 remaining minor items acknowledged as non-blocking polish (cost-leak smoke assertion) — safe to defer.
 
-**Outstanding user gate (intentional, not a review gap):** proposed cost cap sizing `PUBLIC_EDIT_PER_IP_DAILY_USD_CAP=$5.00` + `PUBLIC_EDIT_PER_REGION_DAILY_USD_CAP=$50.00` (10× current) requires explicit user sign-off before Phase 1 merge per `feedback_cost_tracking_fail_closed.md` + `feedback_never_reset_without_agreement.md`.
+**Cost cap sign-off:** User decided 2026-06-30 to KEEP all caps at current values (no raise). Trade-off: expensive strategies (`budgetUsd > $0.50`) will be rejected at submit-time by the per-IP gate reservation instead of running degraded. The picker's ⚠ badge warns before pick; user gets an explicit error on submit. Cleared for execution.
