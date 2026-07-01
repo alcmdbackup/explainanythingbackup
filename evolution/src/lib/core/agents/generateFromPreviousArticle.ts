@@ -193,11 +193,15 @@ export class GenerateFromPreviousArticleAgent extends Agent<
       'criteria_driven',
       'criteria_driven_single_pass',
       'criteria_driven_propose_approve',
+      // brainstorm_new_agents_with_reflection_20260630 — self_critique_driven marker
+      // tactic is reserved for SelfCritiqueReviseAgent which always passes customPrompt.
+      // Same invariant shape as the criteria markers above.
+      'self_critique_driven',
     ]);
     if (CRITERIA_MARKER_TACTICS.has(tactic) && input.customPrompt === undefined) {
       throw new Error(
         `GFPA dispatched with tactic='${tactic}' but no customPrompt — `
-        + "this marker tactic is reserved for criteria wrapper agents, which always pass customPrompt. "
+        + "this marker tactic is reserved for wrapper agents that always pass customPrompt. "
         + "Strategy configuration error.",
       );
     }

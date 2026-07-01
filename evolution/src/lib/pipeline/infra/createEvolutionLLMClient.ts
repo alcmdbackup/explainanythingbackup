@@ -83,6 +83,11 @@ const OUTPUT_TOKEN_ESTIMATES: Partial<Record<AgentName, number>> = {
   // Coherence-pass approver returns JSONL: per-group {decision, reason} for ~5-10 groups
   // per cycle. Mirrors `criteria_forward_approver` shape (~150 tokens).
   coherence_pass_review: 150,
+  // brainstorm_new_agents_with_reflection_20260630 — self_critique reflection output
+  // is 3 labeled fields (ChangeKind ≤ 30 toks, Summary ~100 toks, Plan ~400-500 toks).
+  // Total ~600 toks matches the cost stack estimate in the planning doc; 400 would
+  // under-reserve budget and risk premature BudgetExceededError.
+  self_critique: 600,
 };
 
 // ─── Public API ──────────────────────────────────────────────────

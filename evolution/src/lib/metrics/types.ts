@@ -131,6 +131,12 @@ export const STATIC_METRIC_NAMES = [
   // total cost of extraction LLM calls, written at CRUD time via writeMetricMax against
   // the fingerprint entity (extraction happens outside any run, so it cannot use seed_cost).
   'total_extraction_cost',
+  // brainstorm_new_agents_with_reflection_20260630 — self_critique_revise agent's
+  // reflection LLM call cost bucket + propagation rollups. Umbrella name lives in
+  // AgentNames.COST_METRIC_BY_AGENT; the total/avg rollups are handled by the
+  // registry's standard propagation shape (same as evaluation_cost).
+  'self_critique_cost',
+  'total_self_critique_cost', 'avg_self_critique_cost_per_run',
 ] as const;
 export type StaticMetricName = typeof STATIC_METRIC_NAMES[number];
 /**

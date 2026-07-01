@@ -20,6 +20,7 @@ import {
 } from '../../core/agents/reflectAndGenerateFromPreviousArticle';
 import { EvaluateCriteriaThenGenerateFromPreviousArticleAgent } from '../../core/agents/evaluateCriteriaThenGenerateFromPreviousArticle';
 import { SinglePassEvaluateCriteriaAndGenerateAgent } from '../../core/agents/singlePassEvaluateCriteriaAndGenerate';
+import { SelfCritiqueReviseAgent } from '../../core/agents/selfCritiqueRevise';
 import { ProposerApproverCriteriaGenerateAgent } from '../../core/agents/proposerApproverCriteriaGenerate';
 import { ParagraphRecombineAgent } from '../../core/agents/paragraphRecombine/ParagraphRecombineAgent';
 import { ParagraphRecombineWithCoherencePassAgent } from '../../core/agents/paragraphRecombineWithCoherencePass/ParagraphRecombineWithCoherencePassAgent';
@@ -358,7 +359,7 @@ export async function evolveArticle(
       // sharing the same parallel-batch + top-up + merge dispatch shape. The only
       // difference is which agent class gets dispatched per call (decided inside
       // dispatchOneAgent below based on `reflectionEnabled`).
-      if (iterType === 'generate' || iterType === 'reflect_and_generate' || iterType === 'criteria_and_generate' || iterType === 'single_pass_evaluate_criteria_and_generate' || iterType === 'proposer_approver_criteria_generate') {
+      if (iterType === 'generate' || iterType === 'reflect_and_generate' || iterType === 'criteria_and_generate' || iterType === 'single_pass_evaluate_criteria_and_generate' || iterType === 'proposer_approver_criteria_generate' || iterType === 'self_critique_revise') {
         // ─── Generate / reflect-and-generate iteration ────────
         // Phase 7b: restructured to accumulate parallel + top-up match buffers, then
         // invoke MergeRatingsAgent ONCE at iteration end over the combined buffers.
@@ -561,6 +562,28 @@ export async function evolveArticle(
               weakestK: iterCfg.weakestK ?? 1,
               lengthCapRatio: iterCfg.lengthCapRatio,
               includesMirrorApprover: iterCfg.includesMirrorApprover,
+              initialPool: initialPoolSnapshot,
+              initialRatings: initialRatingsSnapshot,
+              initialMatchCounts: initialMatchCountsSnapshot,
+              cache: comparisonCache,
+            }, ctxForAgent);
+          }
+          if (iterCfg.agentType === 'self_critique_revise') {
+            // brainstorm_new_agents_with_reflection_20260630 — zero-dispatch kill
+            // switch (matches EVOLUTION_PROPOSER_APPROVER_CRITERIA_ENABLED pattern
+            // at :546-553, NOT the fallback pattern used by single_pass at :572-590).
+            const selfCritiqueEnabled = process.env.EVOLUTION_SELF_CRITIQUE_ENABLED !== 'false';
+            if (!selfCritiqueEnabled) {
+              logger.warn('Self-critique agent disabled via env; iteration produces zero variants', {
+                phaseName: 'self_critique_kill_switch',
+                iteration,
+              });
+              throw new Error('self_critique_revise disabled via EVOLUTION_SELF_CRITIQUE_ENABLED=false');
+            }
+            const wrapperAgent = new SelfCritiqueReviseAgent();
+            return wrapperAgent.run({
+              parentText: resolved.text,
+              parentVariantId: resolved.variantId,
               initialPool: initialPoolSnapshot,
               initialRatings: initialRatingsSnapshot,
               initialMatchCounts: initialMatchCountsSnapshot,
