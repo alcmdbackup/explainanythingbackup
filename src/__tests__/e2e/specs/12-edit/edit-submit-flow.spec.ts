@@ -1,103 +1,129 @@
 /**
- * /edit submit-flow E2E.
+ * /edit submit-flow E2E — route-mocked.
  *
- * Exercises the visitor side of the critical path:
+ * Exercises the CLIENT-SIDE flow only:
  *   /edit page → fill textarea → pick strategy → submit →
- *   evolution_runs row is created with run_source='public_edit' →
- *   browser navigates to /edit/runs/<new-runId>
+ *   (submitPublicEditAction mocked to return a fake runId) →
+ *   browser navigates to /edit/runs/<fake-runId> →
+ *   (getEditRunStatusAction mocked to return a completed run) →
+ *   viewing phase renders with tabs + meta strip
  *
- * Does NOT wait for pipeline execution + result — that requires a live
- * minicomputer or in-process runner, neither of which the test environment
- * provides. The execute half is covered by:
+ * The server-side path (whitelist enforcement, per-IP reservation, DB insert)
+ * is covered by:
+ *   - src/__tests__/integration/public-edit-widen-filter.integration.test.ts (Phase 4)
  *   - evolution/src/lib/pipeline/claimAndExecuteRun.test.ts (unit)
- *   - manual staging smoke (direct DB-insert + processRunQueue with mock LLM)
- * The polling→render handoff is covered by:
- *   - src/app/edit/runs/[runId]/EditRunViewer.test.tsx (unit, fake timers)
- *   - src/__tests__/e2e/specs/12-edit/edit-completed-run-handoff.spec.ts (pre-seeded fixture)
  *
- * Tag @evolution + @skip-prod. Needs SUPABASE_SERVICE_ROLE_KEY for DB
- * verification + BOT_PROTECTION_DISABLED to let Playwright's headless
- * browser through BotID.
+ * Rewritten in improvements_to_edit_page_evolution_20260630 Phase 4 (Task #3):
+ *   The previous inline-DB-seed approach would have failed after the mock-model
+ *   filter widened. Route-mocking sidesteps the whitelist collision AND avoids
+ *   burning minicomputer budget on CI (no real run row created).
+ *
+ * Tag @evolution + @skip-prod. Needs BOT_PROTECTION_DISABLED to let Playwright
+ * through Vercel BotID (only enforced in production, harmless off-Vercel).
  */
 
-import { test, expect } from '@playwright/test';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '@/lib/database.types';
+import { test, expect, type Route, type Request } from '@playwright/test';
 
-let supabase: SupabaseClient<Database>;
-const createdRunIds: string[] = [];
+// Next.js server actions POST back to the PAGE's URL (not a per-action path)
+// with a Next-Action header identifying which action was invoked. We can't rely
+// on distinguishing the two actions by URL — we distinguish by request body shape.
 
-test.describe('/edit submit-flow', { tag: ['@evolution', '@skip-prod'] }, () => {
-  // Serial — shares the supabase client + cleanup tracking across tests.
-  test.describe.configure({ mode: 'serial' });
+const FAKE_RUN_ID = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa';
 
-  test.beforeAll(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    if (!url || !key) throw new Error('NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY required');
-    supabase = createClient<Database>(url, key);
+interface MockRunState {
+  status: 'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'cancelled';
+  originalContent: string;
+  winnerVariantContent: string | null;
+  errorMessage: string | null;
+  costSpent: number | null;
+  etaSeconds: number | null;
+  strategyLabel: string | null;
+}
+
+const MOCK_COMPLETED_RESPONSE: MockRunState = {
+  status: 'completed',
+  originalContent: 'Some original article text for the smoke test.',
+  winnerVariantContent: '# Rewritten heading\n\nThe **rewrite** looks better than the original.',
+  errorMessage: null,
+  costSpent: 0.04,
+  etaSeconds: null,
+  strategyLabel: 'Quick polish',
+};
+
+test.describe('/edit submit-flow (route-mocked)', { tag: ['@evolution', '@skip-prod'] }, () => {
+  test.beforeEach(async ({ page }) => {
+    // Mock both server actions. Server actions in Next.js are POSTs back to the
+    // page URL with a Next-Action header; we match by URL prefix + POST + body shape.
+    await page.route(
+      (url) => url.pathname === '/edit' || url.pathname.startsWith('/edit/runs/'),
+      async (route: Route, request: Request) => {
+        if (request.method() !== 'POST') return route.continue();
+        const nextActionHeader = request.headers()['next-action'];
+        if (!nextActionHeader) return route.continue();
+        // Both actions receive JSON-ish body. We shape the response by inspecting
+        // the postData: submitPublicEditAction receives {articleText, strategyId},
+        // getEditRunStatusAction receives a bare UUID string.
+        const body = request.postData() ?? '';
+        if (body.includes('articleText')) {
+          // Return a Server Actions response envelope. The publicAction wrapper
+          // shape is { success: true, data: {...}, error: null }.
+          const envelope = { success: true, data: { runId: FAKE_RUN_ID }, error: null };
+          return route.fulfill({
+            status: 200,
+            contentType: 'text/x-component',
+            headers: { 'x-action-mock': 'submit' },
+            body: `0:${JSON.stringify(envelope)}\n`,
+          });
+        }
+        // Otherwise assume it's a getEditRunStatusAction call.
+        const envelope = { success: true, data: MOCK_COMPLETED_RESPONSE, error: null };
+        return route.fulfill({
+          status: 200,
+          contentType: 'text/x-component',
+          headers: { 'x-action-mock': 'status' },
+          body: `0:${JSON.stringify(envelope)}\n`,
+        });
+      },
+    );
   });
 
-  test.afterAll(async () => {
-    // Cleanup: delete any runs created by the spec to avoid burning minicomputer
-    // budget. Best-effort — if delete fails, the [E2E] title prefix lets the
-    // test-content cleanup workflow GC them on the next nightly.
-    for (const runId of createdRunIds) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase.from('evolution_runs') as any).delete().eq('id', runId);
-    }
+  test.afterEach(async ({ page }) => {
+    // Rule 10: prevent handler stacking across tests.
+    await page.unrouteAll({ behavior: 'wait' });
   });
 
-  test('form → submit → run row inserted with run_source=public_edit + browser navigates to /edit/runs/<id>', async ({ page }) => {
+  test('form → submit → mocked redirect to /edit/runs/<id> → viewing phase renders', async ({ page }) => {
     await page.goto('/edit');
 
     const form = page.getByTestId('edit-form');
     const empty = page.getByTestId('edit-form-no-strategies');
     await expect(form.or(empty)).toBeVisible();
 
+    // If the picker is empty (no public strategies at all), we still can't
+    // exercise the submit — this environment has no seeded picker rows.
+    // Once the widened filter surfaces real strategies on staging, this
+    // branch becomes dead; keep as defensive fallback for local dev.
     if ((await form.count()) === 0) {
-      // No public_visible strategy in test DB → can't exercise submit. Self-skip
-      // (the picker-population path is covered by edit-flow.spec.ts).
-      // eslint-disable-next-line flakiness/no-test-skip -- environmental: needs a seeded public_visible strategy
-      test.skip(true, 'no seeded public_visible strategy in test DB');
+      // eslint-disable-next-line flakiness/no-test-skip -- environmental: no strategies in test DB
+      test.skip(true, 'no strategies visible in test env');
+      return;
     }
 
-    const articleText = `[E2E submit-flow] A short article for the smoke test. Run at ${Date.now()}. It contains a few sentences so the validator sees something to chew on.`;
+    // Fill textarea. Any content ≥ 1 char passes client + server input validation.
+    const articleText = `[E2E submit-flow] Route-mocked spec run at ${Date.now()}.`;
     await page.getByTestId('edit-textarea').fill(articleText);
 
-    // Click the first available strategy option.
-    const firstOption = page.locator('[data-testid^="strategy-option-"]').first();
-    await firstOption.click();
-
+    // With the combobox, a strategy is auto-selected on page load (first option).
+    // No picker click needed — just submit.
     await page.getByTestId('edit-submit').click();
 
-    // The page should navigate to /edit/runs/<runId>. Wait for the URL to flip.
-    await page.waitForURL(/\/edit\/runs\/[0-9a-f-]{36}/, { timeout: 15_000 });
-    const url = page.url();
-    const runId = url.match(/\/edit\/runs\/([0-9a-f-]{36})/)?.[1];
-    expect(runId).toBeTruthy();
-    createdRunIds.push(runId!);
+    // Route-mock returns fake runId → client navigates. Wait for URL flip.
+    await page.waitForURL(`**/edit/runs/${FAKE_RUN_ID}`, { timeout: 15_000 });
 
-    // Verify the run was actually created in the DB with the right shape.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: run, error } = await (supabase.from('evolution_runs') as any)
-      .select('id, run_source, status, explanation_id, budget_cap_usd')
-      .eq('id', runId)
-      .single();
-    expect(error).toBeNull();
-    expect(run.run_source).toBe('public_edit');
-    expect(run.status).toMatch(/^(pending|claimed|running|completed|failed)$/);
-    expect(run.explanation_id).toBeTruthy();
-    expect(Number(run.budget_cap_usd)).toBeLessThanOrEqual(0.10);
-
-    // Cleanup: cancel the run if still pending so we don't burn minicomputer
-    // budget on the test article. The pipeline may already have claimed it;
-    // that's fine, we just leave it (the row will be GC'd by the test-content
-    // cleanup workflow on the [E2E] title prefix).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from('evolution_runs') as any)
-      .update({ status: 'cancelled', error_message: 'cancelled by E2E submit-flow spec' })
-      .eq('id', runId)
-      .eq('status', 'pending');
+    // Viewing phase should render since getEditRunStatusAction is mocked to
+    // return status='completed' immediately.
+    await expect(page.getByTestId('edit-run-viewing')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('edit-run-meta-strip')).toContainText("Rewrote with 'Quick polish'");
+    await expect(page.getByTestId('edit-run-meta-strip')).toContainText('$0.04');
   });
 });
