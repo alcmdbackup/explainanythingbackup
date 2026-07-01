@@ -174,13 +174,13 @@ adminTest.describe('Self-Critique Revise Pipeline', { tag: '@evolution' }, () =>
     // Log what happened for post-mortem visibility.
     const { data: finalRun } = await sb
       .from('evolution_runs')
-      .select('status, error_message, error_code')
+      .select('status, error_message')
       .eq('id', runId)
       .single();
     // eslint-disable-next-line no-console
     console.log(`[self-critique-e2e] run finished with status=${finalRun?.status}${
-      finalRun?.error_code ? ` error_code=${finalRun.error_code}` : ''
-    }${finalRun?.error_message ? ` error=${String(finalRun.error_message).slice(0, 200)}` : ''}`);
+      finalRun?.error_message ? ` error=${String(finalRun.error_message).slice(0, 200)}` : ''
+    }`);
   });
 
   adminTest.afterAll(async () => {
