@@ -30,6 +30,9 @@ import { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 export interface ComboboxOption {
   value: string;
   label: string;
+  /** Optional additional keywords to match against the search input. Useful for
+   *  options that carry description/model/badge text beyond the display label. */
+  keywords?: string[];
 }
 
 export interface ComboboxProps {
@@ -45,6 +48,15 @@ export interface ComboboxProps {
   testId?: string;
   /** ARIA label for the input. */
   'aria-label'?: string;
+  /** Optional per-row custom renderer. When omitted the default renders opt.label
+   *  as plain text. When provided, replaces the row body — useful when options
+   *  carry badges/buttons alongside the label. The function receives the option
+   *  (typed as ComboboxOption; consumers with richer option types can cast). */
+  renderOption?: (option: ComboboxOption) => React.ReactNode;
+  /** Width override for the input. Defaults to 'w-48' for compact contexts. */
+  inputClassName?: string;
+  /** Width override for the popup listbox. Defaults to 'w-72'. */
+  listboxClassName?: string;
 }
 
 /** Minimal searchable single-select combobox. Uses native focus management
@@ -58,6 +70,9 @@ export function Combobox({
   className = '',
   testId,
   'aria-label': ariaLabel,
+  renderOption,
+  inputClassName = 'w-48',
+  listboxClassName = 'w-72',
 }: ComboboxProps): JSX.Element {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -72,7 +87,12 @@ export function Combobox({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return options;
-    return options.filter(o => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q));
+    return options.filter(o => {
+      if (o.label.toLowerCase().includes(q)) return true;
+      if (o.value.toLowerCase().includes(q)) return true;
+      if (o.keywords?.some(k => k.toLowerCase().includes(q))) return true;
+      return false;
+    });
   }, [options, query]);
 
   useEffect(() => {
@@ -139,14 +159,14 @@ export function Combobox({
         aria-activedescendant={activeIdx >= 0 ? `${idPrefix}-opt-${activeIdx}` : undefined}
         aria-label={ariaLabel}
         data-testid={testId}
-        className="px-2 py-1 text-xs font-ui bg-[var(--surface-input)] text-[var(--text-secondary)] border border-[var(--border-default)] rounded-page w-48"
+        className={`px-2 py-1 text-xs font-ui bg-[var(--surface-input)] text-[var(--text-secondary)] border border-[var(--border-default)] rounded-page ${inputClassName}`}
       />
       {open && (
         <ul
           ref={listRef}
           id={listboxId}
           role="listbox"
-          className="absolute z-20 mt-1 w-72 max-h-72 overflow-y-auto border border-[var(--border-default)] rounded-page bg-[var(--surface-elevated)] shadow-warm-lg"
+          className={`absolute z-20 mt-1 ${listboxClassName} max-h-72 overflow-y-auto border border-[var(--border-default)] rounded-page bg-[var(--surface-elevated)] shadow-warm-lg`}
         >
           {filtered.length === 0 ? (
             <li className="px-2 py-1 text-xs text-[var(--text-muted)]">No matches</li>
@@ -163,9 +183,9 @@ export function Combobox({
                   : opt.value === value
                     ? 'bg-[var(--surface-secondary)] text-[var(--text-primary)]'
                     : 'text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)]'}`}
-                data-testid={`${idPrefix}-opt-${i}`}
+                data-testid={`${idPrefix}-opt-${opt.value}`}
               >
-                {opt.label}
+                {renderOption ? renderOption(opt) : opt.label}
               </li>
             ))
           )}

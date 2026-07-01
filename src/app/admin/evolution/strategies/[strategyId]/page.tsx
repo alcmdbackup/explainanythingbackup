@@ -21,7 +21,7 @@ import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
 import { VariantsTab } from '@evolution/components/evolution/tabs/VariantsTab';
 import { AttributionCharts } from '@evolution/components/evolution/tabs/AttributionCharts';
 import { TacticStrategyPerformanceTable } from '@evolution/components/evolution/tabs/TacticStrategyPerformanceTable';
-import { StrategyConfigDisplay } from '@/app/admin/evolution/_components/StrategyConfigDisplay';
+import { StrategyConfigDisplay } from '@/components/strategy/StrategyConfigDisplay';
 import {
   getStrategyDetailAction,
   type StrategyListItem,
