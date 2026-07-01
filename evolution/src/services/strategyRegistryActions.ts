@@ -117,11 +117,12 @@ const updateStrategySchema = z.object({
   publicVisible: z.boolean().optional(),
 });
 
-/** Maximum per-run budget allowed on a strategy that's also public_visible=true.
- *  Matches the per-run cap on /edit submissions (evolution_runs.budget_cap_usd = $0.10). */
+/** @deprecated Post-improvements_to_edit_page_evolution_20260630 — public_visible
+ *  no longer gates the /edit picker (see PUBLIC_EDIT_WIDEN_FILTER + publicStrategyFilter.ts).
+ *  Slated for cleanup (column drop + admin toggle removal) in a follow-up PR. */
 const PUBLIC_VISIBLE_BUDGET_CAP_USD = 0.10;
 
-/** Structured error code for the admin UI tooltip when a budget-cap toggle fails. */
+/** @deprecated See PUBLIC_VISIBLE_BUDGET_CAP_USD note above. */
 const ERR_PUBLIC_VISIBLE_BUDGET_TOO_HIGH = 'PUBLIC_VISIBLE_BUDGET_TOO_HIGH';
 
 // ─── Actions ────────────────────────────────────────────────────
@@ -336,9 +337,17 @@ export const updateStrategyAction = adminAction(
     if (error) throw error;
 
     // Invalidate the public-strategies cache so the next /edit page load reflects
-    // the toggle immediately within this serverless instance. Cross-instance
-    // staleness is bounded by the 60s TTL.
-    if (parsed.publicVisible !== undefined) {
+    // the change immediately within this serverless instance. Cross-instance
+    // staleness is bounded by the 60s TTL. Post-improvements_to_edit_page_evolution_20260630
+    // we widen invalidation to ANY change that could affect the public picker set:
+    // status, is_test_content (indirect via name change — but name isn't in updateStrategySchema),
+    // publicVisible (legacy filter), and — via cloneStrategyAction/archiveStrategyAction/
+    // deleteStrategyAction — presence changes. budgetUsd changes come through a separate path
+    // (there's no updateStrategy endpoint for config today); when that lands, add invalidation there too.
+    const affectsPublicSet =
+      parsed.publicVisible !== undefined ||
+      parsed.status !== undefined;
+    if (affectsPublicSet) {
       await invalidatePublicStrategiesCache();
     }
 
@@ -416,6 +425,9 @@ export const archiveStrategyAction = adminAction(
       .eq('id', strategyId);
     if (error) throw error;
 
+    // Archiving changes the public-picker set (status transitions active→archived).
+    await invalidatePublicStrategiesCache();
+
     const stratLogger = createEntityLogger({
       entityType: 'strategy',
       entityId: strategyId,
@@ -458,19 +470,29 @@ export const deleteStrategyAction = adminAction(
       throw error;
     }
 
+    // Deletion removes the strategy from the public picker set.
+    await invalidatePublicStrategiesCache();
+
     stratLogger.info('Strategy deleted');
     return { deleted: true };
   },
 );
 
 // ─── Public (unauthed) /edit picker support ─────────────────────────
-// Phase 1 of build_website_for_evolutiOn_20260626. The /edit page calls
-// listPublicStrategiesAction (via the publicAction wrapper) to populate its
-// strategy picker. Only rows with public_visible=true AND status='active' AND
-// is_test_content=false are returned. Cached 60s per serverless instance for
-// hot-path UX; invalidated by updateStrategyAction when publicVisible flips.
+// Phase 1 of build_website_for_evolutiOn_20260626 (widened by
+// improvements_to_edit_page_evolution_20260630). The /edit page calls
+// listPublicStrategiesAction to populate its picker. Filter shape lives in
+// ./publicStrategyFilter for a single source of truth shared with
+// submitPublicEditAction. When PUBLIC_EDIT_WIDEN_FILTER='true' (default 'false'
+// for backwards compat), all active non-test non-mock strategies are surfaced;
+// otherwise only public_visible=true strategies pass.
 
 import { publicAction, type PublicContext } from './publicAction';
+import {
+  assertStrategyPubliclySubmittable,
+  filterPubliclySubmittable,
+  NotPubliclySubmittableError,
+} from './publicStrategyFilter';
 
 export interface PublicStrategySummary {
   id: string;
@@ -480,6 +502,9 @@ export interface PublicStrategySummary {
   generationModel: string;
   judgeModel: string;
   iterationCount: number;
+  /** Per-strategy budget cap in USD. Drives the picker warning badge when > $0.10
+   *  and is the reservation amount at submit time. */
+  budgetUsd: number;
 }
 
 interface CacheEntry {
@@ -489,11 +514,39 @@ interface CacheEntry {
 const PUBLIC_STRATEGIES_CACHE_TTL_MS = 60_000;
 let publicStrategiesCache: CacheEntry | null = null;
 
-/** Drop the public-strategies cache. Called from updateStrategyAction whenever
- *  publicVisible changes. Best-effort, per serverless instance.
+/** Drop the public-strategies cache. Called from updateStrategyAction,
+ *  archiveStrategyAction, deleteStrategyAction whenever the public-picker set
+ *  could change. Best-effort, per serverless instance.
  *  Async by necessity — the file is 'use server', which only allows async exports. */
 export async function invalidatePublicStrategiesCache(): Promise<void> {
   publicStrategiesCache = null;
+}
+
+/** Row shape returned by the DB query. */
+type PublicStrategyRow = {
+  id: string;
+  name: string;
+  label: string | null;
+  description: string | null;
+  config: StrategyConfig | null;
+  public_visible: boolean | null;
+  status: string;
+  is_test_content: boolean;
+};
+
+/** Map a filter-passing DB row to the summary shape. */
+function toSummary(row: PublicStrategyRow): PublicStrategySummary {
+  const config = (row.config ?? {}) as StrategyConfig;
+  return {
+    id: row.id,
+    name: row.name,
+    label: row.label ?? '',
+    description: row.description ?? null,
+    generationModel: config.generationModel ?? 'unknown',
+    judgeModel: config.judgeModel ?? 'unknown',
+    iterationCount: Array.isArray(config.iterationConfigs) ? config.iterationConfigs.length : 0,
+    budgetUsd: typeof config.budgetUsd === 'number' ? config.budgetUsd : 0,
+  };
 }
 
 export const listPublicStrategiesAction = publicAction(
@@ -503,37 +556,21 @@ export const listPublicStrategiesAction = publicAction(
       return publicStrategiesCache.value;
     }
 
+    // Fetch all active non-test rows; JS-side filter for mock model + public_visible
+    // (when widen flag is off) via the shared helper.
     // public_visible added by migration 20260627000003; cast until db.types regenerate.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const q: any = ctx.supabase
       .from('evolution_strategies')
       .select('id, name, label, description, config, public_visible, status, is_test_content')
-      .eq('public_visible', true)
       .eq('status', 'active')
       .eq('is_test_content', false);
     const { data, error } = await q;
 
     if (error) throw error;
 
-    type StrategyRow = {
-      id: string;
-      name: string;
-      label: string | null;
-      description: string | null;
-      config: StrategyConfig;
-    };
-    const items: PublicStrategySummary[] = ((data ?? []) as StrategyRow[]).map((row) => {
-      const config = (row.config ?? {}) as StrategyConfig;
-      return {
-        id: row.id,
-        name: row.name,
-        label: row.label ?? '',
-        description: row.description ?? null,
-        generationModel: config.generationModel ?? 'unknown',
-        judgeModel: config.judgeModel ?? 'unknown',
-        iterationCount: Array.isArray(config.iterationConfigs) ? config.iterationConfigs.length : 0,
-      };
-    });
+    const rows = (data ?? []) as PublicStrategyRow[];
+    const items: PublicStrategySummary[] = filterPubliclySubmittable(rows).map(toSummary);
 
     publicStrategiesCache = {
       value: items,
@@ -541,5 +578,30 @@ export const listPublicStrategiesAction = publicAction(
     };
 
     return items;
+  },
+);
+
+/** Fetch the full StrategyConfig for ONE public strategy, for the /edit picker's
+ *  "Show config" detail modal. Re-runs the widened submittability check so a
+ *  strategy that's disappeared from the public set between page load and modal
+ *  open cannot leak its config. */
+export const getPublicStrategyConfigAction = publicAction(
+  'getPublicStrategyConfig',
+  async (strategyId: string, ctx: PublicContext): Promise<StrategyConfig> => {
+    if (!validateUuid(strategyId)) throw new Error('Invalid strategyId');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const q: any = ctx.supabase
+      .from('evolution_strategies')
+      .select('id, config, public_visible, status, is_test_content')
+      .eq('id', strategyId)
+      .maybeSingle();
+    const { data, error } = await q;
+    if (error) throw error;
+    if (!data) throw new NotPubliclySubmittableError('STATUS', `Strategy not found: ${strategyId}`);
+
+    const row = data as PublicStrategyRow;
+    assertStrategyPubliclySubmittable(row);
+    return (row.config ?? {}) as StrategyConfig;
   },
 );

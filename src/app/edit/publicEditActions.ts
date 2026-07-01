@@ -1,12 +1,13 @@
 'use server';
-// Public /edit server actions (Phase 1 of build_website_for_evolutiOn_20260626).
+// Public /edit server actions (Phase 1 of build_website_for_evolutiOn_20260626,
+// widened by improvements_to_edit_page_evolution_20260630).
 //
 // Unauthed surface — uses publicAction wrapper (no requireAdmin). Cost discipline
 // enforced through layered caps:
 //   1. Vercel BotID (checkBotId) before any work
 //   2. Per-IP + per-region $ caps via perIpSpendingGate (Upstash)
 //   3. Pre-submission affordability check against remaining budgets
-//   4. evolution_runs.budget_cap_usd = $0.10 per submission
+//   4. evolution_runs.budget_cap_usd = strategy.config.budgetUsd per submission
 //   5. Per-user gate (shared guest pool, via LLMSpendingGate.reserveForUser inside callLLM)
 //   6. Global evolution_daily_cap_usd / monthly cap
 //
@@ -17,17 +18,16 @@ import { publicAction, type PublicContext } from '@evolution/services/publicActi
 import { getPerIpSpendingGate, getClientGeo, PerIpBudgetExceededError } from '@/lib/services/perIpSpendingGate';
 import { getSpendingGate } from '@/lib/services/llmSpendingGate';
 import { validateRunContentRefs } from '@evolution/services/shared';
+import {
+  assertStrategyPubliclySubmittable,
+  NotPubliclySubmittableError,
+} from '@evolution/services/publicStrategyFilter';
 import { z } from 'zod';
 import { headers as nextHeaders } from 'next/headers';
 import { checkBotId } from 'botid/server';
 import { logger } from '@/lib/server_utilities';
 
 // ─── Constants ─────────────────────────────────────────────────────
-
-/** Hard per-run budget cap for /edit submissions. Matches the public_visible
- *  whitelist guard (Phase 1: updateStrategyAction refuses publicVisible=true
- *  when config.budgetUsd > $0.10). */
-const PER_RUN_BUDGET_CAP_USD = 0.10;
 
 /** [EDIT] title prefix used to (a) discriminate /edit content from real
  *  explanations in the discovery filters and (b) clearly label admin views. */
@@ -46,6 +46,11 @@ const submitInputSchema = z.object({
 
 const runIdSchema = z.string().uuid();
 
+/** Trust-boundary validator on the strategy's per-run budget cap. Upper bound
+ *  matches the outer guest_user_daily_cap_usd — no strategy that costs more
+ *  than one full guest-pool day can possibly complete a single /edit run. */
+const strategyBudgetSchema = z.number().positive().max(10);
+
 // ─── Types ─────────────────────────────────────────────────────────
 
 export interface SubmitPublicEditResult {
@@ -59,6 +64,10 @@ export interface EditRunStatus {
   errorMessage: string | null;
   costSpent: number | null;
   etaSeconds: number | null;
+  /** Human-readable name of the strategy that produced this run — surfaced on
+   *  the viewing-phase meta strip. Null when strategy row can't be joined
+   *  (deleted, etc.). */
+  strategyLabel: string | null;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────
@@ -83,14 +92,11 @@ function buildEditTitle(articleText: string, uniqueSuffix: string): string {
   return `${EDIT_TITLE_PREFIX} ${trimmed}${ellipsis} · ${uniqueSuffix}`;
 }
 
-/** Rough estimate of /edit run cost from articleText length. Used by the
- *  pre-submission affordability check. We don't have the full strategy projector
- *  call wired here for v1; conservative upper bound = per-run cap. */
-function estimateRunCostUsd(): number {
-  // Conservative: the per-run cap is the upper bound; use it for affordability.
-  // Follow-up: invoke projectDispatchPlan(strategy.config, ...).expected for
-  // a tighter estimate, but the cap-based estimate is fail-safe.
-  return PER_RUN_BUDGET_CAP_USD;
+/** Rough estimate of /edit run cost. Conservative: the strategy's own
+ *  per-run budgetUsd IS the upper bound and doubles as the reservation
+ *  amount for per-IP/per-region/guest-pool gates. Fail-safe. */
+function estimateRunCostUsd(budgetUsd: number): number {
+  return budgetUsd;
 }
 
 // ─── Actions ───────────────────────────────────────────────────────
@@ -125,30 +131,52 @@ export const submitPublicEditAction = publicAction(
     // 3. Input validation
     const parsed = submitInputSchema.parse(input);
 
-    // 4. Strategy must be in the public whitelist (public_visible=true,
-    //    status=active, is_test_content=false). Read by strategy_id direct
-    //    rather than going through listPublicStrategiesAction so we don't
-    //    pay the cache-pollution cost on every submit.
+    // 4. Fetch strategy + apply the shared submittability filter (widened by
+    //    PUBLIC_EDIT_WIDEN_FILTER='true'; legacy = require public_visible=true).
+    //    Read by strategy_id directly rather than going through
+    //    listPublicStrategiesAction so we don't pay the cache-pollution cost.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const strategyQuery: any = ctx.supabase
       .from('evolution_strategies')
-      .select('id, name, config, public_visible, status, is_test_content')
+      .select('id, name, label, config, public_visible, status, is_test_content')
       .eq('id', parsed.strategyId)
-      .eq('public_visible', true)
-      .eq('status', 'active')
-      .eq('is_test_content', false)
       .maybeSingle();
     const { data: strategy, error: stratErr } = await strategyQuery;
     if (stratErr) throw stratErr;
     if (!strategy) {
       throw new Error(`Strategy not available for public submissions: ${parsed.strategyId}`);
     }
+    try {
+      assertStrategyPubliclySubmittable(strategy);
+    } catch (err) {
+      if (err instanceof NotPubliclySubmittableError) {
+        const wrapped = new Error(`Strategy not available for public submissions: ${err.code}`) as Error & { status?: number };
+        wrapped.status = 403;
+        wrapped.cause = err;
+        throw wrapped;
+      }
+      throw err;
+    }
+
+    // 4b. Validate budgetUsd at the trust boundary. Defense-in-depth: the
+    //     strategy row should always have a valid positive budget, but a bad
+    //     value here would break the reservation math and could underspec
+    //     the per-IP/per-region gates.
+    const budgetParse = strategyBudgetSchema.safeParse(strategy.config?.budgetUsd);
+    if (!budgetParse.success) {
+      const err = new Error(
+        `Strategy has invalid budgetUsd: ${strategy.config?.budgetUsd}`,
+      ) as Error & { code?: string };
+      err.code = 'INVALID_STRATEGY_BUDGET';
+      throw err;
+    }
+    const strategyBudgetUsd = budgetParse.data;
 
     // 5. Geo + per-IP/per-region affordability check
     const reqHeaders = await nextHeaders();
     const { ip, country } = getClientGeo(reqHeaders);
     const perIpGate = getPerIpSpendingGate();
-    const estRunCost = estimateRunCostUsd();
+    const estRunCost = estimateRunCostUsd(strategyBudgetUsd);
     const { ipRemaining, regionRemaining } = await perIpGate.remainingForIp(ip, country);
     if (estRunCost > Math.min(ipRemaining, regionRemaining)) {
       logger.info('submitPublicEdit refused — pre-submission affordability check', {
@@ -257,7 +285,7 @@ export const submitPublicEditAction = publicAction(
         .insert({
           explanation_id: explanationId,
           strategy_id: parsed.strategyId,
-          budget_cap_usd: PER_RUN_BUDGET_CAP_USD,
+          budget_cap_usd: strategyBudgetUsd,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any -- run_source added by migration 20260627000004
           run_source: 'public_edit' as any,
           status: 'pending',
@@ -290,14 +318,24 @@ export const getEditRunStatusAction = publicAction(
   async (input: string, ctx: PublicContext): Promise<EditRunStatus> => {
     const runId = runIdSchema.parse(input);
 
-    // Read the run + the originating explanation content.
-    const { data: run, error: runErr } = await ctx.supabase
+    // Read the run + the originating explanation content + the strategy label
+    // (label ?? name). PostgREST embed picks up the strategy row via strategy_id FK.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const runQuery: any = ctx.supabase
       .from('evolution_runs')
-      .select('id, status, error_message, explanation_id')
+      .select('id, status, error_message, explanation_id, strategy_id, strategy:evolution_strategies(label, name)')
       .eq('id', runId)
       .maybeSingle();
+    const { data: run, error: runErr } = await runQuery;
     if (runErr) throw runErr;
     if (!run) throw new Error(`Run not found: ${runId}`);
+    const strategyLabel: string | null = (() => {
+      const s = run.strategy as { label?: string | null; name?: string | null } | null;
+      if (!s) return null;
+      const label = typeof s.label === 'string' && s.label.length > 0 ? s.label : null;
+      const name = typeof s.name === 'string' && s.name.length > 0 ? s.name : null;
+      return label ?? name ?? null;
+    })();
 
     let originalContent = '';
     if (run.explanation_id) {
@@ -347,6 +385,7 @@ export const getEditRunStatusAction = publicAction(
       costSpent,
       // Rough ETA: pending = ~30s queue wait, claimed/running = depends. v1 is null.
       etaSeconds: run.status === 'pending' ? 30 : null,
+      strategyLabel,
     };
   },
 );

@@ -1,3 +1,12 @@
+// @deprecated Post-improvements_to_edit_page_evolution_20260630 Phase 4.
+// The mock-model filter (generationModel !== 'mock' in publicStrategyFilter.ts)
+// now excludes this strategy from BOTH listPublicStrategiesAction AND
+// submitPublicEditAction, so it can no longer serve the E2E picker path.
+// edit-submit-flow.spec.ts was rewritten to route-mock the server actions,
+// so this seed script has no active call sites. Slated for deletion in a
+// follow-up PR once the orphaned staging row is manually cleaned up.
+//
+// Original purpose (kept for historical reference):
 // Seed the `Public Edit Smoke` strategy used by the /edit E2E spec
 // (Phase 1 / Phase 2 of build_website_for_evolutiOn_20260626).
 //

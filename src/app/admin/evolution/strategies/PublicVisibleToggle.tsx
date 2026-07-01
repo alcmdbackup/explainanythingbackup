@@ -2,6 +2,10 @@
 // Inline toggle for the evolution_strategies.public_visible column on the
 // admin Strategies list + detail pages (Phase 3 of build_website_for_evolutiOn_20260626).
 //
+// @deprecated Post-improvements_to_edit_page_evolution_20260630 — public_visible
+// no longer gates the /edit picker filter when PUBLIC_EDIT_WIDEN_FILTER='true'.
+// Slated for cleanup (column drop + this file's deletion) in a follow-up PR.
+//
 // Disabled when config.budgetUsd > $0.10 with a tooltip explaining why.
 // Optimistic UI: flips immediately, calls updateStrategyAction, reverts on
 // error with a toast showing the structured error message.
@@ -11,6 +15,7 @@ import { toast } from 'sonner';
 import { updateStrategyAction } from '@evolution/services/strategyRegistryActions';
 import type { StrategyConfig } from '@evolution/lib/pipeline/infra/types';
 
+/** @deprecated see file-level note. */
 const PUBLIC_VISIBLE_BUDGET_CAP_USD = 0.10;
 
 interface Props {

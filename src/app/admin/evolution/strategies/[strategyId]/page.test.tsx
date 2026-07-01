@@ -60,7 +60,7 @@ jest.mock('@evolution/components/evolution/tabs/LogsTab', () => ({
   ),
 }));
 
-jest.mock('@/app/admin/evolution/_components/StrategyConfigDisplay', () => ({
+jest.mock('@/components/strategy/StrategyConfigDisplay', () => ({
   StrategyConfigDisplay: ({ config }: { config: unknown }) => (
     <div data-testid="strategy-config-display">Config</div>
   ),

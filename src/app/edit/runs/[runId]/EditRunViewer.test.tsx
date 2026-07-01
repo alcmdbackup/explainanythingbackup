@@ -5,6 +5,7 @@
 // of isInFlight + N-failures-tolerance.
 
 import { render, screen, act } from '@testing-library/react';
+import type React from 'react';
 import EditRunViewer from './EditRunViewer';
 
 const mockGetEditRunStatusAction = jest.fn();
@@ -17,6 +18,19 @@ jest.mock('@evolution/components/evolution/visualizations/SideBySideWordDiff', (
   SideBySideWordDiff: () => <div data-testid="diff-viewer-mock" />,
 }));
 
+// Mock EntityDetailTabs as a passthrough that renders both tab bodies so we
+// can assert on tab-panel content without driving tab state in unit tests.
+jest.mock('@evolution/components/evolution/sections/EntityDetailTabs', () => ({
+  EntityDetailTabs: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  useTabState: () => ['variant', jest.fn()],
+}));
+
+// Mock react-markdown as a passthrough — we're not testing markdown rendering here.
+jest.mock('react-markdown', () => ({
+  __esModule: true,
+  default: ({ children }: { children: string }) => <div data-testid="react-markdown">{children}</div>,
+}));
+
 const RUN_ID = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa';
 
 function makeStatusResponse(status: 'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'cancelled', overrides: Record<string, unknown> = {}) {
@@ -27,8 +41,9 @@ function makeStatusResponse(status: 'pending' | 'claimed' | 'running' | 'complet
       originalContent: 'original text',
       winnerVariantContent: status === 'completed' ? 'evolved text' : null,
       errorMessage: null,
-      costSpent: null,
+      costSpent: status === 'completed' ? 0.04 : null,
       etaSeconds: null,
+      strategyLabel: status === 'completed' ? 'Quick polish' : null,
       ...overrides,
     },
     error: null,
@@ -119,7 +134,7 @@ describe('EditRunViewer polling loop', () => {
     mockGetEditRunStatusAction.mockResolvedValueOnce(makeStatusResponse('completed'));
     render(<EditRunViewer runId={RUN_ID} />);
     await act(async () => { await Promise.resolve(); });
-    expect(screen.queryByTestId('diff-viewer-mock')).not.toBeNull();
+    expect(screen.queryByTestId('edit-run-viewing')).not.toBeNull();
   });
 
   // Regression for the 2026-06-30 timeout-before-status-check bug. If the
@@ -148,7 +163,7 @@ describe('EditRunViewer polling loop', () => {
       jest.advanceTimersByTime(11 * 60 * 1_000);
     });
     await act(async () => { await Promise.resolve(); });
-    expect(screen.queryByTestId('diff-viewer-mock')).not.toBeNull();
+    expect(screen.queryByTestId('edit-run-viewing')).not.toBeNull();
     expect(screen.queryByTestId('edit-run-error')).toBeNull();
   });
 

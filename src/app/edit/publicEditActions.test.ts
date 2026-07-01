@@ -133,7 +133,18 @@ describe('submitPublicEditAction', () => {
 
   it('happy path: insert topic + explanation + run, returns runId', async () => {
     mockSupabaseChain({
-      strategyRow: { id: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', config: { generationModel: 'mock', judgeModel: 'mock', iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }] } },
+      strategyRow: {
+        id: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
+        status: 'active',
+        is_test_content: false,
+        public_visible: true,
+        config: {
+          generationModel: 'gpt-4.1-mini',
+          judgeModel: 'qwen-2.5-7b-instruct',
+          iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }],
+          budgetUsd: 0.05,
+        },
+      },
       topicRow: { id: 42 },
       explanationRow: { id: 99 },
       runRow: { id: 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb' },
@@ -165,7 +176,16 @@ describe('submitPublicEditAction', () => {
         }),
         select: jest.fn(() => ({
           eq: jest.fn().mockReturnThis(),
-          maybeSingle: async () => ({ data: { id: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', config: { generationModel: 'mock', judgeModel: 'mock', iterationConfigs: [] } }, error: null }),
+          maybeSingle: async () => ({
+            data: {
+              id: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
+              status: 'active',
+              is_test_content: false,
+              public_visible: true,
+              config: { generationModel: 'gpt-4.1-mini', judgeModel: 'qwen-2.5-7b-instruct', iterationConfigs: [], budgetUsd: 0.05 },
+            },
+            error: null,
+          }),
           single: async () => ({ data: { id: 99 }, error: null }),
         })),
       })),

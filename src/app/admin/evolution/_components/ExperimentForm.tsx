@@ -12,7 +12,7 @@ import {
 } from '@evolution/services/experimentActions';
 import { createPromptAction } from '@evolution/services/arenaActions';
 import { FormDialog, type FieldDef } from '@evolution/components/evolution';
-import { StrategyConfigDisplay } from './StrategyConfigDisplay';
+import { StrategyConfigDisplay } from '@/components/strategy/StrategyConfigDisplay';
 import { labelStrategyConfig, type StrategyHashInput } from '@evolution/lib/shared/hashStrategyConfig';
 
 interface ExperimentFormProps {

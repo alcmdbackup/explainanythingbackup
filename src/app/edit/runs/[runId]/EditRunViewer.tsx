@@ -1,12 +1,17 @@
 'use client';
-// Client child of /edit/runs/[runId] page (Phase 2).
+// Client child of /edit/runs/[runId] page (Phase 2 of build_website_for_evolutiOn_20260626).
+// Refactored by improvements_to_edit_page_evolution_20260630 Phase 3:
+// - Viewing phase split into "Improved article" + "Diff" tabs
+// - Meta strip shows strategyLabel + costSpent + duration
+// - Variant tab renders LLM output as prose via react-markdown (XSS-defended
+//   via editRunMarkdownComponents component-map + sanitizeMarkdownUrl urlTransform)
+// - Diff tab keeps existing SideBySideWordDiff (relabeled "Rewrite")
 //
 // Polls getEditRunStatusAction every 3s while status ∈ {pending, claimed, running}.
-// Hard timeout at 10 minutes (200 polls). Once status='completed', renders the
-// side-by-side diff via SideBySideWordDiff with leftLabel="Your text" /
-// rightLabel="Evolved" — matches the variant-details "Diff vs parent" pattern.
+// Hard timeout at 10 minutes (200 polls).
 
 import { useReducer, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { getEditRunStatusAction } from '../../publicEditActions';
 import {
   editPageLifecycleReducer,
@@ -14,6 +19,9 @@ import {
   isInFlight,
 } from '@/reducers/editPageLifecycleReducer';
 import { SideBySideWordDiff } from '@evolution/components/evolution/visualizations/SideBySideWordDiff';
+import { EntityDetailTabs, useTabState, type TabDef } from '@evolution/components/evolution/sections/EntityDetailTabs';
+import { editRunMarkdownComponents } from './editRunMarkdownComponents';
+import { sanitizeMarkdownUrl } from '@/lib/utils/sanitizeMarkdownUrl';
 
 const POLL_INTERVAL_MS = 3_000;
 const MAX_POLL_DURATION_MS = 10 * 60 * 1_000;
@@ -24,6 +32,11 @@ const MAX_POLL_DURATION_MS = 10 * 60 * 1_000;
  *  loss before we give up. */
 const MAX_CONSECUTIVE_POLL_ERRORS = 5;
 
+const VIEWING_TABS: TabDef[] = [
+  { id: 'variant', label: 'Improved article' },
+  { id: 'diff', label: 'Diff' },
+];
+
 interface Props {
   runId: string;
 }
@@ -31,13 +44,9 @@ interface Props {
 export default function EditRunViewer({ runId }: Props): JSX.Element | null {
   const [state, dispatch] = useReducer(editPageLifecycleReducer, initialEditPageState);
   const startedAtRef = useRef<number | null>(null);
-  // Polling-loop refs. Keeping the interval id outside the useEffect closure
-  // lets tick() self-clear on terminal transitions — eliminates the need to
-  // depend on `state` (which used to recreate the interval ~3×/second).
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const consecutiveErrorsRef = useRef<number>(0);
 
-  // Seed: assume queued, kick off polling.
   useEffect(() => {
     if (startedAtRef.current === null) {
       startedAtRef.current = Date.now();
@@ -58,17 +67,10 @@ export default function EditRunViewer({ runId }: Props): JSX.Element | null {
     const tick = async (): Promise<void> => {
       if (cancelled) return;
       const elapsedMs = Date.now() - startedAt;
-      // Always fetch status first — the elapsed-time backstop only fires when
-      // the run is STILL in-flight past 10 min. If the run has already
-      // completed (e.g. user backgrounded the tab → browser throttled
-      // setInterval to 1/min → polling missed the completion window), we
-      // want to surface the diff rather than the timeout error.
       try {
         const result = await getEditRunStatusAction(runId);
         if (cancelled) return;
         if (!result?.success || !result.data) {
-          // Treat action-level errors as transient too (Vercel function blips,
-          // Supabase 503s). Bail only after N consecutive failures.
           consecutiveErrorsRef.current += 1;
           if (consecutiveErrorsRef.current >= MAX_CONSECUTIVE_POLL_ERRORS) {
             dispatch({ type: 'POLL_FAILED', runId, message: result?.error?.message ?? 'Could not fetch run status.' });
@@ -84,7 +86,8 @@ export default function EditRunViewer({ runId }: Props): JSX.Element | null {
             runId,
             originalContent: result.data.originalContent,
             winnerVariantContent: result.data.winnerVariantContent ?? '',
-            strategyLabel: '',
+            strategyLabel: result.data.strategyLabel ?? '',
+            costSpent: result.data.costSpent,
             durationMs: elapsedMs,
           });
           stopPolling();
@@ -95,10 +98,6 @@ export default function EditRunViewer({ runId }: Props): JSX.Element | null {
           stopPolling();
           return;
         }
-        // Run is still pending / claimed / running. If we've passed the
-        // 10-min deadline AND the server still hasn't moved on, the run is
-        // genuinely stuck — surface the timeout error. Backend hard cap is
-        // 5min for /edit budget caps so anything past 10min is anomalous.
         if (elapsedMs > MAX_POLL_DURATION_MS) {
           dispatch({ type: 'POLL_FAILED', runId, message: 'This is taking longer than expected. Try refreshing the page.' });
           stopPolling();
@@ -107,10 +106,6 @@ export default function EditRunViewer({ runId }: Props): JSX.Element | null {
         dispatch({ type: 'POLL_TICK', runId, status: status as 'pending' | 'claimed' | 'running', elapsedMs });
       } catch (err) {
         if (cancelled) return;
-        // Transient fetch errors (network blip, edge timeout) shouldn't kill
-        // the polling loop on the first failure. The backend pipeline keeps
-        // running independently; we just retry on the next tick. Surface
-        // the error UI only after N consecutive failures.
         consecutiveErrorsRef.current += 1;
         if (consecutiveErrorsRef.current >= MAX_CONSECUTIVE_POLL_ERRORS) {
           dispatch({ type: 'POLL_FAILED', runId, message: err instanceof Error ? err.message : 'Network error.' });
@@ -119,15 +114,12 @@ export default function EditRunViewer({ runId }: Props): JSX.Element | null {
       }
     };
 
-    void tick(); // fire immediately
+    void tick();
     intervalRef.current = setInterval(tick, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       stopPolling();
     };
-    // Deps: only runId. State changes must NOT recreate the interval — that
-    // was the 2026-06-30 regression that produced ~3 polls/second + made a
-    // single fetch failure terminal.
   }, [runId]);
 
   // ─── Render branches ─────────────────────────────────────────────
@@ -171,31 +163,87 @@ export default function EditRunViewer({ runId }: Props): JSX.Element | null {
   }
 
   if (state.phase === 'viewing') {
-    const durationStr = (() => {
-      const totalSecs = Math.round(state.durationMs / 1000);
-      const m = Math.floor(totalSecs / 60);
-      const s = totalSecs % 60;
-      return m > 0 ? `${m}m ${s}s` : `${s}s`;
-    })();
     return (
-      <div data-testid="edit-run-viewing">
-        <div className="scholar-card paper-texture rounded-book shadow-warm-md border border-[var(--border-default)] p-4 mb-6">
-          <div className="atlas-ui text-sm text-[var(--text-secondary)]">
-            Finished in {durationStr}
-          </div>
-        </div>
-        <SideBySideWordDiff
-          parent={state.originalContent}
-          variant={state.winnerVariantContent}
-          leftLabel="Your text"
-          rightLabel="Evolved"
-        />
-        <div className="flex justify-center gap-4 mt-8">
-          <a href="/edit" className="atlas-button">Edit something else</a>
-        </div>
-      </div>
+      <ViewingPhase
+        originalContent={state.originalContent}
+        winnerVariantContent={state.winnerVariantContent}
+        strategyLabel={state.strategyLabel}
+        costSpent={state.costSpent}
+        durationMs={state.durationMs}
+      />
     );
   }
 
   return null;
+}
+
+interface ViewingPhaseProps {
+  originalContent: string;
+  winnerVariantContent: string;
+  strategyLabel: string;
+  costSpent: number | null;
+  durationMs: number;
+}
+
+/** Result-view tabs, extracted so useTabState (which calls useSearchParams) mounts
+ *  only inside the viewing branch. */
+function ViewingPhase({
+  originalContent,
+  winnerVariantContent,
+  strategyLabel,
+  costSpent,
+  durationMs,
+}: ViewingPhaseProps): JSX.Element {
+  const [activeTab, setActiveTab] = useTabState(VIEWING_TABS, { defaultTab: 'variant', syncToUrl: false });
+
+  const durationStr = ((): string => {
+    const totalSecs = Math.round(durationMs / 1000);
+    const m = Math.floor(totalSecs / 60);
+    const s = totalSecs % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  })();
+
+  const metaParts: string[] = [];
+  if (strategyLabel) metaParts.push(`Rewrote with '${strategyLabel}'`);
+  else metaParts.push('Finished');
+  if (costSpent != null && costSpent > 0) metaParts.push(`$${costSpent.toFixed(2)}`);
+  metaParts.push(durationStr);
+
+  return (
+    <div data-testid="edit-run-viewing">
+      <div className="scholar-card paper-texture rounded-book shadow-warm-md border border-[var(--border-default)] p-4 mb-6">
+        <div data-testid="edit-run-meta-strip" className="atlas-ui text-sm text-[var(--text-secondary)]">
+          {metaParts.join(' · ')}
+        </div>
+      </div>
+
+      <span data-testid="edit-run-tabs-hydrated" style={{ display: 'none' }} />
+      <EntityDetailTabs tabs={VIEWING_TABS} activeTab={activeTab} onTabChange={setActiveTab}>
+        {activeTab === 'variant' && (
+          <div data-testid="edit-run-tab-variant" className="mt-4">
+            <ReactMarkdown
+              components={editRunMarkdownComponents}
+              urlTransform={sanitizeMarkdownUrl}
+            >
+              {winnerVariantContent}
+            </ReactMarkdown>
+          </div>
+        )}
+        {activeTab === 'diff' && (
+          <div data-testid="edit-run-tab-diff" className="mt-4">
+            <SideBySideWordDiff
+              parent={originalContent}
+              variant={winnerVariantContent}
+              leftLabel="Your text"
+              rightLabel="Rewrite"
+            />
+          </div>
+        )}
+      </EntityDetailTabs>
+
+      <div className="flex justify-center gap-4 mt-8">
+        <a href="/edit" className="atlas-button">Edit something else</a>
+      </div>
+    </div>
+  );
 }
