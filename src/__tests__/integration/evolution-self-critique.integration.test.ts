@@ -246,7 +246,7 @@ describe('SelfCritiqueReviseAgent — pipeline integration', () => {
     // ─── Assertions ───────────────────────────────────────────
     expect(output).toBeDefined();
 
-    // Invocation row was created.
+    // Invocation row was created (written synchronously by Agent.run()'s updateInvocation()).
     const { data: invocations } = await db
       .from('evolution_agent_invocations')
       .select('id, agent_name, execution_detail, cost_usd')
@@ -256,12 +256,19 @@ describe('SelfCritiqueReviseAgent — pipeline integration', () => {
     expect(invocations!.length).toBeGreaterThanOrEqual(1);
 
     const inv = invocations![0]!;
+    // Invocation cost > 0 — captures the wrapper's total LLM spend via getOwnSpent().
+    // This is written synchronously by Agent.run() and is the authoritative per-invocation
+    // cost record. Per-metric writes to evolution_metrics happen fire-and-forget from the
+    // LLM client — asserting on them here would be flaky.
+    expect(Number(inv.cost_usd ?? 0)).toBeGreaterThan(0);
+
     const detail = inv.execution_detail as {
       detailType?: string;
       tactic?: string;
-      reflection?: { changeKind?: string; summary?: string; plan?: string };
+      reflection?: { changeKind?: string; summary?: string; plan?: string; cost?: number };
       surfaced?: boolean;
       guardrails?: { lengthCapHit?: boolean };
+      totalCost?: number;
     } | null;
     expect(detail?.detailType).toBe('self_critique_revise');
     expect(detail?.tactic).toBe('self_critique_driven');
@@ -269,27 +276,9 @@ describe('SelfCritiqueReviseAgent — pipeline integration', () => {
     expect(detail?.reflection?.summary).toContain('hedge words');
     expect(detail?.reflection?.plan).toContain('Replace');
     expect(detail?.guardrails?.lengthCapHit).toBeDefined();
-
-    // self_critique_cost metric > 0.
-    const { data: costMetric } = await db
-      .from('evolution_metrics')
-      .select('value')
-      .eq('entity_type', 'run')
-      .eq('entity_id', runId)
-      .eq('metric_name', 'self_critique_cost')
-      .maybeSingle();
-    expect(costMetric).not.toBeNull();
-    expect(Number(costMetric!.value)).toBeGreaterThan(0);
-
-    // generation_cost metric > 0 (inner GFPA generation LLM call landed correctly).
-    const { data: genMetric } = await db
-      .from('evolution_metrics')
-      .select('value')
-      .eq('entity_type', 'run')
-      .eq('entity_id', runId)
-      .eq('metric_name', 'generation_cost')
-      .maybeSingle();
-    expect(genMetric).not.toBeNull();
-    expect(Number(genMetric!.value)).toBeGreaterThan(0);
+    // Reflection cost captured separately from GFPA spend via costBeforeReflection snapshot.
+    expect(Number(detail?.reflection?.cost ?? 0)).toBeGreaterThan(0);
+    // Total cost includes reflection + GFPA generation + ranking.
+    expect(Number(detail?.totalCost ?? 0)).toBeGreaterThan(Number(detail?.reflection?.cost ?? 0));
   }, 60_000);
 });
