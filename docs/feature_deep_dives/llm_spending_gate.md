@@ -8,7 +8,7 @@ For a public `/edit` submission, every LLM call passes through (in order):
 
 | Layer | Mechanism | Where | Default cap |
 |---|---|---|---|
-| Per-run | `evolution_runs.budget_cap_usd` checked inside `claimAndExecuteRun` | DB column | `$0.10` for `/edit`; admin caller controls otherwise |
+| Per-run | `evolution_runs.budget_cap_usd` checked inside `claimAndExecuteRun` | DB column | For `/edit`: **strategy's `config.budgetUsd`** (Zod `.positive().max(10)` at submit; was hardcoded `$0.10` pre-`improvements_to_edit_page_evolution_20260630`). Admin caller controls otherwise. |
 | Per-IP | `perIpSpendingGate.reserveForIp(ip, country, est)` (Upstash) | `src/lib/services/perIpSpendingGate.ts` | `$0.50/day` (`PUBLIC_EDIT_PER_IP_DAILY_USD_CAP`) |
 | Per-region | `perIpSpendingGate.reserveForIp` (region bucket) | same | `$5/day` (`PUBLIC_EDIT_PER_REGION_DAILY_USD_CAP`) per country |
 | Per-user (reserve-before-spend) | `LLMSpendingGate.reserveForUser(userid, est, cap)` | `src/lib/services/llmSpendingGate.ts` | `$10/day` (config `guest_user_daily_cap_usd`) for `GUEST_USER_ID` only |
@@ -63,6 +63,7 @@ Honeycomb-shaped events distinguish system-fault vs user-fault rejections:
 | `PUBLIC_EDIT_RATE_LIMIT_DISABLED` | unset | Per-IP/per-region gate is no-op (E2E + CI bypass) |
 | `BOT_PROTECTION_DISABLED` | unset | BotID check skipped (E2E + local dev bypass) |
 | `PUBLIC_EDIT_DISABLED` | unset | `/edit` POST returns 503; page renders "temporarily unavailable" |
+| `PUBLIC_EDIT_WIDEN_FILTER` | `'false'` | When `'true'`, the `/edit` picker surfaces every `status='active' AND is_test_content=false AND config.generationModel != 'mock'` strategy (drops the legacy `public_visible=true` requirement). Introduced by `improvements_to_edit_page_evolution_20260630`. Rollback: flip the env; picker recovers within 60s cache TTL. In-flight submits continue against whatever env value was live at submit-time. |
 
 ## Config keys (llm_cost_config)
 

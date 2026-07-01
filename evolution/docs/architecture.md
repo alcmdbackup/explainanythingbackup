@@ -19,7 +19,12 @@ BotID-gated, layered Upstash + per-user + global cap stack. Inserts a
 `run_source='public_edit'` + `budget_cap_usd=$0.10`. The minicomputer claims
 the pending row on its next tick (~60s). The client polls
 `getEditRunStatusAction` every 3s until `status='completed'`, then renders the
-result via `SideBySideWordDiff` (same component as the variant-details "Diff vs
+result inside a two-tab layout (**Improved article** default + **Diff**;
+`improvements_to_edit_page_evolution_20260630`). The variant tab renders the
+winner via `react-markdown` with a Midnight-Scholar component-map + a strict
+scheme-allowlist `sanitizeMarkdownUrl` urlTransform (no `rehype-raw`, no
+`allowDangerousHtml` — see `docs/feature_deep_dives/llm_spending_gate.md`);
+the diff tab keeps the existing `SideBySideWordDiff` (same component as the variant-details "Diff vs
 parent" tab). See `docs/feature_deep_dives/llm_spending_gate.md` for the cap stack.
 
 ### API Route

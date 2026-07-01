@@ -8,7 +8,7 @@ State management uses React's `useReducer` for complex state machines and custom
 
 ### Key Files
 - `src/reducers/pageLifecycleReducer.ts` - Page state machine
-- `src/reducers/editPageLifecycleReducer.ts` - /edit page state machine (Phase 2 of `build_website_for_evolutiOn_20260626`). Separate reducer because /edit's queue-and-poll model uses `queued`/`running` phases that don't fit the existing `streaming`/`editing`/`saving` shape. Transitions: idle → submitting → queued → running → viewing → error.
+- `src/reducers/editPageLifecycleReducer.ts` - /edit page state machine (Phase 2 of `build_website_for_evolutiOn_20260626`). Separate reducer because /edit's queue-and-poll model uses `queued`/`running` phases that don't fit the existing `streaming`/`editing`/`saving` shape. Transitions: idle → submitting → queued → running → viewing → error. **Post-`improvements_to_edit_page_evolution_20260630`:** the `viewing` phase now carries a populated `strategyLabel: string` (was hardcoded `''` at the dispatch site — now plumbed from `getEditRunStatusAction` via a PostgREST embed on `evolution_strategies.label ?? name`) and a new `costSpent: number | null` field. Both are rendered by `EditRunViewer`'s meta strip above the tabs: `Rewrote with '{strategyLabel}' · ${cost.toFixed(2)} · {duration}`. The viewing phase's tabbed layout is documented in `evolution/docs/architecture.md` § Entry Point #5.
 - `src/reducers/tagModeReducer.ts` - Tag modification tracking
 - `src/hooks/useExplanationLoader.ts` - Data loading orchestration
 
