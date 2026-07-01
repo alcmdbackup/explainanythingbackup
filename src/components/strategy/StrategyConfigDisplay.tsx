@@ -1,8 +1,14 @@
 /**
  * Display component for strategy configuration details.
  * Shows models, iterations, budget allocation with agent names.
+ *
+ * Moved from src/app/admin/evolution/_components/ in improvements_to_edit_page_evolution_20260630
+ * Phase 2 so the public /edit picker can render it in the "Show config" modal.
+ * Uses the schema-derived StrategyConfig type from evolution/lib/pipeline/infra/types
+ * (the local duplicate interface was removed as part of the same project).
  */
-import type { IterationAgentType } from '@evolution/lib/schemas';
+import type { StrategyConfig } from '@evolution/lib/pipeline/infra/types';
+import type { IterationConfig, IterationAgentType } from '@evolution/lib/schemas';
 
 const REQUIRED_AGENTS = ['generation', 'ranking', 'proximity'];
 
@@ -20,35 +26,6 @@ const AGENT_LABELS: Record<string, string> = {
   proximity: 'Proximity',
   metaReview: 'Meta Review',
 };
-
-interface IterationConfigEntry {
-  agentType: IterationAgentType;
-  budgetPercent: number;
-  generationGuidance?: Array<{ tactic: string; percent: number }>;
-}
-
-interface StrategyConfig {
-  generationModel: string;
-  judgeModel: string;
-  iterations: number;
-  budgetUsd?: number;
-  singleArticle?: boolean;
-  enabledAgents?: string[];
-  agentModels?: Record<string, string>;
-  generationGuidance?: Array<{ tactic: string; percent: number }>;
-  maxVariantsToGenerateFromSeedArticle?: number;
-  maxComparisonsPerVariant?: number;
-  /** @deprecated Use minBudgetAfterParallelFraction. Kept for backward compat. */
-  budgetBufferAfterParallel?: number;
-  /** @deprecated Use minBudgetAfterSequentialFraction. Kept for backward compat. */
-  budgetBufferAfterSequential?: number;
-  minBudgetAfterParallelFraction?: number;
-  minBudgetAfterParallelAgentMultiple?: number;
-  minBudgetAfterSequentialFraction?: number;
-  minBudgetAfterSequentialAgentMultiple?: number;
-  generationTemperature?: number;
-  iterationConfigs?: IterationConfigEntry[];
-}
 
 interface StrategyConfigDisplayProps {
   config: StrategyConfig | Record<string, unknown>;
@@ -71,7 +48,20 @@ function fmtBudgetFraction(fraction: number, budgetUsd?: number): string {
   return budgetUsd != null ? `${pct} ($${(fraction * budgetUsd).toFixed(3)})` : pct;
 }
 
-function BudgetFloorRows({ config }: { config: StrategyConfig }): JSX.Element {
+// Loose accessors — the schema-derived StrategyConfig doesn't include the
+// display-only fields agentModels / enabledAgents / singleArticle etc., which
+// are legacy shapes still present on some persisted rows. Cast at read.
+interface LooseConfig extends Partial<StrategyConfig> {
+  singleArticle?: boolean;
+  enabledAgents?: string[];
+  agentModels?: Record<string, string>;
+  iterations?: number;
+  maxVariantsToGenerateFromSeedArticle?: number;
+  budgetBufferAfterParallel?: number;
+  budgetBufferAfterSequential?: number;
+}
+
+function BudgetFloorRows({ config }: { config: LooseConfig }): JSX.Element {
   const pF = config.minBudgetAfterParallelFraction ?? config.budgetBufferAfterParallel;
   const pM = config.minBudgetAfterParallelAgentMultiple;
   const sF = config.minBudgetAfterSequentialFraction ?? config.budgetBufferAfterSequential;
@@ -88,7 +78,7 @@ function BudgetFloorRows({ config }: { config: StrategyConfig }): JSX.Element {
 }
 
 export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDisplayProps): JSX.Element {
-  const config = raw as StrategyConfig;
+  const config = raw as LooseConfig;
 
   if (showRaw) {
     return (
@@ -100,7 +90,7 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
 
   const hasAgentOverrides = config.agentModels && Object.keys(config.agentModels).length > 0;
   const enabledSet = config.enabledAgents ? new Set<string>(config.enabledAgents) : null;
-  const isEnabled = (agent: string) => {
+  const isEnabled = (agent: string): boolean => {
     if (REQUIRED_AGENTS.includes(agent)) return true;
     return enabledSet ? enabledSet.has(agent) : true;
   };
@@ -166,22 +156,23 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
                 </tr>
               </thead>
               <tbody>
-                {config.iterationConfigs.map((ic, idx) => {
+                {config.iterationConfigs.map((ic, idx: number) => {
                   const budgetDollar = config.budgetUsd != null ? (ic.budgetPercent / 100) * config.budgetUsd : null;
+                  const agentType = ic.agentType as IterationAgentType;
                   return (
                     <tr key={idx} className="border-b border-[var(--border-subtle)] last:border-0">
                       <td className="py-1 pr-3 font-mono">{idx + 1}</td>
                       <td className="py-1 pr-3">
                         <span
                           className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${
-                            ic.agentType === 'generate'
+                            agentType === 'generate'
                               ? 'bg-blue-500/20 text-blue-400'
-                              : ic.agentType === 'reflect_and_generate'
+                              : agentType === 'reflect_and_generate'
                                 ? 'bg-amber-500/20 text-amber-400'
                                 : 'bg-purple-500/20 text-purple-400'
                           }`}
                         >
-                          {ic.agentType}
+                          {agentType}
                         </span>
                       </td>
                       <td className="py-1 pr-3 text-right font-mono">
@@ -192,7 +183,7 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
                       </td>
                       <td className="py-1 pr-3 text-[var(--text-muted)]">
                         {ic.generationGuidance && ic.generationGuidance.length > 0
-                          ? ic.generationGuidance.map((g: { tactic: string; percent: number }) => `${g.tactic}: ${g.percent}%`).join(', ')
+                          ? ic.generationGuidance.map((g) => `${g.tactic}: ${g.percent}%`).join(', ')
                           : '—'}
                       </td>
                     </tr>
