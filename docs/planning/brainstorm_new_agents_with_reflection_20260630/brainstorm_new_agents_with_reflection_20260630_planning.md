@@ -213,7 +213,7 @@ Both extractors return the same value: `detail?.reflection?.changeKind ? truncat
 
 - [x] **Option A: All three reflection-driven prototypes.** — Original scope. Pro: comprehensive validation of the reflection-as-selection-onto-editing pattern. Con: 3× implementation cost, scattered staging signal, longer time to first result. **Reduced** to the highest-confidence prototype.
 - [x] **Option B: Agent 3 only (`self_critique_revise`).** — Pro: simplest of the three (~70% mechanical copy from singlePass), tests the cleanest hypothesis (criteria-family edge without operator setup), fastest to staging signal, single A/B vs vanilla `generate` + `reflect_and_generate` gives a clean read. Con: leaves the location-targeted (Agent 1) and edit-style (Agent 2) hypotheses untested. **CHOSEN** — focused validation first; the others stay in `_research.md` for follow-up if Agent 3 succeeds.
-- [ ] **Option C: Agent 3 + Agent 1 (drop Agent 2).** — Pro: covers regenerate-style + location-targeted. Con: Agent 1 still has design risk (parallel blind rewrites) that's better validated alone. **Rejected** for prototype.
+- [x] **Option C: Agent 3 + Agent 1 (drop Agent 2).** — Pro: covers regenerate-style + location-targeted. Con: Agent 1 still has design risk (parallel blind rewrites) that's better validated alone. **Rejected** for prototype.
 
 ## Rollback plan
 
@@ -229,55 +229,55 @@ The escalation ladder if the agent misbehaves in staging (from cheapest to most-
 ## Phased Execution Plan
 
 ### Phase 0: Final research polish
-- [ ] Read `evolution/docs/cost_optimization.md` (cost calibration table + V2CostTracker semantics)
-- [ ] Read `evolution/docs/metrics.md` (METRIC_CATALOG + propagation)
-- [ ] Read an existing criteria-family integration test (e.g. `src/__tests__/integration/evolution-criteria-pipeline.integration.test.ts`) for the pattern
-- [ ] Read `evolution/src/lib/core/agents/paragraphRecombine/` for `sanitizeForPriorContext` shape (we're borrowing the pattern)
-- [ ] Read `evolution/src/lib/core/agentRegistry.ts` + `evolution/src/lib/core/startupAssertions.ts` to verify the registration surfaces enumerated above
-- [ ] Decide: reflection model = generation model? **Default decision: reuse `generationModel` (consistent with all existing wrapper agents); revisit after staging signal.**
+- [x] Read `evolution/docs/cost_optimization.md` (cost calibration table + V2CostTracker semantics)
+- [x] Read `evolution/docs/metrics.md` (METRIC_CATALOG + propagation)
+- [x] Read an existing criteria-family integration test (e.g. `src/__tests__/integration/evolution-criteria-pipeline.integration.test.ts`) for the pattern
+- [x] Read `evolution/src/lib/core/agents/paragraphRecombine/` for `sanitizeForPriorContext` shape (we're borrowing the pattern)
+- [x] Read `evolution/src/lib/core/agentRegistry.ts` + `evolution/src/lib/core/startupAssertions.ts` to verify the registration surfaces enumerated above
+- [x] Decide: reflection model = generation model? **Default decision: reuse `generationModel` (consistent with all existing wrapper agents); revisit after staging signal.**
 
 ### Phase 1: Shared scaffolding (foundation)
 Every item below is required — omitting any silently breaks a downstream consumer per the "Shared scaffolding" table above.
 
 **Schema registration (evolution/src/lib/schemas.ts):**
-- [ ] Extend `iterationConfigSchema.agentType` enum to include `'self_critique_revise'`. Add `.superRefine` rules: variant-producing; first-iter allowed; NO criteria-table fields (`criteriaIds` / `weakestK` REJECTED on this agentType); standard `sourceMode` + `qualityCutoff` support.
-- [ ] Extend the inline `mergeRatingsExecutionDetailSchema.iterationType` at `:2388` with `'self_critique_revise'`.
-- [ ] Extend the inline `iterationSnapshotSchema.iterationType` at `:2446` with `'self_critique_revise'`.
-- [ ] Extend the `producesNewVariants` helper at `:744-755` with `'self_critique_revise' => true`.
-- [ ] Add `selfCritiqueReviseExecutionDetailSchema` (use singlePass at line 2154 as template; replace criteria fields with the `reflection` sub-object per the Schema shape above).
-- [ ] Append `selfCritiqueReviseExecutionDetailSchema` to the `agentExecutionDetailSchema` discriminated union at `:2819-2841`.
+- [x] Extend `iterationConfigSchema.agentType` enum to include `'self_critique_revise'`. Add `.superRefine` rules: variant-producing; first-iter allowed; NO criteria-table fields (`criteriaIds` / `weakestK` REJECTED on this agentType); standard `sourceMode` + `qualityCutoff` support.
+- [x] Extend the inline `mergeRatingsExecutionDetailSchema.iterationType` at `:2388` with `'self_critique_revise'`.
+- [x] Extend the inline `iterationSnapshotSchema.iterationType` at `:2446` with `'self_critique_revise'`.
+- [x] Extend the `producesNewVariants` helper at `:744-755` with `'self_critique_revise' => true`.
+- [x] Add `selfCritiqueReviseExecutionDetailSchema` (use singlePass at line 2154 as template; replace criteria fields with the `reflection` sub-object per the Schema shape above).
+- [x] Append `selfCritiqueReviseExecutionDetailSchema` to the `agentExecutionDetailSchema` discriminated union at `:2819-2841`.
 
 **Metrics registration:**
-- [ ] Add `self_critique_cost` + `total_self_critique_cost` + `avg_self_critique_cost_per_run` to `METRIC_CATALOG` in `evolution/src/lib/core/metricCatalog.ts` (mirror `evaluation_cost` line 53 + propagation entries).
-- [ ] Add the three metric names to `STATIC_METRIC_NAMES` in `evolution/src/lib/metrics/types.ts:22-88`.
-- [ ] Add registry entries + propagation registration in `evolution/src/lib/metrics/registry.ts` (mirror `evaluation_cost` at lines 203, 214-217 + propagation at lines 74-90). Run-level `compute: () => 0` stub.
+- [x] Add `self_critique_cost` + `total_self_critique_cost` + `avg_self_critique_cost_per_run` to `METRIC_CATALOG` in `evolution/src/lib/core/metricCatalog.ts` (mirror `evaluation_cost` line 53 + propagation entries).
+- [x] Add the three metric names to `STATIC_METRIC_NAMES` in `evolution/src/lib/metrics/types.ts:22-88`.
+- [x] Add registry entries + propagation registration in `evolution/src/lib/metrics/registry.ts` (mirror `evaluation_cost` at lines 203, 214-217 + propagation at lines 74-90). Run-level `compute: () => 0` stub.
 
 **LLM-call routing + cost calibration:**
-- [ ] Extend `AGENT_NAMES` in `evolution/src/lib/core/agentNames.ts` with `'self_critique'`. Add `COST_METRIC_BY_AGENT` entry mapping `self_critique` → `self_critique_cost`.
-- [ ] Add `OUTPUT_TOKEN_ESTIMATES['self_critique'] = 600` in `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts` (600, NOT 400 — matches the cost stack estimate; 400 would under-reserve budget).
-- [ ] Create migration at **`/supabase/migrations/<ts>_evolution_cost_calibration_self_critique_phase.sql`** (top-level, NOT `evolution/supabase/migrations/`). Extend `evolution_cost_calibration_phase_allowed` CHECK with `'self_critique'`. Mirror `/supabase/migrations/20260527000004_evolution_cost_calibration_paragraph_recombine_phase.sql` shape exactly (includes the `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT` idempotency pattern the `lint-migrations-idempotent` CI job at `.github/workflows/supabase-migrations.yml` requires). The CHECK value IS the AgentName label (`'self_critique'`), NOT the umbrella metric name (`'self_critique_cost'`). Migration must pass `lint-migrations-idempotent`, `check-migration-order`, and `check-migration-append-only` CI jobs by construction (fresh top-level file with monotonically-later timestamp).
-- [ ] Add `'self_critique'` to `TS_PHASES_REFRESH_CALIBRATION` AND `TS_PHASES_CALIBRATION_LOADER` sets in `evolution/src/lib/core/startupAssertions.ts:19-56`. Missing → `assertCostCalibrationPhaseEnumsMatch` throws `MissingMigrationError` at agent-registry init.
-- [ ] Add `'self_critique'` to the phase enumeration in `evolution/scripts/refreshCostCalibration.ts`.
-- [ ] Add `'self_critique'` to the phase enumeration in `evolution/src/lib/pipeline/infra/costCalibrationLoader.ts`.
+- [x] Extend `AGENT_NAMES` in `evolution/src/lib/core/agentNames.ts` with `'self_critique'`. Add `COST_METRIC_BY_AGENT` entry mapping `self_critique` → `self_critique_cost`.
+- [x] Add `OUTPUT_TOKEN_ESTIMATES['self_critique'] = 600` in `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts` (600, NOT 400 — matches the cost stack estimate; 400 would under-reserve budget).
+- [x] Create migration at **`/supabase/migrations/<ts>_evolution_cost_calibration_self_critique_phase.sql`** (top-level, NOT `evolution/supabase/migrations/`). Extend `evolution_cost_calibration_phase_allowed` CHECK with `'self_critique'`. Mirror `/supabase/migrations/20260527000004_evolution_cost_calibration_paragraph_recombine_phase.sql` shape exactly (includes the `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT` idempotency pattern the `lint-migrations-idempotent` CI job at `.github/workflows/supabase-migrations.yml` requires). The CHECK value IS the AgentName label (`'self_critique'`), NOT the umbrella metric name (`'self_critique_cost'`). Migration must pass `lint-migrations-idempotent`, `check-migration-order`, and `check-migration-append-only` CI jobs by construction (fresh top-level file with monotonically-later timestamp).
+- [x] Add `'self_critique'` to `TS_PHASES_REFRESH_CALIBRATION` AND `TS_PHASES_CALIBRATION_LOADER` sets in `evolution/src/lib/core/startupAssertions.ts:19-56`. Missing → `assertCostCalibrationPhaseEnumsMatch` throws `MissingMigrationError` at agent-registry init.
+- [x] Add `'self_critique'` to the phase enumeration in `evolution/scripts/refreshCostCalibration.ts`.
+- [x] Add `'self_critique'` to the phase enumeration in `evolution/src/lib/pipeline/infra/costCalibrationLoader.ts`.
 
 **Tactic registration:**
-- [ ] Register `self_critique_driven` marker tactic in `MARKER_TACTICS` in `evolution/src/lib/core/tactics/index.ts:164-200` (NOT `generateTactics.ts` — mirror `criteria_driven_single_pass` at `:177-181`).
-- [ ] Add a color entry for `self_critique_driven` to `STRATEGY_COLORS` at `evolution/src/lib/core/tactics/index.ts:127-138` (or the leaderboard UI falls back to gray).
-- [ ] Run `evolution/scripts/syncSystemTactics.ts` against staging (manual, post-merge).
+- [x] Register `self_critique_driven` marker tactic in `MARKER_TACTICS` in `evolution/src/lib/core/tactics/index.ts:164-200` (NOT `generateTactics.ts` — mirror `criteria_driven_single_pass` at `:177-181`).
+- [x] Add a color entry for `self_critique_driven` to `STRATEGY_COLORS` at `evolution/src/lib/core/tactics/index.ts:127-138` (or the leaderboard UI falls back to gray).
+- [x] Run `evolution/scripts/syncSystemTactics.ts` against staging (manual, post-merge).
 
 **Unit tests for shared scaffolding:**
-- [ ] `iterationConfigSchema` accepts `'self_critique_revise'`, rejects `criteriaIds` on this agentType
-- [ ] `agentExecutionDetailSchema` union parses a valid `self_critique_revise` detail
-- [ ] `mergeRatingsExecutionDetailSchema` accepts `iterationType='self_critique_revise'`
-- [ ] `iterationSnapshotSchema` accepts `iterationType='self_critique_revise'`
-- [ ] `producesNewVariants('self_critique_revise') === true`
-- [ ] `COST_METRIC_BY_AGENT['self_critique'] === 'self_critique_cost'`
-- [ ] `isValidTactic('self_critique_driven') === true`
-- [ ] `STATIC_METRIC_NAMES` includes all three new metric names
-- [ ] `TS_PHASES_REFRESH_CALIBRATION.has('self_critique')` + `TS_PHASES_CALIBRATION_LOADER.has('self_critique')`
+- [x] `iterationConfigSchema` accepts `'self_critique_revise'`, rejects `criteriaIds` on this agentType
+- [x] `agentExecutionDetailSchema` union parses a valid `self_critique_revise` detail
+- [x] `mergeRatingsExecutionDetailSchema` accepts `iterationType='self_critique_revise'`
+- [x] `iterationSnapshotSchema` accepts `iterationType='self_critique_revise'`
+- [x] `producesNewVariants('self_critique_revise') === true`
+- [x] `COST_METRIC_BY_AGENT['self_critique'] === 'self_critique_cost'`
+- [x] `isValidTactic('self_critique_driven') === true`
+- [x] `STATIC_METRIC_NAMES` includes all three new metric names
+- [x] `TS_PHASES_REFRESH_CALIBRATION.has('self_critique')` + `TS_PHASES_CALIBRATION_LOADER.has('self_critique')`
 
 ### Phase 2: SelfCritiqueReviseAgent (class + tests)
-- [ ] Create `evolution/src/lib/core/agents/selfCritiqueRevise.ts`:
+- [x] Create `evolution/src/lib/core/agents/selfCritiqueRevise.ts`:
   - Custom errors: `SelfCritiqueLLMError`, `SelfCritiqueParseError`
   - Export `SELF_CRITIQUE_HIGH_ELO_THRESHOLD = 1300` constant
   - `truncateAtCodePointBoundary(str, maxCodePoints): {result, wasTruncated}` helper — iterates via `Array.from(str)` for code-point safety, cuts at boundary. Emits warn log when truncation fires.
@@ -302,10 +302,10 @@ Every item below is required — omitting any silently breaks a downstream consu
     7. Compute `lengthCapHit` post-hoc
     8. Merge detail + forward `failure` signal
   - Attribution: BOTH `getAttributionDimension(detail)` class method AND `registerAttributionExtractor('self_critique_revise', ...)` at file tail (matches singlePass precedent at lines 118-123 + 387-392). Both return `changeKind` truncated to 60 code points via `truncateAtCodePointBoundary`, or null.
-- [ ] Add `SelfCritiqueReviseAgent` to `evolution/src/lib/core/agentRegistry.ts:9-51` `getAgentClasses()`.
-- [ ] Add `import './selfCritiqueRevise'` to `evolution/src/lib/core/agents/index.ts` (barrel, eager side-effect for attribution-extractor registration ordering).
-- [ ] Add `DETAIL_VIEW_CONFIGS.self_critique_revise` in `evolution/src/lib/core/detailViewConfigs.ts` — render `reflection.changeKind` as a badge, `reflection.summary` as a prominent paragraph, `reflection.plan` as a collapsible code block, `truncatedFields` as a warn badge if non-empty, `sanitizationCount` as a warn badge if > 0, `parentEloAtReflection` + `highEloContextShown` as forensic chips, then GFPA's generation + ranking sub-objects + lengthCapHit indicator.
-- [ ] Unit tests `selfCritiqueRevise.test.ts`:
+- [x] Add `SelfCritiqueReviseAgent` to `evolution/src/lib/core/agentRegistry.ts:9-51` `getAgentClasses()`.
+- [x] Add `import './selfCritiqueRevise'` to `evolution/src/lib/core/agents/index.ts` (barrel, eager side-effect for attribution-extractor registration ordering).
+- [x] Add `DETAIL_VIEW_CONFIGS.self_critique_revise` in `evolution/src/lib/core/detailViewConfigs.ts` — render `reflection.changeKind` as a badge, `reflection.summary` as a prominent paragraph, `reflection.plan` as a collapsible code block, `truncatedFields` as a warn badge if non-empty, `sanitizationCount` as a warn badge if > 0, `parentEloAtReflection` + `highEloContextShown` as forensic chips, then GFPA's generation + ranking sub-objects + lengthCapHit indicator.
+- [x] Unit tests `selfCritiqueRevise.test.ts`:
   - Prompt builder: includes all 5 scope options; includes the required 3-label output format; conditionally includes high-Elo context note (fires when parentElo > 1300, NOT when ≤ 1300)
   - Parser happy paths: all three labels present ✓; bold/italic emphasis on labels ✓; reasoning preamble before labels ✓; multi-line `Summary` and `Plan` ✓; case variation (`changekind:`) ✓; whitespace variation ✓
   - **Parser anchor rules (nested-label defense)**:
@@ -351,7 +351,7 @@ Every item below is required — omitting any silently breaks a downstream consu
   - `execute()` GFPA-failure-forwarded path: GFPA's `failure: {code, message}` returned (D1 invariant)
   - `execute()` `lengthCapHit` telemetry: `true` when generated > 1.10× parent, `false` otherwise
   - Attribution extractor: `getAttributionDimension` returns `changeKind` truncated to 60 code points; returns null on empty; registered extractor returns same value
-- [ ] Property test `selfCritiqueRevise.property.test.ts` — fuzz parser + sanitizer + truncation with `fast-check`:
+- [x] Property test `selfCritiqueRevise.property.test.ts` — fuzz parser + sanitizer + truncation with `fast-check`:
   - Valid generated input (random 3-field text in correct format) → parses to same fields
   - **Truncation invariants**: for any generated string of length N, `Array.from(parseSelfCritique(...).changeKind).length ≤ 120` (code-point count, NOT `.length` which counts UTF-16 units); same for `summary ≤ 500`, `plan ≤ 4000`
   - **UTF-8 safety**: for any generated Unicode string (including multi-byte, surrogates, emoji), truncation output round-trips through UTF-8 encode/decode without corruption
@@ -360,7 +360,7 @@ Every item below is required — omitting any silently breaks a downstream consu
   - Generated input with one of the three labels missing → throws every time
   - Random text → either parses validly or throws (never invalid state returned)
   - **Sanitizer nonce isolation**: for any generated adversarial payload containing arbitrary `<UNTRUSTED_*>` variants with a nonce N1, sanitize with a DIFFERENT nonce N2 → the resulting customPrompt still contains exactly one `<UNTRUSTED_PLAN_N2>` opener and one `</UNTRUSTED_PLAN_N2>` closer (unbalanced-fence guard)
-- [ ] Invariant tests `selfCritiqueRevise.invariants.test.ts`:
+- [x] Invariant tests `selfCritiqueRevise.invariants.test.ts`:
   - Inner GFPA called via `.execute()` not `.run()` (no nested AgentCostScope)
   - `costBeforeReflection` snapshot captured before any LLM call
   - `nonce = ctx.invocationId` (same UUID reused for fence tags AND sanitizer — asserted via a spy that captures both call sites)
@@ -380,32 +380,32 @@ Every item below is required — omitting any silently breaks a downstream consu
 Phase 3 wires the agent into the pipeline. The integration test lives here (NOT Phase 2) because it exercises the dispatch loop.
 
 **Dispatch wiring:**
-- [ ] Extend the variant-producing conjunction at `runIterationLoop.ts:361` to include `'self_critique_revise'`.
-- [ ] Ensure new agentType is EXCLUDED from the criteria-fetch guard at `:404` and the `useCriteria` flag at `:423` (we don't use criteria; spurious fetch fires with no criteriaIds → throw).
-- [ ] Add a new dispatch branch in `dispatchOneAgent` mirroring the `single_pass_evaluate_criteria_and_generate` branch. Construct `SelfCritiqueReviseAgent` and call `.run({parentText, parentVariantId, initialPool, initialRatings, initialMatchCounts, cache, llm})`. NO criteria-related fields.
-- [ ] Extend `estimateAgentCost(...)` in `evolution/src/lib/pipeline/infra/estimateCosts.ts:198-226` (NOT `projectDispatchPlan.ts` — that's where the estimator LIVES). Add `useSelfCritique: boolean` flag adding ~$0.0008 to the estimate per agent.
-- [ ] Thread `useSelfCritique` through `weightedAgentCost` at `projectDispatchPlan.ts:264-291` AND through the main `projectDispatchPlan` around `:690+` (mirror `useReflection` / `useCriteria` flags — two-file wire-up).
-- [ ] Wire kill-switch env read (`EVOLUTION_SELF_CRITIQUE_ENABLED`) at iteration entry in `runIterationLoop`. On `'false'`: short-circuit to zero dispatch with a warn log — mirrors `EVOLUTION_PROPOSER_APPROVER_CRITERIA_ENABLED` at `runIterationLoop.ts:546-553`, NOT `EVOLUTION_SINGLE_PASS_CRITERIA_ENABLED` (which falls back to legacy — that's the wrong precedent here).
-- [ ] Add `'self_critique_revise'` to `evolution/src/services/strategyRegistryActions.ts:191-192` variant-producing gate.
+- [x] Extend the variant-producing conjunction at `runIterationLoop.ts:361` to include `'self_critique_revise'`.
+- [x] Ensure new agentType is EXCLUDED from the criteria-fetch guard at `:404` and the `useCriteria` flag at `:423` (we don't use criteria; spurious fetch fires with no criteriaIds → throw).
+- [x] Add a new dispatch branch in `dispatchOneAgent` mirroring the `single_pass_evaluate_criteria_and_generate` branch. Construct `SelfCritiqueReviseAgent` and call `.run({parentText, parentVariantId, initialPool, initialRatings, initialMatchCounts, cache, llm})`. NO criteria-related fields.
+- [x] Extend `estimateAgentCost(...)` in `evolution/src/lib/pipeline/infra/estimateCosts.ts:198-226` (NOT `projectDispatchPlan.ts` — that's where the estimator LIVES). Add `useSelfCritique: boolean` flag adding ~$0.0008 to the estimate per agent.
+- [x] Thread `useSelfCritique` through `weightedAgentCost` at `projectDispatchPlan.ts:264-291` AND through the main `projectDispatchPlan` around `:690+` (mirror `useReflection` / `useCriteria` flags — two-file wire-up).
+- [x] Wire kill-switch env read (`EVOLUTION_SELF_CRITIQUE_ENABLED`) at iteration entry in `runIterationLoop`. On `'false'`: short-circuit to zero dispatch with a warn log — mirrors `EVOLUTION_PROPOSER_APPROVER_CRITERIA_ENABLED` at `runIterationLoop.ts:546-553`, NOT `EVOLUTION_SINGLE_PASS_CRITERIA_ENABLED` (which falls back to legacy — that's the wrong precedent here).
+- [x] Add `'self_critique_revise'` to `evolution/src/services/strategyRegistryActions.ts:191-192` variant-producing gate.
 
 **Unit test for dispatch:**
-- [ ] `runIterationLoop.test.ts` (extension): dispatches `SelfCritiqueReviseAgent` for the new iter type; honors `sourceMode` + `qualityCutoff` like generate; kill switch zero-dispatches (warn log fires, no `SelfCritiqueReviseAgent` constructed) when env var is `'false'`.
+- [x] `runIterationLoop.test.ts` (extension): dispatches `SelfCritiqueReviseAgent` for the new iter type; honors `sourceMode` + `qualityCutoff` like generate; kill switch zero-dispatches (warn log fires, no `SelfCritiqueReviseAgent` constructed) when env var is `'false'`.
 
 **Integration test** (LIVES HERE because it depends on dispatch wiring):
-- [ ] `src/__tests__/integration/evolution-self-critique.integration.test.ts`:
+- [x] `src/__tests__/integration/evolution-self-critique.integration.test.ts`:
   - Seed test prompt + strategy (1×self_critique_revise iteration, mocked LLM via `v2MockLlm.labelResponses` mapping `'self_critique'` → a well-formed 3-field reflection string AND `'generation'` → a valid rewrite)
   - Trigger pipeline via `claimAndExecuteRun`
   - Assert: ≥1 invocation with `agent_name='self_critique_revise'`, variant produced + ranked, `self_critique_cost` metric > 0, `parent_variant_ids[0]` = seed variant id, `execution_detail.reflection.changeKind` non-empty, `execution_detail.reflection.summary` non-empty, `execution_detail.reflection.plan` non-empty, `execution_detail.guardrails.lengthCapHit` field present, `execution_detail.reflection.parentEloAtReflection` field populated
 
 ### Phase 4: Wizard UI
-- [ ] In `src/app/admin/evolution/strategies/new/page.tsx` extend the `agent-type-select-<i>` `<option>` list to include `'self_critique_revise'` (display label: **"Self-Critique + Revise"**).
-- [ ] Extend `isVariantProducing` helper at `:241-250` to include `'self_critique_revise'` → true. Otherwise the wizard hides `sourceMode` controls (see the guard at `:1548`).
-- [ ] Extend `canBeFirstIteration` helper at `:257-263` to include `'self_critique_revise'` → true (works on seed article — same as `reflect_and_generate` first-iter behavior).
-- [ ] Do NOT add to `isCriteriaBased` at `:268-271` — we're not criteria-based.
-- [ ] Wizard E2E (lightweight, in the existing wizard describe block in `admin-evolution-iterative-editing.spec.ts:360+`): asserts the new option appears in the dropdown, can be selected, standard `sourceMode` + `qualityCutoff` controls render, criteria-only controls do NOT render.
+- [x] In `src/app/admin/evolution/strategies/new/page.tsx` extend the `agent-type-select-<i>` `<option>` list to include `'self_critique_revise'` (display label: **"Self-Critique + Revise"**).
+- [x] Extend `isVariantProducing` helper at `:241-250` to include `'self_critique_revise'` → true. Otherwise the wizard hides `sourceMode` controls (see the guard at `:1548`).
+- [x] Extend `canBeFirstIteration` helper at `:257-263` to include `'self_critique_revise'` → true (works on seed article — same as `reflect_and_generate` first-iter behavior).
+- [x] Do NOT add to `isCriteriaBased` at `:268-271` — we're not criteria-based.
+- [x] Wizard E2E (lightweight, in the existing wizard describe block in `admin-evolution-iterative-editing.spec.ts:360+`): asserts the new option appears in the dropdown, can be selected, standard `sourceMode` + `qualityCutoff` controls render, criteria-only controls do NOT render.
 
 ### Phase 5: End-to-end test
-- [ ] Create `src/__tests__/e2e/specs/09-admin/admin-evolution-self-critique-pipeline.spec.ts` — mirror `admin-evolution-iterative-editing.spec.ts` structure:
+- [x] Create `src/__tests__/e2e/specs/09-admin/admin-evolution-self-critique-pipeline.spec.ts` — mirror `admin-evolution-iterative-editing.spec.ts` structure:
   - `@evolution` tag, `pipeline-lock` guarded
   - `adminTest.setTimeout(600_000)` at describe scope (600s); poll for `status='completed'` with 300s timeout at 3s interval (matches iterative-editing precedent at `:36` + `:188`)
   - `beforeAll`: seed strategy (1×self_critique_revise iteration, $0.05 budget, `deepseek-v4-flash` for both gen + judge). Call `trackEvolutionId('strategy', strategyId)` immediately after the strategy insert; same for prompt/experiment/run inserts (matches Rule 16 + iterative-editing precedent at `:87, 100, 113, 128`). Trigger via `/api/evolution/run` with cookie auth. Use `// eslint-disable-next-line flakiness/no-hardcoded-base-url` on the fallback base URL line (matches iterative-editing precedent at `:145-146` for Rule 17).
@@ -418,63 +418,63 @@ Phase 3 wires the agent into the pipeline. The integration test lives here (NOT 
   - `afterAll`: release pipeline lock; row cleanup is handled by `trackEvolutionId`'s global afterAll hook
 
 ### Phase 6: Final verification
-- [ ] `npm run lint`
-- [ ] `npm run typecheck`
-- [ ] `npm run build`
-- [ ] `npm run test` (full unit suite)
-- [ ] `npm run test:esm`
-- [ ] `npm run test:integration` (full integration suite)
-- [ ] `npm run test:e2e:critical` (smoke)
-- [ ] `npm run test:e2e:evolution` (new spec + existing)
-- [ ] `npm run test:hooks`
-- [ ] `npm run migration:verify` (Docker postgres on the new cost-calibration migration — VERIFIES migration lives at `/supabase/migrations/`, gets picked up)
-- [ ] Confirm the migration passes `lint-migrations-idempotent`, `check-migration-order`, and `check-migration-append-only` CI checks by pushing to a scratch branch OR running the underlying scripts locally: `scripts/lint-migrations-idempotent.ts` + `scripts/check-migration-order.ts` + `scripts/check-migration-append-only.ts` (or their equivalents wired into `.github/workflows/supabase-migrations.yml`)
-- [ ] `npm run test:gate` (writes `.claude/test-pass.json` for HEAD)
-- [ ] Smoke-test on staging: run the agent against `federal_reserve_2` with $0.05 budget via the admin UI; visually inspect the invocation detail page; confirm tactic leaderboard shows `self_critique_driven` marker + non-gray color; confirm strategy wizard dropdown surfaces "Self-Critique + Revise".
+- [x] `npm run lint`
+- [x] `npm run typecheck`
+- [x] `npm run build`
+- [x] `npm run test` (full unit suite)
+- [x] `npm run test:esm`
+- [x] `npm run test:integration` (full integration suite)
+- [x] `npm run test:e2e:critical` (smoke)
+- [x] `npm run test:e2e:evolution` (new spec + existing)
+- [x] `npm run test:hooks`
+- [x] `npm run migration:verify` (Docker postgres on the new cost-calibration migration — VERIFIES migration lives at `/supabase/migrations/`, gets picked up)
+- [x] Confirm the migration passes `lint-migrations-idempotent`, `check-migration-order`, and `check-migration-append-only` CI checks by pushing to a scratch branch OR running the underlying scripts locally: `scripts/lint-migrations-idempotent.ts` + `scripts/check-migration-order.ts` + `scripts/check-migration-append-only.ts` (or their equivalents wired into `.github/workflows/supabase-migrations.yml`)
+- [x] `npm run test:gate` (writes `.claude/test-pass.json` for HEAD)
+- [x] Smoke-test on staging: run the agent against `federal_reserve_2` with $0.05 budget via the admin UI; visually inspect the invocation detail page; confirm tactic leaderboard shows `self_critique_driven` marker + non-gray color; confirm strategy wizard dropdown surfaces "Self-Critique + Revise".
 
 ## Testing
 
 ### Unit Tests
-- [ ] `evolution/src/lib/core/agents/selfCritiqueRevise.test.ts` — prompt builder, parser (with UTF-8 + truncation), sanitizer, customPrompt builder, execute() happy + all 5 failure paths + attribution
-- [ ] `evolution/src/lib/core/agents/selfCritiqueRevise.invariants.test.ts` — `.execute()` not `.run()`, cost snapshot, partial-detail persistence, failure-forwarding, structural regression guards on customPrompt
-- [ ] `evolution/src/lib/core/agents/selfCritiqueRevise.property.test.ts` — fast-check fuzzing on parser + truncation invariants + UTF-8 safety
-- [ ] `evolution/src/lib/schemas.test.ts` (extension) — new enum value, refinement rules, inline iterationType enums, discriminated union, producesNewVariants
-- [ ] `evolution/src/lib/core/agentNames.test.ts` (extension) — `self_critique` label routed to `self_critique_cost`
-- [ ] `evolution/src/lib/core/tactics/index.test.ts` (extension) — `isValidTactic('self_critique_driven')` true; STRATEGY_COLORS has an entry
-- [ ] `evolution/src/lib/metrics/types.test.ts` (extension) — STATIC_METRIC_NAMES includes the three new names
-- [ ] `evolution/src/lib/core/startupAssertions.test.ts` (extension) — `TS_PHASES_REFRESH_CALIBRATION.has('self_critique')` and same for CALIBRATION_LOADER
-- [ ] `evolution/src/lib/pipeline/loop/runIterationLoop.test.ts` (extension) — dispatch branch, criteria-fetch exclusion, kill-switch zero-dispatch behavior
+- [x] `evolution/src/lib/core/agents/selfCritiqueRevise.test.ts` — prompt builder, parser (with UTF-8 + truncation), sanitizer, customPrompt builder, execute() happy + all 5 failure paths + attribution
+- [x] `evolution/src/lib/core/agents/selfCritiqueRevise.invariants.test.ts` — `.execute()` not `.run()`, cost snapshot, partial-detail persistence, failure-forwarding, structural regression guards on customPrompt
+- [x] `evolution/src/lib/core/agents/selfCritiqueRevise.property.test.ts` — fast-check fuzzing on parser + truncation invariants + UTF-8 safety
+- [x] `evolution/src/lib/schemas.test.ts` (extension) — new enum value, refinement rules, inline iterationType enums, discriminated union, producesNewVariants
+- [x] `evolution/src/lib/core/agentNames.test.ts` (extension) — `self_critique` label routed to `self_critique_cost`
+- [x] `evolution/src/lib/core/tactics/index.test.ts` (extension) — `isValidTactic('self_critique_driven')` true; STRATEGY_COLORS has an entry
+- [x] `evolution/src/lib/metrics/types.test.ts` (extension) — STATIC_METRIC_NAMES includes the three new names
+- [x] `evolution/src/lib/core/startupAssertions.test.ts` (extension) — `TS_PHASES_REFRESH_CALIBRATION.has('self_critique')` and same for CALIBRATION_LOADER
+- [x] `evolution/src/lib/pipeline/loop/runIterationLoop.test.ts` (extension) — dispatch branch, criteria-fetch exclusion, kill-switch zero-dispatch behavior
 
 ### Integration Tests
-- [ ] `src/__tests__/integration/evolution-self-critique.integration.test.ts` — full pipeline with mocked LLM, variant produced, cost metric written (LIVES IN PHASE 3, after dispatch wiring)
+- [x] `src/__tests__/integration/evolution-self-critique.integration.test.ts` — full pipeline with mocked LLM, variant produced, cost metric written (LIVES IN PHASE 3, after dispatch wiring)
 
 ### E2E Tests
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-self-critique-pipeline.spec.ts` — real LLM, `@evolution`, asserts variants + cost + ranking + reflection sub-object populated (Test 6 with transient-AI caveat)
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-iterative-editing.spec.ts` (extension) — add a wizard test that the new option appears in the agent-type dropdown
+- [x] `src/__tests__/e2e/specs/09-admin/admin-evolution-self-critique-pipeline.spec.ts` — real LLM, `@evolution`, asserts variants + cost + ranking + reflection sub-object populated (Test 6 with transient-AI caveat)
+- [x] `src/__tests__/e2e/specs/09-admin/admin-evolution-iterative-editing.spec.ts` (extension) — add a wizard test that the new option appears in the agent-type dropdown
 
 ### Manual Verification
-- [ ] On staging, run the agent against `federal_reserve_2` ($0.05 budget) and visually inspect the invocation detail page (reflection sub-object + GFPA generation + ranking + truncatedFields/sanitizationCount indicators)
-- [ ] Confirm tactic leaderboard at `/admin/evolution/tactics` shows the new `self_critique_driven` marker with a colored dot (NOT gray fallback)
-- [ ] Confirm strategy wizard dropdown surfaces "Self-Critique + Revise" under its display label
+- [x] On staging, run the agent against `federal_reserve_2` ($0.05 budget) and visually inspect the invocation detail page (reflection sub-object + GFPA generation + ranking + truncatedFields/sanitizationCount indicators)
+- [x] Confirm tactic leaderboard at `/admin/evolution/tactics` shows the new `self_critique_driven` marker with a colored dot (NOT gray fallback)
+- [x] Confirm strategy wizard dropdown surfaces "Self-Critique + Revise" under its display label
 
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] Strategy wizard dropdown shows the new agent type option (covered by wizard test in Phase 4)
+- [x] Strategy wizard dropdown shows the new agent type option (covered by wizard test in Phase 4)
 
 ### B) Automated Tests
-- [ ] `npm run test -- --testPathPattern 'selfCritiqueRevise'`
-- [ ] `npm run test:integration -- --testPathPattern 'evolution-self-critique'`
-- [ ] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-self-critique-pipeline.spec.ts`
+- [x] `npm run test -- --testPathPattern 'selfCritiqueRevise'`
+- [x] `npm run test:integration -- --testPathPattern 'evolution-self-critique'`
+- [x] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-self-critique-pipeline.spec.ts`
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `evolution/docs/agents/overview.md` — add a `SelfCritiqueReviseAgent` section after the existing `SinglePassEvaluateCriteriaAndGenerateAgent` section
-- [ ] `evolution/docs/criteria_agents.md` — add a cross-reference to `self_critique_revise` as the criteria-table-free sibling
-- [ ] `evolution/docs/strategies_and_experiments.md` — extend `IterationConfig.agentType` documentation table with the new type
-- [ ] `evolution/docs/multi_iteration_strategies.md` — extend the iterationConfigSchema enum documentation
-- [ ] `evolution/docs/metrics.md` — add the new `self_critique_cost` umbrella metric + propagated counterparts to the registry section
-- [ ] `evolution/docs/reference.md` — env var section: add `EVOLUTION_SELF_CRITIQUE_ENABLED` kill switch (matches existing kill-switch documentation pattern; NOT added to `.env.example` — that file has zero `EVOLUTION_*_ENABLED` entries by convention)
+- [x] `evolution/docs/agents/overview.md` — add a `SelfCritiqueReviseAgent` section after the existing `SinglePassEvaluateCriteriaAndGenerateAgent` section
+- [x] `evolution/docs/criteria_agents.md` — add a cross-reference to `self_critique_revise` as the criteria-table-free sibling
+- [x] `evolution/docs/strategies_and_experiments.md` — extend `IterationConfig.agentType` documentation table with the new type
+- [x] `evolution/docs/multi_iteration_strategies.md` — extend the iterationConfigSchema enum documentation
+- [x] `evolution/docs/metrics.md` — add the new `self_critique_cost` umbrella metric + propagated counterparts to the registry section
+- [x] `evolution/docs/reference.md` — env var section: add `EVOLUTION_SELF_CRITIQUE_ENABLED` kill switch (matches existing kill-switch documentation pattern; NOT added to `.env.example` — that file has zero `EVOLUTION_*_ENABLED` entries by convention)
 
 ## Review & Discussion
 
