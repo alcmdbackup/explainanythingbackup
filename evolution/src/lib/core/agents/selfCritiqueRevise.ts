@@ -25,7 +25,6 @@
 //      anchors on first `ChangeKind:` (canonically-first label) — everything
 //      before is preamble, discarded.
 
-import { randomUUID } from 'node:crypto';
 import { Agent } from '../Agent';
 import type { AgentContext, AgentOutput, DetailFieldDef, FinalizationMetricDef } from '../types';
 import type {
@@ -440,8 +439,11 @@ export class SelfCritiqueReviseAgent extends Agent<
 
     // Compute per-invocation nonce. Truthy-check via `||` catches empty-string from
     // Agent.ts:114's `invocationId ?? ''` fallback when createInvocation returns null.
+    // Uses globalThis.crypto.randomUUID() (available in Node 20+ AND browsers) rather
+    // than a `node:crypto` import — the latter drags server-only chunks into the client
+    // bundle via the EntityMetricsTab → agentRegistry chain.
     // Runtime UUID-shape assertion prevents accepting a static/predictable value.
-    const nonce = ctx.invocationId || randomUUID();
+    const nonce = ctx.invocationId || globalThis.crypto.randomUUID();
     if (!UUID_V4_REGEX.test(nonce)) {
       throw new Error(
         `SelfCritiqueReviseAgent: nonce (${nonce}) is not a valid UUID v4. ` +

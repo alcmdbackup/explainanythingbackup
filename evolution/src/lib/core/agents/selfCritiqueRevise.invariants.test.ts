@@ -63,11 +63,11 @@ describe('SelfCritiqueReviseAgent invariants', () => {
     expect(costBeforeIdx).toBeLessThan(llmCompleteIdx);
   });
 
-  it('uses ctx.invocationId || randomUUID() for nonce (fallback for empty-string DB-error path)', () => {
+  it('uses ctx.invocationId || crypto.randomUUID() for nonce (fallback for empty-string DB-error path)', () => {
     const executeBody = extractExecuteBody(source);
     // Must use || (truthy check catches empty string), NOT ?? (only catches null/undefined).
-    expect(executeBody).toMatch(/nonce\s*=\s*ctx\.invocationId\s*\|\|\s*randomUUID\(\)/);
-    expect(executeBody).not.toMatch(/nonce\s*=\s*ctx\.invocationId\s*\?\?\s*randomUUID/);
+    expect(executeBody).toMatch(/nonce\s*=\s*ctx\.invocationId\s*\|\|\s*(?:globalThis\.)?crypto\.randomUUID\(\)/);
+    expect(executeBody).not.toMatch(/nonce\s*=\s*ctx\.invocationId\s*\?\?/);
   });
 
   it('runtime-asserts nonce matches strict UUID v4 shape', () => {
@@ -76,8 +76,11 @@ describe('SelfCritiqueReviseAgent invariants', () => {
     expect(source).toMatch(/UUID_V4_REGEX\s*=\s*\/\^\[0-9a-f\]\{8\}-\[0-9a-f\]\{4\}-\[0-9a-f\]\{4\}-\[0-9a-f\]\{4\}-\[0-9a-f\]\{12\}\$\/i/);
   });
 
-  it('imports randomUUID from node:crypto (matches codebase convention)', () => {
-    expect(source).toMatch(/from\s+['"]node:crypto['"]/);
+  it('does NOT import from node:crypto (would drag server-only chunk into client bundle)', () => {
+    // The agent is registered in agentRegistry, which is transitively imported
+    // by client-side EntityMetricsTab. Any `node:*` import breaks the Next.js build.
+    // Use globalThis.crypto.randomUUID() (available in Node 20+ AND browsers) instead.
+    expect(source).not.toMatch(/from\s+['"]node:crypto['"]/);
   });
 
   it('forwards GFPA failure signal — does not swallow it', () => {

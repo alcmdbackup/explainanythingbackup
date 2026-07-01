@@ -43,8 +43,9 @@ jest.mock('@evolution/lib/shared/computeRatings', () => {
   };
 });
 
-import { randomUUID } from 'node:crypto';
 import { createTestSupabaseClient } from '@/testing/utils/integration-helpers';
+
+const randomUUID = () => globalThis.crypto.randomUUID();
 import {
   evolutionTablesExist,
   cleanupEvolutionData,
