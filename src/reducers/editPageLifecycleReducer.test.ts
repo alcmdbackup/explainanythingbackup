@@ -76,6 +76,7 @@ describe('editPageLifecycleReducer', () => {
         originalContent: 'orig',
         winnerVariantContent: 'evolved',
         strategyLabel: 'Quick polish',
+        costSpent: 0.04,
         durationMs: 60000,
       },
     );
@@ -84,6 +85,8 @@ describe('editPageLifecycleReducer', () => {
     if (s.phase === 'viewing') {
       expect(s.originalContent).toBe('orig');
       expect(s.winnerVariantContent).toBe('evolved');
+      expect(s.strategyLabel).toBe('Quick polish');
+      expect(s.costSpent).toBe(0.04);
     }
   });
 

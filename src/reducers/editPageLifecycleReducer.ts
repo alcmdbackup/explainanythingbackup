@@ -24,6 +24,8 @@ export type EditPageState =
       originalContent: string;
       winnerVariantContent: string;
       strategyLabel: string;
+      /** Actual dollars spent (from evolution_metrics.cost). null when not yet available. */
+      costSpent: number | null;
       durationMs: number;
     }
   | {
@@ -46,6 +48,7 @@ export type EditPageAction =
       originalContent: string;
       winnerVariantContent: string;
       strategyLabel: string;
+      costSpent: number | null;
       durationMs: number;
     }
   | { type: 'POLL_FAILED'; runId: string | null; message: string }
@@ -77,6 +80,7 @@ export function editPageLifecycleReducer(state: EditPageState, action: EditPageA
         originalContent: action.originalContent,
         winnerVariantContent: action.winnerVariantContent,
         strategyLabel: action.strategyLabel,
+        costSpent: action.costSpent,
         durationMs: action.durationMs,
       };
 
