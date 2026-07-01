@@ -108,9 +108,9 @@ The plan Phase 1 must hit every one of these surfaces or the agent will silently
    - **Truncation.** Each field truncated via `truncateAtCodePointBoundary` (UTF-8-safe) — `changeKind` at 120 code points, `summary` at 500, `plan` at 4000. Adds each truncated field's name to `truncatedFields[]` and emits a warn log per truncation.
    - **Throws `SelfCritiqueParseError`** if the first `ChangeKind:` is never found, OR if `Summary:` doesn't appear after `ChangeKind:`, OR if `Plan:` doesn't appear after `Summary:`, OR if any field's extracted value is empty after trim — raw response preserved on the detail row.
 3. **Prompt-injection defense** (crucial — the reflector's `plan` field is untrusted content that flows into another LLM's system prompt).
-   - **Per-invocation nonce fence.** Compute `nonce = ctx.invocationId || crypto.randomUUID()` at execute() start. The fallback matters: `Agent.ts:114` falls back to `invocationId ?? ''` when `createInvocation` returns null (DB error), and an empty-string nonce would degrade the fence to a static learnable `<UNTRUSTED_PLAN_>` pattern that would defeat the whole defense. The runtime code MUST use the `||` fallback (truthy check, not `??`, so both empty string and null go through), and additionally MUST assert `nonce` is a UUID-shaped string (`/^[0-9a-f-]{16,}$/i`) before threading into the sanitizer/fence. Fence the sanitized `summary` + `plan` inside `<UNTRUSTED_PLAN_{nonce}>...</UNTRUSTED_PLAN_{nonce}>` delimiters in the customPrompt. Because the nonce is generated fresh per invocation AND never exposed to the reflection LLM (the reflector's prompt does not contain the fence tag), the reflector cannot emit a matching fake closing tag that would prematurely terminate the fence. Even if an adversarial parent article successfully poisons the reflector into writing `</UNTRUSTED_PLAN>` variants (bare, with zero-width joiners, HTML entities, spacing), those variants will NOT match the nonce-tagged actual closer, so the fence stays semantically closed at the intended boundary.
+   - **Per-invocation nonce fence.** Compute `nonce = ctx.invocationId || randomUUID() (imported as `import { randomUUID } from 'node:crypto'` — matches codebase convention in `claimAndExecuteRun.ts:3` and similar sites)` at execute() start. The fallback matters: `Agent.ts:114` falls back to `invocationId ?? ''` when `createInvocation` returns null (DB error), and an empty-string nonce would degrade the fence to a static learnable `<UNTRUSTED_PLAN_>` pattern that would defeat the whole defense. The runtime code MUST use the `||` fallback (truthy check, not `??`, so both empty string and null go through), and additionally MUST assert `nonce` is a UUID-shaped string (`/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`) before threading into the sanitizer/fence. Fence the sanitized `summary` + `plan` inside `<UNTRUSTED_PLAN_{nonce}>...</UNTRUSTED_PLAN_{nonce}>` delimiters in the customPrompt. Because the nonce is generated fresh per invocation AND never exposed to the reflection LLM (the reflector's prompt does not contain the fence tag), the reflector cannot emit a matching fake closing tag that would prematurely terminate the fence. Even if an adversarial parent article successfully poisons the reflector into writing `</UNTRUSTED_PLAN>` variants (bare, with zero-width joiners, HTML entities, spacing), those variants will NOT match the nonce-tagged actual closer, so the fence stays semantically closed at the intended boundary.
    - **Nonce-aware sanitization** via `sanitizeReflectionForCustomPrompt(text, nonce)`. Applies IN ORDER:
-     - **Step 0** — strip zero-width characters directly: regex-scrub U+200B (ZWSP), U+200C (ZWNJ), U+200D (ZWJ), U+FEFF (BOM), U+200E (LTR), U+200F (RTL) from the input before pattern matching. Simpler than Unicode normalization (NFKC/NFC) — explicit character deletion catches the exact bypass vector without normalizing legitimate content.
+     - **Step 0** — strip zero-width characters directly: regex-scrub U+200B (ZWSP), U+200C (ZWNJ), U+FEFF (BOM), U+200E (LTR), U+200F (RTL) from the input before pattern matching. **Do NOT scrub U+200D (ZWJ) unconditionally** — that would damage legitimate emoji sequences (family emoji `👨‍👩‍👧‍👦` uses U+200D as joiner). Instead, redact U+200D only when it appears immediately adjacent to `<`, `>`, or `/` characters (i.e. inside or adjacent to a candidate tag) — those positions never occur in legitimate emoji or prose. This preserves emoji faithfulness while catching the ZWJ-in-tag bypass.
      - Then redact to `[UNTRUSTED_TAG_REDACTED]`:
      - (a) **Literal nonce tags** — exact `<UNTRUSTED_PLAN_{nonce}>` and `</UNTRUSTED_PLAN_{nonce}>` occurrences (defense against statistical lucky-collisions where the reflector guessed the nonce)
      - (b) **Generic tag variants** — case-insensitive `<UNTRUSTED_*>` / `</UNTRUSTED_*>` PLUS spacing-tolerant `< /UNTRUSTED_*>` / `< UNTRUSTED_*>` PLUS entity-encoded `&lt;/UNTRUSTED_*&gt;` / `&lt;UNTRUSTED_*&gt;` (defense-in-depth against adversarial encoding attempts and against the reflector referencing the fence pattern in its plan text)
@@ -293,12 +293,12 @@ Every item below is required — omitting any silently breaks a downstream consu
     - **Throws `SelfCritiqueParseError`** on missing/empty labels
   - `buildSelfCritiqueCustomPromptFromReflection({summary, plan}, nonce): {preamble, instructions, sanitizationCount}` — sanitizes summary + plan with the nonce, then embeds in the `<UNTRUSTED_PLAN_{nonce}>...</UNTRUSTED_PLAN_{nonce}>` fenced block with the untrusted-content preamble per the Algorithm summary. Returns aggregate `sanitizationCount` for detail persistence.
   - `SelfCritiqueReviseAgent extends Agent<...>` class with `execute()`:
-    1. Compute `nonce = ctx.invocationId || crypto.randomUUID()` (fallback for the DB-error path in `Agent.ts:114` where invocationId can be empty string). Then runtime-assert `nonce` matches `/^[0-9a-f-]{16,}$/i` (UUID-shape guard) — throw a clear error if not, don't silently accept a static/predictable value.
+    1. Compute `nonce = ctx.invocationId || randomUUID() (imported as `import { randomUUID } from 'node:crypto'` — matches codebase convention in `claimAndExecuteRun.ts:3` and similar sites)` (fallback for the DB-error path in `Agent.ts:114` where invocationId can be empty string). Then runtime-assert `nonce` matches `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i` (UUID-shape guard) — throw a clear error if not, don't silently accept a static/predictable value.
     2. Lookup parent Elo from `input.initialRatings.get(input.parentVariantId)?.elo` → pass to prompt builder
     3. Reflection LLM call + parse (`costBeforeReflection` snapshot, partial-detail-on-throw)
     4. Sanitize + build customPrompt (passes nonce to both)
     5. `await new GenerateFromPreviousArticleAgent().execute(innerInput, ctx)` with `tactic: 'self_critique_driven'` + customPrompt
-    6. **Output delimiter-mirror check**: scan `gfpaOutput.result.newText` (or equivalent) for any `<UNTRUSTED_PLAN_{nonce}` / `</UNTRUSTED_PLAN_{nonce}` substring OR any generic `<UNTRUSTED_*>` shape. If found: emit warn log `self_critique_output_fence_leak` with invocationId, mark `surfaced=false`, set `discardReason: {reason: 'output_fence_leak'}`.
+    6. **Output delimiter-mirror check**: scan `gfpaOutput.result.variant?.text` (the article body — check `evolution/src/lib/core/agents/generateFromPreviousArticle.ts` around lines 65-78 for the exact output shape) for any `<UNTRUSTED_PLAN_{nonce}` / `</UNTRUSTED_PLAN_{nonce}` substring OR any generic `<UNTRUSTED_*>` shape. If found: emit warn log `self_critique_output_fence_leak` with invocationId, mark `surfaced=false`, set `discardReason: {reason: 'output_fence_leak'}`.
     7. Compute `lengthCapHit` post-hoc
     8. Merge detail + forward `failure` signal
   - Attribution: BOTH `getAttributionDimension(detail)` class method AND `registerAttributionExtractor('self_critique_revise', ...)` at file tail (matches singlePass precedent at lines 118-123 + 387-392). Both return `changeKind` truncated to 60 code points via `truncateAtCodePointBoundary`, or null.
@@ -320,6 +320,7 @@ Every item below is required — omitting any silently breaks a downstream consu
     - Reflector emits `Plan: brainstorming...\nChangeKind: tighten\nSummary: X\nPlan: Y` — same rule: `Plan:` before `ChangeKind:` is preamble/discarded
     - Reflector emits multiple lines of prose starting with things that LOOK like labels (`Reflection: this article needs...\nSummary: I think...`) but no `ChangeKind:` line → THROWS `SelfCritiqueParseError` (no anchor found)
     - Reflector emits labels OUT OF CANONICAL ORDER after parse-start (`ChangeKind: X\nPlan: Y\nSummary: Z`) → THROWS `SelfCritiqueParseError` (missing `Summary:` between `ChangeKind:` and `Plan:`)
+    - Reflector emits English prose that happens to wrap with `ChangeKind:` at line start (`First, let me consider the\nChangeKind: aspect of this article.`) → the line-start rule anchors on it as the label (documented behavior — this is a corner case where a reflector's prose is indistinguishable from an intentional label, and the parser deliberately does not attempt semantic disambiguation)
   - Parser truncation: `changeKind` > 120 code points → truncated + `truncatedFields=['changeKind']`; `summary` > 500 → truncated + logged; `plan` > 4000 → truncated + logged; multi-byte / emoji strings truncated at CODE POINT boundary (no split surrogates — assert `Buffer.from(result, 'utf8').toString('utf8') === result` AND `Array.from(result).length ≤ N` for each field)
   - Parser failure paths: missing `ChangeKind` → throws; missing `Summary` → throws; missing `Plan` → throws; empty value after any label → throws; empty response → throws; raw response preserved on throw
   - **Sanitizer (nonce + bypass coverage)**:
@@ -327,7 +328,8 @@ Every item below is required — omitting any silently breaks a downstream consu
     - Generic tags: `<UNTRUSTED_PLAN>` → redacted; `</untrusted_plan>` lowercase → redacted; `<UNTRUSTED_CONTEXT>` (different name) → redacted
     - Spacing bypasses: `< /UNTRUSTED_PLAN>` → redacted; `</ UNTRUSTED_PLAN >` → redacted; `< UNTRUSTED_PLAN >` → redacted
     - Entity bypasses: `&lt;/UNTRUSTED_PLAN&gt;` → redacted; `&lt;UNTRUSTED_PLAN&gt;` → redacted; case-insensitive `&LT;/untrusted_plan&GT;` → redacted
-    - Zero-width character bypasses: input contains U+200B (`</​UNTRUSTED_PLAN>`) OR U+200C OR U+200D OR U+FEFF between/inside the tag chars → the direct character scrub (Step 0) strips them first, then pattern matching redacts the reconstructed tag
+    - Zero-width character bypasses: input contains U+200B (`</​UNTRUSTED_PLAN>`) OR U+200C OR U+FEFF between/inside the tag chars → the direct character scrub (Step 0) strips them first, then pattern matching redacts the reconstructed tag
+    - U+200D (ZWJ) inside candidate tag context (e.g. `</U+200DUNTRUSTED_PLAN>`) → redacted; U+200D as legitimate emoji joiner (`👨‍👩‍👧‍👦`) → PRESERVED (the scoped scrub only fires adjacent to `<`, `>`, or `/`)
     - `sanitizationCount` returned correctly; **≥ 1 triggers warn log** (any hit is a canary — sanitization should never fire on legitimate reflection)
     - Non-adversarial text unchanged: normal prose with `<b>` HTML or `&amp;` entities not affected; text containing legitimate ZWJ in emoji (👨‍👩‍👧) not damaged in the surrounding content
   - **Output delimiter-mirror check (post-GFPA)**:
@@ -335,10 +337,10 @@ Every item below is required — omitting any silently breaks a downstream consu
     - Given nonce `n1` and GFPA output containing generic `<UNTRUSTED_CONTEXT>` (any UNTRUSTED_* shape) → same discard behavior
     - Given non-adversarial GFPA output (a proper article) → variant surfaces normally, no discard
   - **Nonce runtime guard**:
-    - `execute()` called with `ctx.invocationId=''` → `nonce = crypto.randomUUID()` fallback fires, agent runs normally with a valid nonce
+    - `execute()` called with `ctx.invocationId=''` → `nonce = randomUUID() (imported as `import { randomUUID } from 'node:crypto'` — matches codebase convention in `claimAndExecuteRun.ts:3` and similar sites)` fallback fires, agent runs normally with a valid nonce
     - `execute()` called with `ctx.invocationId=undefined` → same fallback fires
     - `execute()` called with a mocked `ctx.invocationId='not-a-uuid'` → UUID-shape assertion throws with a clear error message
-    - Invariant test extension (see below) asserts the nonce reaching the fence tags always matches `/^[0-9a-f-]{16,}$/i`
+    - Invariant test extension (see below) asserts the nonce reaching the fence tags always matches `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`
   - `buildSelfCritiqueCustomPromptFromReflection`: given nonce `n1`, wraps sanitized text in `<UNTRUSTED_PLAN_n1>...</UNTRUSTED_PLAN_n1>` fenced block; includes untrusted-content preamble; does NOT include Length/Redundancy/Flow directives; does NOT include high-Elo guidance block; nonce is threaded through both fence tags identically
   - `execute()` happy path (mocked LLM via `v2MockLlm`): reflection + GFPA both succeed → variant produced + ranked, totalCost = reflectionCost + gfpaCost, `lengthCapHit` computed
   - `execute()` high-Elo parent path: parent Elo lookup returns 1450 → reflection prompt includes high-Elo context note; `reflection.parentEloAtReflection === 1450`; `reflection.highEloContextShown === true`
@@ -475,7 +477,19 @@ The following docs were identified as relevant and may need updates:
 - [ ] `evolution/docs/reference.md` — env var section: add `EVOLUTION_SELF_CRITIQUE_ENABLED` kill switch (matches existing kill-switch documentation pattern; NOT added to `.env.example` — that file has zero `EVOLUTION_*_ENABLED` entries by convention)
 
 ## Review & Discussion
-_This section will be populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration._
+
+✅ **Consensus reached in iteration 4** — Security 5/5, Architecture 5/5, Testing 5/5. Plan is ready for execution.
+
+Iteration history:
+
+| Iter | Security | Architecture | Testing | Critical gaps |
+|---|---|---|---|---|
+| 1 | 3/5 | 3/5 | 3/5 | 16 |
+| 2 | 3/5 | **5/5** | **5/5** | 2 (Security-only) |
+| 3 | 3/5 | (5/5) | (5/5) | 2 (Security-only) |
+| 4 | **5/5** | (5/5) | (5/5) | 0 |
+
+Iteration-by-iteration fix log below.
 
 **Iteration 1 (2026-06-30)** — scores 3/3/3 (Security / Architecture / Testing). 16 critical gaps aggregated:
 - Migration location wrong (`/supabase/migrations/` not `evolution/supabase/migrations/`) — **fixed** in Phase 1
@@ -495,8 +509,15 @@ _This section will be populated by /plan-review with agent scores, reasoning, an
 - E2E timeout + trackEvolutionId + ESLint disable + real-LLM caveat — **fixed** in Phase 5
 - Marker-tactic isValidTactic invariant test — **added** to Phase 1 unit tests
 
+**Iteration 4 (2026-06-30)** — CONSENSUS. Security 5/5 (Architecture + Testing already at 5/5 since iteration 2). All iteration-3 critical gaps confirmed resolved. 5 minor polish items folded in for final quality:
+- UUID-shape regex tightened from `/^[0-9a-f-]{16,}$/i` (over-permissive — accepted 16 hyphens or bare hex) to strict v4 shape `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`
+- Output delimiter-mirror check target field specified precisely as `gfpaOutput.result.variant?.text` (per `generateFromPreviousArticle.ts:65-78` shape)
+- Zero-width character scrub scoped: U+200D (ZWJ) scrubbed ONLY when adjacent to `<`, `>`, or `/` (preserves legitimate emoji sequences like `👨‍👩‍👧‍👦`; catches ZWJ-in-tag bypass)
+- Parse-start anchor test coverage extended with a corner case (English prose that legitimately line-wraps to `ChangeKind:` at line start — documented as anchor-hit behavior, no semantic disambiguation attempted)
+- Import style aligned to codebase convention: `import { randomUUID } from 'node:crypto'` (matches `claimAndExecuteRun.ts:3` style)
+
 **Iteration 3 (2026-06-30)** — scores 3 (Security only re-run — Architecture and Testing already 5/5). Two NEW critical gaps found by deeper security look:
-- `ctx.invocationId` can be `''` when `createInvocation` returns null on DB error (`Agent.ts:114` falls back to `invocationId ?? ''`) — nonce fence would degrade to static `<UNTRUSTED_PLAN_>` pattern defeating the whole defense. **Fixed** by computing `nonce = ctx.invocationId || crypto.randomUUID()` + runtime UUID-shape assertion + explicit unit tests for empty/undefined/non-UUID paths.
+- `ctx.invocationId` can be `''` when `createInvocation` returns null on DB error (`Agent.ts:114` falls back to `invocationId ?? ''`) — nonce fence would degrade to static `<UNTRUSTED_PLAN_>` pattern defeating the whole defense. **Fixed** by computing `nonce = ctx.invocationId || randomUUID() (imported as `import { randomUUID } from 'node:crypto'` — matches codebase convention in `claimAndExecuteRun.ts:3` and similar sites)` + runtime UUID-shape assertion + explicit unit tests for empty/undefined/non-UUID paths.
 - Parser preamble conflict: reflector could emit `Summary: <preamble>` BEFORE `ChangeKind:`, producing negative-length extraction under the old "first-occurrence-wins per label" rule. **Fixed** by adding a parse-start anchor rule: the parser scans forward for the FIRST `ChangeKind:` and DISCARDS everything before it as preamble; only after parse-start do the per-label first-occurrence rules apply.
 Minor issues folded: zero-width char handling via direct character scrub (U+200B/200C/200D/FEFF/200E/200F) instead of Unicode normalization; added output delimiter-mirror check (borrowed from `paragraphRecombine`) — GFPA output containing any fence tag → variant discarded; dropped `sanitizationCount` warn threshold from `> 3` to `≥ 1` (any hit is a canary in production).
 
