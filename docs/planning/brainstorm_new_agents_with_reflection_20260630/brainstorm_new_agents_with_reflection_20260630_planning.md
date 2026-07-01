@@ -476,6 +476,118 @@ The following docs were identified as relevant and may need updates:
 - [x] `evolution/docs/metrics.md` — add the new `self_critique_cost` umbrella metric + propagated counterparts to the registry section
 - [x] `evolution/docs/reference.md` — env var section: add `EVOLUTION_SELF_CRITIQUE_ENABLED` kill switch (matches existing kill-switch documentation pattern; NOT added to `.env.example` — that file has zero `EVOLUTION_*_ENABLED` entries by convention)
 
+## Phase 8 — Wizard settings extensions (post-merge follow-up)
+
+**Added 2026-07-01 after merge of PR #1328.**  The initial wizard hookup for `self_critique_revise` (`src/app/admin/evolution/strategies/new/page.tsx:243, 251, 265, 1519`) exposes only the universal knobs: agent select, `budgetPercent`, `sourceMode`+`qualityCutoff` (via `isVariantProducing`), and first-iteration eligibility (via `canBeFirstIteration`). Deliberately excluded: `criteriaIds`+`weakestK` (free-form reflection has no criteria table) and `tacticGuidance` (self-critique is its own single tactic `self_critique_driven`).
+
+This section catalogues additional per-iteration settings from **other** agents that plausibly apply, ranks them by value, and proposes which to wire in.
+
+### Survey of existing per-iteration knobs (mapping table)
+
+| Setting (schema field) | Owning agent(s) | Applies to self_critique? | Reason |
+|---|---|---|---|
+| `budgetPercent` | universal | ✅ already | applied |
+| `sourceMode` + `qualityCutoff` | variant-producing family | ✅ already | applied via `isVariantProducing()` |
+| `criteriaIds` + `weakestK` | criteria-based family | ❌ | free-form reflection intentionally has no criteria table |
+| `tacticGuidance` (`generationGuidance`) | `generate` only | ❌ (weighted-random tactic mechanism; self-critique is its own single tactic) | not applicable |
+| `reflectionTopN` | `reflect_and_generate` only | ❌ | self-critique doesn't rank tactics; emits free-form `ChangeKind`+`Summary`+`Plan` |
+| `editingMaxCycles` | iterative-editing family | ⚠️ (real design change) | one reflection → one GFPA today; multi-cycle needs re-reflect logic — Tier 3 |
+| `editingEligibilityCutoff` | iterative-editing family | ❌ | duplicate of `qualityCutoff` for our sourcing path |
+| `editingProposerSoftCap` / `disableApproverFiltering` | `iterative_editing_rewrite` | ❌ | no proposer/approver in self-critique |
+| `lengthCapRatio` | `proposer_approver_criteria_generate` | ✅ Tier 2 (D) | agent has observational `lengthCapHit`; exposing as knob enables A/B experimentation |
+| `includesMirrorApprover` | `proposer_approver_criteria_generate` | ❌ | no approver |
+| `debateJudgeReasoningEffort` | `debate_and_generate` | ✅ Tier 1 (A) | high value — reasoning-capable models can substantially lift reflection quality |
+| `paragraphRewriteModel` / `coherencePassProposerModel` / `coherencePassApproverModel` | paragraph_recombine family | ✅ Tier 1 (B) | decouples reflection cost from generation cost; enables cheap-reflect + strong-generate combos |
+| `rewritesPerParagraph` / `maxComparisonsPerParagraph` / `maxParagraphsPerInvocation` / `maxDispatches` / `perInvocationCapUsd` | paragraph_recombine family | ❌ | no paragraph decomposition |
+| `coherencePassEnabled` / `coherencePassRewriteTempFloor` | paragraph_recombine_with_coherence_pass | ❌ | no coherence pass |
+
+### Proposals (ranked by value)
+
+**Tier 1 — high value, clean pattern-match; recommended for same follow-up PR**
+
+**A. Reflection reasoning effort (`selfCritiqueReasoningEffort`)**
+- Mirrors `debateJudgeReasoningEffort` (`schemas.ts:843`, wizard `page.tsx:1848-1866`)
+- Enum `['none','low','medium','high']`, optional. Conditionally enabled when `modelSupportsReasoning(strategy.generationModel)` — otherwise the row shows the same disabled-with-hint chip the debate agent uses (lists reasoning-capable models from `MODEL_REGISTRY`)
+- Fallback walk: `iterCfg.selfCritiqueReasoningEffort → strategyCfg.selfCritiqueReasoningEffort → MODEL_REGISTRY[reflectionModel].defaultReasoningEffort` (parallels debate's walk order per `schemas.ts:839-843`)
+- Cross-field refinement mirroring the debate check at `schemas.ts:1208-1228` (either pick a reasoning-capable model or unset the field)
+- Wire into `SelfCritiqueReviseAgent`: pass `reasoningEffort` in the `llm.complete(prompt, 'self_critique', {...})` call at the reflection site
+- **Value**: reasoning-capable reflection dramatically shifts quality — the LLM can genuinely deliberate before proposing a `ChangeKind`. Turns self-critique into a viable "premium" agent.
+- **Cost**: 1 schema field + 1 strategy-level twin field + 1 refinement + 1 wizard row + 1 agent line. ~40 LOC. No new DB column.
+
+**B. Reflection model override (`selfCritiqueReflectionModel`)**
+- Mirrors `paragraphRewriteModel` (`schemas.ts:849`, wizard `page.tsx:1922-1931`)
+- Optional string; empty = inherit strategy generation model
+- Wire into `SelfCritiqueReviseAgent`: `llm.complete(prompt, 'self_critique', { model: cfg.selfCritiqueReflectionModel || defaultModel, ...})`
+- **Value**: decouples reflection cost from generation cost. Concrete pairings that were impossible before:
+  - Cheap reflection + strong generation: `gemini-2.5-flash` reflects + `gpt-5` generates → ~1/10 reflection cost with no impact on final variant quality
+  - Strong reflection + cheap generation: `claude-opus-4-8` reflects + `gpt-4.1-nano` generates → premium critique steers a cheap writer
+- **Cost**: 1 schema field + 1 wizard row + 1 agent line. ~15 LOC.
+
+**Tier 2 — experimentation value; consider bundling with Tier 1 if time allows**
+
+**C. Reflection guidance prefix (`selfCritiqueGuidance`)**
+- Free-text string (~200 char cap), optional. Prepended to reflection prompt as `Focus areas: {guidance}`
+- Simpler than `generationGuidance` (single string, no weights, no tactic list)
+- Wire into `buildSelfCritiquePrompt(parentText, parentElo?, guidance?)` at `selfCritiqueRevise.ts` prompt builder
+- **Value**: steer reflection without adding a criteria table. Concrete uses:
+  - `"emphasize brevity"` — nudges toward tightening rather than expansion
+  - `"cut jargon"` — targets accessibility
+  - `"tone: casual and warm"` — persona steering
+- **Cost**: 1 schema field + 1 wizard row + 1 prompt-builder line. ~10 LOC.
+- **Trade-off vs A**: guidance and reasoning-effort compose — guidance steers *what* to critique, reasoning-effort improves *how well*.
+
+**D. Structural change tolerance (`selfCritiqueMaxLengthDelta`)**
+- Optional number 0-100 (pct); e.g. `20` = allow ±20% length change; unset = free (current behavior)
+- Currently the agent has an observational-only `lengthCapHit` boolean at `selfCritiqueRevise.ts:621-657` — this exposes the underlying threshold as a knob
+- Wire into `SelfCritiqueReviseAgent`: after GFPA returns, if `|newLen - parentLen| / parentLen > cfg.selfCritiqueMaxLengthDelta/100`, discard the variant (or accept with a flag — decision deferred to design)
+- **Value**: A/B whether "constrain to same length" produces higher-Elo variants than "structural rework OK". Directly tests one of the design's founding assumptions (that free-scope reflection beats constrained rewrites).
+- **Trade-off**: adds a discard path — need clean metric for `self_critique_discard_reason='length_delta'` and to decide whether discards count against the iteration's variant target.
+- **Cost**: 1 schema field + 1 wizard row + ~30 LOC in agent (discard/accept branch + metric).
+
+**Tier 3 — defer; real design work, not wizard-only**
+
+**E. Multi-cycle self-critique** — parallel to `editingMaxCycles`. Would require reflect → generate → reflect on the new variant → generate again logic. Not a wizard-only add — needs cycle-carryover state, per-cycle cost accounting, discard rules mid-cycle. Track in `_research.md` as follow-up idea.
+
+**F. Reflect-then-generate-N** — like `reflectionTopN` but for self-critique (one reflection drives N GFPA calls). Ambiguous value: paragraph-recombine's `maxDispatches` already serves this pattern at the strategy level via parallel dispatch. Defer pending evidence of a use case not covered by dispatch parallelism.
+
+### Recommendation
+
+Bundle **A + B** into one follow-up PR (`feat/wizard_self_critique_settings_YYYYMMDD`). They're independent (`A` = reasoning, `B` = model override), both mirror well-worn patterns, and together transform self-critique from "one fixed pipeline" to "tunable premium/cheap variant".
+
+**C** slots in trivially — same PR if time allows, else quick follow-up.
+
+**D** deserves its own PR: it introduces a discard path with metric implications; needs a design decision on discard-vs-accept semantics before implementation.
+
+### Implementation checklist (proposals A + B, follow-up PR)
+
+*The following items are scoped for the next branch. This section documents the plan; no items are checked here — checkbox tracking begins on the follow-up branch.*
+
+Schema (`evolution/src/lib/schemas.ts`):
+- Add `selfCritiqueReasoningEffort: z.enum(['none','low','medium','high']).optional()` to `iterationConfigSchema` AND to the strategy `evolutionConfigSchema` (parallels debate's dual-level field at `schemas.ts:843,1137`)
+- Add `selfCritiqueReflectionModel: z.string().optional()` to `iterationConfigSchema` (single-level, matches `paragraphRewriteModel` at `schemas.ts:849`)
+- Add cross-field refinement mirroring `schemas.ts:1208-1228`: reject `selfCritiqueReasoningEffort` set when `reflectionModel` (or generation model fallback) is not `supportsReasoning`, with the same "pick a reasoning-capable model or unset" error message
+
+Agent (`evolution/src/lib/core/agents/selfCritiqueRevise.ts`):
+- Read `cfg.selfCritiqueReflectionModel ?? ctx.defaultModel` into a local `reflectionModel` at execute() top
+- Read `cfg.selfCritiqueReasoningEffort ?? strategyCfg.selfCritiqueReasoningEffort ?? MODEL_REGISTRY[reflectionModel]?.defaultReasoningEffort` into `reflectionEffort`
+- Pass both to `input.llm.complete(prompt, 'self_critique', { model: reflectionModel, reasoningEffort: reflectionEffort, temperature: ... })`
+- Persist both to `execution_detail.reflection.{model, reasoningEffort}` so admin invocation view surfaces the actual pair used
+
+Wizard (`src/app/admin/evolution/strategies/new/page.tsx`):
+- New `it.agentType === 'self_critique_revise'` branch after line ~1751, structurally identical to the `debate_and_generate` branch at `1828-1874` — dropdown for reasoning effort with the same disabled-with-hint chip when model doesn't support reasoning
+- Same branch adds a compact text input for reflection-model override, mirroring `paragraphRewriteModel` at `1922-1931`
+
+Tests:
+- Extend `selfCritiqueRevise.invariants.test.ts` with two new invariants: (i) reasoning-effort is passed through to `llm.complete`, (ii) reflection-model override wins over `defaultModel`
+- Extend `selfCritiqueRevise.test.ts` prompt-builder tests to cover the new pass-through
+- Wizard E2E (`admin-evolution-self-critique-pipeline.spec.ts`): add assertion that the new controls render when `self_critique_revise` is selected, and that they persist through save/load
+
+Docs:
+- `evolution/docs/agents/overview.md` — add "Tunables" subsection to the SelfCritiqueReviseAgent section listing the two new knobs and their fallback order
+- `evolution/docs/strategies_and_experiments.md` — extend the iterationConfig field table with the two new fields
+
+Rollback: both fields are optional with sensible defaults (inherit generation model, inherit registry's default reasoning effort). Unset produces exactly the current behavior. No migration; no config_hash break for existing strategies (`toIterationConfigsPayload` omits undefined fields per the pre-J back-compat pattern at `page.tsx:1935`).
+
 ## Review & Discussion
 
 ✅ **Consensus reached in iteration 4** — Security 5/5, Architecture 5/5, Testing 5/5. Plan is ready for execution.
