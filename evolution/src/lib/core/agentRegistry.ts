@@ -19,6 +19,7 @@ import { MergeRatingsAgent } from './agents/MergeRatingsAgent';
 // InvocationEntity at registry init, and so the entities.test.ts parity test
 // against DETAIL_VIEW_CONFIGS catches future regressions.
 import { CreateSeedArticleAgent } from './agents/createSeedArticle';
+import { SelfCritiqueReviseAgent } from './agents/selfCritiqueRevise';
 // paragraph_recombine_agent_with_coherence_pass_evolution_20260620 — NOT registered
 // here for the same reason ParagraphRecombineAgent isn't: both agents import
 // `syncToArena` from `persistRunResults.ts`, which pulls in server-only
@@ -48,6 +49,9 @@ export function getAgentClasses(): AnyAgent[] {
       new MergeRatingsAgent(),
       // B003-S3: registered to feed invocationMetrics merge + parity tests.
       new CreateSeedArticleAgent(),
+      // brainstorm_new_agents_with_reflection_20260630 — feeds invocationMetrics merge
+      // into InvocationEntity + entities.test.ts parity assertions.
+      new SelfCritiqueReviseAgent(),
     ];
   }
   return _agents;

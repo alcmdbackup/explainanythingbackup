@@ -41,7 +41,8 @@ export interface CalibrationRow {
     // Both phases need calibration support so the projector can consult per-phase
     // empirical avgOutputChars + avgInputOverheadChars when COST_CALIBRATION_ENABLED.
     | 'paragraph_rank'
-    | 'paragraph_recombine_coordinator';
+    | 'paragraph_recombine_coordinator'
+    | 'self_critique';
   avgOutputChars: number;
   avgInputOverheadChars: number;
   avgCostPerCall: number;

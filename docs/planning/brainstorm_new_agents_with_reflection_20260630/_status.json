@@ -1,0 +1,33 @@
+{
+  "branch": "feat/brainstorm_new_agents_with_reflection_20260630",
+  "created_at": "2026-06-30T13:04:48Z",
+  "prerequisites": {
+    "todos_created": "2026-06-30T13:16:14Z",
+    "testing_overview_read": "2026-07-01T00:04:56Z"
+  },
+  "project_kind": "standard",
+  "experiment_id": null,
+  "relevantDocs": [
+    "evolution/docs/strategies_and_experiments.md",
+    "evolution/docs/architecture.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/arena.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/agents/overview.md",
+    "evolution/docs/criteria_agents.md",
+    "evolution/docs/editing_agents.md",
+    "evolution/docs/paragraph_recombine.md",
+    "evolution/docs/paragraph_recombine_with_coherence_pass.md",
+    "evolution/docs/multi_iteration_strategies.md",
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/reference.md",
+    "docs/feature_deep_dives/judge_evaluation.md",
+    "docs/feature_deep_dives/iterative_planning_agent.md",
+    "docs/feature_deep_dives/style_fingerprint.md",
+    "docs/analysis/elo-agent-comparison-federal-reserve-2-20260628/elo-agent-comparison-federal-reserve-2-20260628.md",
+    "docs/analysis/coherence-pass-enabled-ab-results-20260627/coherence-pass-enabled-ab-results-20260627.md",
+    "docs/analysis/coherence-pass-perf-ab-results-20260624/coherence-pass-perf-ab-results-20260624.md"
+  ],
+  "analyses": []
+}

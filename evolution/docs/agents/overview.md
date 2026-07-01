@@ -609,3 +609,39 @@ Selected per-iteration via `IterationConfig.agentType: 'paragraph_recombine_with
 **Lineage**: single primary parent per D4 — variant emitted with `parent_variant_ids = [originalParent]`. Slot winners live in `execution_detail.slots[i].winnerSlotVariantId`. The coherence-pass cycle data lives in `execution_detail.coherencePass.cycles[0]` (matches `iterativeEditingExecutionDetailSchema.cycles[]` shape so `parseIterativeEditingTree` walks it for the SubagentsTab).
 
 See full deep dive: [`evolution/docs/paragraph_recombine_with_coherence_pass.md`](../paragraph_recombine_with_coherence_pass.md).
+
+## SelfCritiqueReviseAgent (brainstorm_new_agents_with_reflection_20260630)
+
+Wrapper agent that runs ONE reflection LLM call outputting a free-form `ChangeKind + Summary + Plan` block, then feeds `summary + plan` (sanitized + nonce-fenced) as a customPrompt into `GenerateFromPreviousArticleAgent.execute()`. Structurally mirrors `SinglePassEvaluateCriteriaAndGenerateAgent` — ~70% mechanical copy — but replaces the `evaluateAndSuggest` sub-object with a free-form `reflection` sub-object. No `evolution_criteria` table dependency; works on any topic out of the box.
+
+**Selected per-iteration via** `IterationConfig.agentType: 'self_critique_revise'` (Shape A top-level agent type; first-iteration allowed — runs on the seed article).
+
+- `name = 'self_critique_revise'`
+- `executionDetailSchema = selfCritiqueReviseExecutionDetailSchema`
+- `tactic = 'self_critique_driven'` (marker tactic; orange `#f97316`)
+- `getAttributionDimension(detail) → detail.reflection.changeKind` (truncated to 60 code points)
+
+**AgentName label**: `self_critique` — routes to new `self_critique_cost` umbrella metric. Inner GFPA's `'generation'` and `'ranking'` LLM calls flow through the wrapper's `AgentCostScope` unchanged (`.execute()` not `.run()` — load-bearing invariant).
+
+**Reflection prompt** (`buildSelfCritiquePrompt`): asks LLM to reflect freely on how to improve the article with EXPLICIT scope latitude — minor edits, targeted rewrites, structural rework, mode shifts, "anything else you judge would make the article stronger". Conditionally prepends a high-Elo context note when `parentElo > SELF_CRITIQUE_HIGH_ELO_THRESHOLD (1300)` — the reflector uses this context to scope its plan without hard-coded surgical-edits constraints.
+
+**Parser** (`parseSelfCritique`): tolerant with strict anchor rules — labels only recognized at line start (with optional whitespace/emphasis wrappers), not preceded by markdown list/blockquote/backtick markers, only first-occurrence-per-label counts. Parse-start anchors on the FIRST `ChangeKind:` — everything before is discarded as preamble (defeats the "reflector emits `Summary:` in preamble before `ChangeKind:`" failure mode). UTF-8-safe truncation at code-point boundaries (120 / 500 / 4000 for changeKind / summary / plan). Throws `SelfCritiqueParseError` on missing labels or empty values.
+
+**Prompt-injection defense**:
+- **Per-invocation nonce fence**: `nonce = ctx.invocationId || globalThis.crypto.randomUUID()` (truthy `||` catches empty-string DB-error path from `Agent.ts:114`). Runtime UUID v4 shape assertion. Sanitized `summary` + `plan` wrapped in `<UNTRUSTED_PLAN_{nonce}>...</UNTRUSTED_PLAN_{nonce}>` in the rewriter's customPrompt. Reflector never sees the fence tag, so it cannot forge a matching closer.
+- **Nonce-aware sanitizer** (`sanitizeReflectionForCustomPrompt`): strips zero-width chars, literal nonce tags, generic `<UNTRUSTED_*>` variants (case-insensitive, spacing-tolerant), entity-encoded `&lt;/UNTRUSTED_*&gt;` variants. Warn log at `sanitizationCount ≥ 1` (production canary).
+- **Output delimiter-mirror check** (`outputContainsFenceLeak`): scans GFPA's output for any nonce-tagged or generic UNTRUSTED_* substring. Match → variant discarded with `discardReason.reason='output_fence_leak'`.
+
+**Custom prompt**: NO Length / Redundancy / Flow soft directives (those constrained scope to surgical edits). NO high-Elo guidance block in the customPrompt (already accounted for in reflector prompt).
+
+**Kill switch**: `EVOLUTION_SELF_CRITIQUE_ENABLED='false'` short-circuits the dispatch branch to zero dispatch with a warn log — mirrors `EVOLUTION_PROPOSER_APPROVER_CRITERIA_ENABLED` semantics.
+
+**Failure-mode handling** preserves partial detail before re-throwing on every path (reflection LLM throws, parser throws, GFPA throws, GFPA hard-fails via D1's `failure` return).
+
+**Cost stack** at defaults:
+- Reflection LLM call (`self_critique`): ~$0.0008 (600-token output cap)
+- GFPA generation (`generation`): ~$0.002
+- GFPA ranking (`ranking`): ~$0.002
+- **Total per variant**: ~$0.005 — ~1× GFPA cost + ~15% reflection premium
+
+See full design deep dive: `docs/planning/brainstorm_new_agents_with_reflection_20260630/brainstorm_new_agents_with_reflection_20260630_planning.md` (4 plan-review iterations, 5/5/5 consensus).

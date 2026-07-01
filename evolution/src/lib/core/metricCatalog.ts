@@ -60,6 +60,11 @@ export const METRIC_CATALOG = {
     timing: 'during_execution', listView: false,
     description: 'LLM spend on debate_judge + debate_synthesis calls (DebateThenGenerateFromPreviousArticleAgent — bring_back_debate_agent_20260506)',
   },
+  self_critique_cost: {
+    name: 'self_critique_cost', label: 'Self-Critique Cost', category: 'cost', formatter: 'cost',
+    timing: 'during_execution', listView: false,
+    description: 'LLM spend on self_critique reflection call (SelfCritiqueReviseAgent — brainstorm_new_agents_with_reflection_20260630)',
+  },
   seed_cost: {
     name: 'seed_cost', label: 'Seed Cost', category: 'cost', formatter: 'cost',
     timing: 'during_execution', listView: true,
@@ -205,6 +210,16 @@ export const METRIC_CATALOG = {
     name: 'avg_debate_cost_per_run', label: 'Avg Debate Cost/Run', category: 'cost', formatter: 'cost',
     timing: 'at_propagation',
     description: 'Average debate_cost per child run',
+  },
+  total_self_critique_cost: {
+    name: 'total_self_critique_cost', label: 'Total Self-Critique Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation', listView: false,
+    description: 'Sum of self_critique_cost across all child runs',
+  },
+  avg_self_critique_cost_per_run: {
+    name: 'avg_self_critique_cost_per_run', label: 'Avg Self-Critique Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Average self_critique_cost per child run',
   },
   total_seed_cost: {
     name: 'total_seed_cost', label: 'Total Seed Cost', category: 'cost', formatter: 'cost',

@@ -25,3 +25,6 @@ export { MergeRatingsAgent } from './MergeRatingsAgent';
 export { CreateSeedArticleAgent } from './createSeedArticle';
 export { ParagraphRecombineAgent } from './paragraphRecombine/ParagraphRecombineAgent';
 export { ParagraphRecombineWithCoherencePassAgent } from './paragraphRecombineWithCoherencePass/ParagraphRecombineWithCoherencePassAgent';
+// brainstorm_new_agents_with_reflection_20260630 — eager side-effect import for
+// attribution extractor registration ordering.
+export { SelfCritiqueReviseAgent } from './selfCritiqueRevise';

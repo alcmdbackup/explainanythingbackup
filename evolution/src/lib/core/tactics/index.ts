@@ -136,6 +136,11 @@ export const TACTIC_PALETTE: Record<string, string> = {
   paragraph_recombine_with_coherence_pass: '#0891b2', // dark cyan — sibling agent (same family,
                                     // distinct color for tactic leaderboard A/B isolation).
                                     // paragraph_recombine_agent_with_coherence_pass_evolution_20260620
+  self_critique_driven: '#f97316',  // orange — marker tactic for self_critique_revise variants
+                                    // (brainstorm_new_agents_with_reflection_20260630).
+                                    // Distinct hue from criteria-family (indigo/cyan/purple) —
+                                    // this is a sibling-but-distinct pattern (criteria-family
+                                    // shape, no criteria table dependency).
 
   // Tree search prefixed variants
   tree_search_edit_dimension: '#eab308',
@@ -201,6 +206,12 @@ export const MARKER_TACTICS: ReadonlyArray<{
     name: 'paragraph_recombine_with_coherence_pass',
     label: 'Paragraph Recombine with Coherence Pass',
     agent_type: 'paragraph_recombine_with_coherence_pass',
+    category: 'meta',
+  },
+  {
+    name: 'self_critique_driven',
+    label: 'Self-Critique-Driven',
+    agent_type: 'self_critique_revise',
     category: 'meta',
   },
 ];

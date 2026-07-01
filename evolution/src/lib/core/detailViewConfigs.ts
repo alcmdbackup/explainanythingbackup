@@ -236,6 +236,54 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
     },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
   ],
+  // brainstorm_new_agents_with_reflection_20260630 — self_critique_revise agent
+  // detail view. Mirrors the agent's readonly detailViewConfig field-for-field
+  // for the entities.test.ts parity assertion.
+  self_critique_revise: [
+    { key: 'tactic', label: 'Tactic', type: 'badge' },
+    { key: 'variantId', label: 'Variant ID', type: 'text' },
+    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
+    {
+      key: 'reflection', label: 'Reflection', type: 'object',
+      children: [
+        { key: 'changeKind', label: 'ChangeKind', type: 'badge' },
+        { key: 'summary', label: 'Summary', type: 'text' },
+        { key: 'plan', label: 'Plan', type: 'text' },
+        { key: 'parentEloAtReflection', label: 'Parent Elo', type: 'number' },
+        { key: 'highEloContextShown', label: 'High-Elo Context', type: 'boolean' },
+        { key: 'sanitizationCount', label: 'Sanitization Count', type: 'number' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+        { key: 'cost', label: 'Reflection Cost', type: 'number', formatter: 'cost' },
+      ],
+    },
+    { key: 'reflection.truncatedFields', label: 'Truncated Fields', type: 'list' },
+    {
+      key: 'generation', label: 'Generation', type: 'object',
+      children: [
+        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
+        { key: 'promptLength', label: 'Prompt Length', type: 'number' },
+        { key: 'textLength', label: 'Text Length', type: 'number' },
+        { key: 'formatValid', label: 'Format Valid', type: 'boolean' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'ranking', label: 'Ranking (binary search local view)', type: 'object',
+      children: [
+        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
+        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
+        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'guardrails', label: 'Guardrails (observational)', type: 'object',
+      children: [
+        { key: 'lengthCapHit', label: 'Length Cap Hit (>1.10×)', type: 'boolean' },
+      ],
+    },
+    { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
+  ],
   proposer_approver_criteria_generate: [
     { key: 'tactic', label: 'Tactic', type: 'badge' },
     { key: 'weakestCriteriaNames', label: 'Weakest Criteria', type: 'list' },

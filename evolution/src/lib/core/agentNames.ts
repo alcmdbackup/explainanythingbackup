@@ -68,6 +68,11 @@ export const AGENT_NAMES = [
   // paragraph_recombine agent relies on the marker tactic, not cost-bucket separation.
   'coherence_pass_propose',
   'coherence_pass_review',
+  // brainstorm_new_agents_with_reflection_20260630 — self_critique_revise agent's
+  // reflection LLM call. Wraps GFPA which still issues 'generation' + 'ranking'
+  // calls; only the reflection call carries this label. Routes to
+  // self_critique_cost umbrella metric.
+  'self_critique',
 ] as const;
 export type AgentName = typeof AGENT_NAMES[number];
 
@@ -128,4 +133,8 @@ export const COST_METRIC_BY_AGENT: Partial<Record<AgentName, MetricName>> = {
   // split (proposer vs approver cost) lives in execution_detail.coherencePass.cycles[0].
   coherence_pass_propose: 'paragraph_recombine_coherence_cost',
   coherence_pass_review: 'paragraph_recombine_coherence_cost',
+  // brainstorm_new_agents_with_reflection_20260630 — self_critique reflection call
+  // bucket. Wrapping agent's inner GFPA still routes generation → generation_cost
+  // and ranking → ranking_cost separately; only the reflection call lands here.
+  self_critique: 'self_critique_cost',
 };

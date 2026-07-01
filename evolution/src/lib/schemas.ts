@@ -688,6 +688,12 @@ export const iterationAgentTypeEnum = z.enum([
   // and runs a Phase D coherence pass on the assembled article via the shared
   // runEditingCycle() helper extracted from IterativeEditingAgent.
   'paragraph_recombine_with_coherence_pass',
+  // self_critique_revise (brainstorm_new_agents_with_reflection_20260630) — wrapper
+  // over GFPA that runs ONE reflection LLM call outputting `ChangeKind + Summary +
+  // Plan` and feeds `summary + plan` (sanitized + nonce-fenced) into GFPA's
+  // customPrompt. Structurally mirrors singlePassEvaluateCriteriaAndGenerate but
+  // has no `evolution_criteria` table dependency (self-generated critique).
+  'self_critique_revise',
   'swiss',
 ]);
 
@@ -721,7 +727,8 @@ export function canBeFirstIteration(t: z.infer<typeof iterationAgentTypeEnum>): 
     || t === 'iterative_editing'
     || t === 'iterative_editing_rewrite'
     || t === 'paragraph_recombine'
-    || t === 'paragraph_recombine_with_coherence_pass';
+    || t === 'paragraph_recombine_with_coherence_pass'
+    || t === 'self_critique_revise';
 }
 
 /** Helper: agent types that produce new variants via parallel-batch dispatch + sourceMode/qualityCutoff.
@@ -733,7 +740,8 @@ export function isVariantProducingAgentType(t: IterationAgentType): boolean {
     || t === 'reflect_and_generate'
     || t === 'criteria_and_generate'
     || t === 'single_pass_evaluate_criteria_and_generate'
-    || t === 'proposer_approver_criteria_generate';
+    || t === 'proposer_approver_criteria_generate'
+    || t === 'self_critique_revise';
 }
 
 /** Helper: agent types that produce new variants in the pool. Includes editing
@@ -751,7 +759,8 @@ export function producesNewVariants(t: IterationAgentType): boolean {
     || t === 'iterative_editing_rewrite'
     || t === 'debate_and_generate'
     || t === 'paragraph_recombine'
-    || t === 'paragraph_recombine_with_coherence_pass';
+    || t === 'paragraph_recombine_with_coherence_pass'
+    || t === 'self_critique_revise';
 }
 
 /** Helper: agent types that share the iterative-editing config bag (max cycles,
@@ -2218,6 +2227,64 @@ export const singlePassEvaluateCriteriaAndGenerateExecutionDetailSchema = execut
   }).optional(),
 });
 
+/** SelfCritiqueReviseAgent execution detail (brainstorm_new_agents_with_reflection_20260630).
+ *  Wrapper over GFPA that runs ONE reflection LLM call outputting a free-form
+ *  `ChangeKind + Summary + Plan`. Structurally mirrors singlePass but the `critique`
+ *  sub-object is replaced by `reflection` (with `changeKind`/`summary`/`plan` +
+ *  forensic fields: parentEloAtReflection, highEloContextShown, truncatedFields,
+ *  sanitizationCount). No `evolution_criteria` table dependency. Prompt-injection
+ *  defense: per-invocation nonce fence + entity/spacing/ZWJ-scoped sanitization. */
+export const selfCritiqueReviseExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('self_critique_revise'),
+  variantId: z.string().nullable().optional(),
+  tactic: z.literal('self_critique_driven'),
+  reflection: z.object({
+    changeKind: z.string(),                                     // ≤ 120 code points
+    summary: z.string(),                                        // ≤ 500 code points
+    plan: z.string(),                                           // ≤ 4000 code points
+    parentEloAtReflection: z.number().optional(),
+    highEloContextShown: z.boolean().optional(),
+    truncatedFields: z.array(z.string()).optional(),            // e.g. ['plan']
+    sanitizationCount: z.number().int().min(0).optional(),      // fence-tag redactions in sanitizer
+    rawResponse: z.string().optional(),                         // preserved on parse failure
+    parseError: z.string().optional(),
+    durationMs: z.number().int().min(0).optional(),
+    cost: z.number().min(0).optional(),
+  }).optional(),
+  generation: z.object({
+    cost: z.number().min(0),
+    estimatedCost: z.number().min(0).optional(),
+    promptLength: z.number().int().min(0),
+    textLength: z.number().int().min(0).optional(),
+    formatValid: z.boolean(),
+    formatIssues: z.array(z.string()).optional(),
+    error: z.string().optional(),
+    durationMs: z.number().int().min(0).optional(),
+  }).optional(),
+  ranking: z.preprocess(
+    rankingDetailRenameKeys,
+    rankNewVariantDetailInnerSchema.extend({
+      cost: z.number().min(0),
+      estimatedCost: z.number().min(0).optional(),
+    }),
+  ).nullable().optional(),
+  totalCost: z.number().min(0).optional(),
+  estimatedTotalCost: z.number().min(0).optional(),
+  estimationErrorPct: z.number().optional(),
+  surfaced: z.boolean(),
+  discardReason: z.preprocess(
+    renameKeys({ localMu: 'localElo' }),
+    z.object({
+      localElo: z.number().optional(),
+      localTop15Cutoff: z.number().optional(),
+      reason: z.string().optional(),   // 'output_fence_leak' | other
+    }),
+  ).optional(),
+  guardrails: z.object({
+    lengthCapHit: z.boolean(),                                  // generated.textLength / parentText.length > 1.10
+  }).optional(),
+});
+
 /** ProposerApproverCriteriaGenerateAgent execution detail. Single-cycle propose/forward-approve/
  *  mirror-approve/apply protocol. cycles[] is enforced length-1 (single-cycle by definition).
  *  sentenceVerbatimRatio lives on `evolution_variants.sentence_verbatim_ratio` column, not here. */
@@ -2385,7 +2452,7 @@ const afterVariantRenameKeys = renameKeys({
 
 export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('merge_ratings'),
-  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'debate_and_generate', 'iterative_editing', 'iterative_editing_rewrite', 'paragraph_recombine', 'paragraph_recombine_with_coherence_pass', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'debate_and_generate', 'iterative_editing', 'iterative_editing_rewrite', 'paragraph_recombine', 'paragraph_recombine_with_coherence_pass', 'self_critique_revise', 'swiss']),
   before: z.object({
     poolSize: z.number().int().min(0),
     variants: z.array(z.preprocess(
@@ -2443,7 +2510,7 @@ const snapshotDiscardReasonRename = renameKeys({ mu: 'elo' });
 // only contain 'generate' or 'swiss' so backward-compat reads remain valid.
 export const iterationSnapshotSchema = z.object({
   iteration: z.number().int().min(1),
-  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'debate_and_generate', 'iterative_editing', 'iterative_editing_rewrite', 'paragraph_recombine', 'paragraph_recombine_with_coherence_pass', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'debate_and_generate', 'iterative_editing', 'iterative_editing_rewrite', 'paragraph_recombine', 'paragraph_recombine_with_coherence_pass', 'self_critique_revise', 'swiss']),
   phase: z.enum(['start', 'end']),
   capturedAt: z.string(),
   poolVariantIds: z.array(z.string()),
@@ -2832,6 +2899,7 @@ export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
   reflectAndGenerateFromPreviousArticleExecutionDetailSchema,
   evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema,
   singlePassEvaluateCriteriaAndGenerateExecutionDetailSchema,
+  selfCritiqueReviseExecutionDetailSchema,
   proposerApproverCriteriaGenerateExecutionDetailSchema,
   createSeedArticleExecutionDetailSchema,
   swissRankingExecutionDetailSchema,

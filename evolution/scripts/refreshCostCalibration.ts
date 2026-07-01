@@ -46,7 +46,9 @@ type Phase =
   | 'criteria_forward_approver'
   | 'criteria_mirror_approver'
   | 'debate_judge'
-  | 'debate_synthesis';
+  | 'debate_synthesis'
+  | 'paragraph_rewrite'
+  | 'self_critique';
 
 interface Bucket {
   outputCharsSum: number;
@@ -94,6 +96,8 @@ function asPhase(raw: unknown): Phase | null {
     case 'criteria_mirror_approver':
     case 'debate_judge':
     case 'debate_synthesis':
+    case 'paragraph_rewrite':
+    case 'self_critique':
       return raw;
     default:
       return null;

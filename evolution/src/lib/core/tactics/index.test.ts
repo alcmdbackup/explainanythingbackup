@@ -16,8 +16,8 @@ describe('TACTIC_PALETTE', () => {
 });
 
 describe('MARKER_TACTICS', () => {
-  it('contains the 6 marker tactic entries (3 criteria-driven + debate_synthesis + 2 paragraph_recombine variants)', () => {
-    expect(MARKER_TACTICS).toHaveLength(6);
+  it('contains the 7 marker tactic entries (3 criteria-driven + debate_synthesis + 2 paragraph_recombine variants + self_critique_driven)', () => {
+    expect(MARKER_TACTICS).toHaveLength(7);
     const names = MARKER_TACTICS.map((t) => t.name).sort();
     expect(names).toEqual([
       'criteria_driven',
@@ -26,7 +26,16 @@ describe('MARKER_TACTICS', () => {
       'debate_synthesis',
       'paragraph_recombine',
       'paragraph_recombine_with_coherence_pass',
+      'self_critique_driven',
     ]);
+  });
+
+  it('self_critique_driven entry has correct shape', () => {
+    const entry = MARKER_TACTICS.find((t) => t.name === 'self_critique_driven');
+    expect(entry).toBeDefined();
+    expect(entry?.label).toBe('Self-Critique-Driven');
+    expect(entry?.agent_type).toBe('self_critique_revise');
+    expect(entry?.category).toBe('meta');
   });
 
   it('criteria_driven entry has correct shape', () => {

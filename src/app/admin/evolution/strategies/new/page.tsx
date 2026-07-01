@@ -240,14 +240,15 @@ interface IterationConfigPayload {
  *  surfaced this — added 2026-05-09. */
 function isVariantProducing(
   agentType: IterationRow['agentType'],
-): agentType is 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'paragraph_recombine' | 'paragraph_recombine_with_coherence_pass' {
+): agentType is 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'paragraph_recombine' | 'paragraph_recombine_with_coherence_pass' | 'self_critique_revise' {
   return agentType === 'generate'
     || agentType === 'reflect_and_generate'
     || agentType === 'criteria_and_generate'
     || agentType === 'single_pass_evaluate_criteria_and_generate'
     || agentType === 'proposer_approver_criteria_generate'
     || agentType === 'paragraph_recombine'
-    || agentType === 'paragraph_recombine_with_coherence_pass';
+    || agentType === 'paragraph_recombine_with_coherence_pass'
+    || agentType === 'self_critique_revise';
 }
 
 /** Agent types eligible to be the FIRST iteration (must produce variants on an
@@ -260,7 +261,8 @@ function canBeFirstIteration(agentType: IterationRow['agentType']): boolean {
     || agentType === 'criteria_and_generate'
     || agentType === 'single_pass_evaluate_criteria_and_generate'
     || agentType === 'paragraph_recombine'
-    || agentType === 'paragraph_recombine_with_coherence_pass';
+    || agentType === 'paragraph_recombine_with_coherence_pass'
+    || agentType === 'self_critique_revise';
 }
 
 /** True for any of the 3 criteria-based agent types. Used to gate
@@ -1514,6 +1516,7 @@ export default function NewStrategyPage(): JSX.Element {
                         <option value="iterative_editing_rewrite" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : 'Mode B: proposer rewrites; markup computed mechanically'}>Iterative Editing (Rewrite)</option>
                         <option value="paragraph_recombine" title="Decompose article into paragraphs, generate M rewrites per slot, rank pairwise, recombine winners">Paragraph Recombine</option>
                         <option value="paragraph_recombine_with_coherence_pass" title="Paragraph recombine with NO new content allowed, isolated paragraph judging, + a final coherence pass to smooth inter-paragraph seams">Paragraph Recombine with Coherence Pass</option>
+                        <option value="self_critique_revise" title="LLM reflects on the article (free scope — minor edits to structural rework) and writes a ChangeKind + Summary + Plan that drives GFPA. No criteria table needed.">Self-Critique + Revise</option>
                         <option value="swiss" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Swiss</option>
                       </select>
 
